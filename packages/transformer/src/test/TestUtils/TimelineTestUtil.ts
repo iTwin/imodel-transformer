@@ -3,18 +3,16 @@
  * See LICENSE.md in the project root for license terms and full copyright notice.
  *--------------------------------------------------------------------------------------------*/
 
-import { assert, expect } from "chai";
+import { assert, expect } from "vitest";
 import {
   BriefcaseDb,
   IModelDb,
-  IModelHost,
   PhysicalModel,
   PhysicalObject,
   PhysicalPartition,
   SpatialCategory,
   withEditTxn,
 } from "@itwin/core-backend";
-import { _hubAccess } from "@itwin/core-backend/lib/cjs/internal/Symbols";
 import {
   ChangesetIdWithIndex,
   Code,
@@ -35,6 +33,7 @@ import {
   IModelTransformerTestUtils,
 } from "../IModelTransformerUtils";
 import { IModelTestUtils } from "./IModelTestUtils";
+import { transformerTestHub } from "./TransformerTestHub";
 import { omit } from "@itwin/core-bentley";
 
 const saveAndPushChanges = async (
@@ -269,6 +268,7 @@ export type TimelineStateChange =
           expectThrow?: boolean;
           assert?: {
             afterProcessChanges?: (transformer: IModelTransformer) => void;
+            onError?: (error: unknown) => void;
           };
         },
       ];
@@ -302,7 +302,9 @@ export type TimelineReferences = Record<string, ElementProps>;
 export type Timeline = Record<
   number,
   {
-    assert?: (imodels: Record<string, TimelineIModelState>) => void;
+    assert?: (
+      imodels: Record<string, TimelineIModelState>
+    ) => void | Promise<void>;
     [modelName: string]:
       | undefined // only necessary for the previous optional properties
       | ((imodels: Record<string, TimelineIModelState>) => void) // only necessary for the assert property
@@ -371,6 +373,7 @@ export async function runTimeline(
             expectThrow?: boolean;
             assert?: {
               afterProcessChanges?: (transformer: IModelTransformer) => void;
+              onError?: (error: unknown) => void;
             };
           },
         ]
@@ -424,7 +427,7 @@ export async function runTimeline(
         undefined;
 
       seed?.db.performCheckpoint(); // make sure WAL is flushed before we use this as a file seed
-      const newIModelId = await IModelHost[_hubAccess].createNewIModel({
+      const newIModelId = await transformerTestHub.createNewIModel({
         iTwinId,
         iModelName: newIModelName,
         version0: seed?.db.pathName,
@@ -551,6 +554,7 @@ export async function runTimeline(
           assertFxns?.afterProcessChanges?.(syncer);
           processSucceeded = true;
         } catch (err: any) {
+          assertFxns?.onError?.(err);
           if (/startChangesetId should be exactly/.test(err.message)) {
             console.log("change history:"); // eslint-disable-line
             printChangelogs();
@@ -623,7 +627,7 @@ export async function runTimeline(
     }
 
     if (pt.assert) {
-      pt.assert(Object.fromEntries(trackedIModels));
+      await pt.assert(Object.fromEntries(trackedIModels));
     }
 
     timelineStates.set(i, {
@@ -642,7 +646,7 @@ export async function runTimeline(
     tearDown: async () => {
       for (const [, state] of trackedIModels) {
         state.db.close();
-        await IModelHost[_hubAccess].deleteIModel({
+        await transformerTestHub.deleteIModel({
           iTwinId,
           iModelId: state.id,
         });

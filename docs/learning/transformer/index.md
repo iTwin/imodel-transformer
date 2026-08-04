@@ -9,6 +9,8 @@ The `@itwin/imodel-transformer` package provides some classes that implement [Ex
 The above classes contain the lower-level functionality required to implement transformation and data exchange services.
 These classes should be considered a framework and not confused with the actual packaged and deployed services that use the framework.
 
+See [Error handling in imodel-transformer](./error-handling.md) for the package's error ownership rules and guidance for handling identified transformer errors.
+
 ## IModelExporter
 
 The [IModelExporter]($transformer) and [IModelExportHandler]($transformer) base classes are used when the **source** data in an ETL workflow is contained within an iModel.
@@ -21,6 +23,8 @@ While it is possible to export data from an iModel using the standard [IModelDb]
 - Visit a subset of the iModel using [IModelExporter.exportModel]($transformer), [IModelExporter.exportModelContents]($transformer), or [IModelExporter.exportElement]($transformer)
 - Easily exclude certain entity types to filter the export content using [IModelExporter.excludeElementsInCategory]($transformer), [IModelExporter.excludeElementClass]($transformer), or [IModelExporter.excludeElementAspectClass]($transformer)
 - Integration with [IModelTransformer]($transformer)
+
+Learn how `IModelExporter` filters, batches, and exports ElementAspects in the [Processing ElementAspects guide](./element-aspect-processing.md). The guide also covers change handling and the owner metadata required for custom deleted aspect changes.
 
 Below is an example of using [IModelExporter]($transformer) and [IModelExportHandler]($transformer) to export all [Code]($common) values from an iModel:
 

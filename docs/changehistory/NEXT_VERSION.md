@@ -1,5 +1,61 @@
 # Next release notes
 
+## Breaking change: `IModelTransformer.context` exposes a supported transformation contract
+
+`IModelTransformer.context` is now typed as `IModelTransformContext`. The interface supports target lookup, explicit mappings for elements, element aspects, element classes, and CodeSpecs, and SubCategory filtering. Cloning operations, source and target database access, native resource management, context persistence, and other `IModelCloneContext` implementation details are no longer accessible through the public property.
+
+Continue to obtain the context from an `IModelTransformer`:
+
+```ts
+import type { IModelTransformContext } from "@itwin/imodel-transformer";
+
+const context: IModelTransformContext = transformer.context;
+const targetElementId = context.findTargetElementId(sourceElementId);
+```
+
+Tests should mock `IModelTransformContext` instead of constructing or stubbing `IModelCloneContext` directly.
+
+## Breaking change: transformer errors now have stable identifiers
+
+Errors detected and owned by `@itwin/imodel-transformer` now use `ITwinError` with scope `@itwin/imodel-transformer` and a key from `IModelTransformerError`. These errors previously used a mix of `IModelError` and plain `Error`.
+
+| Previous type | `IModelTransformerError` keys                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| ------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `IModelError` | `ExportChangesRequiresBriefcase`, `InvalidModelId`, `TargetClassNotFound`, `ElementIdRequired`, `RelationshipIdRequired`, `InvalidSubCategory`, `GeolocationUnavailable`, `GeographicCoordinateSystemUnavailable`, `GeographicCoordinateSystemMismatch`, `DanglingReference`, `RootSubjectNotProcessable`, `ParentModelRequired`, `DependencyMappingMissing`, `ProvenanceSchemaUnsupported`, `ProvenanceScopeConflict`                                     |
+| `Error`       | `SchemaLoadFailed`, `ExportHandlerNotRegistered`, `ChangedInstanceMetadataMissing`, `InvalidEntityReference`, `ImporterOptionMismatch`, `InvalidCode`, `ElementIdNotPreservable`, `SynchronizationRangeInvalid`, `EditTxnNotActive`, `ChangesetIndexUnavailable`, `RelationshipClassNotFound`, `SourceEditTxnRequired`, `SynchronizationVersionMissing`, `RelationshipProvenanceNotFound`, `SynchronizationTypeNotDetermined`, `DependencyVersionMismatch` |
+
+`NoChangesets` is a new failure condition rather than a migration from an existing thrown error. It is covered separately below.
+
+Consumers that check `instanceof IModelError`, inspect `errorNumber`, or compare an error message for a transformer-owned condition must switch to `ITwinError.isError`. Check both the exported `IModelTransformerErrorScope` and the expected enum member:
+
+```ts
+import { ITwinError } from "@itwin/core-bentley";
+import {
+  IModelTransformerError,
+  IModelTransformerErrorScope,
+} from "@itwin/imodel-transformer";
+
+try {
+  await transformer.process();
+} catch (error) {
+  if (
+    ITwinError.isError(
+      error,
+      IModelTransformerErrorScope,
+      IModelTransformerError.DanglingReference
+    )
+  ) {
+    // Correct the source reference or choose a different policy before retrying.
+    return;
+  }
+  throw error;
+}
+```
+
+Errors originating from iTwin.js core, the backend, or the database retain their original type and status. When the transformer translates an upstream failure into a package-owned condition, the new error retains the upstream error as `cause`.
+
+See [Error handling in imodel-transformer](../learning/transformer/error-handling.md) for the complete ownership and handling rules.
+
 ## Breaking change: `exportChanges()` no longer falls back to `exportAll()`
 
 `IModelExporter.exportChanges()` no longer calls `exportAll()` when the source briefcase has no changesets and no custom changes. It now throws an `ITwinError` with scope `@itwin/imodel-transformer` and key `no-changesets`. `IModelTransformer.process()` propagates this error when `argsForProcessChanges` is specified, before finalizing the transformation or updating its synchronization version.
@@ -129,6 +185,32 @@ await initializeBranchProvenance({ master, branch: branchDb });
 // No migration needed — works the same as before.
 ```
 
+## Breaking changes: `ChangedInstanceIds.addChange`
+
+`ChangedInstanceIds.addChange` now accepts a
+[`ChangeInstance`](https://www.itwinjs.org/reference/core-backend/ecdb/changeinstance/)
+from the new iTwin.js changeset APIs instead of the deprecated
+`ChangedECInstance`.
+
+If you call `addChange` directly, use `ChangesetReader` and
+`PartialChangeUnifier` to produce the input:
+
+```ts
+using reader = ChangesetReader.openFile({ db, fileName: changesetPath });
+using unifier = new PartialChangeUnifier();
+
+while (reader.step()) {
+  unifier.appendFrom(reader);
+}
+
+for (const change of unifier.instances) {
+  await changedInstanceIds.addChange(change);
+}
+```
+
+The transformer uses the same reader and unifier to collect changed instance
+IDs and deletion metadata in one pass per selected changeset file.
+
 ## Breaking changes: `IModelTransformer` provenance APIs reorganized
 
 As part of [the decomposition of `IModelTransformer`](https://github.com/iTwin/imodel-transformer/pull/295), synchronization direction resolution and provenance management were moved into focused internal classes. Most commonly used `IModelTransformer` APIs remain available, including `initElementProvenance()`, `getSynchronizationVersion()`, `tryGetProvenanceScopeAspect()`, `initScopeProvenance()`, and `updateSynchronizationVersion()`.
@@ -219,6 +301,7 @@ Affected classes and methods:
 - `onExportModel`
 - `onExportRelationship`
 - `onTransformElement`
+
 - `onTransformElementAspect`
 - `shouldDetectDeletes`
 - `shouldExportCodeSpec`
@@ -283,3 +366,21 @@ if (transformer.isForwardSynchronization) { ... }
 // After (v2)
 if (await transformer.getIsForwardSynchronization()) { ... }
 ```
+
+## Breaking changes: ElementAspect processing
+
+In 2.x, ElementAspects are exported separately from element callbacks using bounded, owner-scoped groups. The constructor no longer accepts an aspect-processing selector, and the previous implementation that exported aspects beside their owning elements is removed.
+
+Existing `IModelExportHandler` callbacks and `shouldExportElementAspect` remain available. `IModelExporter` also continues to support `excludeElementAspectClass`. These callbacks retain their filtering and export roles, but aspect callbacks are no longer guaranteed to run next to the callback for their owning element.
+
+During change processing, the transformer clears replaceable target aspects for accepted changed owners and rebuilds them from the source. Excluded aspect classes and transformer provenance aspects are preserved. Custom inserted or updated aspect changes infer the owner while the source aspect exists. Custom deleted or missing aspects require the owning element ID and throw when it is omitted:
+
+```ts
+changedInstanceIds.addCustomAspectChange(
+  "Deleted",
+  deletedAspectId,
+  owningElementId
+);
+```
+
+For the processing entry points, Exporter/Transformer/Importer boundaries, workflow diagram, filtering, batching, and custom-change examples, see the [Processing ElementAspects learning guide](../learning/transformer/element-aspect-processing.md).

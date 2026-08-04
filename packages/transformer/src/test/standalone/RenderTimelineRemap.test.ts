@@ -2,7 +2,7 @@
  * Copyright (c) Bentley Systems, Incorporated. All rights reserved.
  * See LICENSE.md in the project root for license terms and full copyright notice.
  *--------------------------------------------------------------------------------------------*/
-import { expect } from "chai";
+import { expect } from "vitest";
 import {
   EditTxn,
   GenericSchema,
@@ -34,10 +34,8 @@ import {
 import { IModelTransformer } from "../../IModelTransformer";
 import { createStartedEditTxn } from "../IModelTransformerUtils";
 
-import "./TransformerTestStartup"; // calls startup/shutdown IModelHost before/after all tests
-
 describe("RenderTimeline Remap", () => {
-  before(() => {
+  beforeAll(() => {
     GenericSchema.registerSchema();
   });
 

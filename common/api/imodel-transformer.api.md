@@ -5,7 +5,7 @@
 ```ts
 
 import { BriefcaseDb } from '@itwin/core-backend';
-import { ChangedECInstance } from '@itwin/core-backend';
+import { ChangeInstance } from '@itwin/core-backend';
 import { ChangesetFileProps } from '@itwin/core-common';
 import { ChangesetIndexAndId } from '@itwin/core-common';
 import { CodeSpec } from '@itwin/core-common';
@@ -19,7 +19,7 @@ import { ElementProps } from '@itwin/core-common';
 import { ElementUniqueAspect } from '@itwin/core-backend';
 import { Entity } from '@itwin/core-backend';
 import { EntityProps } from '@itwin/core-common';
-import { EntityReference } from '@itwin/core-common';
+import type { EntityReference } from '@itwin/core-common';
 import { ExternalSourceAspect } from '@itwin/core-backend';
 import { ExternalSourceAspectProps } from '@itwin/core-common';
 import { FontFamilyDescriptor } from '@itwin/core-common';
@@ -30,7 +30,6 @@ import { Id64Array } from '@itwin/core-bentley';
 import { Id64Set } from '@itwin/core-bentley';
 import { Id64String } from '@itwin/core-bentley';
 import { IModelDb } from '@itwin/core-backend';
-import { IModelElementCloneContext } from '@itwin/core-backend';
 import { IModelJsNative } from '@itwin/core-backend';
 import { Model } from '@itwin/core-backend';
 import { ModelProps } from '@itwin/core-common';
@@ -46,15 +45,17 @@ import { Transform } from '@itwin/core-geometry';
 // @public
 export class ChangedInstanceIds {
     constructor(db: IModelDb);
-    addChange(change: ChangedECInstance): Promise<void>;
+    addChange(change: ChangeInstance): Promise<void>;
     // @beta
-    addCustomAspectChange(changeType: SqliteChangeOp, ids: Id64Arg): void;
+    addCustomAspectChange(changeType: SqliteChangeOp, ids: Id64Arg, elementIds?: Id64Arg): void;
     // @beta
     addCustomElementChange(changeType: SqliteChangeOp, ids: Id64Arg): Promise<void>;
     // @beta
     addCustomModelChange(changeType: SqliteChangeOp, ids: Id64Arg): Promise<void>;
     // (undocumented)
     aspect: ChangedInstanceOps;
+    // @internal
+    get aspectOwnerElementIds(): ReadonlySet<Id64String>;
     // (undocumented)
     codeSpec: ChangedInstanceOps;
     // (undocumented)
@@ -137,7 +138,9 @@ export function hasEntityChanged(entity: Entity, entityProps: EntityProps, names
 
 // @beta
 export class IModelExporter {
-    constructor(sourceDb: IModelDb, elementAspectsStrategy?: new (source: IModelDb, handler: ElementAspectsHandler) => ExportElementAspectsStrategy);
+    constructor(sourceDb: IModelDb);
+    // @internal
+    get elementAspectExportCoordinator(): ElementAspectExportCoordinator;
     excludeCodeSpec(codeSpecName: string): void;
     excludeElement(elementId: Id64String): void;
     excludeElementAspectClass(classFullName: string): void;
@@ -210,6 +213,8 @@ export class IModelImporter {
     readonly doNotUpdateElementIds: Set<string>;
     get editTxn(): EditTxn;
     protected readonly _editTxn: EditTxn;
+    // @internal
+    get elementAspectCleanup(): ElementAspectCleanup;
     finalize(): void;
     importElement(elementProps: ElementProps): Promise<Id64String>;
     importElementMultiAspects(aspectPropsArray: ElementAspectProps[],
@@ -254,6 +259,24 @@ export interface IModelTransformArgs {
 }
 
 // @beta
+export interface IModelTransformContext {
+    filterSubCategory(sourceSubCategoryId: Id64String): void;
+    findTargetAspectId(sourceAspectId: Id64String): Id64String;
+    findTargetCodeSpecId(sourceCodeSpecId: Id64String): Id64String;
+    findTargetElementId(sourceElementId: Id64String): Id64String;
+    findTargetEntityId(sourceEntityId: EntityReference): Promise<EntityReference>;
+    readonly hasSubCategoryFilter: boolean;
+    readonly isBetweenIModels: boolean;
+    isSubCategoryFiltered(sourceSubCategoryId: Id64String): boolean;
+    remapCodeSpec(sourceCodeSpecName: string, targetCodeSpecName: string): void;
+    remapElement(sourceElementId: Id64String, targetElementId: Id64String): void;
+    remapElementAspect(sourceAspectId: Id64String, targetAspectId: Id64String): void;
+    remapElementClass(sourceClassFullName: string, targetClassFullName: string): void;
+    removeElement(sourceElementId: Id64String): void;
+    removeElementAspect(sourceAspectId: Id64String): void;
+}
+
+// @beta
 export class IModelTransformer extends IModelExportHandler {
     constructor(args: IModelTransformArgs, options?: IModelTransformOptions);
     protected addCustomChanges(_sourceDbChanges: ChangedInstanceIds): Promise<void>;
@@ -265,7 +288,7 @@ export class IModelTransformer extends IModelExportHandler {
     protected completePartiallyCommittedAspects(): Promise<void>;
     // (undocumented)
     protected completePartiallyCommittedElements(): Promise<void>;
-    readonly context: IModelCloneContext;
+    get context(): IModelTransformContext;
     // (undocumented)
     static convertHelmertToTransform(helmert: Helmert2DWithZOffset | undefined): Transform;
     dispose(): void;
@@ -335,6 +358,46 @@ export class IModelTransformer extends IModelExportHandler {
         initializeReverseSyncVersion?: boolean | undefined;
     }): Promise<void>;
 }
+
+// @beta
+export enum IModelTransformerError {
+    AspectOwnerRequired = "aspect-owner-required",
+    ChangedInstanceMetadataMissing = "changed-instance-metadata-missing",
+    ChangesetIndexUnavailable = "changeset-index-unavailable",
+    DanglingReference = "dangling-reference",
+    DependencyMappingMissing = "dependency-mapping-missing",
+    DependencyVersionMismatch = "dependency-version-mismatch",
+    EditTxnNotActive = "edit-txn-not-active",
+    ElementIdNotPreservable = "element-id-not-preservable",
+    ElementIdRequired = "element-id-required",
+    ExportChangesRequiresBriefcase = "export-changes-requires-briefcase",
+    ExportHandlerNotRegistered = "export-handler-not-registered",
+    GeographicCoordinateSystemMismatch = "geographic-coordinate-system-mismatch",
+    GeographicCoordinateSystemUnavailable = "geographic-coordinate-system-unavailable",
+    GeolocationUnavailable = "geolocation-unavailable",
+    ImporterOptionMismatch = "importer-option-mismatch",
+    InvalidCode = "invalid-code",
+    InvalidEntityReference = "invalid-entity-reference",
+    InvalidModelId = "invalid-model-id",
+    InvalidSubCategory = "invalid-subcategory",
+    NoChangesets = "no-changesets",
+    ParentModelRequired = "parent-model-required",
+    ProvenanceSchemaUnsupported = "provenance-schema-unsupported",
+    ProvenanceScopeConflict = "provenance-scope-conflict",
+    RelationshipClassNotFound = "relationship-class-not-found",
+    RelationshipIdRequired = "relationship-id-required",
+    RelationshipProvenanceNotFound = "relationship-provenance-not-found",
+    RootSubjectNotProcessable = "root-subject-not-processable",
+    SchemaLoadFailed = "schema-load-failed",
+    SourceEditTxnRequired = "source-edit-txn-required",
+    SynchronizationRangeInvalid = "synchronization-range-invalid",
+    SynchronizationTypeNotDetermined = "synchronization-type-not-determined",
+    SynchronizationVersionMissing = "synchronization-version-missing",
+    TargetClassNotFound = "target-class-not-found"
+}
+
+// @beta
+export const IModelTransformerErrorScope = "@itwin/imodel-transformer";
 
 // @beta
 export interface IModelTransformOptions {

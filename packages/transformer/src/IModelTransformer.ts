@@ -5,9 +5,9 @@
 /** @packageDocumentation
  * @module iModels
  */
-import * as path from "path";
+import * as path from "node:path";
 import * as Semver from "semver";
-import * as nodeAssert from "assert";
+import { strict as nodeAssert } from "node:assert";
 import {
   assert,
   Guid,
@@ -16,6 +16,7 @@ import {
   Id64Set,
   Id64String,
   IModelStatus,
+  ITwinError,
   Logger,
   MarkRequired,
   YieldManager,
@@ -32,9 +33,6 @@ import {
 import {
   BriefcaseManager,
   // eslint-disable-next-line @typescript-eslint/no-deprecated
-  ChangedECInstance,
-  // eslint-disable-next-line @typescript-eslint/no-deprecated
-  ChangesetECAdaptor,
   ChangeSummaryManager,
   ChannelRootAspect,
   ConcreteEntity,
@@ -60,15 +58,10 @@ import {
   InformationPartitionElement,
   KnownLocations,
   Model,
-  // eslint-disable-next-line @typescript-eslint/no-deprecated
-  PartialECChangeUnifier,
   RecipeDefinitionElement,
   Relationship,
   RelationshipProps,
   Schema,
-  SqliteChangeOp,
-  // eslint-disable-next-line @typescript-eslint/no-deprecated
-  SqliteChangesetReader,
   Subject,
 } from "@itwin/core-backend";
 import {
@@ -107,10 +100,20 @@ import {
 import { IModelImporter, OptimizeGeometryOptions } from "./IModelImporter";
 import { TransformerLoggerCategory } from "./TransformerLoggerCategory";
 import { IModelCloneContext } from "./IModelCloneContext";
+import type { IModelTransformContext } from "./IModelTransformContext";
 import { EntityUnifier } from "./EntityUnifier";
 import { rangesFromRangeAndSkipped } from "./Algo";
 import { SyncTypeResolver } from "./SyncTypeResolver";
 import { ProvenanceManager } from "./ProvenanceManager";
+import {
+  ChangesetDeletionRecord,
+  ChangesetDeletionRecordsByChangeset,
+  ChangesetScanner,
+} from "./ChangesetScanner";
+import {
+  IModelTransformerError,
+  IModelTransformerErrorScope,
+} from "./IModelTransformerError";
 
 const loggerCategory: string = TransformerLoggerCategory.IModelTransformer;
 
@@ -313,12 +316,16 @@ function mapId64<R>(
   } else if (isRelatedElem(idContainer)) {
     results.push(func(idContainer.id));
   } else {
-    throw Error(
-      [
+    ITwinError.throwError({
+      iTwinErrorId: {
+        scope: IModelTransformerErrorScope,
+        key: IModelTransformerError.InvalidEntityReference,
+      },
+      message: [
         `Id64 container '${JSON.stringify(idContainer)}' is unsupported.`,
         "Currently only singular Id64 strings or prop-like objects containing an 'id' property are supported.",
-      ].join("\n")
-    );
+      ].join("\n"),
+    });
   }
   return results;
 }
@@ -398,8 +405,13 @@ export class IModelTransformer extends IModelExportHandler {
   public readonly sourceDb: IModelDb;
   /** The read/write target iModel. */
   public readonly targetDb: IModelDb;
-  /** The IModelTransformContext for this IModelTransformer. */
-  public readonly context: IModelCloneContext;
+  /** The supported transformation context for this transformer. */
+  public get context(): IModelTransformContext {
+    return this._cloneContext;
+  }
+
+  /** The clone context used by the transformer implementation. */
+  private readonly _cloneContext: IModelCloneContext;
   /** The transform to be applied to the placement of spatial elements
    * This transform should be applied when:
    * - source and target db have different ECEF locations
@@ -543,8 +555,12 @@ export class IModelTransformer extends IModelExportHandler {
     this.targetDb = this.importer.targetDb;
     this._targetEditTxn = this.importer.editTxn;
     this._sourceEditTxn = options?.sourceEditTxn;
+    this.exporter.elementAspectExportCoordinator.setPreparation(
+      async (excludedClasses, elementIds) =>
+        this.prepareElementAspects(excludedClasses, elementIds)
+    );
     // create the IModelCloneContext, it must be initialized later
-    this.context = new IModelCloneContext(this.sourceDb, this.targetDb);
+    this._cloneContext = new IModelCloneContext(this.sourceDb, this.targetDb);
 
     // this internal is guaranteed stable for just transformer usage
     /* eslint-disable @itwin/no-internal */
@@ -554,7 +570,8 @@ export class IModelTransformer extends IModelExportHandler {
     }
     /* eslint-enable @itwin/no-internal */
     this._syncTypeResolver = new SyncTypeResolver(
-      this.context,
+      this.sourceDb,
+      this.targetDb,
       this._options.targetScopeElementId,
       !!this._isProvenanceInitTransform,
       !!this._options.argsForProcessChanges
@@ -562,6 +579,7 @@ export class IModelTransformer extends IModelExportHandler {
     this._provenanceManager = new ProvenanceManager(
       this._options.targetScopeElementId,
       this._options,
+      this._cloneContext,
       this._syncTypeResolver,
       this._targetEditTxn,
       this._sourceEditTxn
@@ -599,24 +617,34 @@ export class IModelTransformer extends IModelExportHandler {
       Boolean(this._options.preserveElementIdsForFiltering) !==
       this.importer.options.preserveElementIdsForFiltering
     ) {
-      const errMessage =
-        "A custom importer was passed as a target but its 'preserveElementIdsForFiltering' option is out of sync with the transformer's option.";
-      throw new Error(errMessage);
+      ITwinError.throwError({
+        iTwinErrorId: {
+          scope: IModelTransformerErrorScope,
+          key: IModelTransformerError.ImporterOptionMismatch,
+        },
+        message:
+          "A custom importer was passed as a target but its 'preserveElementIdsForFiltering' option is out of sync with the transformer's option.",
+      });
     }
     if (
       Boolean(this._options.skipPropagateChangesToRootElements) !==
       this.importer.options.skipPropagateChangesToRootElements
     ) {
-      const errMessage =
-        "A custom importer was passed as a target but its 'skipPropagateChangesToRootElements' option is out of sync with the transformer's option.";
-      throw new Error(errMessage);
+      ITwinError.throwError({
+        iTwinErrorId: {
+          scope: IModelTransformerErrorScope,
+          key: IModelTransformerError.ImporterOptionMismatch,
+        },
+        message:
+          "A custom importer was passed as a target but its 'skipPropagateChangesToRootElements' option is out of sync with the transformer's option.",
+      });
     }
   }
 
   /** Dispose any native resources associated with this IModelTransformer. */
   public dispose(): void {
     Logger.logTrace(loggerCategory, "dispose()");
-    this.context[Symbol.dispose]();
+    this._cloneContext[Symbol.dispose]();
   }
 
   /** Log current settings that affect IModelTransformer's behavior. */
@@ -780,10 +808,10 @@ export class IModelTransformer extends IModelExportHandler {
         sourceElement.id
       }) "${sourceElement.getDisplayLabel()}"`
     );
-    const targetElementProps: ElementProps = await this.context.cloneElement(
-      sourceElement,
-      { binaryGeometry: this._options.cloneUsingBinaryGeometry }
-    );
+    const targetElementProps: ElementProps =
+      await this._cloneContext.cloneElement(sourceElement, {
+        binaryGeometry: this._options.cloneUsingBinaryGeometry,
+      });
     // Special case: source element is the root subject
     if (sourceElement.id === IModel.rootSubjectId) {
       const targetElementId: string = this.context.findTargetElementId(
@@ -839,10 +867,14 @@ export class IModelTransformer extends IModelExportHandler {
     const targetEcefLoc = this.targetDb.ecefLocation;
 
     if (srcEcefLoc === undefined || targetEcefLoc === undefined) {
-      throw new IModelError(
-        IModelStatus.NoGeoLocation,
-        "Both source and target ECEF locations must be defined to calculate the transform."
-      );
+      ITwinError.throwError({
+        iTwinErrorId: {
+          scope: IModelTransformerErrorScope,
+          key: IModelTransformerError.GeolocationUnavailable,
+        },
+        message:
+          "Both source and target ECEF locations must be defined to calculate the transform.",
+      });
     }
     if (srcEcefLoc.getTransform().isAlmostEqual(targetEcefLoc.getTransform())) {
       Logger.logTrace(
@@ -855,10 +887,13 @@ export class IModelTransformer extends IModelExportHandler {
     const srcSpatialToECEF = srcEcefLoc.getTransform(); // converts relative to ECEF in relation to source
     const targetECEFToSpatial = targetEcefLoc.getTransform().inverse(); // converts ECEF to relative in relation to target
     if (!targetECEFToSpatial) {
-      throw new IModelError(
-        IModelStatus.NoGeoLocation,
-        "Failed to invert target ECEF transform."
-      );
+      ITwinError.throwError({
+        iTwinErrorId: {
+          scope: IModelTransformerErrorScope,
+          key: IModelTransformerError.GeolocationUnavailable,
+        },
+        message: "Failed to invert target ECEF transform.",
+      });
     }
     const ecefTransform =
       targetECEFToSpatial.multiplyTransformTransform(srcSpatialToECEF); // chain both transforms
@@ -893,19 +928,27 @@ export class IModelTransformer extends IModelExportHandler {
       this.sourceDb.geographicCoordinateSystem?.horizontalCRS === undefined ||
       this.sourceDb.geographicCoordinateSystem?.verticalCRS === undefined
     ) {
-      throw new IModelError(
-        IModelStatus.BadRequest,
-        "Source iModel does not have a geographic coordinate system defined."
-      );
+      ITwinError.throwError({
+        iTwinErrorId: {
+          scope: IModelTransformerErrorScope,
+          key: IModelTransformerError.GeographicCoordinateSystemUnavailable,
+        },
+        message:
+          "Source iModel does not have a geographic coordinate system defined.",
+      });
     }
     if (
       this.targetDb.geographicCoordinateSystem?.horizontalCRS === undefined ||
       this.targetDb.geographicCoordinateSystem.verticalCRS === undefined
     ) {
-      throw new IModelError(
-        IModelStatus.BadRequest,
-        "Target iModel does not have a geographic coordinate system defined."
-      );
+      ITwinError.throwError({
+        iTwinErrorId: {
+          scope: IModelTransformerErrorScope,
+          key: IModelTransformerError.GeographicCoordinateSystemUnavailable,
+        },
+        message:
+          "Target iModel does not have a geographic coordinate system defined.",
+      });
     }
     if (
       !this.sourceDb.geographicCoordinateSystem.horizontalCRS.equals(
@@ -915,10 +958,14 @@ export class IModelTransformer extends IModelExportHandler {
         this.targetDb.geographicCoordinateSystem.verticalCRS
       )
     ) {
-      throw new IModelError(
-        IModelStatus.MismatchGcs,
-        "Source and target geographic coordinate systems must match to calculate the spatial transform."
-      );
+      ITwinError.throwError({
+        iTwinErrorId: {
+          scope: IModelTransformerErrorScope,
+          key: IModelTransformerError.GeographicCoordinateSystemMismatch,
+        },
+        message:
+          "Source and target geographic coordinate systems must match to calculate the spatial transform.",
+      });
     }
     if (
       this.sourceDb.geographicCoordinateSystem.additionalTransform ===
@@ -939,10 +986,14 @@ export class IModelTransformer extends IModelExportHandler {
         ?.helmert2DWithZOffset?.scale ?? 1;
 
     if (srcScale !== targetScale) {
-      throw new IModelError(
-        IModelStatus.MismatchGcs,
-        "Spatial transform is non rigid. Source and target Helmert transforms must have the same scale to calculate a rigid spatial transform."
-      );
+      ITwinError.throwError({
+        iTwinErrorId: {
+          scope: IModelTransformerErrorScope,
+          key: IModelTransformerError.GeographicCoordinateSystemMismatch,
+        },
+        message:
+          "Spatial transform is non rigid. Source and target Helmert transforms must have the same scale to calculate a rigid spatial transform.",
+      });
     }
 
     const srcTransform = IModelTransformer.convertHelmertToTransform(
@@ -955,10 +1006,13 @@ export class IModelTransformer extends IModelExportHandler {
     ).inverse(); // negates target helmert transform that is applied at render time
 
     if (!targetTransformInv) {
-      throw new IModelError(
-        IModelStatus.NoGeoLocation,
-        "Failed to invert target Helmert transform."
-      );
+      ITwinError.throwError({
+        iTwinErrorId: {
+          scope: IModelTransformerErrorScope,
+          key: IModelTransformerError.GeolocationUnavailable,
+        },
+        message: "Failed to invert target Helmert transform.",
+      });
     }
 
     const combinedTransform =
@@ -1072,15 +1126,18 @@ export class IModelTransformer extends IModelExportHandler {
       entityReference: referenceId,
     });
     if (!referencedExistsInSource) {
-      throw new IModelError(
-        IModelStatus.NotFound,
-        [
+      ITwinError.throwError({
+        iTwinErrorId: {
+          scope: IModelTransformerErrorScope,
+          key: IModelTransformerError.DanglingReference,
+        },
+        message: [
           `Found a reference to an element "${referenceId}" that doesn't exist while looking for references of "${entity.id}".`,
           "This must have been caused by an upstream application that changed the iModel.",
           "You can set the IModelTransformOptions.danglingReferencesBehavior option to 'ignore' to ignore this,",
           `and the referenceId found on "${entity.id}" will not be carried over to corresponding target element.`,
-        ].join("\n")
-      );
+        ].join("\n"),
+      });
     }
   }
 
@@ -1091,12 +1148,17 @@ export class IModelTransformer extends IModelExportHandler {
   public async processElement(sourceElementId: Id64String): Promise<void> {
     await this.initialize();
     if (sourceElementId === IModel.rootSubjectId) {
-      throw new IModelError(
-        IModelStatus.BadRequest,
-        "The root Subject should not be directly imported"
-      );
+      ITwinError.throwError({
+        iTwinErrorId: {
+          scope: IModelTransformerErrorScope,
+          key: IModelTransformerError.RootSubjectNotProcessable,
+        },
+        message: "The root Subject should not be directly imported",
+      });
     }
-    return this.exporter.exportElement(sourceElementId);
+    return this.processScopedElementExport(async () =>
+      this.exporter.exportElement(sourceElementId)
+    );
   }
 
   /** Import child elements into the target IModelDb
@@ -1107,7 +1169,15 @@ export class IModelTransformer extends IModelExportHandler {
     sourceElementId: Id64String
   ): Promise<void> {
     await this.initialize();
-    return this.exporter.exportChildElements(sourceElementId);
+    return this.processScopedElementExport(async () =>
+      this.exporter.exportChildElements(sourceElementId)
+    );
+  }
+
+  private async processScopedElementExport(
+    exportElements: () => Promise<void>
+  ): Promise<void> {
+    await this.exporter.elementAspectExportCoordinator.run(exportElements);
   }
 
   /** Override of [IModelExportHandler.shouldExportElement]($transformer) that is called to determine if an element should be exported from the source iModel.
@@ -1218,9 +1288,23 @@ export class IModelTransformer extends IModelExportHandler {
     iModel: IModelDb,
     code: Required<CodeProps>
   ): Promise<Id64String | undefined> {
-    if (Id64.isInvalid(code.spec)) throw new Error("Invalid CodeSpec");
+    if (Id64.isInvalid(code.spec))
+      ITwinError.throwError({
+        iTwinErrorId: {
+          scope: IModelTransformerErrorScope,
+          key: IModelTransformerError.InvalidCode,
+        },
+        message: "Invalid CodeSpec",
+      });
 
-    if (code.value === undefined) throw new Error("Invalid Code");
+    if (code.value === undefined)
+      ITwinError.throwError({
+        iTwinErrorId: {
+          scope: IModelTransformerErrorScope,
+          key: IModelTransformerError.InvalidCode,
+        },
+        message: "Invalid Code",
+      });
 
     const query =
       "SELECT ECInstanceId FROM BisCore:Element WHERE CodeSpec.Id=? AND CodeScope.Id=? AND CodeValue=?";
@@ -1312,9 +1396,13 @@ export class IModelTransformer extends IModelExportHandler {
       const isValid = Id64.isValid(targetElementId);
       if (isValid && targetElementId !== sourceElement.id) {
         // Element found with different id
-        throw new Error(
-          `Element id(${sourceElement.id}) cannot be preserved. Found a different mapping(${targetElementId}) from source element`
-        );
+        ITwinError.throwError({
+          iTwinErrorId: {
+            scope: IModelTransformerErrorScope,
+            key: IModelTransformerError.ElementIdNotPreservable,
+          },
+          message: `Element id(${sourceElement.id}) cannot be preserved. Found a different mapping(${targetElementId}) from source element`,
+        });
       } else if (isValid && targetElementId === sourceElement.id) {
         // targetElementId is valid (indicating update)
         this.importer.markElementToUpdateDuringPreserveIds(sourceElement.id);
@@ -1325,9 +1413,13 @@ export class IModelTransformer extends IModelExportHandler {
         // if we don't find mapping for source element in target(invalid) but another element with source id exists in target
         if (sourceInTargetElemProps) {
           // Element id is already taken by another element
-          throw new Error(
-            `Element id(${sourceElement.id}) cannot be preserved. An unrelated element in the target already uses id: ${sourceElement.id}`
-          );
+          ITwinError.throwError({
+            iTwinErrorId: {
+              scope: IModelTransformerErrorScope,
+              key: IModelTransformerError.ElementIdNotPreservable,
+            },
+            message: `Element id(${sourceElement.id}) cannot be preserved. An unrelated element in the target already uses id: ${sourceElement.id}`,
+          });
         } else {
           // Element id in target is available to be remapped
           targetElementProps.id = sourceElement.id;
@@ -1340,8 +1432,7 @@ export class IModelTransformer extends IModelExportHandler {
     }
 
     if (targetElementProps.id === undefined) {
-      throw new IModelError(
-        IModelStatus.BadElement,
+      throw new Error(
         "targetElementProps.id should be assigned by importElement"
       );
     }
@@ -1427,10 +1518,7 @@ export class IModelTransformer extends IModelExportHandler {
     );
     await this.importer.importModel(targetModelProps);
     if (targetModelProps.id === undefined) {
-      throw new IModelError(
-        IModelStatus.BadModel,
-        "targetModelProps.id should be assigned by now"
-      );
+      throw new Error("targetModelProps.id should be assigned by now");
     }
 
     this._targetModelsImportedInCurrentTransform.add(targetModelProps.id);
@@ -1517,7 +1605,9 @@ export class IModelTransformer extends IModelExportHandler {
    */
   public async processModel(sourceModeledElementId: Id64String): Promise<void> {
     await this.initialize();
-    return this.exporter.exportModel(sourceModeledElementId);
+    return this.processScopedElementExport(async () =>
+      this.exporter.exportModel(sourceModeledElementId)
+    );
   }
 
   /** Cause the model contents to be exported from the source iModel and imported into the target iModel.
@@ -1534,9 +1624,8 @@ export class IModelTransformer extends IModelExportHandler {
     await this.initialize();
     this.targetDb.models.getModel(targetModelId); // throws if Model does not exist
     this.context.remapElement(sourceModelId, targetModelId); // set remapping in case importModelContents is called directly
-    return this.exporter.exportModelContents(
-      sourceModelId,
-      elementClassFullName
+    return this.processScopedElementExport(async () =>
+      this.exporter.exportModelContents(sourceModelId, elementClassFullName)
     );
   }
 
@@ -1599,10 +1688,13 @@ export class IModelTransformer extends IModelExportHandler {
     };
     targetModelProps.id = targetModeledElementId;
     if (targetModelProps.parentModel === undefined) {
-      throw new IModelError(
-        IModelStatus.BadElement,
-        "targetElementProps must have a defined parentModel"
-      );
+      ITwinError.throwError({
+        iTwinErrorId: {
+          scope: IModelTransformerErrorScope,
+          key: IModelTransformerError.ParentModelRequired,
+        },
+        message: "targetElementProps must have a defined parentModel",
+      });
     }
     targetModelProps.parentModel = this.context.findTargetElementId(
       targetModelProps.parentModel
@@ -1793,9 +1885,32 @@ export class IModelTransformer extends IModelExportHandler {
   public override async shouldExportElementAspect(
     aspect: ElementAspect
   ): Promise<boolean> {
-    // This override is needed to ensure that aspects are not exported if their element is not exported.
-    // This is needed in case DetachedExportElementAspectsStrategy is used.
+    // An aspect cannot be exported when its owner has no source-to-target
+    // mapping.
     return this.context.findTargetElementId(aspect.element.id) !== Id64.invalid;
+  }
+
+  private async prepareElementAspects(
+    excludedElementAspectClassFullNames: ReadonlySet<string>,
+    elementIds?: ReadonlySet<Id64String>
+  ): Promise<void> {
+    if (!this.exporter.visitElements) return;
+
+    if (elementIds === undefined) return;
+
+    const targetElementIds = new Set<Id64String>();
+    for (const sourceElementId of elementIds) {
+      const targetElementId = this.context.findTargetElementId(sourceElementId);
+      if (Id64.isValid(targetElementId)) {
+        targetElementIds.add(targetElementId);
+      }
+    }
+
+    await this.importer.elementAspectCleanup.delete(
+      targetElementIds,
+      excludedElementAspectClassFullNames,
+      this.targetScopeElementId
+    );
   }
 
   /** Override of [IModelExportHandler.onExportElementUniqueAspect]($transformer) that imports an ElementUniqueAspect into the target iModel when it is exported from the source iModel.
@@ -1856,7 +1971,7 @@ export class IModelTransformer extends IModelExportHandler {
     sourceElementAspect: ElementAspect
   ): Promise<ElementAspectProps> {
     const targetElementAspectProps =
-      await this.context.cloneElementAspect(sourceElementAspect);
+      await this._cloneContext.cloneElementAspect(sourceElementAspect);
     return targetElementAspectProps;
   }
 
@@ -1978,7 +2093,7 @@ export class IModelTransformer extends IModelExportHandler {
     font: FontProps,
     _isUpdate: boolean | undefined
   ): Promise<void> {
-    this.context.importFont(font.id);
+    this._cloneContext.importFont(font.id);
   }
 
   /** Cause all CodeSpecs to be exported from the source iModel and imported into the target iModel.
@@ -2010,7 +2125,7 @@ export class IModelTransformer extends IModelExportHandler {
   public override async onExportCodeSpec(
     sourceCodeSpec: CodeSpec
   ): Promise<void> {
-    this.context.importCodeSpec(sourceCodeSpec.id);
+    this._cloneContext.importCodeSpec(sourceCodeSpec.id);
   }
 
   /** Recursively import all Elements and sub-Models that descend from the specified Subject */
@@ -2022,8 +2137,10 @@ export class IModelTransformer extends IModelExportHandler {
     this.sourceDb.elements.getElement(sourceSubjectId, Subject); // throws if sourceSubjectId is not a Subject
     this.targetDb.elements.getElement(targetSubjectId, Subject); // throws if targetSubjectId is not a Subject
     this.context.remapElement(sourceSubjectId, targetSubjectId);
-    await this.processChildElements(sourceSubjectId);
-    await this.processSubjectSubModels(sourceSubjectId);
+    await this.processScopedElementExport(async () => {
+      await this.processChildElements(sourceSubjectId);
+      await this.processSubjectSubModels(sourceSubjectId);
+    });
     await this.completePartiallyCommittedElements();
     await this.completePartiallyCommittedAspects();
   }
@@ -2033,6 +2150,7 @@ export class IModelTransformer extends IModelExportHandler {
   private _sourceChangeDataState: ChangeDataState = "uninited";
   /** length === 0 when _changeDataState = "no-change", length > 0 means "has-changes", otherwise undefined  */
   private _csFileProps?: ChangesetFileProps[] = undefined;
+  private _deletionRecordsByChangeset?: ChangesetDeletionRecordsByChangeset;
 
   /**
    * Initialize prerequisites of processing, you must initialize with an [[InitOptions]] if you
@@ -2047,17 +2165,50 @@ export class IModelTransformer extends IModelExportHandler {
     await this.initScopeProvenance();
 
     await this._tryInitChangesetData(this._options.argsForProcessChanges);
-    await this.context.initialize();
+    await this._cloneContext.initialize();
 
-    // need exporter initialized to do remapdeletedsourceentities.
-    await this.exporter.initialize(
-      await this.getExportInitOpts(this._options.argsForProcessChanges ?? {})
+    const exporterInitOptions = await this.getExportInitOpts(
+      this._options.argsForProcessChanges ?? {}
     );
+    await this.initializeChangesetScanAndExporter(exporterInitOptions);
 
     // Exporter must be initialized prior to processing changesets in order to properly handle entity recreations (an entity delete followed by an insert of that same entity).
     await this.processChangesets();
 
     this._initialized = true;
+  }
+
+  private async initializeChangesetScanAndExporter(
+    exporterInitOptions: ExporterInitOptions
+  ): Promise<void> {
+    if (
+      this._csFileProps !== undefined &&
+      this._csFileProps.length > 0 &&
+      this.sourceDb.isBriefcaseDb()
+    ) {
+      const changedInstanceIds =
+        this.exporter.sourceDbChanges ??
+        ("changedInstanceIds" in exporterInitOptions
+          ? exporterInitOptions.changedInstanceIds
+          : new ChangedInstanceIds(this.sourceDb));
+      this._deletionRecordsByChangeset = await ChangesetScanner.scan(
+        this.sourceDb,
+        this._csFileProps,
+        changedInstanceIds,
+        {
+          populateChangedInstanceIds:
+            this.exporter.sourceDbChanges === undefined &&
+            !("changedInstanceIds" in exporterInitOptions),
+        }
+      );
+      await this.exporter.initialize({
+        changedInstanceIds,
+        skipPropagateChangesToRootElements:
+          exporterInitOptions.skipPropagateChangesToRootElements,
+      });
+    } else {
+      await this.exporter.initialize(exporterInitOptions);
+    }
   }
 
   /**
@@ -2075,7 +2226,8 @@ export class IModelTransformer extends IModelExportHandler {
     if (this.exporter.sourceDbChanges)
       await this.addCustomChanges(this.exporter.sourceDbChanges);
 
-    if (this._csFileProps === undefined || this._csFileProps.length === 0) {
+    const csFileProps = this._csFileProps;
+    if (csFileProps === undefined || csFileProps.length === 0) {
       if (
         this.exporter.sourceDbChanges === undefined ||
         !this.exporter.sourceDbChanges.hasChanges
@@ -2085,6 +2237,9 @@ export class IModelTransformer extends IModelExportHandler {
       if (this._sourceChangeDataState === "no-changes")
         this._sourceChangeDataState = "has-changes";
     }
+
+    const deletionRecordsByChangeset = this._deletionRecordsByChangeset;
+    if (deletionRecordsByChangeset === undefined) return;
 
     const relationshipECClassIdsToSkip = new Set<string>();
     for await (const row of this.sourceDb.createQueryReader(
@@ -2127,69 +2282,31 @@ export class IModelTransformer extends IModelExportHandler {
 
     this._deletedSourceRelationshipData = new Map();
 
-    for (const csFile of this._csFileProps ?? []) {
-      // eslint-disable-next-line @typescript-eslint/no-deprecated
-      const csReader = SqliteChangesetReader.openFile({
-        fileName: csFile.pathname,
-        db: this.sourceDb,
-        disableSchemaCheck: true,
-      });
-      // eslint-disable-next-line @typescript-eslint/no-deprecated
-      const csAdaptor = new ChangesetECAdaptor(csReader);
-      // eslint-disable-next-line @typescript-eslint/no-deprecated
-      const ecChangeUnifier = new PartialECChangeUnifier(this.sourceDb);
-      while (csAdaptor.step()) {
-        ecChangeUnifier.appendFrom(csAdaptor);
-      }
-      // eslint-disable-next-line @typescript-eslint/no-deprecated
-      const changes: ChangedECInstance[] = [...ecChangeUnifier.instances];
-
+    for (const changes of deletionRecordsByChangeset) {
       /** a map of element ids to this transformation scope's ESA data for that element, in case the ESA is deleted in the target */
-      // eslint-disable-next-line @typescript-eslint/no-deprecated
-      const elemIdToScopeEsa = new Map<Id64String, ChangedECInstance>();
+      const elemIdToScopeEsa = new Map<Id64String, ChangesetDeletionRecord>();
       for (const change of changes) {
+        if (relationshipECClassIdsToSkip.has(change.ecClassId)) continue;
         if (
-          change.ECClassId !== undefined &&
-          relationshipECClassIdsToSkip.has(change.ECClassId)
-        )
-          continue;
-        const changeType: SqliteChangeOp | undefined = change.$meta?.op;
-        if (
-          changeType === "Deleted" &&
-          change?.$meta?.classFullName === ExternalSourceAspect.classFullName &&
-          change.Scope.Id === this.targetScopeElementId &&
-          change.Kind === ExternalSourceAspect.Kind.Element
+          change.classFullName === ExternalSourceAspect.classFullName &&
+          change.scopeId === this.targetScopeElementId &&
+          change.kind === ExternalSourceAspect.Kind.Element &&
+          change.elementId !== undefined
         ) {
-          elemIdToScopeEsa.set(change.Element.Id, change);
+          elemIdToScopeEsa.set(change.elementId, change);
         }
       }
       // Loop to process deletes.
       for (const change of changes) {
-        const changeType: SqliteChangeOp | undefined = change.$meta?.op;
-        const ecClassId = change.ECClassId ?? change.$meta?.fallbackClassId;
-        if (ecClassId === undefined)
-          throw new Error(
-            `ECClassId was not found for id: ${change.ECInstanceId}! Table is : ${change?.$meta?.tables}`
-          );
-        if (changeType === undefined)
-          throw new Error(
-            `ChangeType was undefined for id: ${change.ECInstanceId}.`
-          );
-        if (
-          changeType !== "Deleted" ||
-          relationshipECClassIdsToSkip.has(ecClassId)
-        )
-          continue;
+        if (relationshipECClassIdsToSkip.has(change.ecClassId)) continue;
         await this.processDeletedOp(
           change,
           elemIdToScopeEsa,
-          relationshipECClassIds.has(ecClassId ?? ""),
+          relationshipECClassIds.has(change.ecClassId),
           alreadyImportedElementInserts,
           alreadyImportedModelInserts
         );
       }
-
-      csReader.close();
     }
     return;
   }
@@ -2217,10 +2334,8 @@ export class IModelTransformer extends IModelExportHandler {
    * @returns void
    */
   private async processDeletedOp(
-    // eslint-disable-next-line @typescript-eslint/no-deprecated
-    change: ChangedECInstance,
-    // eslint-disable-next-line @typescript-eslint/no-deprecated
-    mapOfDeletedElemIdToScopeEsas: Map<string, ChangedECInstance>,
+    change: ChangesetDeletionRecord,
+    mapOfDeletedElemIdToScopeEsas: Map<string, ChangesetDeletionRecord>,
     isRelationship: boolean,
     alreadyImportedElementInserts: Set<Id64String>,
     alreadyImportedModelInserts: Set<Id64String>
@@ -2235,7 +2350,7 @@ export class IModelTransformer extends IModelExportHandler {
     if (notConnectedModel || noChanges) return;
 
     /**
-     * if our ChangedECInstance is in the provenanceDb, then we can use the ids we find in the ChangedECInstance to query for ESAs.
+     * If the deleted source entity is in the provenanceDb, then we can use its ids to query for ESAs.
      * This is because the ESAs are stored on an element Id thats present in the provenanceDb.
      */
     const changeDataInProvenanceDb =
@@ -2249,7 +2364,7 @@ export class IModelTransformer extends IModelExportHandler {
       }
       const fedGuid = isRelationship
         ? element?.federationGuid
-        : change.FederationGuid;
+        : change.federationGuid;
       if (changeDataInProvenanceDb) {
         // TODO: clarify what happens if there are multiple (e.g. elements were merged)
         for await (const row of this.sourceDb.createQueryReader(
@@ -2264,7 +2379,7 @@ export class IModelTransformer extends IModelExportHandler {
           identifierValue = row.Identifier;
         }
         identifierValue =
-          identifierValue ?? mapOfDeletedElemIdToScopeEsas.get(id)?.Identifier;
+          identifierValue ?? mapOfDeletedElemIdToScopeEsas.get(id)?.identifier;
       }
 
       // Check for targetId by an esa first
@@ -2282,11 +2397,23 @@ export class IModelTransformer extends IModelExportHandler {
       return undefined;
     };
 
-    const changedInstanceId = change.ECInstanceId;
+    const changedInstanceId = change.ecInstanceId;
     if (isRelationship) {
-      const sourceIdOfRelationshipInSource = change.SourceECInstanceId;
-      const targetIdOfRelationshipInSource = change.TargetECInstanceId;
-      const classFullName = change.$meta?.classFullName;
+      const sourceIdOfRelationshipInSource = change.sourceECInstanceId;
+      const targetIdOfRelationshipInSource = change.targetECInstanceId;
+      const classFullName = change.classFullName;
+      if (
+        sourceIdOfRelationshipInSource === undefined ||
+        targetIdOfRelationshipInSource === undefined
+      ) {
+        ITwinError.throwError({
+          iTwinErrorId: {
+            scope: IModelTransformerErrorScope,
+            key: IModelTransformerError.ChangedInstanceMetadataMissing,
+          },
+          message: `Relationship deletion ${changedInstanceId} is missing an endpoint.`,
+        });
+      }
 
       const sourceIdOfRelationshipInTarget = await getTargetIdFromSourceId(
         sourceIdOfRelationshipInSource
@@ -2338,8 +2465,7 @@ export class IModelTransformer extends IModelExportHandler {
       if (deletionNotInTarget) return;
 
       if (targetId === undefined) {
-        throw new IModelError(
-          IModelStatus.BadElement,
+        throw new Error(
           "targetId should be acquired from source id or element provenance"
         );
       }
@@ -2404,15 +2530,20 @@ export class IModelTransformer extends IModelExportHandler {
       startChangesetIndex !== syncVersion.index + 1 &&
       syncVersion.index !== -1
     ) {
-      throw Error(
-        `synchronization is ${missingChangesets ? "missing changesets" : ""},` +
+      ITwinError.throwError({
+        iTwinErrorId: {
+          scope: IModelTransformerErrorScope,
+          key: IModelTransformerError.SynchronizationRangeInvalid,
+        },
+        message:
+          `synchronization is ${missingChangesets ? "missing changesets" : ""},` +
           " startChangesetId should be" +
           " exactly the first changeset *after* the previous synchronization to not miss data." +
           ` You specified '${startChangesetIndexOrId}' which is changeset #${startChangesetIndex}` +
           ` but the previous synchronization for this targetScopeElem ${syncVersion.id}'` +
           ` which is changeset #${syncVersion.index}. The transformer expected` +
-          ` #${syncVersion.index + 1}.`
-      );
+          ` #${syncVersion.index + 1}.`,
+      });
     }
 
     const changesetsToSkip =
@@ -2446,14 +2577,24 @@ export class IModelTransformer extends IModelExportHandler {
   /** Asserts that the EditTxn is active before any write operations. */
   private assertEditTxnActive(): void {
     if (!this._targetEditTxn.isActive) {
-      throw new Error(
-        "The target EditTxn must be started before calling process(). Call targetEditTxn.start() before invoking the transformer."
-      );
+      ITwinError.throwError({
+        iTwinErrorId: {
+          scope: IModelTransformerErrorScope,
+          key: IModelTransformerError.EditTxnNotActive,
+        },
+        message:
+          "The target EditTxn must be started before calling process(). Call targetEditTxn.start() before invoking the transformer.",
+      });
     }
     if (this._sourceEditTxn && !this._sourceEditTxn.isActive) {
-      throw new Error(
-        "The source EditTxn was provided but is not active. Call sourceEditTxn.start() before invoking the transformer."
-      );
+      ITwinError.throwError({
+        iTwinErrorId: {
+          scope: IModelTransformerErrorScope,
+          key: IModelTransformerError.EditTxnNotActive,
+        },
+        message:
+          "The source EditTxn was provided but is not active. Call sourceEditTxn.start() before invoking the transformer.",
+      });
     }
   }
 
@@ -2502,20 +2643,21 @@ export class IModelTransformer extends IModelExportHandler {
     await this.exporter.exportCodeSpecs();
     await this.exporter.exportFonts();
 
-    if (this._options.skipPropagateChangesToRootElements) {
-      // The RepositoryModel and root Subject of the target iModel should not be transformed.
-      await this.exporter.exportChildElements(IModel.rootSubjectId); // start below the root Subject
-      await this.exporter.exportModelContents(
-        IModel.repositoryModelId,
-        Element.classFullName,
-        true
-      ); // after the Subject hierarchy, process the other elements of the RepositoryModel
-      await this.exporter.exportSubModels(IModel.repositoryModelId); // start below the RepositoryModel
-    } else {
-      await this.exporter.exportModel(IModel.repositoryModelId);
-    }
-    await this.completePartiallyCommittedElements();
-    await this.exporter["exportAllAspects"](); // eslint-disable-line @typescript-eslint/dot-notation
+    await this.exporter.elementAspectExportCoordinator.run(async () => {
+      if (this._options.skipPropagateChangesToRootElements) {
+        // The RepositoryModel and root Subject of the target iModel should not be transformed.
+        await this.exporter.exportChildElements(IModel.rootSubjectId); // start below the root Subject
+        await this.exporter.exportModelContents(
+          IModel.repositoryModelId,
+          Element.classFullName,
+          true
+        ); // after the Subject hierarchy, process the other elements of the RepositoryModel
+        await this.exporter.exportSubModels(IModel.repositoryModelId); // start below the RepositoryModel
+      } else {
+        await this.exporter.exportModel(IModel.repositoryModelId);
+      }
+      await this.completePartiallyCommittedElements();
+    });
     await this.completePartiallyCommittedAspects();
     await this.exporter.exportRelationships(
       ElementRefersToElements.classFullName
@@ -2574,6 +2716,13 @@ export class IModelTransformer extends IModelExportHandler {
     opts: ExportChangesOptions
   ): Promise<ExporterInitOptions> {
     if (!this._options.argsForProcessChanges) return {};
+    if ("changedInstanceIds" in opts) {
+      return {
+        changedInstanceIds: opts.changedInstanceIds,
+        skipPropagateChangesToRootElements:
+          this._options.skipPropagateChangesToRootElements,
+      };
+    }
     const startChangeset =
       "startChangeset" in opts ? opts.startChangeset : undefined;
     return {
@@ -2698,10 +2847,13 @@ export class TemplateModelCloner extends IModelTransformer {
         )
       ) {
         if (this.context.isBetweenIModels) {
-          throw new IModelError(
-            IModelStatus.BadRequest,
-            `Remapping for source dependency ${referenceId} not found for target iModel`
-          );
+          ITwinError.throwError({
+            iTwinErrorId: {
+              scope: IModelTransformerErrorScope,
+              key: IModelTransformerError.DependencyMappingMissing,
+            },
+            message: `Remapping for source dependency ${referenceId} not found for target iModel`,
+          });
         } else {
           const definitionElement =
             this.sourceDb.elements.tryGetElement<DefinitionElement>(
@@ -2714,10 +2866,13 @@ export class TemplateModelCloner extends IModelTransformer {
           ) {
             this.context.remapElement(referenceId, referenceId); // when in the same iModel, can use existing DefinitionElements without remapping
           } else {
-            throw new IModelError(
-              IModelStatus.BadRequest,
-              `Remapping for dependency ${referenceId} not found`
-            );
+            ITwinError.throwError({
+              iTwinErrorId: {
+                scope: IModelTransformerErrorScope,
+                key: IModelTransformerError.DependencyMappingMissing,
+              },
+              message: `Remapping for dependency ${referenceId} not found`,
+            });
           }
         }
       }

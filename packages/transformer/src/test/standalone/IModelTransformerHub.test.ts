@@ -4,14 +4,16 @@
  * See LICENSE.md in the project root for license terms and full copyright notice.
  *--------------------------------------------------------------------------------------------*/
 
-import { assert, expect } from "chai";
-import * as path from "path";
+import { afterEach, assert, beforeEach, expect, vi } from "vitest";
+import * as path from "node:path";
 import * as semver from "semver";
+import { installCheckpointDownload } from "@itwin/imodel-transformer-test-utils";
 import {
   BisCoreSchema,
   BriefcaseDb,
   BriefcaseManager,
   CategorySelector,
+  ChangesetReader,
   DefinitionContainer,
   DefinitionModel,
   DefinitionPartition,
@@ -38,6 +40,7 @@ import {
   PhysicalObject,
   PhysicalPartition,
   PhysicalType,
+  PropertyFilter,
   SnapshotDb,
   SpatialCategory,
   SpatialViewDefinition,
@@ -46,8 +49,6 @@ import {
   SubjectOwnsSubjects,
   withEditTxn,
 } from "@itwin/core-backend";
-import { _hubAccess } from "@itwin/core-backend/lib/cjs/internal/Symbols";
-import { HubMock } from "@itwin/core-backend/lib/cjs/internal/HubMock";
 import * as TestUtils from "../TestUtils";
 import {
   AccessToken,
@@ -85,14 +86,17 @@ import {
   IModelExporter,
   IModelImporter,
   IModelTransformer,
+  IModelTransformerError,
   IModelTransformOptions,
   ProcessChangesOptions,
   TransformerLoggerCategory,
 } from "../../imodel-transformer";
 import { ProvenanceManager } from "../../ProvenanceManager";
 import {
+  assertTransformerError,
   CountingIModelImporter,
   createStartedEditTxn,
+  expectTransformerError,
   HubWrappers,
   IModelToTextFileExporter,
   IModelTransformerTestUtils,
@@ -102,9 +106,8 @@ import {
 } from "../IModelTransformerUtils";
 import { KnownTestLocations } from "../TestUtils/KnownTestLocations";
 import { IModelTestUtils } from "../TestUtils/IModelTestUtils";
+import { transformerTestHub } from "../TestUtils/TransformerTestHub";
 
-import "./TransformerTestStartup"; // calls startup/shutdown IModelHost before/after all tests
-import * as sinon from "sinon";
 import {
   assertElemState,
   deleted,
@@ -114,7 +117,6 @@ import {
   TimelineIModelElemState,
   TimelineIModelState,
 } from "../TestUtils/TimelineTestUtil";
-import { DetachedExportElementAspectsStrategy } from "../../DetachedExportElementAspectsStrategy";
 
 const { count } = IModelTestUtils;
 const countElementExternalSourceAspects = (
@@ -139,9 +141,12 @@ describe("IModelTransformerHub", () => {
 
   let saveAndPushChanges: (db: BriefcaseDb, desc: string) => Promise<void>;
 
-  before(async () => {
-    HubMock.startup("IModelTransformerHub", KnownTestLocations.outputDir);
-    iTwinId = HubMock.iTwinId;
+  beforeAll(async () => {
+    transformerTestHub.start(
+      "IModelTransformerHub",
+      KnownTestLocations.outputDir
+    );
+    iTwinId = transformerTestHub.iTwinId;
     IModelJsFs.recursiveMkDirSync(outputDir);
 
     accessToken = await HubWrappers.getAccessToken(
@@ -166,7 +171,18 @@ describe("IModelTransformerHub", () => {
       Logger.setLevel(NativeLoggerCategory.Changeset, LogLevel.Trace);
     }
   });
-  after(() => HubMock.shutdown());
+
+  let restoreCheckpointDownload: (() => void) | undefined;
+  beforeEach(() => {
+    restoreCheckpointDownload = installCheckpointDownload(transformerTestHub);
+  });
+
+  afterEach(() => {
+    restoreCheckpointDownload?.();
+    restoreCheckpointDownload = undefined;
+  });
+
+  afterAll(() => transformerTestHub.stop());
 
   const createPopulatedIModelHubIModel = async (
     iModelName: string,
@@ -184,7 +200,7 @@ describe("IModelTransformerHub", () => {
     await prepareIModel?.(seedDb);
     seedDb.close();
 
-    const iModelId = await IModelHost[_hubAccess].createNewIModel({
+    const iModelId = await transformerTestHub.createNewIModel({
       iTwinId,
       iModelName,
       description: "source",
@@ -334,11 +350,11 @@ describe("IModelTransformerHub", () => {
       });
     } finally {
       try {
-        await IModelHost[_hubAccess].deleteIModel({
+        await transformerTestHub.deleteIModel({
           iTwinId,
           iModelId: sourceIModelId,
         });
-        await IModelHost[_hubAccess].deleteIModel({
+        await transformerTestHub.deleteIModel({
           iTwinId,
           iModelId: targetIModelId,
         });
@@ -500,12 +516,12 @@ describe("IModelTransformerHub", () => {
         await HubWrappers.closeAndDeleteBriefcaseDb(accessToken, sourceDb);
       if (targetDb)
         await HubWrappers.closeAndDeleteBriefcaseDb(accessToken, targetDb);
-      await IModelHost[_hubAccess].deleteIModel({
+      await transformerTestHub.deleteIModel({
         accessToken,
         iTwinId,
         iModelId: sourceIModelId,
       });
-      await IModelHost[_hubAccess].deleteIModel({
+      await transformerTestHub.deleteIModel({
         accessToken,
         iTwinId,
         iModelId: targetIModelId,
@@ -804,7 +820,8 @@ describe("IModelTransformerHub", () => {
         // expect some inserts from transforming the result of updateDb
         assert.equal(targetDbChanges.codeSpec.insertIds.size, 0);
         assert.equal(targetDbChanges.element.insertIds.size, 1);
-        assert.equal(targetDbChanges.aspect.insertIds.size, 0);
+        // ElementAspect rebuilds may reinsert replaceable aspects after cleanup.
+        assert.isAtLeast(targetDbChanges.aspect.insertIds.size, 1);
         assert.equal(targetDbChanges.model.insertIds.size, 0);
         assert.equal(targetDbChanges.relationship.insertIds.size, 2);
         // expect some updates from transforming the result of updateDb
@@ -822,12 +839,14 @@ describe("IModelTransformerHub", () => {
         assert.equal(targetDbChanges.codeSpec.deleteIds.size, 0);
       }
 
-      const sourceIModelChangeSets = await IModelHost[
-        _hubAccess
-      ].queryChangesets({ accessToken, iModelId: sourceIModelId });
-      const targetIModelChangeSets = await IModelHost[
-        _hubAccess
-      ].queryChangesets({ accessToken, iModelId: targetIModelId });
+      const sourceIModelChangeSets = await transformerTestHub.queryChangesets({
+        accessToken,
+        iModelId: sourceIModelId,
+      });
+      const targetIModelChangeSets = await transformerTestHub.queryChangesets({
+        accessToken,
+        iModelId: targetIModelId,
+      });
       assert.equal(sourceIModelChangeSets.length, 2);
       assert.equal(targetIModelChangeSets.length, 2);
 
@@ -835,11 +854,11 @@ describe("IModelTransformerHub", () => {
       await HubWrappers.closeAndDeleteBriefcaseDb(accessToken, targetDb);
     } finally {
       try {
-        await IModelHost[_hubAccess].deleteIModel({
+        await transformerTestHub.deleteIModel({
           iTwinId,
           iModelId: sourceIModelId,
         });
-        await IModelHost[_hubAccess].deleteIModel({
+        await transformerTestHub.deleteIModel({
           iTwinId,
           iModelId: targetIModelId,
         });
@@ -1112,11 +1131,11 @@ describe("IModelTransformerHub", () => {
     } finally {
       try {
         // delete iModel briefcases
-        await IModelHost[_hubAccess].deleteIModel({
+        await transformerTestHub.deleteIModel({
           iTwinId,
           iModelId: sourceIModelId,
         });
-        await IModelHost[_hubAccess].deleteIModel({
+        await transformerTestHub.deleteIModel({
           iTwinId,
           iModelId: targetIModelId,
         });
@@ -1262,11 +1281,11 @@ describe("IModelTransformerHub", () => {
     } finally {
       try {
         // delete iModel briefcases
-        await IModelHost[_hubAccess].deleteIModel({
+        await transformerTestHub.deleteIModel({
           iTwinId,
           iModelId: sourceIModelId,
         });
-        await IModelHost[_hubAccess].deleteIModel({
+        await transformerTestHub.deleteIModel({
           iTwinId,
           iModelId: targetIModelId,
         });
@@ -1933,7 +1952,7 @@ describe("IModelTransformerHub", () => {
 
     // create empty iModel meant to contain replayed master history
     const replayedIModelName = "Replayed";
-    const replayedIModelId = await IModelHost[_hubAccess].createNewIModel({
+    const replayedIModelId = await transformerTestHub.createNewIModel({
       iTwinId,
       iModelName: replayedIModelName,
       description: "blank",
@@ -1952,9 +1971,7 @@ describe("IModelTransformerHub", () => {
       const master = trackedIModels.get("master");
       assert(master);
 
-      const masterDbChangesets = await IModelHost[
-        _hubAccess
-      ].downloadChangesets({
+      const masterDbChangesets = await transformerTestHub.downloadChangesets({
         accessToken,
         iModelId: master.id,
         targetDir: BriefcaseManager.getChangeSetsPath(master.id),
@@ -2038,9 +2055,7 @@ describe("IModelTransformerHub", () => {
       await assertElemState(replayedDb, master.state); // should have same ending state as masterDb
 
       // make sure there are no deletes in the replay history (all elements that were eventually deleted from masterDb were excluded)
-      const replayedDbChangesets = await IModelHost[
-        _hubAccess
-      ].downloadChangesets({
+      const replayedDbChangesets = await transformerTestHub.downloadChangesets({
         accessToken,
         iModelId: replayedIModelId,
         targetDir: BriefcaseManager.getChangeSetsPath(replayedIModelId),
@@ -2070,7 +2085,7 @@ describe("IModelTransformerHub", () => {
     } finally {
       await tearDown();
       replayedDb.close();
-      await IModelHost[_hubAccess].deleteIModel({
+      await transformerTestHub.deleteIModel({
         iTwinId,
         iModelId: replayedIModelId,
       });
@@ -2193,9 +2208,7 @@ describe("IModelTransformerHub", () => {
       expect(modelSelectorUpdate2.models).to.have.length(2);
 
       // test extracted changed ids
-      const sourceDbChangesets = await IModelHost[
-        _hubAccess
-      ].downloadChangesets({
+      const sourceDbChangesets = await transformerTestHub.downloadChangesets({
         accessToken,
         iModelId: sourceIModelId,
         targetDir: BriefcaseManager.getChangeSetsPath(sourceIModelId),
@@ -2269,11 +2282,11 @@ describe("IModelTransformerHub", () => {
     } finally {
       try {
         // delete iModel briefcases
-        await IModelHost[_hubAccess].deleteIModel({
+        await transformerTestHub.deleteIModel({
           iTwinId,
           iModelId: sourceIModelId,
         });
-        await IModelHost[_hubAccess].deleteIModel({
+        await transformerTestHub.deleteIModel({
           iTwinId,
           iModelId: targetIModelId,
         });
@@ -2390,11 +2403,11 @@ describe("IModelTransformerHub", () => {
     } finally {
       try {
         // delete iModel briefcases
-        await IModelHost[_hubAccess].deleteIModel({
+        await transformerTestHub.deleteIModel({
           iTwinId,
           iModelId: sourceIModelId,
         });
-        await IModelHost[_hubAccess].deleteIModel({
+        await transformerTestHub.deleteIModel({
           iTwinId,
           iModelId: targetIModelId,
         });
@@ -2459,7 +2472,7 @@ describe("IModelTransformerHub", () => {
     );
     seedDb.close();
 
-    const sourceIModelId = await IModelHost[_hubAccess].createNewIModel({
+    const sourceIModelId = await transformerTestHub.createNewIModel({
       iTwinId,
       iModelName: "TransformerSource",
       description: "source",
@@ -2478,7 +2491,7 @@ describe("IModelTransformerHub", () => {
     sourceDb.performCheckpoint(); // so we can use as a seed
 
     // forking target
-    const targetIModelId = await IModelHost[_hubAccess].createNewIModel({
+    const targetIModelId = await transformerTestHub.createNewIModel({
       iTwinId,
       iModelName: "TransformerTarget",
       description: "target",
@@ -2727,7 +2740,7 @@ describe("IModelTransformerHub", () => {
     let targetIModelId: string | undefined;
 
     try {
-      sourceIModelId = await IModelHost[_hubAccess].createNewIModel({
+      sourceIModelId = await transformerTestHub.createNewIModel({
         iTwinId,
         iModelName: "TransformerSource",
         description: "source",
@@ -2759,7 +2772,7 @@ describe("IModelTransformerHub", () => {
       sourceDb.performCheckpoint(); // so we can use as a seed
 
       // forking target
-      targetIModelId = await IModelHost[_hubAccess].createNewIModel({
+      targetIModelId = await transformerTestHub.createNewIModel({
         iTwinId,
         iModelName: "TransformerTarget",
         description: "target",
@@ -2854,12 +2867,12 @@ describe("IModelTransformerHub", () => {
       try {
         // delete iModel briefcases
         if (sourceIModelId)
-          await IModelHost[_hubAccess].deleteIModel({
+          await transformerTestHub.deleteIModel({
             iTwinId,
             iModelId: sourceIModelId,
           });
         if (targetIModelId)
-          await IModelHost[_hubAccess].deleteIModel({
+          await transformerTestHub.deleteIModel({
             iTwinId,
             iModelId: targetIModelId,
           });
@@ -3101,9 +3114,7 @@ describe("IModelTransformerHub", () => {
         .undefined;
 
       // expected extracted changed ids
-      const branchDbChangesets = await IModelHost[
-        _hubAccess
-      ].downloadChangesets({
+      const branchDbChangesets = await transformerTestHub.downloadChangesets({
         accessToken,
         iModelId: branchIModelId,
         targetDir: BriefcaseManager.getChangeSetsPath(branchIModelId),
@@ -3212,12 +3223,12 @@ describe("IModelTransformerHub", () => {
       await HubWrappers.closeAndDeleteBriefcaseDb(accessToken, branchDb);
     } finally {
       // delete iModel briefcases
-      await IModelHost[_hubAccess].deleteIModel({
+      await transformerTestHub.deleteIModel({
         iTwinId,
         iModelId: masterIModelId,
       });
       if (branchIModelId) {
-        await IModelHost[_hubAccess].deleteIModel({
+        await transformerTestHub.deleteIModel({
           iTwinId,
           iModelId: branchIModelId,
         });
@@ -3264,22 +3275,23 @@ describe("IModelTransformerHub", () => {
         sourceEditTxn: reverseSyncSourceEditTxn,
       }
     );
-    const queryChangeset = sinon.spy(BriefcaseManager, "queryChangeset");
+    const queryChangeset = vi.spyOn(BriefcaseManager, "queryChangeset");
     await syncer.process();
-    expect(
-      queryChangeset.alwaysCalledWith({
+    expect(queryChangeset.mock.calls).to.have.length.greaterThan(0);
+    for (const [args] of queryChangeset.mock.calls) {
+      expect(args).to.deep.equal({
         iModelId: branch.id,
         changeset: {
           id: branchAt2Changeset.id,
         },
-      })
-    ).to.be.true;
+      });
+    }
 
     syncer.dispose();
     syncEditTxn.end();
     reverseSyncSourceEditTxn.end();
     await tearDown();
-    sinon.restore();
+    vi.restoreAllMocks();
   });
 
   it("should reverse synchronize forked iModel when an element was updated", async () => {
@@ -3385,11 +3397,11 @@ describe("IModelTransformerHub", () => {
     } finally {
       try {
         // delete iModel briefcases
-        await IModelHost[_hubAccess].deleteIModel({
+        await transformerTestHub.deleteIModel({
           iTwinId,
           iModelId: sourceIModelId,
         });
-        await IModelHost[_hubAccess].deleteIModel({
+        await transformerTestHub.deleteIModel({
           iTwinId,
           iModelId: targetIModelId,
         });
@@ -3624,11 +3636,11 @@ describe("IModelTransformerHub", () => {
     } finally {
       try {
         // delete iModel briefcases
-        await IModelHost[_hubAccess].deleteIModel({
+        await transformerTestHub.deleteIModel({
           iTwinId,
           iModelId: sourceIModelId,
         });
-        await IModelHost[_hubAccess].deleteIModel({
+        await transformerTestHub.deleteIModel({
           iTwinId,
           iModelId: targetIModelId,
         });
@@ -3764,11 +3776,11 @@ describe("IModelTransformerHub", () => {
     } finally {
       try {
         // delete iModel briefcases
-        await IModelHost[_hubAccess].deleteIModel({
+        await transformerTestHub.deleteIModel({
           iTwinId,
           iModelId: sourceIModelId,
         });
-        await IModelHost[_hubAccess].deleteIModel({
+        await transformerTestHub.deleteIModel({
           iTwinId,
           iModelId: targetIModelId,
         });
@@ -3779,7 +3791,7 @@ describe("IModelTransformerHub", () => {
     }
   });
 
-  it("should update aspects when processing changes and detachedAspectProcessing is turned on", async () => {
+  it("should update aspects when processing changes", async () => {
     let elementIds: Id64String[] = [];
     const aspectIds: Id64String[] = [];
     const sourceIModelId = await createPopulatedIModelHubIModel(
@@ -3835,10 +3847,7 @@ describe("IModelTransformerHub", () => {
         iModelId: targetIModelId,
       });
 
-      const exporter = new IModelExporter(
-        sourceDb,
-        DetachedExportElementAspectsStrategy
-      );
+      const exporter = new IModelExporter(sourceDb);
       // First transformation uses processAll (no argsForProcessChanges) to establish provenance
       const firstTransformEditTxn = createStartedEditTxn(targetDb);
       const transformer = new IModelTransformer(
@@ -3861,8 +3870,11 @@ describe("IModelTransformerHub", () => {
           relClassName: "BisCore:ElementScopesExternalSourceIdentifier",
         },
       };
-      withEditTxn(sourceDb, "insert detached aspect", (txn) => {
+      withEditTxn(sourceDb, "insert aspect", (txn) => {
         txn.insertAspect(addedAspectProps);
+      });
+      withEditTxn(sourceDb, "delete aspects", (txn) => {
+        aspectIds.slice(5).forEach((aspectId) => txn.deleteAspect(aspectId));
       });
 
       await saveAndPushChanges(sourceDb, "Update source");
@@ -3903,11 +3915,11 @@ describe("IModelTransformerHub", () => {
         expect(aspectAddedAfterFirstTransformation).to.not.be.undefined;
       });
     } finally {
-      await IModelHost[_hubAccess].deleteIModel({
+      await transformerTestHub.deleteIModel({
         iTwinId,
         iModelId: sourceIModelId,
       });
-      await IModelHost[_hubAccess].deleteIModel({
+      await transformerTestHub.deleteIModel({
         iTwinId,
         iModelId: targetIModelId,
       });
@@ -4004,7 +4016,7 @@ describe("IModelTransformerHub", () => {
       .undefined;
 
     await tearDown();
-    sinon.restore();
+    vi.restoreAllMocks();
   });
 
   // Regression test for https://github.com/iTwin/imodel-transformer/issues/28
@@ -4089,7 +4101,7 @@ describe("IModelTransformerHub", () => {
     ).to.equal(1);
 
     await tearDown();
-    sinon.restore();
+    vi.restoreAllMocks();
   });
 
   it("should be able to handle a transformation which deletes a relationship and then elements of that relationship", async () => {
@@ -4655,8 +4667,8 @@ describe("IModelTransformerHub", () => {
   });
 
   it("should fail processingChanges on pre-version-tracking forks unless branchRelationshipDataBehavior is 'unsafe-migrate'", async () => {
+    let synchronizationVersionErrorAsserted = false;
     let targetScopeProvenanceProps: ExternalSourceAspectProps | undefined;
-    let targetScopeElementId: Id64String | undefined;
     const setBranchRelationshipDataBehaviorToUnsafeMigrate = (
       transformer: IModelTransformer
     ) =>
@@ -4691,8 +4703,6 @@ describe("IModelTransformerHub", () => {
             }),
           } as ExternalSourceAspectProps);
           targetScopeProvenanceProps = targetScopeProvenance;
-
-          targetScopeElementId = targetScopeProvenanceProps.scope.id;
         },
       },
       {
@@ -4735,7 +4745,22 @@ describe("IModelTransformerHub", () => {
       {
         branch: {
           // Forward sync and forward sync looks for a prop 'version' on the ESA which will be missing so expect to throw.
-          sync: ["master", { expectThrow: true }],
+          sync: [
+            "master",
+            {
+              expectThrow: true,
+              assert: {
+                onError(error) {
+                  assertTransformerError(
+                    error,
+                    IModelTransformerError.SynchronizationVersionMissing,
+                    "Could not find synchronization version in scope aspect. This may be due to the last successful run of the transformer being done with an older version.\n         Consider running the transformer with branchRelationshipDataBehavior set to 'unsafe-migrate'"
+                  );
+                  synchronizationVersionErrorAsserted = true;
+                },
+              },
+            },
+          ],
         },
       },
       {
@@ -4804,17 +4829,15 @@ describe("IModelTransformerHub", () => {
           };
 
           expect(count(branch.db, "bis.ExternalSourceAspect")).to.be.equal(
-            count(master.db, "bis.Element") + 1
+            count(master.db, "bis.Element")
           );
           expect(count(branch.db, "bis.Element")).to.be.equal(
             count(master.db, "bis.Element")
           );
 
+          // The root Subject owns scope provenance only because root elements are not transformed.
           (await externalAspectCounts(branch.db)).forEach((value) => {
-            const { elementId, aspectCount } = value;
-            if (elementId === targetScopeElementId)
-              expect(aspectCount).to.equal(2);
-            else expect(aspectCount).to.equal(1);
+            expect(value.aspectCount).to.equal(1);
           });
 
           const scopeProvenanceCandidates = branch.db.elements
@@ -4865,6 +4888,7 @@ describe("IModelTransformerHub", () => {
       },
     });
 
+    expect(synchronizationVersionErrorAsserted).to.be.true;
     await tearDown();
   });
 
@@ -5201,12 +5225,12 @@ describe("IModelTransformerHub", () => {
           await HubWrappers.closeAndDeleteBriefcaseDb(accessToken, sourceDb);
         if (targetDb)
           await HubWrappers.closeAndDeleteBriefcaseDb(accessToken, targetDb);
-        await IModelHost[_hubAccess].deleteIModel({
+        await transformerTestHub.deleteIModel({
           accessToken,
           iTwinId,
           iModelId: sourceIModelId,
         });
-        await IModelHost[_hubAccess].deleteIModel({
+        await transformerTestHub.deleteIModel({
           accessToken,
           iTwinId,
           iModelId: targetIModelId,
@@ -5488,7 +5512,7 @@ describe("IModelTransformerHub", () => {
       .undefined;
 
     await tearDown();
-    sinon.restore();
+    vi.restoreAllMocks();
   });
 
   it("should use the lastMod of provenanceDb's element as the provenance aspect version", async () => {
@@ -5529,7 +5553,7 @@ describe("IModelTransformerHub", () => {
     });
 
     await tearDown();
-    sinon.restore();
+    vi.restoreAllMocks();
   });
 
   it("should successfully process changes when codeValues are switched around between elements", async () => {
@@ -5742,7 +5766,7 @@ describe("IModelTransformerHub", () => {
       { source: sourceDb, target: changeTargetEditTxn },
       { argsForProcessChanges: {} }
     );
-    await expect(transformer.process()).to.be.eventually.fulfilled;
+    await transformer.process();
     changeTargetEditTxn.end();
 
     const queryReader = targetDb.createQueryReader(
@@ -5781,10 +5805,7 @@ describe("IModelTransformerHub", () => {
         if (isChangeProcessing) {
           options.argsForProcessChanges = {};
         }
-        const exporter = new IModelExporter(
-          source,
-          DetachedExportElementAspectsStrategy
-        );
+        const exporter = new IModelExporter(source);
         super({ source: exporter, target: editTxn }, options);
         this.editTxn = editTxn;
       }
@@ -5808,20 +5829,20 @@ describe("IModelTransformerHub", () => {
 
       // process all
       let transformer = new CustomChangesTransformer(sourceDb, targetDb, false);
-      let addChangesStub = sinon.stub(transformer, "addCustomChanges");
+      let addChangesStub = vi.spyOn(transformer, "addCustomChanges");
       await transformer.process();
       transformer.editTxn.end();
       await targetDb.pushChanges({
         description: "target changes for transformation 1",
         retainLocks: true,
       });
-      expect(addChangesStub.calledOnce).to.be.false;
+      expect(addChangesStub.mock.calls).to.have.lengthOf(0);
 
       // process changes
       transformer = new CustomChangesTransformer(sourceDb, targetDb, true);
-      addChangesStub = sinon
-        .stub(transformer, "addCustomChanges")
-        .callsFake(async (_sourceDbChanges) => {
+      addChangesStub = vi
+        .spyOn(transformer, "addCustomChanges")
+        .mockImplementation(async (_sourceDbChanges) => {
           const targetId =
             transformer.context.findTargetElementId(sourceModelId0);
           expect(
@@ -5835,7 +5856,7 @@ describe("IModelTransformerHub", () => {
         description: "target changes for transformation 2",
         retainLocks: true,
       });
-      expect(addChangesStub.calledOnce).to.be.true;
+      expect(addChangesStub.mock.calls).to.have.lengthOf(1);
     });
 
     it("should update data in target correctly when custom changes are registered for models", async () => {
@@ -5913,9 +5934,8 @@ describe("IModelTransformerHub", () => {
 
       // === Transformation 2: `process changes` transformation to insert excluded parent model ===
       transformer = new CustomChangesTransformer(sourceDb, targetDb, true);
-      sinon
-        .stub(transformer, "addCustomChanges")
-        .callsFake(async (sourceDbChanges) => {
+      vi.spyOn(transformer, "addCustomChanges").mockImplementation(
+        async (sourceDbChanges) => {
           expect(
             sourceDbChanges.hasChanges,
             "there should be only custom changes"
@@ -5924,7 +5944,8 @@ describe("IModelTransformerHub", () => {
             "Inserted",
             parentDrawing.id!
           );
-        });
+        }
+      );
       await transformer.process();
       transformer.editTxn.end();
       await targetDb.pushChanges({
@@ -5961,14 +5982,14 @@ describe("IModelTransformerHub", () => {
       });
 
       transformer = new CustomChangesTransformer(sourceDb, targetDb, true);
-      sinon
-        .stub(transformer, "addCustomChanges")
-        .callsFake(async (sourceDbChanges) => {
+      vi.spyOn(transformer, "addCustomChanges").mockImplementation(
+        async (sourceDbChanges) => {
           await sourceDbChanges.addCustomModelChange(
             "Inserted",
             physicalModel2Id
           );
-        });
+        }
+      );
       await transformer.process();
       transformer.editTxn.end();
       await targetDb.pushChanges({
@@ -5992,9 +6013,8 @@ describe("IModelTransformerHub", () => {
 
       // === Transformation 4: `process changes` transformation to delete existing model  ===
       transformer = new CustomChangesTransformer(sourceDb, targetDb, true);
-      sinon
-        .stub(transformer, "addCustomChanges")
-        .callsFake(async (sourceDbChanges) => {
+      vi.spyOn(transformer, "addCustomChanges").mockImplementation(
+        async (sourceDbChanges) => {
           expect(
             sourceDbChanges.hasChanges,
             "there should be only custom changes"
@@ -6007,7 +6027,8 @@ describe("IModelTransformerHub", () => {
             "Deleted",
             parentDrawing.id!
           );
-        });
+        }
+      );
       await transformer.process();
       transformer.editTxn.end();
       await targetDb.pushChanges({
@@ -6041,14 +6062,14 @@ describe("IModelTransformerHub", () => {
         retainLocks: true,
       });
       transformer = new CustomChangesTransformer(sourceDb, targetDb, true);
-      sinon
-        .stub(transformer, "addCustomChanges")
-        .callsFake(async (sourceDbChanges) => {
+      vi.spyOn(transformer, "addCustomChanges").mockImplementation(
+        async (sourceDbChanges) => {
           await sourceDbChanges.addCustomModelChange(
             "Deleted",
             physicalModel2Id
           );
-        });
+        }
+      );
       await transformer.process();
       transformer.editTxn.end();
       await targetDb.pushChanges({
@@ -6161,9 +6182,8 @@ describe("IModelTransformerHub", () => {
       // insert first child and keep excluding second child
       transformer = new CustomChangesTransformer(sourceDb, targetDb, true);
       transformer.exporter.excludeElement(childDrawing2.id!);
-      sinon
-        .stub(transformer, "addCustomChanges")
-        .callsFake(async (sourceDbChanges) => {
+      vi.spyOn(transformer, "addCustomChanges").mockImplementation(
+        async (sourceDbChanges) => {
           expect(
             sourceDbChanges.hasChanges,
             "there should be only custom changes"
@@ -6172,7 +6192,8 @@ describe("IModelTransformerHub", () => {
             "Inserted",
             childDrawing1.id!
           );
-        });
+        }
+      );
       await transformer.process();
       transformer.editTxn.end();
       await targetDb.pushChanges({
@@ -6206,9 +6227,8 @@ describe("IModelTransformerHub", () => {
 
       // === Transformation 3: `process changes` transformation to include second child element's sub model  ===
       transformer = new CustomChangesTransformer(sourceDb, targetDb, true);
-      sinon
-        .stub(transformer, "addCustomChanges")
-        .callsFake(async (sourceDbChanges) => {
+      vi.spyOn(transformer, "addCustomChanges").mockImplementation(
+        async (sourceDbChanges) => {
           expect(
             sourceDbChanges.hasChanges,
             "there should be only custom changes"
@@ -6217,7 +6237,8 @@ describe("IModelTransformerHub", () => {
             "Inserted",
             childDrawing2.id!
           );
-        });
+        }
+      );
       await transformer.process();
       transformer.editTxn.end();
       await targetDb.pushChanges({
@@ -6249,9 +6270,8 @@ describe("IModelTransformerHub", () => {
 
       // === Transformation 4: `process changes` transformation to delete first child element's sub model  ===
       transformer = new CustomChangesTransformer(sourceDb, targetDb, true);
-      sinon
-        .stub(transformer, "addCustomChanges")
-        .callsFake(async (sourceDbChanges) => {
+      vi.spyOn(transformer, "addCustomChanges").mockImplementation(
+        async (sourceDbChanges) => {
           expect(
             sourceDbChanges.hasChanges,
             "there should be only custom changes"
@@ -6260,7 +6280,8 @@ describe("IModelTransformerHub", () => {
             "Deleted",
             childDrawing1.id!
           );
-        });
+        }
+      );
       await transformer.process();
       transformer.editTxn.end();
       await targetDb.pushChanges({
@@ -6367,9 +6388,8 @@ describe("IModelTransformerHub", () => {
 
       // === Transformation 2: `process changes` transformation to include excluded element  ===
       transformer = new CustomChangesTransformer(sourceDb, targetDb, true);
-      sinon
-        .stub(transformer, "addCustomChanges")
-        .callsFake(async (sourceDbChanges) => {
+      vi.spyOn(transformer, "addCustomChanges").mockImplementation(
+        async (sourceDbChanges) => {
           expect(
             sourceDbChanges.hasChanges,
             "there should be only custom changes"
@@ -6378,7 +6398,8 @@ describe("IModelTransformerHub", () => {
             "Inserted",
             physicalElem2.id!
           );
-        });
+        }
+      );
       await transformer.process();
       transformer.editTxn.end();
       await targetDb.pushChanges({
@@ -6418,14 +6439,14 @@ describe("IModelTransformerHub", () => {
       });
 
       transformer = new CustomChangesTransformer(sourceDb, targetDb, true);
-      sinon
-        .stub(transformer, "addCustomChanges")
-        .callsFake(async (sourceDbChanges) => {
+      vi.spyOn(transformer, "addCustomChanges").mockImplementation(
+        async (sourceDbChanges) => {
           await sourceDbChanges.addCustomElementChange(
             "Inserted",
             physicalElem3.id!
           );
-        });
+        }
+      );
       await transformer.process();
       transformer.editTxn.end();
       await targetDb.pushChanges({
@@ -6448,9 +6469,8 @@ describe("IModelTransformerHub", () => {
 
       // === Transformation 4: `process changes` transformation to delete exported element  ===
       transformer = new CustomChangesTransformer(sourceDb, targetDb, true);
-      sinon
-        .stub(transformer, "addCustomChanges")
-        .callsFake(async (sourceDbChanges) => {
+      vi.spyOn(transformer, "addCustomChanges").mockImplementation(
+        async (sourceDbChanges) => {
           expect(
             sourceDbChanges.hasChanges,
             "there should be only custom changes"
@@ -6459,7 +6479,8 @@ describe("IModelTransformerHub", () => {
             "Deleted",
             physicalElem1.id!
           );
-        });
+        }
+      );
       await transformer.process();
       transformer.editTxn.end();
       await targetDb.pushChanges({
@@ -6537,9 +6558,8 @@ describe("IModelTransformerHub", () => {
       });
 
       transformer = new CustomChangesTransformer(sourceDb, targetDb, true);
-      sinon
-        .stub(transformer, "addCustomChanges")
-        .callsFake(async (sourceDbChanges) => {
+      vi.spyOn(transformer, "addCustomChanges").mockImplementation(
+        async (sourceDbChanges) => {
           expect(
             sourceDbChanges.hasChanges,
             "there should be only custom changes"
@@ -6548,7 +6568,8 @@ describe("IModelTransformerHub", () => {
             "Updated",
             physicalElem2.id!
           );
-        });
+        }
+      );
       await transformer.process();
       transformer.editTxn.end();
       await targetDb.pushChanges({
@@ -6564,9 +6585,8 @@ describe("IModelTransformerHub", () => {
 
       // === Transformation 3: `process changes` transformation to update changed element  ===
       transformer = new CustomChangesTransformer(sourceDb, targetDb, true);
-      sinon
-        .stub(transformer, "addCustomChanges")
-        .callsFake(async (sourceDbChanges) => {
+      vi.spyOn(transformer, "addCustomChanges").mockImplementation(
+        async (sourceDbChanges) => {
           expect(
             sourceDbChanges.hasChanges,
             "there should be only custom changes"
@@ -6575,7 +6595,8 @@ describe("IModelTransformerHub", () => {
             "Updated",
             physicalElem1.id!
           );
-        });
+        }
+      );
       await transformer.process();
       transformer.editTxn.end();
       await targetDb.pushChanges({
@@ -6701,9 +6722,8 @@ describe("IModelTransformerHub", () => {
       });
 
       transformer = new CustomChangesTransformer(sourceDb, targetDb, true);
-      sinon
-        .stub(transformer, "addCustomChanges")
-        .callsFake(async (sourceDbChanges) => {
+      vi.spyOn(transformer, "addCustomChanges").mockImplementation(
+        async (sourceDbChanges) => {
           await sourceDbChanges.addCustomModelChange(
             "Deleted",
             recreatedPartitionId
@@ -6712,7 +6732,8 @@ describe("IModelTransformerHub", () => {
             "Deleted",
             secondCopyOfSubjectId
           );
-        });
+        }
+      );
       await transformer.process();
       transformer.editTxn.end();
       await targetDb.pushChanges({
@@ -6778,9 +6799,9 @@ describe("IModelTransformerHub", () => {
         targetDb,
         true
       );
-      const addChangesStub = sinon
-        .stub(transformer2, "addCustomChanges")
-        .callsFake(async (sourceDbChanges) => {
+      const addChangesStub = vi
+        .spyOn(transformer2, "addCustomChanges")
+        .mockImplementation(async (sourceDbChanges) => {
           // Assert that element mapping is set
           const targetId =
             transformer2.context.findTargetElementId(originalSubjectId1);
@@ -6803,7 +6824,7 @@ describe("IModelTransformerHub", () => {
         description: "target changes for process changes transformation.",
         retainLocks: true,
       });
-      expect(addChangesStub.calledOnce).to.be.true;
+      expect(addChangesStub.mock.calls).to.have.lengthOf(1);
       expect(targetDb.elements.tryGetElement(subjectFedGuid1)).to.be.undefined;
       expect(targetDb.elements.tryGetElement(subjectFedGuid2)).to.not.be
         .undefined;
@@ -6958,6 +6979,33 @@ describe("IModelTransformerHub", () => {
       await closeAndDeleteBriefcase(targetDb);
     });
 
+    it("identifies a relationship deletion missing an endpoint", async () => {
+      const editTxn = createStartedEditTxn(targetDb);
+      const transformer = new IModelTransformer({
+        source: sourceDb,
+        target: editTxn,
+      });
+      try {
+        await expectTransformerError(
+          transformer["processDeletedOp"](
+            {
+              ecInstanceId: "0x123",
+              ecClassId: "0x456",
+            },
+            new Map(),
+            true,
+            new Set<Id64String>(),
+            new Set<Id64String>()
+          ),
+          IModelTransformerError.ChangedInstanceMetadataMissing,
+          "Relationship deletion 0x123 is missing an endpoint."
+        );
+      } finally {
+        transformer.dispose();
+        editTxn.end();
+      }
+    });
+
     it("should skip unchanged parent elements but still export changed child elements during processChanges", async () => {
       // Create a model with a parent element and a child element
       const { parentElementId, childElementId } = withEditTxn(
@@ -7035,22 +7083,22 @@ describe("IModelTransformerHub", () => {
         { source: sourceDb, target: secondEditTxn },
         { argsForProcessChanges: {} }
       );
-      const onExportElementSpy = sinon.spy(transformer, "onExportElement");
+      const onExportElementSpy = vi.spyOn(transformer, "onExportElement");
       await transformer.process();
 
       // Verify: parent element was NOT exported (short-circuited)
-      const parentWasExported = onExportElementSpy
-        .getCalls()
-        .some((call) => call.args[0].id === parentElementId);
+      const parentWasExported = onExportElementSpy.mock.calls.some(
+        ([element]) => element.id === parentElementId
+      );
       expect(
         parentWasExported,
         "onExportElement should not have been called for unchanged parent element"
       ).to.be.false;
 
       // Verify: child element WAS exported (still traversed through unchanged parent)
-      const childWasExported = onExportElementSpy
-        .getCalls()
-        .some((call) => call.args[0].id === childElementId);
+      const childWasExported = onExportElementSpy.mock.calls.some(
+        ([element]) => element.id === childElementId
+      );
       expect(
         childWasExported,
         "onExportElement should have been called for changed child element"
@@ -7236,12 +7284,32 @@ describe("IModelTransformerHub", () => {
         { argsForProcessChanges: {} }
       );
       await transformer.processSchemas();
-      await transformer.process();
-      secondTransformEditTxn.end();
-      await targetDb.pushChanges({
-        description: "Transformation 2: Process Changes with deletion",
-        retainLocks: true,
-      });
+      const openFileSpy = vi.spyOn(ChangesetReader, "openFile");
+      try {
+        await transformer.process();
+        secondTransformEditTxn.end();
+        await targetDb.pushChanges({
+          description: "Transformation 2: Process Changes with deletion",
+          retainLocks: true,
+        });
+
+        const selectedChangesetPaths = transformer["_csFileProps"]!.map(
+          (csFile) => csFile.pathname
+        );
+        expect(openFileSpy).toHaveBeenCalledTimes(
+          selectedChangesetPaths.length
+        );
+        expect(
+          openFileSpy.mock.calls.map(([args]) => args.fileName)
+        ).to.deep.equal(selectedChangesetPaths);
+        expect(
+          openFileSpy.mock.calls.map(([args]) => args.propFilter)
+        ).to.deep.equal(
+          selectedChangesetPaths.map(() => PropertyFilter.BisCoreElement)
+        );
+      } finally {
+        openFileSpy.mockRestore();
+      }
 
       // Assert: Verify element is deleted in target
       const targetElement2 = IModelTestUtils.queryByUserLabel(
@@ -7548,7 +7616,7 @@ describe("IModelTransformerHub", () => {
   async function closeAndDeleteBriefcase(iModel: BriefcaseDb) {
     await HubWrappers.closeAndDeleteBriefcaseDb(accessToken, iModel);
     // eslint-disable-next-line @itwin/no-internal
-    await IModelHost[_hubAccess].deleteIModel({
+    await transformerTestHub.deleteIModel({
       iTwinId,
       iModelId: iModel.iModelId,
     });

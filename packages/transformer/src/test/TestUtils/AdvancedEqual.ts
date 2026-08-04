@@ -3,7 +3,7 @@
  * See LICENSE.md in the project root for license terms and full copyright notice.
  *--------------------------------------------------------------------------------------------*/
 
-import { Assertion, util } from "chai";
+import { chai } from "vitest";
 import { Geometry } from "@itwin/core-geometry";
 
 interface DeepEqualOpts {
@@ -105,12 +105,16 @@ export function advancedDeepEqual(
   }
 }
 
-Assertion.addMethod(
+chai.Assertion.addMethod(
   "advancedEqual",
-  function advancedEqual(expected: any, options: DeepEqualOpts = {}) {
+  function advancedEqual(
+    this: Chai.AssertionStatic,
+    expected: any,
+    options: DeepEqualOpts = {}
+  ) {
     if (options.tolerance === undefined) options.tolerance = 1e-10;
     const actual = this._obj;
-    const isDeep = util.flag(this, "deep");
+    const isDeep = chai.util.flag(this, "deep");
     this.assert(
       isDeep
         ? advancedDeepEqual(expected, actual, options)
@@ -127,9 +131,13 @@ Assertion.addMethod(
   }
 );
 
-Assertion.addMethod(
+chai.Assertion.addMethod(
   "subsetEqual",
-  function subsetEqual(expected: any, options: DeepEqualOpts = {}) {
+  function subsetEqual(
+    this: Chai.AssertionStatic,
+    expected: any,
+    options: DeepEqualOpts = {}
+  ) {
     if (options.tolerance === undefined) options.tolerance = 1e-10;
     const actual = this._obj;
     this.assert(

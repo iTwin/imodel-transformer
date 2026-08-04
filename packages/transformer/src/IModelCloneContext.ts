@@ -5,7 +5,7 @@
 /** @packageDocumentation
  * @module iModels
  */
-import * as assert from "assert";
+import { strict as assert } from "node:assert";
 import { Id64, Id64String, Logger } from "@itwin/core-bentley";
 import {
   Code,
@@ -32,15 +32,20 @@ import { EntityClass } from "@itwin/ecschema-metadata";
 import { ECReferenceTypesCache } from "./ECReferenceTypesCache";
 import { EntityUnifier } from "./EntityUnifier";
 import { TransformerLoggerCategory } from "./TransformerLoggerCategory";
+import { BigMap } from "./BigMap";
+import type { IModelTransformContext } from "./IModelTransformContext";
 
 const loggerCategory: string = TransformerLoggerCategory.IModelCloneContext;
 
 /** The context for transforming a *source* Element to a *target* Element and remapping internal identifiers to the target iModel.
- * @beta
+ * @internal
  */
-export class IModelCloneContext extends IModelElementCloneContext {
+export class IModelCloneContext
+  extends IModelElementCloneContext
+  implements IModelTransformContext
+{
   private _refTypesCache = new ECReferenceTypesCache();
-  private _aspectRemapTable = new Map<Id64String, Id64String>();
+  private _aspectRemapTable = new BigMap<Id64String>();
 
   /** perform necessary initialization to use a clone context, namely caching the reference types in the source's schemas */
   public override async initialize() {
