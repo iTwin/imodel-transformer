@@ -7,6 +7,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import {
   defaultComparisonMeasuredSamples,
+  defaultComparisonWorkerTimeoutMilliseconds,
   defaultInformationalThresholdPercent,
   runComparison,
 } from "../comparison/ComparisonRunner.js";
@@ -95,6 +96,12 @@ async function main(): Promise<void> {
     ),
     outputDir,
     scenarioId: trimmed(process.env.QUICK_PERF_SCENARIO),
+    workerTimeoutMilliseconds:
+      positiveInteger(
+        process.env.QUICK_PERF_COMPARISON_WORKER_TIMEOUT_SECONDS,
+        "QUICK_PERF_COMPARISON_WORKER_TIMEOUT_SECONDS",
+        defaultComparisonWorkerTimeoutMilliseconds / 1000
+      ) * 1000,
   });
   process.stdout.write(
     `${fs.readFileSync(path.join(outputDir, "comparison.md"), "utf8")}\n`

@@ -36,7 +36,7 @@ describe("A/B comparison orchestration", () => {
     return directory;
   }
 
-  it("schedules one warm-up and three measured executions per arm in balanced order", () => {
+  it("schedules one warm-up and three measured executions per arm in alternating order", () => {
     const schedule = createExecutionSchedule(3);
     expect(schedule).to.deep.equal([
       { arm: "candidate", measured: false, sample: 0 },
@@ -74,6 +74,7 @@ describe("A/B comparison orchestration", () => {
         measuredSamplesPerArm: 3,
         outputDir,
         scenarioId: "changeset-scanning",
+        workerTimeoutMilliseconds: 1_234,
       },
       async (request) => {
         requests.push(request);
@@ -95,6 +96,7 @@ describe("A/B comparison orchestration", () => {
     expect(buildRequests[0].artifactDirectory).to.equal(
       path.join(outputDir, "fixture-artifact")
     );
+    expect(buildRequests[0].workerTimeoutMilliseconds).to.equal(1_234);
     expect(
       new Set(requests.map((request) => request.fixtureArtifactDirectory))
     ).to.deep.equal(new Set([buildRequests[0].artifactDirectory]));
@@ -126,6 +128,9 @@ describe("A/B comparison orchestration", () => {
     expect(
       requests.filter((request) => request.rootDirectory === "candidate-root")
     ).to.have.length(4);
+    expect(
+      new Set(requests.map((request) => request.workerTimeoutMilliseconds))
+    ).to.deep.equal(new Set([1_234]));
     expect(summary.baseline.measuredMilliseconds).to.deep.equal([
       101, 102, 103,
     ]);
@@ -186,6 +191,63 @@ describe("A/B comparison orchestration", () => {
     ).rejects.toThrow(
       /candidate sample 2 process failed with exit code 7: worker failed/
     );
+  });
+
+  it("terminates a timed-out worker with arm and sample context", async () => {
+    const rootDirectory = temporaryDirectory("quick-ab-timeout-");
+    const workerPath = comparisonArmWorkerPath(rootDirectory);
+    fs.mkdirSync(path.dirname(workerPath), { recursive: true });
+    fs.writeFileSync(
+      workerPath,
+      'process.on("SIGTERM", () => {}); setInterval(() => {}, 1000);\n'
+    );
+    const started = Date.now();
+    await expect(
+      executeArmProcess(
+        {
+          arm: "candidate",
+          fixtureArtifactDirectory: path.join(
+            rootDirectory,
+            "fixture-artifact"
+          ),
+          harnessRootDirectory: path.join(rootDirectory, "harness"),
+          measured: true,
+          outputDir: path.join(rootDirectory, "output"),
+          revision: "candidate-sha",
+          rootDirectory,
+          sample: 2,
+          workerTimeoutMilliseconds: 25,
+        },
+        25
+      )
+    ).rejects.toThrow(/candidate sample 2 process timed out after 25 ms/);
+    expect(Date.now() - started).to.be.lessThan(2_000);
+  });
+
+  it("rejects an invalid worker timeout before starting fixture work", async () => {
+    let buildStarted = false;
+    await expect(
+      runComparison(
+        {
+          baseline: {
+            revision: "base-sha",
+            rootDirectory: "baseline-root",
+          },
+          candidate: {
+            revision: "candidate-sha",
+            rootDirectory: "candidate-root",
+          },
+          outputDir: temporaryDirectory("quick-ab-invalid-timeout-"),
+          workerTimeoutMilliseconds: 0,
+        },
+        async () => benchmarkSample(),
+        async () => {
+          buildStarted = true;
+          return fixtureArtifactManifest();
+        }
+      )
+    ).rejects.toThrow(/worker timeout must be an integer between 1 and/);
+    expect(buildStarted).to.equal(false);
   });
 
   it("removes stale reports before a failed rerun", async () => {

@@ -40,7 +40,7 @@ export interface ComparisonSummary {
   readonly policy: {
     readonly warmupsPerArm: 1;
     readonly measuredSamplesPerArm: number;
-    readonly ordering: "position-balanced-alternating";
+    readonly ordering: "alternating";
     readonly informationalThresholdPercent: number;
   };
   readonly baseline: {
@@ -202,7 +202,7 @@ export function createComparisonSummary(
     policy: {
       warmupsPerArm: 1,
       measuredSamplesPerArm: input.measuredSamplesPerArm,
-      ordering: "position-balanced-alternating",
+      ordering: "alternating",
       informationalThresholdPercent: input.informationalThresholdPercent,
     },
     baseline: {

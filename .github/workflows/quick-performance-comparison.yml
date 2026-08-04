@@ -82,7 +82,32 @@ jobs:
           QUICK_PERF_COMPARISON_OUTPUT: ${{ runner.temp }}/quick-performance-comparison
           QUICK_PERF_COMPARISON_SAMPLES: 3
           QUICK_PERF_COMPARISON_THRESHOLD_PERCENT: 5
+          QUICK_PERF_COMPARISON_WORKER_TIMEOUT_SECONDS: 600
           QUICK_PERF_SCENARIO: changeset-scanning
+
+      - name: Annotate concerning performance
+        shell: bash
+        run: |
+          node <<'NODE'
+          const fs = require("node:fs");
+          const path = require("node:path");
+          const report = path.join(
+            process.env.RUNNER_TEMP,
+            "quick-performance-comparison",
+            "comparison.json"
+          );
+          const summary = JSON.parse(fs.readFileSync(report, "utf8"));
+          if (summary.informationalStatus !== "candidate-slower-than-threshold")
+            process.exit(0);
+
+          const delta = `${summary.percentageDelta >= 0 ? "+" : ""}${summary.percentageDelta.toFixed(2)}%`;
+          const message = `Candidate median is ${delta} relative to baseline, beyond the ${summary.policy.informationalThresholdPercent}% informational threshold. This warning is not a statistical-confidence or merge-blocking result.`;
+          console.log(`::warning title=Quick performance informational threshold::${message}`);
+          fs.appendFileSync(
+            process.env.GITHUB_STEP_SUMMARY,
+            `> [!WARNING]\n> ${message}\n\n`
+          );
+          NODE
 
       - name: Publish job summary
         if: always()

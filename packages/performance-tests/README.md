@@ -156,13 +156,14 @@ fresh process isolation never regenerates the workload.
 
 The initial policy runs one warm-up and three measured
 `changeset-scanning` executions per arm. The coordinator orders the warm-up candidate/baseline,
-then alternates baseline/candidate and candidate/baseline measured pairs. This
-gives each arm the same number of first and second positions for the default
-three measured samples.
+then alternates baseline/candidate and candidate/baseline measured pairs. An odd
+measured-sample count cannot give both arms the same number of first positions,
+so this policy is alternating rather than position-balanced.
 
-The comparison fails when a worker fails, arm configuration differs, or
-semantic digests differ. A performance delta never fails the job. Successful
-runs publish:
+The comparison fails when a worker fails or times out, arm configuration
+differs, or semantic digests differ. Each worker has a configurable timeout and
+is terminated, then force-killed after a short grace period if it hangs. A
+performance delta never fails the job. Successful runs publish:
 
 - `comparison.json`: baseline median, candidate median, percentage delta, raw
   measured values, arm transformer versions, shared fixture content hash,
@@ -173,12 +174,15 @@ runs publish:
 
 The five-percent threshold is a visible informational label only. Three
 measured samples do not establish statistical confidence or merge-blocking
-significance.
+significance. When the candidate median exceeds that threshold, the pull-request
+workflow emits a GitHub warning annotation and remains successful.
 
 The coordinator accepts `QUICK_PERF_SCENARIO`, `QUICK_PERF_FIXTURE`,
 `QUICK_PERF_COMPARISON_SAMPLES`, and
-`QUICK_PERF_COMPARISON_THRESHOLD_PERCENT`. `QUICK_PERF_BASELINE_ROOT` is
-required; candidate and revision paths are set by the workflow.
+`QUICK_PERF_COMPARISON_THRESHOLD_PERCENT`.
+`QUICK_PERF_COMPARISON_WORKER_TIMEOUT_SECONDS` sets the positive per-process
+timeout and defaults to 600 seconds. `QUICK_PERF_BASELINE_ROOT` is required;
+candidate and revision paths are set by the workflow.
 
 ## Running the manual workflow
 

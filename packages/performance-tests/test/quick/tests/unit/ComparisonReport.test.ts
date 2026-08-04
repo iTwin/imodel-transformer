@@ -82,7 +82,7 @@ describe("A/B comparison reporting", () => {
     expect(report.policy).to.deep.equal({
       warmupsPerArm: 1,
       measuredSamplesPerArm: 3,
-      ordering: "position-balanced-alternating",
+      ordering: "alternating",
       informationalThresholdPercent: 5,
     });
     expect(markdown).to.contain("Informational only");

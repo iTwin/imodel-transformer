@@ -23,6 +23,9 @@ import {
 
 export const defaultComparisonMeasuredSamples = 3;
 export const defaultInformationalThresholdPercent = 5;
+export const defaultComparisonWorkerTimeoutMilliseconds = 10 * 60 * 1000;
+const maximumWorkerTimeoutMilliseconds = 2_147_483_647;
+const defaultWorkerTerminationGraceMilliseconds = 5_000;
 
 export interface ComparisonArmConfiguration {
   readonly revision: string;
@@ -37,6 +40,7 @@ export interface ComparisonRunOptions {
   readonly measuredSamplesPerArm?: number;
   readonly outputDir: string;
   readonly scenarioId?: string;
+  readonly workerTimeoutMilliseconds?: number;
 }
 
 export interface ArmExecutionRequest {
@@ -50,6 +54,7 @@ export interface ArmExecutionRequest {
   readonly rootDirectory: string;
   readonly sample: number;
   readonly scenarioId?: string;
+  readonly workerTimeoutMilliseconds?: number;
 }
 
 export type ArmExecutor = (
@@ -62,6 +67,7 @@ export interface FixtureArtifactBuildRequest {
   readonly harnessRootDirectory: string;
   readonly rootDirectory: string;
   readonly scenarioId?: string;
+  readonly workerTimeoutMilliseconds?: number;
 }
 
 export type FixtureArtifactBuilder = (
@@ -148,7 +154,10 @@ interface WorkerProcessResult {
 async function runWorkerProcess(
   rootDirectory: string,
   harnessRootDirectory: string,
-  serializedRequest: string
+  serializedRequest: string,
+  description: string,
+  timeoutMilliseconds: number,
+  terminationGraceMilliseconds: number
 ): Promise<WorkerProcessResult> {
   const workerPath = comparisonArmWorkerPath(rootDirectory);
   if (!fs.existsSync(workerPath))
@@ -166,17 +175,59 @@ async function runWorkerProcess(
     });
     let stdout = "";
     let stderr = "";
+    let settled = false;
+    let timedOut = false;
+    let forceTermination: NodeJS.Timeout | undefined;
+    const timeoutError = () => {
+      const output = stderr || stdout;
+      return new Error(
+        `${description} process timed out after ${timeoutMilliseconds} ms${
+          output.length === 0 ? "" : `: ${output}`
+        }`
+      );
+    };
+    const settle = (action: () => void) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timeout);
+      if (forceTermination !== undefined) clearTimeout(forceTermination);
+      action();
+    };
     child.stdout.setEncoding("utf8");
     child.stderr.setEncoding("utf8");
     child.stdout.on("data", (chunk: string) => (stdout += chunk));
     child.stderr.on("data", (chunk: string) => (stderr += chunk));
-    child.once("error", reject);
-    child.once("close", (exitCode) => resolve({ exitCode, stderr, stdout }));
+    child.once("error", (error) =>
+      settle(() =>
+        reject(
+          new Error(`${description} process failed to start`, { cause: error })
+        )
+      )
+    );
+    child.once("close", (exitCode) =>
+      settle(() =>
+        timedOut
+          ? reject(timeoutError())
+          : resolve({ exitCode, stderr, stdout })
+      )
+    );
+    const timeout = setTimeout(() => {
+      timedOut = true;
+      child.kill("SIGTERM");
+      forceTermination = setTimeout(() => {
+        child.kill("SIGKILL");
+        child.stdout.destroy();
+        child.stderr.destroy();
+        child.unref();
+        settle(() => reject(timeoutError()));
+      }, terminationGraceMilliseconds);
+    }, timeoutMilliseconds);
   });
 }
 
 export async function executeArmProcess(
-  request: ArmExecutionRequest
+  request: ArmExecutionRequest,
+  terminationGraceMilliseconds = defaultWorkerTerminationGraceMilliseconds
 ): Promise<BenchmarkSample> {
   const resultFile = path.join(request.outputDir, "sample-result.json");
   fs.mkdirSync(request.outputDir, { recursive: true });
@@ -188,7 +239,11 @@ export async function executeArmProcess(
       expectedTransformerRootDirectory: request.rootDirectory,
       kind: "run-sample",
       resultFile,
-    })
+    }),
+    `${request.arm} sample ${request.sample}`,
+    request.workerTimeoutMilliseconds ??
+      defaultComparisonWorkerTimeoutMilliseconds,
+    terminationGraceMilliseconds
   );
   if (processResult.exitCode !== 0)
     throw new Error(
@@ -222,7 +277,11 @@ export async function buildFixtureArtifactProcess(
       expectedTransformerRootDirectory: request.rootDirectory,
       kind: "build-fixture",
       resultFile,
-    })
+    }),
+    "candidate fixture build",
+    request.workerTimeoutMilliseconds ??
+      defaultComparisonWorkerTimeoutMilliseconds,
+    defaultWorkerTerminationGraceMilliseconds
   );
   if (processResult.exitCode !== 0)
     throw new Error(
@@ -252,6 +311,17 @@ export async function runComparison(
   const informationalThresholdPercent =
     options.informationalThresholdPercent ??
     defaultInformationalThresholdPercent;
+  const workerTimeoutMilliseconds =
+    options.workerTimeoutMilliseconds ??
+    defaultComparisonWorkerTimeoutMilliseconds;
+  if (
+    !Number.isSafeInteger(workerTimeoutMilliseconds) ||
+    workerTimeoutMilliseconds < 1 ||
+    workerTimeoutMilliseconds > maximumWorkerTimeoutMilliseconds
+  )
+    throw new Error(
+      `A/B comparison worker timeout must be an integer between 1 and ${maximumWorkerTimeoutMilliseconds} milliseconds`
+    );
   const schedule = createExecutionSchedule(measuredSamplesPerArm);
   prepareBenchmarkOutputDirectory(options.outputDir);
   for (const reportFile of [
@@ -281,6 +351,7 @@ export async function runComparison(
     harnessRootDirectory,
     rootDirectory: options.candidate.rootDirectory,
     scenarioId: options.scenarioId,
+    workerTimeoutMilliseconds,
   });
   const samples: Record<ComparisonArm, BenchmarkSample[]> = {
     baseline: [],
@@ -302,6 +373,7 @@ export async function runComparison(
       revision: arm.revision,
       rootDirectory: arm.rootDirectory,
       scenarioId: options.scenarioId,
+      workerTimeoutMilliseconds,
     });
     if (sample.fixtureContentHash !== fixtureManifest.contentHash)
       throw new Error(
