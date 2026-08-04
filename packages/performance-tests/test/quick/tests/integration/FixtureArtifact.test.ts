@@ -222,6 +222,19 @@ describe("detached fixture artifact", () => {
     fs.rmSync(corrupt, { recursive: true, force: true });
   });
 
+  it("rejects changed workload bytes even when file sizes are unchanged", () => {
+    const corrupt = path.join(root, "changed-workload-artifact");
+    fs.cpSync(built.directory, corrupt, { recursive: true });
+    const changeset = readChangesetFileProps(corrupt)[0].pathname;
+    const bytes = fs.readFileSync(changeset);
+    bytes[0] ^= 0xff;
+    fs.writeFileSync(changeset, bytes);
+    expect(() => readFixtureArtifact(corrupt)).to.throw(
+      /content hash mismatch/
+    );
+    fs.rmSync(corrupt, { recursive: true, force: true });
+  });
+
   it("rejects changeset props that escape the artifact directory", () => {
     const corrupt = path.join(root, "escaping-artifact");
     fs.cpSync(built.directory, corrupt, { recursive: true });
@@ -468,8 +481,6 @@ describe("recipe data that cannot survive JSON", () => {
       expect((error as Error).message).to.match(/Recipe data at .* is a Set/);
     }
     expect(built, "the build must not succeed").to.equal(undefined);
-    // A half-written artifact must never read back as usable.
-    expect(() => readFixtureArtifact(artifactDir)).to.throw();
-    expect(fs.existsSync(path.join(artifactDir, "recipe.json"))).to.be.false;
+    expect(fs.existsSync(artifactDir)).to.be.false;
   });
 });

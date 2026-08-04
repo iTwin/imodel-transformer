@@ -54,6 +54,7 @@ describe("A/B comparison orchestration", () => {
   it("passes identical scenario and fixture configuration to isolated arms", async () => {
     const outputDir = temporaryDirectory("quick-ab-runner-");
     const requests: ArmExecutionRequest[] = [];
+    const fixtureBuilds: string[] = [];
     const summary = await runComparison(
       {
         baseline: {
@@ -77,9 +78,19 @@ describe("A/B comparison orchestration", () => {
           wallMilliseconds:
             (request.arm === "baseline" ? 100 : 105) + request.sample,
         });
+      },
+      async (request) => {
+        fixtureBuilds.push(request.outputDir);
+        return {
+          contentHash:
+            "1111111111111111111111111111111111111111111111111111111111111111",
+        };
       }
     );
 
+    expect(fixtureBuilds).to.deep.equal([
+      path.join(outputDir, "shared-fixture"),
+    ]);
     expect(
       new Set(requests.map((request) => request.scenarioId))
     ).to.deep.equal(new Set(["changeset-scanning"]));
@@ -99,6 +110,9 @@ describe("A/B comparison orchestration", () => {
         ),
       ])
     );
+    expect(
+      new Set(requests.map((request) => request.fixtureArtifactDirectory))
+    ).to.deep.equal(new Set(fixtureBuilds));
     expect(
       requests.filter((request) => request.rootDirectory === "baseline-root")
     ).to.have.length(4);
@@ -131,6 +145,7 @@ describe("A/B comparison orchestration", () => {
     );
     const sample = await executeArmProcess({
       arm: "baseline",
+      fixtureArtifactDirectory: path.join(rootDirectory, "fixture"),
       harnessRootDirectory: path.join(rootDirectory, "harness"),
       measured: true,
       outputDir: path.join(rootDirectory, "output"),
@@ -153,6 +168,7 @@ describe("A/B comparison orchestration", () => {
     await expect(
       executeArmProcess({
         arm: "candidate",
+        fixtureArtifactDirectory: path.join(rootDirectory, "fixture"),
         harnessRootDirectory: path.join(rootDirectory, "harness"),
         measured: true,
         outputDir: path.join(rootDirectory, "output"),
@@ -178,16 +194,27 @@ describe("A/B comparison orchestration", () => {
       },
       outputDir,
     };
-    await runComparison(options, async (request) =>
-      benchmarkSample({
-        measured: request.measured,
-        sample: request.sample,
-      })
+    const buildFixture = async () => ({
+      contentHash:
+        "1111111111111111111111111111111111111111111111111111111111111111",
+    });
+    await runComparison(
+      options,
+      async (request) =>
+        benchmarkSample({
+          measured: request.measured,
+          sample: request.sample,
+        }),
+      buildFixture
     );
     await expect(
-      runComparison(options, async () => {
-        throw new Error("intentional worker failure");
-      })
+      runComparison(
+        options,
+        async () => {
+          throw new Error("intentional worker failure");
+        },
+        buildFixture
+      )
     ).rejects.toThrow(/intentional worker failure/);
     expect(fs.existsSync(path.join(outputDir, "comparison.json"))).to.equal(
       false

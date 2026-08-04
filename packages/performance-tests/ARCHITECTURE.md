@@ -199,6 +199,12 @@ harness root. This keeps benchmark authoring and fixture resolution symmetric
 while allowing Node's normal module resolution to load the baseline or candidate
 transformer from the corresponding checkout.
 
+One candidate worker builds the detached fixture artifact before the execution
+schedule starts. The artifact manifest hashes the immutable briefcase,
+changesets, props, and optional recipe data. Every later worker verifies that
+content hash and materializes its private working copy from the same artifact;
+no warm-up or measured worker regenerates fixture contents.
+
 The coordinator starts a separate worker process for every warm-up and measured
 execution. Workers use `resolveBenchmarkRun()` and `BenchmarkRunner.runSample()`;
 there is no second scenario, fixture, scanner, or correctness API. The default
@@ -213,8 +219,9 @@ baseline sample 3, candidate sample 3
 
 Before reporting, the coordinator requires identical scenario and fixture
 identity fields and one semantic digest across both arms. It reports only arm
-medians, measured samples, candidate percentage delta, and an explicitly
-informational threshold status. The threshold is not a confidence interval,
+transformer versions, medians, measured samples, candidate percentage delta,
+and an explicitly informational threshold status. Transformer version is arm
+provenance, not workload identity. The threshold is not a confidence interval,
 significance test, or merge gate.
 
 ## Current incremental-synchronization run

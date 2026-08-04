@@ -12,6 +12,7 @@ import {
   artifactChangesetDirectoryName,
   artifactChangesetPropsFileName,
   changesetArtifactFileName,
+  fixtureArtifactContentHash,
   FixtureArtifactManifest,
   fixtureArtifactVersion,
   readChangesetFileProps,
@@ -97,6 +98,7 @@ export const detachedBriefcaseFixtureProvider: FixtureProvider = {
     let hub: ReconstructedSourceHub | undefined;
     let briefcaseFileName: string | undefined;
     let briefcaseClosed = false;
+    let completed = false;
     try {
       let recipeState: unknown;
       hub = await reconstructSourceHub(
@@ -166,6 +168,7 @@ export const detachedBriefcaseFixtureProvider: FixtureProvider = {
       const indices = downloaded.map((changeset) => changeset.index);
       const manifest: FixtureArtifactManifest = {
         artifactVersion: fixtureArtifactVersion,
+        contentHash: fixtureArtifactContentHash(artifactDir, recipeDataFile),
         descriptor,
         briefcase: {
           fileName: artifactBriefcaseFileName,
@@ -189,13 +192,15 @@ export const detachedBriefcaseFixtureProvider: FixtureProvider = {
         builtAt: new Date().toISOString(),
       };
       writeFixtureArtifactManifest(artifactDir, manifest);
-      return {
+      const result = {
         fixture,
         descriptor,
         directory: artifactDir,
         buildMilliseconds,
         artifact: readFixtureArtifact(artifactDir),
       };
+      completed = true;
+      return result;
     } catch (error) {
       if (hub) {
         const cleanupErrors = await releaseBuildHub(
@@ -214,6 +219,7 @@ export const detachedBriefcaseFixtureProvider: FixtureProvider = {
       // Build-time scaffolding must never reach a working copy.
       fs.rmSync(hubDir, { recursive: true, force: true });
       fs.rmSync(scratchDir, { recursive: true, force: true });
+      if (!completed) fs.rmSync(artifactDir, { recursive: true, force: true });
     }
   },
 

@@ -62,6 +62,15 @@ export interface FixtureDescriptor {
   readonly recipeHash: string;
 }
 
+export function fixtureWorkloadGeneratorIdentity(
+  generator: FixtureDescriptor["generator"]
+): Pick<FixtureDescriptor["generator"], "coreBackend" | "node"> {
+  return {
+    coreBackend: generator.coreBackend,
+    node: generator.node,
+  };
+}
+
 function canonicalize(value: unknown): string {
   if (Array.isArray(value))
     return `[${value.map((entry) => canonicalize(entry)).join(",")}]`;

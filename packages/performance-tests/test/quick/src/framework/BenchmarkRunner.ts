@@ -19,11 +19,18 @@ import {
 import {
   FixtureDescriptor,
   FixtureTopology,
+  fixtureWorkloadGeneratorIdentity,
 } from "../fixtures/FixtureDescriptor.js";
 import { ConfiguredFixture } from "../fixtures/FixtureRecipe.js";
 import {
+  FixtureArtifact,
+  readFixtureArtifact,
+} from "../fixtures/FixtureArtifact.js";
+import {
+  BuiltFixture,
   getFixtureProvider,
   PreparedDataset,
+  requireFixtureArtifact,
 } from "../fixtures/FixtureProvider.js";
 import { quickTestHub } from "../fixtures/QuickTestHub.js";
 import { quickPath } from "../support/paths.js";
@@ -108,6 +115,7 @@ export function prepareBenchmarkOutputDirectory(outputDir: string): void {
 export interface BenchmarkSample {
   readonly cpuSystemMilliseconds: number;
   readonly cpuUserMilliseconds: number;
+  readonly fixtureContentHash?: string;
   readonly fixtureId: string;
   readonly fixtureGenerator: FixtureDescriptor["generator"];
   readonly fixtureRecipeHash: string;
@@ -125,6 +133,8 @@ export interface BenchmarkSample {
   readonly semanticDigest: string;
   readonly teardownMilliseconds: number;
   readonly topology: FixtureTopology;
+  /** Version of the transformer module loaded by this execution's isolated process. */
+  readonly transformerVersion: string;
   readonly verificationMilliseconds: number;
   readonly wallMilliseconds: number;
 }
@@ -132,6 +142,95 @@ export interface BenchmarkSample {
 interface BenchmarkExecution {
   readonly measured: boolean;
   readonly sample: number;
+}
+
+function comparableFixtureIdentity(descriptor: FixtureDescriptor): string {
+  return JSON.stringify({
+    distribution: descriptor.distribution,
+    generator: fixtureWorkloadGeneratorIdentity(descriptor.generator),
+    id: descriptor.id,
+    label: descriptor.label,
+    layout: descriptor.layout,
+    recipeHash: descriptor.recipeHash,
+    scenarioClaims: descriptor.scenarioClaims,
+    version: descriptor.version,
+  });
+}
+
+function builtFromArtifact(
+  fixture: ConfiguredFixture,
+  artifactDirectory: string
+): BuiltFixture {
+  const artifact = readFixtureArtifact(artifactDirectory);
+  if (
+    comparableFixtureIdentity(artifact.manifest.descriptor) !==
+    comparableFixtureIdentity(fixture.descriptor)
+  )
+    throw new Error(
+      "Shared fixture artifact does not match the configured benchmark workload"
+    );
+  return {
+    artifact,
+    buildMilliseconds: artifact.manifest.buildMilliseconds,
+    descriptor: artifact.manifest.descriptor,
+    directory: artifact.directory,
+    fixture,
+  };
+}
+
+export async function buildBenchmarkFixtureArtifact(
+  fixture: ConfiguredFixture,
+  artifactDirectory: string
+): Promise<FixtureArtifact> {
+  if (fixture.descriptor.layout.topology !== "source-only")
+    throw new Error(
+      `Shared comparison artifacts require a "source-only" fixture; received "${fixture.descriptor.layout.topology}"`
+    );
+  assertSafeBenchmarkOutputPath(artifactDirectory);
+  const stagingDirectory = `${artifactDirectory}.building`;
+  fs.rmSync(stagingDirectory, { recursive: true, force: true });
+  fs.rmSync(artifactDirectory, { recursive: true, force: true });
+  const provider = getFixtureProvider(fixture.descriptor);
+  let built: BuiltFixture | undefined;
+  let completed = false;
+  let shutdownSucceeded = false;
+  return runWithCleanup(async () => {
+    await IModelHost.startup({ hubAccess: quickTestHub });
+    const artifact = await runWithCleanup(async () => {
+      built = await provider.build(fixture, stagingDirectory);
+      requireFixtureArtifact(built);
+      fs.cpSync(stagingDirectory, artifactDirectory, { recursive: true });
+      return readFixtureArtifact(artifactDirectory);
+    }, [
+      {
+        name: "dispose staged quick performance fixture build",
+        run: async () => {
+          try {
+            if (built) await provider.disposeBuild(built);
+          } finally {
+            fs.rmSync(stagingDirectory, { recursive: true, force: true });
+          }
+        },
+      },
+    ]);
+    completed = true;
+    return artifact;
+  }, [
+    {
+      name: "shut down IModelHost after fixture artifact build",
+      run: async () => {
+        if (IModelHost.isValid) await IModelHost.shutdown();
+        shutdownSucceeded = true;
+      },
+    },
+    {
+      name: "remove incomplete shared fixture artifact",
+      run: () => {
+        if (!completed || !shutdownSucceeded)
+          fs.rmSync(artifactDirectory, { recursive: true, force: true });
+      },
+    },
+  ]);
 }
 
 export class BenchmarkRunner {
@@ -175,116 +274,143 @@ export class BenchmarkRunner {
     return result;
   }
 
+  public async runSampleFromArtifact(
+    sample: number,
+    measured: boolean,
+    artifactDirectory: string
+  ): Promise<BenchmarkSample> {
+    if (!Number.isSafeInteger(sample) || sample < 0 || measured !== sample > 0)
+      throw new Error(
+        "Quick performance sample zero must be the warm-up and positive samples must be measured"
+      );
+    const [result] = await this.runExecutions(
+      [{ measured, sample }],
+      artifactDirectory
+    );
+    return result;
+  }
+
   private async runExecutions(
-    executions: readonly BenchmarkExecution[]
+    executions: readonly BenchmarkExecution[],
+    artifactDirectory?: string
   ): Promise<BenchmarkSample[]> {
     prepareBenchmarkOutputDirectory(this._outputDir);
-    const { descriptor } = this._fixture;
-    const provider = getFixtureProvider(descriptor);
+    const provider = getFixtureProvider(this._fixture.descriptor);
     const samples: BenchmarkSample[] = [];
     await runWithCleanup(async () => {
       await IModelHost.startup({ hubAccess: quickTestHub });
-      // Stage 1: build the fixture exactly once, outside the sample loop.
-      const built = await provider.build(
-        this._fixture,
-        path.join(this._outputDir, fixtureArtifactDirectoryName)
-      );
-      await runWithCleanup(async () => {
-        for (const execution of executions) {
-          const { measured, sample } = execution;
-          const sampleDir = path.join(this._outputDir, `sample-${sample}`);
-          let dataset: PreparedDataset | undefined;
-          let scenario: BenchmarkScenario | undefined;
-          let teardownStart: bigint | undefined;
-          const beginTeardown = () => {
-            teardownStart ??= process.hrtime.bigint();
-          };
-          const cleanupTasks: CleanupTask[] = [
-            {
-              name: "abort quick performance scenario",
-              run: () => {
-                beginTeardown();
-                scenario?.abort();
-              },
-            },
-            {
-              name: "dispose quick performance sample",
-              run: async () => {
-                beginTeardown();
-                if (dataset) await provider.disposeSample(dataset);
-              },
-            },
-            {
-              name: "remove quick performance sample directory",
-              run: () => {
-                beginTeardown();
-                fs.rmSync(sampleDir, { recursive: true, force: true });
-              },
-            },
-          ];
-          const completedSample = await runWithCleanup(async () => {
-            // Stage 2: a pristine working copy per sample. Mutation is the scenario's business.
-            dataset = await provider.materialize(
-              built,
-              sampleDir,
-              `quick-sample-${sample}`
-            );
-            scenario = this._scenario.factory(dataset);
-            const rssBefore = process.memoryUsage().rss;
-            const cpuBefore = process.cpuUsage();
-            const wallStart = process.hrtime.bigint();
-            await scenario.measure();
-            const wallMilliseconds =
-              Number(process.hrtime.bigint() - wallStart) / 1_000_000;
-            const cpu = process.cpuUsage(cpuBefore);
-            const rssDeltaBytes = process.memoryUsage().rss - rssBefore;
-            const verificationStart = process.hrtime.bigint();
-            const semanticDigest = await scenario.finish();
-            const verificationMilliseconds =
-              Number(process.hrtime.bigint() - verificationStart) / 1_000_000;
-            return {
-              cpuSystemMilliseconds: cpu.system / 1000,
-              cpuUserMilliseconds: cpu.user / 1000,
-              fixtureBuildMilliseconds: built.buildMilliseconds,
-              fixtureGenerator: descriptor.generator,
-              fixtureId: descriptor.id,
-              fixtureRecipeHash: descriptor.recipeHash,
-              fixtureVersion: descriptor.version,
-              measured,
-              operations: descriptor.distribution.operations,
-              reconstructionMilliseconds: dataset.reconstructionMilliseconds,
-              reportSchemaVersion: benchmarkReportSchemaVersion,
-              rssDeltaBytes,
-              sample,
-              scenarioId: this._scenario.id,
-              semanticDigest,
-              topology: descriptor.layout.topology,
-              verificationMilliseconds,
-              wallMilliseconds,
+      const built =
+        artifactDirectory === undefined
+          ? await provider.build(
+              this._fixture,
+              path.join(this._outputDir, fixtureArtifactDirectoryName)
+            )
+          : builtFromArtifact(this._fixture, artifactDirectory);
+      const { descriptor } = built;
+      await runWithCleanup(
+        async () => {
+          for (const execution of executions) {
+            const { measured, sample } = execution;
+            const sampleDir = path.join(this._outputDir, `sample-${sample}`);
+            let dataset: PreparedDataset | undefined;
+            let scenario: BenchmarkScenario | undefined;
+            let teardownStart: bigint | undefined;
+            const beginTeardown = () => {
+              teardownStart ??= process.hrtime.bigint();
             };
-          }, cleanupTasks);
-          if (teardownStart === undefined)
-            throw new Error("Quick performance sample cleanup did not start");
-          const teardownMilliseconds =
-            Number(process.hrtime.bigint() - teardownStart) / 1_000_000;
-          const sampleResult = {
-            ...completedSample,
-            teardownMilliseconds,
-          };
-          samples.push(sampleResult);
-          fs.appendFileSync(
-            path.join(this._outputDir, "samples.jsonl"),
-            `${JSON.stringify(sampleResult)}\n`
-          );
-        }
-      }, [
-        {
-          name: "dispose quick performance fixture build",
-          run: async () => {
-            await provider.disposeBuild(built);
-          },
+            const cleanupTasks: CleanupTask[] = [
+              {
+                name: "abort quick performance scenario",
+                run: () => {
+                  beginTeardown();
+                  scenario?.abort();
+                },
+              },
+              {
+                name: "dispose quick performance sample",
+                run: async () => {
+                  beginTeardown();
+                  if (dataset) await provider.disposeSample(dataset);
+                },
+              },
+              {
+                name: "remove quick performance sample directory",
+                run: () => {
+                  beginTeardown();
+                  fs.rmSync(sampleDir, { recursive: true, force: true });
+                },
+              },
+            ];
+            const completedSample = await runWithCleanup(async () => {
+              // Stage 2: a pristine working copy per sample. Mutation is the scenario's business.
+              dataset = await provider.materialize(
+                built,
+                sampleDir,
+                `quick-sample-${sample}`
+              );
+              scenario = this._scenario.factory(dataset);
+              const rssBefore = process.memoryUsage().rss;
+              const cpuBefore = process.cpuUsage();
+              const wallStart = process.hrtime.bigint();
+              await scenario.measure();
+              const wallMilliseconds =
+                Number(process.hrtime.bigint() - wallStart) / 1_000_000;
+              const cpu = process.cpuUsage(cpuBefore);
+              const rssDeltaBytes = process.memoryUsage().rss - rssBefore;
+              const verificationStart = process.hrtime.bigint();
+              const semanticDigest = await scenario.finish();
+              const verificationMilliseconds =
+                Number(process.hrtime.bigint() - verificationStart) / 1_000_000;
+              return {
+                cpuSystemMilliseconds: cpu.system / 1000,
+                cpuUserMilliseconds: cpu.user / 1000,
+                fixtureContentHash: built.artifact?.manifest.contentHash,
+                fixtureBuildMilliseconds: built.buildMilliseconds,
+                fixtureGenerator: descriptor.generator,
+                fixtureId: descriptor.id,
+                fixtureRecipeHash: descriptor.recipeHash,
+                fixtureVersion: descriptor.version,
+                measured,
+                operations: descriptor.distribution.operations,
+                reconstructionMilliseconds: dataset.reconstructionMilliseconds,
+                reportSchemaVersion: benchmarkReportSchemaVersion,
+                rssDeltaBytes,
+                sample,
+                scenarioId: this._scenario.id,
+                semanticDigest,
+                topology: descriptor.layout.topology,
+                transformerVersion:
+                  this._fixture.descriptor.generator.transformer,
+                verificationMilliseconds,
+                wallMilliseconds,
+              };
+            }, cleanupTasks);
+            if (teardownStart === undefined)
+              throw new Error("Quick performance sample cleanup did not start");
+            const teardownMilliseconds =
+              Number(process.hrtime.bigint() - teardownStart) / 1_000_000;
+            const sampleResult = {
+              ...completedSample,
+              teardownMilliseconds,
+            };
+            samples.push(sampleResult);
+            fs.appendFileSync(
+              path.join(this._outputDir, "samples.jsonl"),
+              `${JSON.stringify(sampleResult)}\n`
+            );
+          }
         },
-      ]);
+        artifactDirectory === undefined
+          ? [
+              {
+                name: "dispose quick performance fixture build",
+                run: async () => {
+                  await provider.disposeBuild(built);
+                },
+              },
+            ]
+          : []
+      );
     }, [
       {
         name: "shut down IModelHost after quick performance run",

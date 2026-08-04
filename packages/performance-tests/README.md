@@ -141,6 +141,12 @@ root. The scenario, configured fixture, recipe, workload, and orchestration code
 are therefore identical; each worker process still resolves
 `@itwin/imodel-transformer` from its own checkout.
 
+Before any execution, one candidate worker builds the immutable detached
+fixture artifact. Its manifest records a SHA-256 over the briefcase, changeset,
+props, and optional recipe-data bytes. Every warm-up and measured worker
+validates that hash and materializes a private copy from the same artifact, so
+fresh process isolation never regenerates the workload.
+
 The initial policy runs one warm-up and three measured
 `changeset-scanning` executions per arm. Every execution has a fresh Node
 process and module graph. The coordinator orders the warm-up candidate/baseline,
@@ -153,7 +159,8 @@ semantic digests differ. A performance delta never fails the job. Successful
 runs publish:
 
 - `comparison.json`: baseline median, candidate median, percentage delta, raw
-  measured values, execution order, and informational threshold status.
+  measured values, arm transformer versions, shared fixture content hash,
+  execution order, and informational threshold status.
 - `comparison.md`: the same small result set for the Actions job summary.
 - `comparison-samples.jsonl`: all warm-up and measured sample records with arm
   and revision labels.

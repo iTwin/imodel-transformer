@@ -36,6 +36,7 @@ export interface ComparisonRunOptions {
 
 export interface ArmExecutionRequest {
   readonly arm: ComparisonArm;
+  readonly fixtureArtifactDirectory: string;
   readonly fixtureId?: string;
   readonly harnessRootDirectory: string;
   readonly measured: boolean;
@@ -49,6 +50,22 @@ export interface ArmExecutionRequest {
 export type ArmExecutor = (
   request: ArmExecutionRequest
 ) => Promise<BenchmarkSample>;
+
+export interface FixtureBuildRequest {
+  readonly fixtureId?: string;
+  readonly harnessRootDirectory: string;
+  readonly outputDir: string;
+  readonly rootDirectory: string;
+  readonly scenarioId?: string;
+}
+
+export interface FixtureBuildResult {
+  readonly contentHash: string;
+}
+
+export type FixtureBuilder = (
+  request: FixtureBuildRequest
+) => Promise<FixtureBuildResult>;
 
 export interface ScheduledExecution {
   readonly arm: ComparisonArm;
@@ -98,6 +115,7 @@ function isBenchmarkSample(value: unknown): value is BenchmarkSample {
     typeof sample.scenarioId === "string" &&
     typeof sample.fixtureId === "string" &&
     typeof sample.fixtureRecipeHash === "string" &&
+    typeof sample.fixtureContentHash === "string" &&
     typeof sample.semanticDigest === "string" &&
     typeof sample.measured === "boolean" &&
     typeof sample.sample === "number" &&
@@ -105,6 +123,7 @@ function isBenchmarkSample(value: unknown): value is BenchmarkSample {
     typeof sample.fixtureVersion === "number" &&
     typeof sample.reportSchemaVersion === "number" &&
     typeof sample.topology === "string" &&
+    typeof sample.transformerVersion === "string" &&
     sample.fixtureGenerator !== null &&
     typeof sample.fixtureGenerator === "object" &&
     sample.operations !== null &&
@@ -112,16 +131,19 @@ function isBenchmarkSample(value: unknown): value is BenchmarkSample {
   );
 }
 
-export async function executeArmProcess(
-  request: ArmExecutionRequest
-): Promise<BenchmarkSample> {
-  const workerPath = comparisonArmWorkerPath(request.rootDirectory);
+async function runWorkerProcess(
+  rootDirectory: string,
+  harnessRootDirectory: string,
+  request: object,
+  resultFile: string,
+  description: string
+): Promise<unknown> {
+  const workerPath = comparisonArmWorkerPath(rootDirectory);
   if (!fs.existsSync(workerPath))
     throw new Error(
-      `Compiled A/B arm worker does not exist for ${request.arm}: ${workerPath}`
+      `Compiled A/B arm worker does not exist for ${description}: ${workerPath}`
     );
-  const resultFile = path.join(request.outputDir, "sample-result.json");
-  fs.mkdirSync(request.outputDir, { recursive: true });
+  fs.mkdirSync(path.dirname(resultFile), { recursive: true });
   const serializedRequest = JSON.stringify({ ...request, resultFile });
   const processResult = await new Promise<{
     exitCode: number | null;
@@ -129,11 +151,11 @@ export async function executeArmProcess(
     stdout: string;
   }>((resolve, reject) => {
     const child = spawn(process.execPath, [workerPath], {
-      cwd: request.rootDirectory,
+      cwd: rootDirectory,
       env: {
         ...process.env,
         QUICK_PERF_ARM_REQUEST: serializedRequest,
-        QUICK_PERF_HARNESS_ROOT: request.harnessRootDirectory,
+        QUICK_PERF_HARNESS_ROOT: harnessRootDirectory,
       },
       stdio: ["ignore", "pipe", "pipe"],
       windowsHide: true,
@@ -149,13 +171,23 @@ export async function executeArmProcess(
   });
   if (processResult.exitCode !== 0)
     throw new Error(
-      `${request.arm} sample ${request.sample} process failed with exit code ${processResult.exitCode}: ${processResult.stderr || processResult.stdout}`
+      `${description} process failed with exit code ${processResult.exitCode}: ${processResult.stderr || processResult.stdout}`
     );
   if (!fs.existsSync(resultFile))
-    throw new Error(
-      `${request.arm} sample ${request.sample} process did not write a result`
-    );
-  const parsed: unknown = JSON.parse(fs.readFileSync(resultFile, "utf8"));
+    throw new Error(`${description} process did not write a result`);
+  return JSON.parse(fs.readFileSync(resultFile, "utf8")) as unknown;
+}
+
+export async function executeArmProcess(
+  request: ArmExecutionRequest
+): Promise<BenchmarkSample> {
+  const parsed = await runWorkerProcess(
+    request.rootDirectory,
+    request.harnessRootDirectory,
+    { ...request, kind: "run-sample" },
+    path.join(request.outputDir, "sample-result.json"),
+    `${request.arm} sample ${request.sample}`
+  );
   if (!isBenchmarkSample(parsed))
     throw new Error(
       `${request.arm} sample ${request.sample} process wrote an invalid result`
@@ -163,9 +195,29 @@ export async function executeArmProcess(
   return parsed;
 }
 
+export async function buildFixtureProcess(
+  request: FixtureBuildRequest
+): Promise<FixtureBuildResult> {
+  const parsed = await runWorkerProcess(
+    request.rootDirectory,
+    request.harnessRootDirectory,
+    { ...request, kind: "build-fixture" },
+    path.join(path.dirname(request.outputDir), "shared-fixture-result.json"),
+    "shared fixture build"
+  );
+  if (
+    parsed === null ||
+    typeof parsed !== "object" ||
+    typeof (parsed as Record<string, unknown>).contentHash !== "string"
+  )
+    throw new Error("Shared fixture build process wrote an invalid result");
+  return { contentHash: (parsed as Record<string, string>).contentHash };
+}
+
 export async function runComparison(
   options: ComparisonRunOptions,
-  execute: ArmExecutor = executeArmProcess
+  execute: ArmExecutor = executeArmProcess,
+  buildFixture: FixtureBuilder = buildFixtureProcess
 ): Promise<ComparisonSummary> {
   const measuredSamplesPerArm =
     options.measuredSamplesPerArm ?? defaultComparisonMeasuredSamples;
@@ -178,8 +230,14 @@ export async function runComparison(
     "comparison.json",
     "comparison.md",
     "comparison-samples.jsonl",
+    "shared-fixture-result.json",
   ])
     fs.rmSync(path.join(options.outputDir, reportFile), { force: true });
+  const fixtureArtifactDirectory = path.join(
+    options.outputDir,
+    "shared-fixture"
+  );
+  fs.rmSync(fixtureArtifactDirectory, { recursive: true, force: true });
   const executionRoot = path.join(options.outputDir, "executions");
   fs.rmSync(executionRoot, { recursive: true, force: true });
   fs.mkdirSync(executionRoot, { recursive: true });
@@ -187,6 +245,20 @@ export async function runComparison(
     baseline: [],
     candidate: [],
   };
+  const harnessRootDirectory = path.join(
+    options.candidate.rootDirectory,
+    "packages",
+    "performance-tests",
+    "test",
+    "quick"
+  );
+  await buildFixture({
+    fixtureId: options.fixtureId,
+    harnessRootDirectory,
+    outputDir: fixtureArtifactDirectory,
+    rootDirectory: options.candidate.rootDirectory,
+    scenarioId: options.scenarioId,
+  });
 
   for (const [index, execution] of schedule.entries()) {
     const arm = options[execution.arm];
@@ -196,14 +268,9 @@ export async function runComparison(
     );
     const sample = await execute({
       ...execution,
+      fixtureArtifactDirectory,
       fixtureId: options.fixtureId,
-      harnessRootDirectory: path.join(
-        options.candidate.rootDirectory,
-        "packages",
-        "performance-tests",
-        "test",
-        "quick"
-      ),
+      harnessRootDirectory,
       outputDir,
       revision: arm.revision,
       rootDirectory: arm.rootDirectory,

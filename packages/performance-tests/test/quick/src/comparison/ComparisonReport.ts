@@ -6,6 +6,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { BenchmarkSample } from "../framework/BenchmarkRunner.js";
+import { fixtureWorkloadGeneratorIdentity } from "../fixtures/FixtureDescriptor.js";
 import { median } from "../reporting/statistics.js";
 
 export type ComparisonArm = "baseline" | "candidate";
@@ -34,6 +35,7 @@ export interface ComparisonSummary {
   readonly fixtureId: string;
   readonly fixtureVersion: number;
   readonly fixtureRecipeHash: string;
+  readonly fixtureContentHash: string;
   readonly semanticDigest: string;
   readonly policy: {
     readonly warmupsPerArm: 1;
@@ -45,11 +47,13 @@ export interface ComparisonSummary {
     readonly revision: string;
     readonly medianMilliseconds: number;
     readonly measuredMilliseconds: readonly number[];
+    readonly transformerVersion: string;
   };
   readonly candidate: {
     readonly revision: string;
     readonly medianMilliseconds: number;
     readonly measuredMilliseconds: readonly number[];
+    readonly transformerVersion: string;
   };
   readonly percentageDelta: number;
   readonly informationalStatus: InformationalComparisonStatus;
@@ -64,7 +68,7 @@ function configurationIdentity(sample: BenchmarkSample): string {
     sample.fixtureId,
     sample.fixtureVersion,
     sample.fixtureRecipeHash,
-    sample.fixtureGenerator,
+    fixtureWorkloadGeneratorIdentity(sample.fixtureGenerator),
     sample.topology,
     sample.operations,
   ]);
@@ -94,6 +98,16 @@ function validateArm(
   );
   if (JSON.stringify(measuredIds) !== JSON.stringify(expectedIds))
     throw new Error(`${arm} measured sample identifiers are incomplete`);
+  const transformerVersions = new Set(
+    result.samples.map((sample) => sample.transformerVersion)
+  );
+  if (
+    transformerVersions.size !== 1 ||
+    [...transformerVersions][0].length === 0
+  )
+    throw new Error(
+      `${arm} samples must report one resolved transformer version`
+    );
 }
 
 export function percentageDelta(
@@ -131,6 +145,14 @@ export function createComparisonSummary(
   validateArm("baseline", input.baseline, input.measuredSamplesPerArm);
   validateArm("candidate", input.candidate, input.measuredSamplesPerArm);
   const allSamples = [...input.baseline.samples, ...input.candidate.samples];
+  const fixtureContentHashes = new Set(
+    allSamples.map((sample) => sample.fixtureContentHash)
+  );
+  const fixtureContentHash = [...fixtureContentHashes][0];
+  if (fixtureContentHashes.size !== 1 || fixtureContentHash === undefined)
+    throw new Error(
+      "Baseline and candidate must use the same immutable fixture artifact"
+    );
   if (new Set(allSamples.map(configurationIdentity)).size !== 1)
     throw new Error(
       "Baseline and candidate must use the identical scenario and configured fixture"
@@ -166,6 +188,7 @@ export function createComparisonSummary(
     fixtureId: identity.fixtureId,
     fixtureVersion: identity.fixtureVersion,
     fixtureRecipeHash: identity.fixtureRecipeHash,
+    fixtureContentHash,
     semanticDigest: identity.semanticDigest,
     policy: {
       warmupsPerArm: 1,
@@ -177,11 +200,13 @@ export function createComparisonSummary(
       revision: input.baseline.revision,
       medianMilliseconds: baselineMedian,
       measuredMilliseconds: baselineMeasured,
+      transformerVersion: input.baseline.samples[0].transformerVersion,
     },
     candidate: {
       revision: input.candidate.revision,
       medianMilliseconds: candidateMedian,
       measuredMilliseconds: candidateMeasured,
+      transformerVersion: input.candidate.samples[0].transformerVersion,
     },
     percentageDelta: delta,
     informationalStatus,
@@ -207,10 +232,10 @@ function markdown(summary: ComparisonSummary): string {
     `Scenario: \`${summary.scenarioId}\`  `,
     `Fixture: \`${summary.fixtureId}\` (version ${summary.fixtureVersion})`,
     "",
-    "| Arm | Revision | Median | Measured samples |",
-    "| --- | --- | ---: | --- |",
-    `| Baseline | \`${summary.baseline.revision}\` | ${formatMilliseconds(summary.baseline.medianMilliseconds)} | ${summary.baseline.measuredMilliseconds.map(formatMilliseconds).join(", ")} |`,
-    `| Candidate | \`${summary.candidate.revision}\` | ${formatMilliseconds(summary.candidate.medianMilliseconds)} | ${summary.candidate.measuredMilliseconds.map(formatMilliseconds).join(", ")} |`,
+    "| Arm | Revision | Transformer | Median | Measured samples |",
+    "| --- | --- | --- | ---: | --- |",
+    `| Baseline | \`${summary.baseline.revision}\` | \`${summary.baseline.transformerVersion}\` | ${formatMilliseconds(summary.baseline.medianMilliseconds)} | ${summary.baseline.measuredMilliseconds.map(formatMilliseconds).join(", ")} |`,
+    `| Candidate | \`${summary.candidate.revision}\` | \`${summary.candidate.transformerVersion}\` | ${formatMilliseconds(summary.candidate.medianMilliseconds)} | ${summary.candidate.measuredMilliseconds.map(formatMilliseconds).join(", ")} |`,
     "",
     `**Candidate delta:** ${signedDelta}  `,
     `**Informational status (${summary.policy.informationalThresholdPercent}% threshold):** \`${summary.informationalStatus}\``,

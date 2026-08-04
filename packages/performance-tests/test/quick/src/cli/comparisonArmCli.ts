@@ -4,20 +4,35 @@
  *--------------------------------------------------------------------------------------------*/
 
 import * as fs from "node:fs";
+import { createRequire } from "node:module";
+import * as path from "node:path";
 import {
   BenchmarkRunner,
   BenchmarkSample,
+  buildBenchmarkFixtureArtifact,
 } from "../framework/BenchmarkRunner.js";
 import { resolveBenchmarkRun } from "../framework/BenchmarkResolution.js";
 
-interface ArmWorkerRequest {
+interface WorkerRequestBase {
   readonly fixtureId?: string;
-  readonly measured: boolean;
   readonly outputDir: string;
   readonly resultFile: string;
-  readonly sample: number;
+  readonly rootDirectory: string;
   readonly scenarioId?: string;
 }
+
+interface FixtureBuildRequest extends WorkerRequestBase {
+  readonly kind: "build-fixture";
+}
+
+interface SampleRequest extends WorkerRequestBase {
+  readonly fixtureArtifactDirectory: string;
+  readonly kind: "run-sample";
+  readonly measured: boolean;
+  readonly sample: number;
+}
+
+type ArmWorkerRequest = FixtureBuildRequest | SampleRequest;
 
 function parseRequest(value: string | undefined): ArmWorkerRequest {
   if (value === undefined)
@@ -27,29 +42,73 @@ function parseRequest(value: string | undefined): ArmWorkerRequest {
     throw new Error("QUICK_PERF_ARM_REQUEST must be an object");
   const request = parsed as Partial<ArmWorkerRequest>;
   if (
-    typeof request.measured !== "boolean" ||
+    (request.kind !== "build-fixture" && request.kind !== "run-sample") ||
     typeof request.outputDir !== "string" ||
     typeof request.resultFile !== "string" ||
-    typeof request.sample !== "number" ||
+    typeof request.rootDirectory !== "string" ||
     (request.fixtureId !== undefined &&
       typeof request.fixtureId !== "string") ||
     (request.scenarioId !== undefined && typeof request.scenarioId !== "string")
   )
     throw new Error("QUICK_PERF_ARM_REQUEST has an invalid shape");
+  if (
+    request.kind === "run-sample" &&
+    (typeof request.fixtureArtifactDirectory !== "string" ||
+      typeof request.measured !== "boolean" ||
+      typeof request.sample !== "number")
+  )
+    throw new Error("QUICK_PERF_ARM_REQUEST has an invalid sample shape");
   return request as ArmWorkerRequest;
 }
 
-async function main(): Promise<BenchmarkSample> {
+function assertTransformerResolvesFrom(rootDirectory: string): void {
+  const localRequire = createRequire(import.meta.url);
+  const transformerPackage = fs.realpathSync(
+    localRequire.resolve("@itwin/imodel-transformer/package.json")
+  );
+  const root = fs.realpathSync(rootDirectory);
+  const relative = path.relative(root, transformerPackage);
+  if (
+    relative.length === 0 ||
+    relative === ".." ||
+    relative.startsWith(`..${path.sep}`) ||
+    path.isAbsolute(relative)
+  )
+    throw new Error(
+      `A/B worker resolved @itwin/imodel-transformer outside its arm checkout: ${transformerPackage}`
+    );
+}
+
+async function main(): Promise<
+  BenchmarkSample | { readonly contentHash: string }
+> {
   const request = parseRequest(process.env.QUICK_PERF_ARM_REQUEST);
+  assertTransformerResolvesFrom(request.rootDirectory);
   const { fixture, scenario } = resolveBenchmarkRun(
     request.scenarioId,
     request.fixtureId
   );
+  if (request.kind === "build-fixture") {
+    const artifact = await buildBenchmarkFixtureArtifact(
+      fixture,
+      request.outputDir
+    );
+    const result = { contentHash: artifact.manifest.contentHash };
+    fs.writeFileSync(
+      request.resultFile,
+      `${JSON.stringify(result, undefined, 2)}\n`
+    );
+    return result;
+  }
   const sample = await new BenchmarkRunner(
     fixture,
     request.outputDir,
     scenario
-  ).runSample(request.sample, request.measured);
+  ).runSampleFromArtifact(
+    request.sample,
+    request.measured,
+    request.fixtureArtifactDirectory
+  );
   fs.writeFileSync(
     request.resultFile,
     `${JSON.stringify(sample, undefined, 2)}\n`

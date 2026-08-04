@@ -108,6 +108,47 @@ describe("A/B comparison reporting", () => {
     );
   });
 
+  it("rejects different fixture bytes even when semantic digests match", () => {
+    const mismatchedContent = input();
+    mismatchedContent.candidate.samples = armSamples([99, 110, 121]).map(
+      (sample) => ({
+        ...sample,
+        fixtureContentHash:
+          "2222222222222222222222222222222222222222222222222222222222222222",
+      })
+    );
+    expect(() => createComparisonSummary(mismatchedContent)).to.throw(
+      /same immutable fixture artifact/
+    );
+  });
+
+  it("reports arm transformer versions without treating them as workload identity", () => {
+    const differentVersions = input();
+    differentVersions.baseline.samples = armSamples([90, 100, 110]).map(
+      (sample) => ({
+        ...sample,
+        fixtureGenerator: {
+          ...sample.fixtureGenerator,
+          transformer: "1.9.0",
+        },
+        transformerVersion: "1.9.0",
+      })
+    );
+    differentVersions.candidate.samples = armSamples([99, 110, 121]).map(
+      (sample) => ({
+        ...sample,
+        fixtureGenerator: {
+          ...sample.fixtureGenerator,
+          transformer: "2.0.0",
+        },
+        transformerVersion: "2.0.0",
+      })
+    );
+    const summary = createComparisonSummary(differentVersions);
+    expect(summary.baseline.transformerVersion).to.equal("1.9.0");
+    expect(summary.candidate.transformerVersion).to.equal("2.0.0");
+  });
+
   it("rejects incomplete arm samples and invalid baseline timing", () => {
     const incomplete = input();
     incomplete.baseline.samples = armSamples([90, 100]);

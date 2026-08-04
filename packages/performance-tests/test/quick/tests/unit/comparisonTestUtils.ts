@@ -11,6 +11,8 @@ export function benchmarkSample(
   return {
     cpuSystemMilliseconds: 1,
     cpuUserMilliseconds: 2,
+    fixtureContentHash:
+      "1111111111111111111111111111111111111111111111111111111111111111",
     fixtureBuildMilliseconds: 10,
     fixtureGenerator: {
       coreBackend: "5.10.3",
@@ -36,6 +38,7 @@ export function benchmarkSample(
     semanticDigest: "semantic-digest",
     teardownMilliseconds: 5,
     topology: "source-only",
+    transformerVersion: "2.0.0-dev.39",
     verificationMilliseconds: 6,
     wallMilliseconds: 100,
     ...overrides,

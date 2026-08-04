@@ -4,6 +4,7 @@
  *--------------------------------------------------------------------------------------------*/
 
 import * as fs from "node:fs";
+import { createHash } from "node:crypto";
 import * as path from "node:path";
 import { ChangesetFileProps } from "@itwin/core-common";
 import {
@@ -15,7 +16,7 @@ import {
  * Version of the on-disk artifact layout. Bump when the directory contract changes in a way that
  * an older reader cannot interpret.
  */
-export const fixtureArtifactVersion = 1;
+export const fixtureArtifactVersion = 2;
 
 export const artifactBriefcaseFileName = "briefcase.bim";
 export const artifactChangesetDirectoryName = "changesets";
@@ -25,6 +26,8 @@ export const artifactRecipeDataFileName = "recipe.json";
 
 export interface FixtureArtifactManifest {
   readonly artifactVersion: number;
+  /** SHA-256 over the immutable briefcase, changesets, props, and optional recipe data bytes. */
+  readonly contentHash: string;
   readonly descriptor: FixtureDescriptor;
   readonly briefcase: {
     readonly fileName: string;
@@ -205,6 +208,27 @@ export function writeFixtureArtifactManifest(
   );
 }
 
+export function fixtureArtifactContentHash(
+  directory: string,
+  recipeDataFile?: string
+): string {
+  const relativeFiles = [
+    artifactBriefcaseFileName,
+    artifactChangesetPropsFileName,
+    ...readChangesetFileProps(directory).map((changeset) =>
+      path.relative(directory, changeset.pathname).replaceAll(path.sep, "/")
+    ),
+    ...(recipeDataFile === undefined ? [] : [recipeDataFile]),
+  ].sort();
+  const hash = createHash("sha256");
+  for (const relativeFile of relativeFiles) {
+    const fileName = path.join(directory, ...relativeFile.split("/"));
+    hash.update(`${relativeFile.length}:${relativeFile}:`);
+    hash.update(fs.readFileSync(fileName));
+  }
+  return hash.digest("hex");
+}
+
 export function validateFixtureArtifactManifest(
   value: unknown
 ): FixtureArtifactManifest {
@@ -218,6 +242,8 @@ export function validateFixtureArtifactManifest(
       )}; expected ${fixtureArtifactVersion}`
     );
   if (
+    typeof manifest.contentHash !== "string" ||
+    !/^[a-f0-9]{64}$/.test(manifest.contentHash) ||
     typeof manifest.briefcase?.fileName !== "string" ||
     typeof manifest.briefcase.briefcaseId !== "number" ||
     typeof manifest.briefcase.changeset?.id !== "string" ||
@@ -270,6 +296,14 @@ export function readFixtureArtifact(directory: string): FixtureArtifact {
   )
     throw new Error(
       `Fixture artifact is missing the recipe data its manifest declares: ${manifest.recipeDataFile}`
+    );
+  const contentHash = fixtureArtifactContentHash(
+    directory,
+    manifest.recipeDataFile
+  );
+  if (contentHash !== manifest.contentHash)
+    throw new Error(
+      `Fixture artifact content hash mismatch: expected=${manifest.contentHash}, actual=${contentHash}`
     );
   return { directory, manifest };
 }
