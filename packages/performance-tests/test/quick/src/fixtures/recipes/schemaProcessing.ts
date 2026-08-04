@@ -87,9 +87,9 @@ export const schemaProcessingRecipe = defineFixtureRecipe<
 export const schemaProcessingFixture = configureFixture(
   schemaProcessingRecipe,
   {
-    id: "schema-processing-medium",
+    id: "schema-processing-large",
     version: 1,
-    label: "default schema processing (medium)",
+    label: "default schema processing (large)",
     scenarioClaims: ["default schema processing"],
     topology: "source-only",
     seed: 662,
