@@ -3,10 +3,11 @@
  * See LICENSE.md in the project root for license terms and full copyright notice.
  *--------------------------------------------------------------------------------------------*/
 
+import { ChildProcess } from "node:child_process";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   ArmExecutionRequest,
   comparisonArmWorkerPath,
@@ -25,6 +26,7 @@ describe("A/B comparison orchestration", () => {
   const temporaryDirectories: string[] = [];
 
   afterEach(() => {
+    vi.restoreAllMocks();
     for (const directory of temporaryDirectories)
       fs.rmSync(directory, { recursive: true, force: true });
     temporaryDirectories.length = 0;
@@ -34,6 +36,15 @@ describe("A/B comparison orchestration", () => {
     const directory = fs.mkdtempSync(path.join(os.tmpdir(), prefix));
     temporaryDirectories.push(directory);
     return directory;
+  }
+
+  async function waitForFile(fileName: string): Promise<void> {
+    const deadline = Date.now() + 2_000;
+    while (!fs.existsSync(fileName)) {
+      if (Date.now() >= deadline)
+        throw new Error(`Worker did not signal readiness: ${fileName}`);
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
   }
 
   it("schedules one warm-up and three measured executions per arm in alternating order", () => {
@@ -193,19 +204,74 @@ describe("A/B comparison orchestration", () => {
     );
   });
 
-  it("terminates a timed-out worker with arm and sample context", async () => {
+  it("waits for a timed-out worker to terminate before rejecting", async () => {
     const rootDirectory = temporaryDirectory("quick-ab-timeout-");
     const workerPath = comparisonArmWorkerPath(rootDirectory);
+    const pidFile = path.join(rootDirectory, "worker.pid");
     fs.mkdirSync(path.dirname(workerPath), { recursive: true });
     fs.writeFileSync(
       workerPath,
-      'process.on("SIGTERM", () => {}); setInterval(() => {}, 1000);\n'
+      [
+        'const fs = require("node:fs");',
+        'process.on("SIGTERM", () => {});',
+        `fs.writeFileSync(${JSON.stringify(pidFile)}, String(process.pid));`,
+        "setInterval(() => {}, 1000);",
+      ].join("\n")
     );
+    const kill = vi.spyOn(ChildProcess.prototype, "kill");
     const started = Date.now();
-    await expect(
-      executeArmProcess(
+    const execution = executeArmProcess(
+      {
+        arm: "candidate",
+        fixtureArtifactDirectory: path.join(rootDirectory, "fixture-artifact"),
+        harnessRootDirectory: path.join(rootDirectory, "harness"),
+        measured: true,
+        outputDir: path.join(rootDirectory, "output"),
+        revision: "candidate-sha",
+        rootDirectory,
+        sample: 2,
+        workerTimeoutMilliseconds: 1_000,
+      },
+      25,
+      500
+    );
+    await waitForFile(pidFile);
+    await expect(execution).rejects.toThrow(
+      /candidate sample 2 process timed out after 1000 ms/
+    );
+    const workerPid = Number(fs.readFileSync(pidFile, "utf8"));
+    expect(() => process.kill(workerPid, 0)).to.throw();
+    const deliveredSignals = kill.mock.calls.map(([signal]) => signal);
+    expect(deliveredSignals[0]).to.equal("SIGTERM");
+    if (process.platform !== "win32")
+      expect(deliveredSignals).to.deep.equal(["SIGTERM", "SIGKILL"]);
+    expect(Date.now() - started).to.be.lessThan(2_000);
+  });
+
+  it.skipIf(process.platform === "win32")(
+    "settles once when a worker exits during the termination grace period",
+    async () => {
+      const rootDirectory = temporaryDirectory("quick-ab-timeout-race-");
+      const workerPath = comparisonArmWorkerPath(rootDirectory);
+      const readyMarker = path.join(rootDirectory, "worker-ready");
+      const exitMarker = path.join(rootDirectory, "worker-exited");
+      fs.mkdirSync(path.dirname(workerPath), { recursive: true });
+      fs.writeFileSync(
+        workerPath,
+        [
+          'const fs = require("node:fs");',
+          'process.on("SIGTERM", () => setTimeout(() => {',
+          `  fs.writeFileSync(${JSON.stringify(exitMarker)}, "exiting");`,
+          "  process.exit(0);",
+          "}, 25));",
+          `fs.writeFileSync(${JSON.stringify(readyMarker)}, "ready");`,
+          "setInterval(() => {}, 1000);",
+        ].join("\n")
+      );
+      const kill = vi.spyOn(ChildProcess.prototype, "kill");
+      const execution = executeArmProcess(
         {
-          arm: "candidate",
+          arm: "baseline",
           fixtureArtifactDirectory: path.join(
             rootDirectory,
             "fixture-artifact"
@@ -213,16 +279,25 @@ describe("A/B comparison orchestration", () => {
           harnessRootDirectory: path.join(rootDirectory, "harness"),
           measured: true,
           outputDir: path.join(rootDirectory, "output"),
-          revision: "candidate-sha",
+          revision: "base-sha",
           rootDirectory,
-          sample: 2,
-          workerTimeoutMilliseconds: 25,
+          sample: 1,
+          workerTimeoutMilliseconds: 1_000,
         },
-        25
-      )
-    ).rejects.toThrow(/candidate sample 2 process timed out after 25 ms/);
-    expect(Date.now() - started).to.be.lessThan(2_000);
-  });
+        500,
+        500
+      );
+      await waitForFile(readyMarker);
+      await expect(execution).rejects.toThrow(
+        /baseline sample 1 process timed out after 1000 ms/
+      );
+      expect(fs.readFileSync(exitMarker, "utf8")).to.equal("exiting");
+      await new Promise((resolve) => setTimeout(resolve, 550));
+      expect(kill.mock.calls.map(([signal]) => signal)).to.deep.equal([
+        "SIGTERM",
+      ]);
+    }
+  );
 
   it("rejects an invalid worker timeout before starting fixture work", async () => {
     let buildStarted = false;

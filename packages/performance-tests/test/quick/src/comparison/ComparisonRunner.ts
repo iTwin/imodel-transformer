@@ -26,6 +26,7 @@ export const defaultInformationalThresholdPercent = 5;
 export const defaultComparisonWorkerTimeoutMilliseconds = 10 * 60 * 1000;
 const maximumWorkerTimeoutMilliseconds = 2_147_483_647;
 const defaultWorkerTerminationGraceMilliseconds = 5_000;
+const defaultForcedTerminationConfirmationMilliseconds = 5_000;
 
 export interface ComparisonArmConfiguration {
   readonly revision: string;
@@ -157,7 +158,8 @@ async function runWorkerProcess(
   serializedRequest: string,
   description: string,
   timeoutMilliseconds: number,
-  terminationGraceMilliseconds: number
+  terminationGraceMilliseconds: number,
+  forcedTerminationConfirmationMilliseconds: number
 ): Promise<WorkerProcessResult> {
   const workerPath = comparisonArmWorkerPath(rootDirectory);
   if (!fs.existsSync(workerPath))
@@ -178,12 +180,26 @@ async function runWorkerProcess(
     let settled = false;
     let timedOut = false;
     let forceTermination: NodeJS.Timeout | undefined;
-    const timeoutError = () => {
+    let terminationConfirmation: NodeJS.Timeout | undefined;
+    const signalFailures: string[] = [];
+    const timeout = setTimeout(() => {
+      timedOut = true;
+      const terminationDelivered = sendSignal("SIGTERM");
+      forceTermination = setTimeout(
+        forceKill,
+        terminationDelivered ? terminationGraceMilliseconds : 0
+      );
+    }, timeoutMilliseconds);
+    const timeoutError = (terminationConfirmed: boolean) => {
       const output = stderr || stdout;
       return new Error(
         `${description} process timed out after ${timeoutMilliseconds} ms${
-          output.length === 0 ? "" : `: ${output}`
-        }`
+          signalFailures.length === 0 ? "" : `; ${signalFailures.join("; ")}`
+        }${
+          terminationConfirmed
+            ? ""
+            : `; process termination was not confirmed within ${forcedTerminationConfirmationMilliseconds} ms after SIGKILL`
+        }${output.length === 0 ? "" : `: ${output}`}`
       );
     };
     const settle = (action: () => void) => {
@@ -191,43 +207,61 @@ async function runWorkerProcess(
       settled = true;
       clearTimeout(timeout);
       if (forceTermination !== undefined) clearTimeout(forceTermination);
+      if (terminationConfirmation !== undefined)
+        clearTimeout(terminationConfirmation);
       action();
+    };
+    const sendSignal = (signal: NodeJS.Signals): boolean => {
+      try {
+        const delivered = child.kill(signal);
+        if (!delivered) signalFailures.push(`${signal} was not delivered`);
+        return delivered;
+      } catch (error) {
+        signalFailures.push(
+          `${signal} delivery threw: ${
+            error instanceof Error ? error.message : String(error)
+          }`
+        );
+        return false;
+      }
+    };
+    const forceKill = () => {
+      sendSignal("SIGKILL");
+      terminationConfirmation = setTimeout(() => {
+        child.stdout.destroy();
+        child.stderr.destroy();
+        child.unref();
+        settle(() => reject(timeoutError(false)));
+      }, forcedTerminationConfirmationMilliseconds);
     };
     child.stdout.setEncoding("utf8");
     child.stderr.setEncoding("utf8");
     child.stdout.on("data", (chunk: string) => (stdout += chunk));
     child.stderr.on("data", (chunk: string) => (stderr += chunk));
-    child.once("error", (error) =>
+    child.on("error", (error) => {
+      if (timedOut) {
+        signalFailures.push(`process error after timeout: ${error.message}`);
+        return;
+      }
       settle(() =>
-        reject(
-          new Error(`${description} process failed to start`, { cause: error })
-        )
-      )
-    );
-    child.once("close", (exitCode) =>
-      settle(() =>
-        timedOut
-          ? reject(timeoutError())
-          : resolve({ exitCode, stderr, stdout })
-      )
-    );
-    const timeout = setTimeout(() => {
-      timedOut = true;
-      child.kill("SIGTERM");
-      forceTermination = setTimeout(() => {
-        child.kill("SIGKILL");
-        child.stdout.destroy();
-        child.stderr.destroy();
-        child.unref();
-        settle(() => reject(timeoutError()));
-      }, terminationGraceMilliseconds);
-    }, timeoutMilliseconds);
+        reject(new Error(`${description} process failed`, { cause: error }))
+      );
+    });
+    child.once("close", (exitCode) => {
+      child.stdout.destroy();
+      child.stderr.destroy();
+      settle(() => {
+        if (timedOut) reject(timeoutError(true));
+        else resolve({ exitCode, stderr, stdout });
+      });
+    });
   });
 }
 
 export async function executeArmProcess(
   request: ArmExecutionRequest,
-  terminationGraceMilliseconds = defaultWorkerTerminationGraceMilliseconds
+  terminationGraceMilliseconds = defaultWorkerTerminationGraceMilliseconds,
+  forcedTerminationConfirmationMilliseconds = defaultForcedTerminationConfirmationMilliseconds
 ): Promise<BenchmarkSample> {
   const resultFile = path.join(request.outputDir, "sample-result.json");
   fs.mkdirSync(request.outputDir, { recursive: true });
@@ -243,7 +277,8 @@ export async function executeArmProcess(
     `${request.arm} sample ${request.sample}`,
     request.workerTimeoutMilliseconds ??
       defaultComparisonWorkerTimeoutMilliseconds,
-    terminationGraceMilliseconds
+    terminationGraceMilliseconds,
+    forcedTerminationConfirmationMilliseconds
   );
   if (processResult.exitCode !== 0)
     throw new Error(
@@ -281,7 +316,8 @@ export async function buildFixtureArtifactProcess(
     "candidate fixture build",
     request.workerTimeoutMilliseconds ??
       defaultComparisonWorkerTimeoutMilliseconds,
-    defaultWorkerTerminationGraceMilliseconds
+    defaultWorkerTerminationGraceMilliseconds,
+    defaultForcedTerminationConfirmationMilliseconds
   );
   if (processResult.exitCode !== 0)
     throw new Error(
