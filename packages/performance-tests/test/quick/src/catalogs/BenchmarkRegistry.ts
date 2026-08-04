@@ -7,12 +7,14 @@ import { ConfiguredFixture } from "../fixtures/FixtureRecipe.js";
 import { BenchmarkRegistration } from "../framework/BenchmarkRegistration.js";
 import { BenchmarkScenarioDefinition } from "../framework/BenchmarkScenario.js";
 import { changesetScanningBenchmark } from "../scenarios/changesetScanning.js";
+import { defaultSchemaProcessingBenchmark } from "../scenarios/defaultSchemaProcessing.js";
 import { incrementalSynchronizationBenchmark } from "../scenarios/incrementalSynchronization.js";
 
 // Every benchmark is added in exactly one explicit place so the compiled CLI remains predictable.
 const registrations: readonly BenchmarkRegistration[] = Object.freeze([
   incrementalSynchronizationBenchmark,
   changesetScanningBenchmark,
+  defaultSchemaProcessingBenchmark,
 ]);
 
 const scenarios = new Map<string, BenchmarkScenarioDefinition>();
