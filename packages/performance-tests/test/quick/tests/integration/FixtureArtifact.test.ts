@@ -222,16 +222,14 @@ describe("detached fixture artifact", () => {
     fs.rmSync(corrupt, { recursive: true, force: true });
   });
 
-  it("rejects changed workload bytes even when file sizes are unchanged", () => {
-    const corrupt = path.join(root, "changed-workload-artifact");
+  it("rejects an artifact whose workload bytes changed without changing size", () => {
+    const corrupt = path.join(root, "content-hash-mismatch");
     fs.cpSync(built.directory, corrupt, { recursive: true });
-    const changeset = readChangesetFileProps(corrupt)[0].pathname;
-    const bytes = fs.readFileSync(changeset);
-    bytes[0] ^= 0xff;
-    fs.writeFileSync(changeset, bytes);
-    expect(() => readFixtureArtifact(corrupt)).to.throw(
-      /content hash mismatch/
-    );
+    const briefcase = artifactBriefcasePath(corrupt);
+    const contents = fs.readFileSync(briefcase);
+    contents[0] ^= 0xff;
+    fs.writeFileSync(briefcase, contents);
+    expect(() => readFixtureArtifact(corrupt)).to.throw(/content hash/);
     fs.rmSync(corrupt, { recursive: true, force: true });
   });
 

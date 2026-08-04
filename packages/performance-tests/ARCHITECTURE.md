@@ -193,11 +193,12 @@ and cleanup errors when more than one operation fails.
 
 The A/B workflow checks out the pull request base and head independently and
 builds each checkout's transformer package. It compiles the quick harness once
-from the candidate and installs those exact compiled files in both checkouts.
-Both workers also resolve fixture assets and identity files from the candidate
-harness root. This keeps benchmark authoring and fixture resolution symmetric
-while allowing Node's normal module resolution to load the baseline or candidate
-transformer from the corresponding checkout.
+from the candidate and installs those exact compiled files in both checkouts. A
+dedicated candidate process authors one relocatable fixture artifact before the
+execution schedule begins. Its manifest carries a content hash over every
+workload file. All baseline and candidate workers validate and copy that same
+artifact, rather than independently regenerating fixtures that merely produce
+the same affected-ID digest.
 
 One candidate worker builds the detached fixture artifact before the execution
 schedule starts. The artifact manifest hashes the immutable briefcase,
@@ -217,11 +218,15 @@ candidate sample 2, baseline sample 2
 baseline sample 3, candidate sample 3
 ```
 
-Before reporting, the coordinator requires identical scenario and fixture
-identity fields and one semantic digest across both arms. It reports only arm
-transformer versions, medians, measured samples, candidate percentage delta,
-and an explicitly informational threshold status. Transformer version is arm
-provenance, not workload identity. The threshold is not a confidence interval,
+Each worker also proves that its resolved transformer entry point is below the
+checkout assigned to its arm and records the transformer version and a content
+hash of the complete compiled output. That execution provenance is excluded from workload identity:
+different transformer builds are the intended independent variable. Before
+reporting, the coordinator requires one candidate-authored artifact content hash,
+identical scenario and fixture identity fields, and one semantic digest across
+both arms. It reports only arm
+medians, measured samples, candidate percentage delta, and an explicitly
+informational threshold status. The threshold is not a confidence interval,
 significance test, or merge gate.
 
 ## Current incremental-synchronization run

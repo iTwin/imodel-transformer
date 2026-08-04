@@ -4,7 +4,6 @@
  *--------------------------------------------------------------------------------------------*/
 
 import * as fs from "node:fs";
-import { createRequire } from "node:module";
 import * as path from "node:path";
 import {
   BenchmarkRunner,
@@ -12,27 +11,30 @@ import {
   buildBenchmarkFixtureArtifact,
 } from "../framework/BenchmarkRunner.js";
 import { resolveBenchmarkRun } from "../framework/BenchmarkResolution.js";
+import { resolveTransformerProvenance } from "../comparison/TransformerProvenance.js";
+import { FixtureArtifactManifest } from "../fixtures/FixtureArtifact.js";
 
-interface WorkerRequestBase {
+interface ArmWorkerRequestBase {
+  readonly expectedTransformerRootDirectory: string;
   readonly fixtureId?: string;
-  readonly outputDir: string;
   readonly resultFile: string;
-  readonly rootDirectory: string;
   readonly scenarioId?: string;
 }
 
-interface FixtureBuildRequest extends WorkerRequestBase {
+interface FixtureBuildWorkerRequest extends ArmWorkerRequestBase {
+  readonly artifactDirectory: string;
   readonly kind: "build-fixture";
 }
 
-interface SampleRequest extends WorkerRequestBase {
+interface SampleWorkerRequest extends ArmWorkerRequestBase {
   readonly fixtureArtifactDirectory: string;
   readonly kind: "run-sample";
   readonly measured: boolean;
+  readonly outputDir: string;
   readonly sample: number;
 }
 
-type ArmWorkerRequest = FixtureBuildRequest | SampleRequest;
+type ArmWorkerRequest = FixtureBuildWorkerRequest | SampleWorkerRequest;
 
 function parseRequest(value: string | undefined): ArmWorkerRequest {
   if (value === undefined)
@@ -42,78 +44,59 @@ function parseRequest(value: string | undefined): ArmWorkerRequest {
     throw new Error("QUICK_PERF_ARM_REQUEST must be an object");
   const request = parsed as Partial<ArmWorkerRequest>;
   if (
-    (request.kind !== "build-fixture" && request.kind !== "run-sample") ||
-    typeof request.outputDir !== "string" ||
+    typeof request.expectedTransformerRootDirectory !== "string" ||
     typeof request.resultFile !== "string" ||
-    typeof request.rootDirectory !== "string" ||
     (request.fixtureId !== undefined &&
       typeof request.fixtureId !== "string") ||
     (request.scenarioId !== undefined && typeof request.scenarioId !== "string")
   )
     throw new Error("QUICK_PERF_ARM_REQUEST has an invalid shape");
   if (
-    request.kind === "run-sample" &&
-    (typeof request.fixtureArtifactDirectory !== "string" ||
-      typeof request.measured !== "boolean" ||
-      typeof request.sample !== "number")
+    request.kind === "build-fixture" &&
+    typeof request.artifactDirectory === "string"
   )
-    throw new Error("QUICK_PERF_ARM_REQUEST has an invalid sample shape");
-  return request as ArmWorkerRequest;
-}
-
-function assertTransformerResolvesFrom(rootDirectory: string): void {
-  const localRequire = createRequire(import.meta.url);
-  const transformerPackage = fs.realpathSync(
-    localRequire.resolve("@itwin/imodel-transformer/package.json")
-  );
-  const root = fs.realpathSync(rootDirectory);
-  const relative = path.relative(root, transformerPackage);
+    return request as FixtureBuildWorkerRequest;
   if (
-    relative.length === 0 ||
-    relative === ".." ||
-    relative.startsWith(`..${path.sep}`) ||
-    path.isAbsolute(relative)
+    request.kind === "run-sample" &&
+    typeof request.fixtureArtifactDirectory === "string" &&
+    typeof request.measured === "boolean" &&
+    typeof request.outputDir === "string" &&
+    typeof request.sample === "number"
   )
-    throw new Error(
-      `A/B worker resolved @itwin/imodel-transformer outside its arm checkout: ${transformerPackage}`
-    );
+    return request as SampleWorkerRequest;
+  throw new Error("QUICK_PERF_ARM_REQUEST has an invalid operation");
 }
 
-async function main(): Promise<
-  BenchmarkSample | { readonly contentHash: string }
-> {
+async function main(): Promise<BenchmarkSample | FixtureArtifactManifest> {
   const request = parseRequest(process.env.QUICK_PERF_ARM_REQUEST);
-  assertTransformerResolvesFrom(request.rootDirectory);
+  const transformerProvenance = resolveTransformerProvenance(
+    request.expectedTransformerRootDirectory
+  );
   const { fixture, scenario } = resolveBenchmarkRun(
     request.scenarioId,
     request.fixtureId
   );
-  if (request.kind === "build-fixture") {
-    const artifact = await buildBenchmarkFixtureArtifact(
-      fixture,
-      request.outputDir
-    );
-    const result = { contentHash: artifact.manifest.contentHash };
-    fs.writeFileSync(
-      request.resultFile,
-      `${JSON.stringify(result, undefined, 2)}\n`
-    );
-    return result;
-  }
-  const sample = await new BenchmarkRunner(
+  const runner = new BenchmarkRunner(
     fixture,
-    request.outputDir,
+    request.kind === "run-sample"
+      ? request.outputDir
+      : path.dirname(request.artifactDirectory),
     scenario
-  ).runSampleFromArtifact(
-    request.sample,
-    request.measured,
-    request.fixtureArtifactDirectory
   );
+  const result =
+    request.kind === "build-fixture"
+      ? await runner.buildReusableFixtureArtifact(request.artifactDirectory)
+      : await runner.runSample(
+          request.sample,
+          request.measured,
+          request.fixtureArtifactDirectory,
+          transformerProvenance
+        );
   fs.writeFileSync(
     request.resultFile,
-    `${JSON.stringify(sample, undefined, 2)}\n`
+    `${JSON.stringify(result, undefined, 2)}\n`
   );
-  return sample;
+  return result;
 }
 
 void main().catch((error) => {

@@ -135,11 +135,18 @@ Each run writes:
 
 `.github/workflows/quick-performance-comparison.yml` compares a pull request's
 head SHA with its base SHA. Both checkouts build their own transformer package.
-The candidate's compiled quick harness is copied into both checkouts, and both
-workers resolve fixture assets and identity inputs from the candidate harness
-root. The scenario, configured fixture, recipe, workload, and orchestration code
-are therefore identical; each worker process still resolves
-`@itwin/imodel-transformer` from its own checkout.
+The candidate's compiled quick harness is copied into both checkouts. A dedicated
+candidate worker authors one immutable fixture artifact before timing begins,
+and every warm-up and measured worker copies from those exact bytes. The artifact
+manifest hashes every workload file, and each worker revalidates the hash before
+materializing its pristine copy.
+
+Each execution still gets a fresh Node process and module graph. Before running,
+the worker proves that Node resolved `@itwin/imodel-transformer` to the entry
+point below its assigned baseline or candidate checkout and records that build's
+version and complete compiled-output content hash. Transformer build provenance is intentionally separate
+from fixture identity, so an expected baseline/candidate transformer difference
+does not masquerade as a workload mismatch.
 
 Before any execution, one candidate worker builds the immutable detached
 fixture artifact. Its manifest records a SHA-256 over the briefcase, changeset,
@@ -148,8 +155,7 @@ validates that hash and materializes a private copy from the same artifact, so
 fresh process isolation never regenerates the workload.
 
 The initial policy runs one warm-up and three measured
-`changeset-scanning` executions per arm. Every execution has a fresh Node
-process and module graph. The coordinator orders the warm-up candidate/baseline,
+`changeset-scanning` executions per arm. The coordinator orders the warm-up candidate/baseline,
 then alternates baseline/candidate and candidate/baseline measured pairs. This
 gives each arm the same number of first and second positions for the default
 three measured samples.
@@ -255,7 +261,8 @@ The three fixture authoring stages are intentionally distinct:
 
 The generated recipe hash includes fixture metadata, parameters, derived
 distribution, seed, topology, declared implementation/schema files,
-`pnpm-lock.yaml`, Node, core backend, and transformer versions. Identity file
+`pnpm-lock.yaml`, Node, and core backend versions. Transformer provenance is
+reported separately because it is the intentional variable in an A/B run. Identity file
 contents are newline-normalized so the same commit has the same identity across
 platforms. Declare every helper file whose implementation affects generation.
 Validation is optional and runs only when the recipe supplies it. Recipes remain

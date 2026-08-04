@@ -103,4 +103,5 @@ jobs:
             ${{ runner.temp }}/quick-performance-comparison/comparison.json
             ${{ runner.temp }}/quick-performance-comparison/comparison.md
             ${{ runner.temp }}/quick-performance-comparison/comparison-samples.jsonl
+            ${{ runner.temp }}/quick-performance-comparison/fixture-artifact/manifest.json
             ${{ runner.temp }}/quick-performance-comparison/executions/*/samples.jsonl
