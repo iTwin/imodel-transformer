@@ -60,6 +60,12 @@ function integer(args: Map<string, string>, name: string): number {
   return value;
 }
 
+function positiveInteger(args: Map<string, string>, name: string): number {
+  const value = integer(args, name);
+  if (value < 1) throw new Error(`--${name} must be a positive integer`);
+  return value;
+}
+
 function assertScenario(args: Map<string, string>): string {
   const scenario = required(args, "scenario");
   if (scenario !== comparisonScenarioId)
@@ -161,7 +167,9 @@ function aggregate(args: Map<string, string>): void {
   const input = required(args, "input");
   const output = required(args, "output");
   const files = findFiles(input, "pair-observation.json");
-  const calibration = aggregateCalibration(files.map(readPairArtifact));
+  const calibration = aggregateCalibration(files.map(readPairArtifact), {
+    expectedPairs: positiveInteger(args, "expected-pairs"),
+  });
   fs.mkdirSync(output, { recursive: true });
   writeJson(path.join(output, "calibration.json"), calibration);
   writeJson(path.join(output, "noise-pool.json"), calibration.pool);
@@ -253,6 +261,7 @@ function compare(args: Map<string, string>): void {
     calibration: {
       fingerprint: calibration.fingerprint,
       environment: calibration.environment,
+      pool: calibration.pool,
       band: calibration.band,
     },
   });

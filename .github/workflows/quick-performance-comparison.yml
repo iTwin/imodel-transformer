@@ -32,14 +32,6 @@ on:
         description: Candidate ref for A/B (blank uses the selected workflow ref)
         required: false
         type: string
-      pair_order:
-        description: Declared A/B job order
-        required: true
-        default: AB
-        type: choice
-        options:
-          - AB
-          - BA
       calibration_run_id:
         description: Prior successful calibration workflow run ID (A/B mode)
         required: false
@@ -253,7 +245,8 @@ jobs:
           node harness/packages/performance-tests/test/quick/runtime/.compiled/quick/src/cli/comparisonCli.js \
             aggregate-calibration \
             --input "$RUNNER_TEMP/quick-calibration-observations" \
-            --output "$RUNNER_TEMP/quick-calibration"
+            --output "$RUNNER_TEMP/quick-calibration" \
+            --expected-pairs 3
 
       - name: Add calibration summary
         shell: bash
@@ -268,7 +261,7 @@ jobs:
 
   compare:
     if: inputs.mode == 'compare-a-b'
-    name: A/B comparison (${{ inputs.pair_order }})
+    name: A/B comparison (pair 0, AB)
     runs-on: ubuntu-latest
     timeout-minutes: 35
 
@@ -392,8 +385,8 @@ jobs:
           BASELINE_SHA: ${{ steps.refs.outputs.baseline_sha }}
           CANDIDATE_REF: ${{ inputs.candidate_ref || github.ref }}
           CANDIDATE_SHA: ${{ steps.refs.outputs.candidate_sha }}
-          PAIR_INDEX: ${{ inputs.pair_order == 'AB' && '0' || '1' }}
-          PAIR_ORDER: ${{ inputs.pair_order }}
+          PAIR_INDEX: 0
+          PAIR_ORDER: AB
         run: |
           node harness/packages/performance-tests/test/quick/runtime/.compiled/quick/src/cli/comparisonCli.js \
             run-pair \

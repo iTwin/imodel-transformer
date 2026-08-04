@@ -17,6 +17,8 @@ import { binomialPmf, twoSidedSignTestP } from "../../src/comparison/binomial";
 import {
   buildComparisonReport,
   BuildComparisonReportOptions,
+  parseComparisonReportJson,
+  readComparisonReport,
   renderComparisonReport,
   writeComparisonReport,
 } from "../../src/comparison/ComparisonReport";
@@ -32,8 +34,10 @@ import {
   bootstrapMedianInterval,
   collapseArmSamples,
   collapsePair,
+  exactMedianConfidenceInterval,
   logRatio,
   logRatioToPercent,
+  minimumObservationsForMedianConfidence,
   orderEffectLogRatios,
   percentToLogRatio,
 } from "../../src/comparison/logRatio";
@@ -48,6 +52,8 @@ import {
   NoiseBandKey,
   noiseBandKey,
   NoiseBandPool,
+  noiseBandPoolDigest,
+  parseNoiseBandPoolJson,
   targetNoiseBandPercent,
 } from "../../src/comparison/NoiseBand";
 import { SeededRandom } from "../../src/comparison/SeededRandom";
@@ -75,6 +81,13 @@ const calibrationKey: NoiseBandKey = {
   execution,
   kind: "paired",
 };
+
+const explicitEstablishment = {
+  provisionalIndependentJobs: 1,
+  provisionalObservations: 1,
+  establishedIndependentJobs: 3,
+  establishedObservations: 3,
+} as const;
 
 function normalPool(count: number, sigma: number, seed = 7): number[] {
   const random = new SeededRandom(seed);
@@ -107,8 +120,8 @@ function makeBand(
     kind: "paired",
     status,
     quality: classifyCalibrationQuality(status, bandPercent),
-    observations: 30,
-    independentJobs: 3,
+    observations: status === "established" ? 30 : 1,
+    independentJobs: status === "established" ? 3 : 1,
     statisticSampleSize: 8,
     band,
     bandPercent,
@@ -116,6 +129,13 @@ function makeBand(
     individualObservation95Percent: logRatioToPercent(band * 2),
     observedMaximum: band * 3,
     observedMaximumPercent: logRatioToPercent(band * 3),
+    derivation: {
+      poolDigest: "0".repeat(64),
+      quantile: 0.95,
+      resamples: 10_000,
+      seed: 0x5eed,
+      requirements: explicitEstablishment,
+    },
   };
 }
 
@@ -161,7 +181,18 @@ describe("quick performance comparison statistics", () => {
     it("rejects invalid durations and empty samples", () => {
       expect(() => logRatio(0, 1)).to.throw(/finite positive/);
       expect(() => logRatio(1, Number.NaN)).to.throw(/finite positive/);
+      expect(() => logRatio(Number.MIN_VALUE, Number.MAX_VALUE)).to.throw(
+        /representable/
+      );
       expect(() => collapseArmSamples([])).to.throw(/at least one/);
+      expect(() => percentToLogRatio(-100)).to.throw(/greater than -100/);
+      expect(() => logRatioToPercent(Number.POSITIVE_INFINITY)).to.throw(
+        /finite/
+      );
+      expect(() => aggregateLogRatios([Number.NaN])).to.throw(/finite/);
+      expect(() => bootstrapMedianInterval([0], 0.95, 0)).to.throw(
+        /positive integer/
+      );
     });
 
     it("produces deterministic robust aggregates", () => {
@@ -176,6 +207,17 @@ describe("quick performance comparison statistics", () => {
       expect(bootstrapMedianInterval(values)).to.deep.equal(
         bootstrapMedianInterval(values)
       );
+    });
+
+    it("uses an exact median interval with a justified equivalence minimum", () => {
+      expect(minimumObservationsForMedianConfidence(0.95)).to.equal(6);
+      const values = [6, 1, 5, 2, 4, 3];
+      const interval = exactMedianConfidenceInterval(values);
+      expect(interval.lower).to.equal(1);
+      expect(interval.upper).to.equal(6);
+      expect(interval.coverage).to.equal(0.96875);
+      expect(interval.lowerOrderStatistic).to.equal(1);
+      expect(interval.upperOrderStatistic).to.equal(6);
     });
 
     it("keeps exact sign diagnostics mathematically valid", () => {
@@ -291,9 +333,9 @@ describe("quick performance comparison statistics", () => {
   });
 
   describe("noise calibration", () => {
-    it("accumulates establishment across independent jobs without a fixed pair count", () => {
+    it("keeps default calibration provisional until establishment policy is explicit", () => {
       expect(classifyBandStatus(1, 1)).to.equal("provisional");
-      expect(classifyBandStatus(3, 3)).to.equal("established");
+      expect(classifyBandStatus(100, 100)).to.equal("provisional");
       expect(
         classifyBandStatus(2, 2, {
           provisionalIndependentJobs: 2,
@@ -324,7 +366,8 @@ describe("quick performance comparison statistics", () => {
       );
       const exactFivePercent = deriveNoiseBand(
         makePool(Array.from({ length: 3 }, () => percentToLogRatio(5))),
-        1
+        1,
+        { requirements: explicitEstablishment }
       );
       expect(exactFivePercent.quality).to.equal("target");
     });
@@ -382,6 +425,23 @@ describe("quick performance comparison statistics", () => {
         }).verdict
       ).to.equal("regressed");
       expect(defaultEquivalenceMarginPercent).to.equal(10);
+    });
+
+    it("does not establish unchanged from one degenerate bootstrap pair", () => {
+      const result = decideVerdict({
+        aggregate: aggregateLogRatios([percentToLogRatio(9)]),
+        band: targetBand,
+        mode: "paired",
+      });
+      expect(result.verdict).to.equal("inconclusive");
+      expect(result.reason).to.match(/requires 6/);
+      expect(
+        decideVerdict({
+          aggregate: aggregateLogRatios([percentToLogRatio(20)]),
+          band: targetBand,
+          mode: "paired",
+        }).verdict
+      ).to.equal("regressed");
     });
 
     it("applies a true +/-10% percentage boundary in both directions", () => {
@@ -499,7 +559,9 @@ describe("quick performance comparison statistics", () => {
   describe("simulation", () => {
     it("keeps null changes quiet and detects meaningful shifts without a sign gate", () => {
       const pool = makePool(normalPool(120, 0.02, 11), 6);
-      const band = deriveNoiseBand(pool, 8);
+      const band = deriveNoiseBand(pool, 8, {
+        requirements: explicitEstablishment,
+      });
       expect(band.quality).to.equal("target");
       const random = new SeededRandom(99);
       let falsePositives = 0;
@@ -658,7 +720,9 @@ describe("quick performance comparison statistics", () => {
           armBSamples: [112, 113, 114],
         })
       );
-      const band = deriveNoiseBand(pool, pairs.length);
+      const band = deriveNoiseBand(pool, pairs.length, {
+        requirements: explicitEstablishment,
+      });
       const options: BuildComparisonReportOptions = {
         scenarioId: pool.scenarioId,
         fixtureId: pool.fixtureId,
@@ -716,13 +780,52 @@ describe("quick performance comparison statistics", () => {
       expect(() =>
         buildComparisonReport({
           ...options,
-          pool: undefined,
           band: {
             ...band,
             key: { ...band.key, fixtureId: "unrelated-fixture" },
           },
         })
       ).to.throw(/does not apply/);
+      expect(() =>
+        buildComparisonReport({
+          ...options,
+          pairs: pairs.map((pair, index) =>
+            index === 0 ? { ...pair, order: "BA" } : pair
+          ),
+        })
+      ).to.throw(/does not match execution plan/);
+      expect(() =>
+        buildComparisonReport({
+          ...options,
+          pairs: pairs.map((pair, index) =>
+            index === 7 ? { ...pair, pair: 0 } : pair
+          ),
+        })
+      ).to.throw(/duplicate pair index/);
+      const changedPool = {
+        ...pool,
+        observations: [...pool.observations, percentToLogRatio(20)],
+      };
+      expect(noiseBandPoolDigest(changedPool)).to.not.equal(
+        band.derivation.poolDigest
+      );
+      expect(() =>
+        parseNoiseBandPoolJson(
+          JSON.stringify({ ...pool, observations: [null] })
+        )
+      ).to.throw(/finite/);
+      expect(() =>
+        buildComparisonReport({
+          ...options,
+          pool: changedPool,
+        })
+      ).to.throw(/not derived from the supplied pool/);
+      expect(() =>
+        buildComparisonReport({
+          ...options,
+          pool: undefined,
+        })
+      ).to.throw(/requires its source A\/A pool/);
 
       const outputDir = fs.mkdtempSync(
         path.join(os.tmpdir(), "comparison-report-")
@@ -735,9 +838,119 @@ describe("quick performance comparison statistics", () => {
         expect(fs.existsSync(path.join(outputDir, "comparison.md"))).to.equal(
           true
         );
+        expect(
+          readComparisonReport(path.join(outputDir, "comparison.json"))
+        ).to.deep.equal(report);
+        expect(parseComparisonReportJson(JSON.stringify(report))).to.deep.equal(
+          report
+        );
+        expect(() =>
+          parseComparisonReportJson(
+            JSON.stringify({
+              ...report,
+              aggregate: { ...report.aggregate, percentChange: Number.NaN },
+            })
+          )
+        ).to.throw(/finite/);
+        expect(() =>
+          writeComparisonReport(outputDir, {
+            ...report,
+            aggregate: { ...report.aggregate, percentChange: Number.NaN },
+          })
+        ).to.throw(/finite/);
+        expect(() =>
+          parseComparisonReportJson(
+            JSON.stringify({
+              ...report,
+              aggregate: aggregateLogRatios([Math.log(9)]),
+            })
+          )
+        ).to.throw(/does not match its collapsed observations/);
       } finally {
         fs.rmSync(outputDir, { recursive: true, force: true });
       }
+    });
+
+    it("validates seeded and discarded execution-plan entries", () => {
+      const seededExecution: ExecutionFingerprint = {
+        ...execution,
+        pairPolicy: { kind: "paired", pairsPerJob: 4 },
+        orderPolicy: { kind: "seeded-random", seed: 123 },
+      };
+      const random = new SeededRandom(123);
+      const pairs = Array.from({ length: 4 }, (_, index) =>
+        collapsePair({
+          pair: index,
+          order: random.next() < 0.5 ? "AB" : "BA",
+          armASamples: [100, 101, 102],
+          armBSamples: [101, 102, 103],
+        })
+      );
+      const options: BuildComparisonReportOptions = {
+        scenarioId: calibrationKey.scenarioId,
+        fixtureId: calibrationKey.fixtureId,
+        recipeHash: calibrationKey.recipeHash,
+        mode: "paired",
+        environment: {
+          id: calibrationKey.environmentClass,
+          descriptor: {
+            platform: "test",
+            arch: "x64",
+            cpuModel: "test",
+            cpuCount: 8,
+            memoryGibBucket: 16,
+            nodeMajor: 24,
+            runner: "test",
+          },
+        },
+        execution: seededExecution,
+        armA: {
+          id: "A",
+          transformerVersion: "1",
+          coreBackendVersion: "5",
+        },
+        armB: {
+          id: "B",
+          transformerVersion: "2",
+          coreBackendVersion: "5",
+        },
+        pairs,
+        independentJobs: 1,
+      };
+      expect(buildComparisonReport(options).verdict.verdict).to.equal(
+        "uncalibrated"
+      );
+      expect(() =>
+        buildComparisonReport({
+          ...options,
+          pairs: pairs.map((pair, index) =>
+            index === 2
+              ? { ...pair, order: pair.order === "AB" ? "BA" : "AB" }
+              : pair
+          ),
+        })
+      ).to.throw(/does not match execution plan/);
+      const withDiscarded = buildComparisonReport({
+        ...options,
+        pairs: pairs.slice(1),
+        discardedObservations: [
+          { index: 0, order: pairs[0].order, reason: "child failed" },
+        ],
+      });
+      expect(withDiscarded.observations).to.equal(3);
+      expect(() =>
+        buildComparisonReport({
+          ...options,
+          pairs: pairs.slice(1),
+          discardedObservations: [
+            {
+              index: 0,
+              order: pairs[0].order === "AB" ? "BA" : "AB",
+              reason: "child failed",
+            },
+          ],
+        })
+      ).to.throw(/does not match execution plan/);
     });
   });
 });

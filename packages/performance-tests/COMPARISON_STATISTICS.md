@@ -1,99 +1,142 @@
 # Quick performance comparison statistics
 
-This layer defines analysis and serializable contracts only. It does not choose refs, build arms, launch child
-processes, persist calibration, or decide whether CI blocks a merge.
+This library answers one question: **did arm B become meaningfully slower or faster than arm A?**
+It analyzes benchmark observations and writes comparison reports. A later runner chooses refs, builds
+the arms, launches isolated processes, and stores calibration data.
 
-## Execution identity
+## Reading a result
 
-A/A calibration and A/B comparison are comparable only when all of these match:
+Positive percentages mean arm B is slower than arm A.
+
+| Verdict                     | Meaning                                                                 |
+| --------------------------- | ----------------------------------------------------------------------- |
+| `regressed`                 | B is slower by more than both expected noise and the 10% action margin. |
+| `improved`                  | B is faster by more than both expected noise and the 10% action margin. |
+| `unchanged`                 | A confidence interval fits inside +/-10%, with resolving calibration.   |
+| `inconclusive`              | The data cannot distinguish a meaningful change or equivalence.         |
+| `uncalibrated`              | No established matching A/A calibration exists.                         |
+| `insufficient-observations` | The configured minimum for change detection was not met.                |
+| `invalid`                   | A harness validity check failed.                                        |
+
+Evidence is separate from the verdict. Target-quality calibration can produce `actionable` evidence;
+marginal or unresolvable calibration is `informational`; missing or provisional calibration is
+`descriptive`. The library deliberately has no merge-blocking field.
+
+### Example
+
+1. Repeated A/A jobs compare the same code against itself. Their paired timing differences form a
+   calibration pool for one exact scenario, fixture, environment, and execution structure.
+2. An explicitly configured policy decides when that pool is large and independent enough to be
+   established. Until then, reports remain descriptive.
+3. An A/B run compares the baseline and candidate using the same structure. Suppose its median says
+   B is 14% slower and the matching A/A band is 4%.
+4. Because 14% exceeds both the 4% noise band and the 10% action margin, the result is `regressed`.
+   Near-even paired signs can still make it `inconclusive` as a disagreement or bimodality warning.
+
+An `unchanged` result is intentionally harder to establish. It requires at least six independent
+paired observations by default. Six is the first sample size whose exact distribution-free
+minimum-to-maximum interval covers the population median with at least 95% confidence. The interval
+must fit inside +/-10%, and the matching A/A band must also be below 10%. The bootstrap interval is
+reported only as a diagnostic.
+
+## Safety rules
+
+- **No established calibration, no verdict.** Default calibration never becomes established merely
+  by accumulating a small arbitrary number of jobs. Establishment requires explicit observation and
+  independent-job thresholds chosen from real calibration evidence.
+- **Calibration must match execution exactly.** Scenario, fixture, recipe, environment, warm-ups,
+  measured samples, process policy, pair policy, and order policy are calibration identity.
+- **A band must come from its supplied pool.** Reports verify a digest of the calibration inputs and
+  reproduce the band from its recorded quantile, resample count, seed, sample size, and requirements.
+- **The execution plan must be complete.** Pair indexes are unique and contiguous, and every valid
+  or discarded observation records the order required by the fixed, alternating, or seeded policy.
+- **Invalid numbers are rejected.** Durations, ratios, percentages, resampling parameters, pools,
+  aggregates, and report output must be finite and within their valid ranges.
+- **Failed pairs stay paired.** A failed observation is discarded as one A/B unit, never one arm at a
+  time. Statistical outliers are reported rather than removed.
+
+## Runner contract
+
+`ExecutionFingerprint` is the typed identity of the execution structure. A/A and A/B data are
+comparable only when all of these match:
 
 - scenario, fixture, recipe hash, and environment class;
 - warm-up and measured sample counts;
-- process isolation/restart policy;
+- process isolation and restart policy;
 - paired or unpaired observation policy, including observations per CI job;
 - ordering policy and its first order or random seed.
 
-`ExecutionFingerprint` is the typed identity for that structure. `NoiseBandPool` includes it, and pool lookup rejects
-any mismatch. This prevents a calibration collected with different warm-up, sample, process, pairing, or ordering
-structure from silently authorizing a verdict.
+The initial runner hypothesis is eight scenario executions for one independent pair: each arm gets
+one warm-up and three measured executions. The three measurements within one arm collapse to their
+median; they are not three independent pairs. Pair count and calibration accumulation remain runner
+configuration rather than fixed statistical constants.
 
-Comparison reports also record the number of independent jobs and reject observation counts that do not equal the
-fingerprint's per-job count multiplied by that job count.
+Pair indexes are zero-based across the complete report. Fixed order repeats one order, alternating
+order starts with its configured first order, and seeded-random order consumes the shared deterministic
+random sequence once per pair. A discarded observation still records its scheduled index and order.
 
-The initial runner hypothesis is eight scenario executions total: each arm receives one warm-up and three measured
-executions. That is runner configuration, not a statistical constant. Pair count, sample count, and any future
-escalation are empirical policy choices and become calibration-key material when changed. This specification does not
-require 8/16 pairs or 64/128 executions.
+`ArmModule.ts` validates serializable arm paths and manifests for isolated child processes. The
+analysis process never imports both transformer arms or loads their native dependencies. Child
+processes report runtime identities, and comparison rejects different core-backend versions or
+package hashes.
 
-Calibration accumulates across independent CI jobs. The default pool-establishment rule requires three independent jobs
-and three observations, but those requirements are explicit configuration rather than a fixed benchmark budget.
+Unpaired verdicts are deferred. They require an estimator and bootstrap over the two arms
+independently; zipping unrelated observations into synthetic pairs would depend on arbitrary order.
 
-## Estimator
+## Statistical details
 
-For each paired observation, collapse measured samples within each arm by median, then compute:
+### Paired estimator
+
+For each independent pair, measured samples within each arm collapse by median. Analysis then uses:
 
 ```text
 d_i = ln(B_i / A_i)
 ```
 
-Positive means arm B is slower. The headline estimate is `median(d_i)` and is reported as
-`(exp(median(d_i)) - 1) * 100`. The geometric-mean ratio, bootstrap interval, signs, ties, and raw collapsed observations
-remain diagnostics.
+The headline estimate is `median(d_i)`, reported as `(exp(median(d_i)) - 1) * 100`. The geometric
+mean ratio, bootstrap interval, signs, ties, and raw collapsed observations remain diagnostics.
+Order never changes the sign of `d_i`; it is recorded as a covariate.
 
-Order never changes the sign of `d_i`; it is recorded separately. Failed observations are discarded as whole units,
-never one arm at a time, and statistical outliers are not removed.
+### A/A calibration
 
-## A/A calibration
-
-The magnitude threshold uses the 95th percentile of `|median(d)|` obtained by resampling the matching raw A/A pool at
-the comparison's observation count. The pool stores raw observations because the null distribution changes with sample
-count. The individual-observation 95th percentile and observed maximum are diagnostics, not gates.
+The magnitude threshold is the configured quantile, normally 95%, of `|median(d)|` obtained by
+resampling the matching raw A/A pool at the comparison's observation count. The pool stays raw
+because the null distribution changes with sample size.
 
 Calibration quality is absolute:
 
 | Derived A/A band                   | Quality        | Interpretation                                           |
 | ---------------------------------- | -------------- | -------------------------------------------------------- |
 | `<= 5%`                            | `target`       | Meets the calibration target.                            |
-| `> 5%` and `< 10%`                 | `marginal`     | Informational; useful, but below the desired resolution. |
-| `>= 10%`                           | `unresolvable` | Cannot resolve the declared meaningful 10% threshold.    |
+| `> 5%` and `< 10%`                 | `marginal`     | Informational; below the desired resolution.             |
+| `>= 10%`                           | `unresolvable` | Cannot resolve the meaningful 10% threshold.             |
 | establishment requirements not met | `uncalibrated` | Descriptive output only; no verdict.                     |
 
-The 5% calibration target is not a coefficient-of-variation rule. It is the absolute paired or unpaired A/A
-median-null band for this exact execution structure.
+The 5% target is not a coefficient-of-variation rule. CV and normalized median absolute deviation
+describe dispersion among samples within one benchmark run; the A/A band describes repeatability of
+the paired comparison across independent observations. See [ARCHITECTURE.md](./ARCHITECTURE.md) for
+the within-run CV and MAD fields.
 
-## Meaningful effect and verdict
+### Change and equivalence
 
-The practical equivalence/action margin is 10%. A magnitude-led change verdict requires:
+A magnitude-led change requires:
 
 ```text
-|median(d)| > max(A/A band, 10% margin)
+|median(d)| > max(A/A band, 10% action margin)
 ```
 
-Direction comes from the sign of `median(d)`. Sign agreement is not a conjunctive gate. It remains visible as an
-outlier/disagreement/bimodality detector: when magnitude fires but paired signs are near 50/50, the result is
-`inconclusive`. A 6/2 split at eight observations does not suppress a magnitude-supported verdict; a 5/3 or 4/4 split
-does under the default diagnostic threshold.
+Direction comes from the median sign. Sign agreement is not a conjunctive change gate. It remains a
+disagreement, outlier, or bimodality detector: when magnitude fires but signs are near 50/50, the
+result is `inconclusive`.
 
-`unchanged` requires the bootstrap interval to lie entirely inside the declared +/-10% margin and the A/A band to be
-strictly below that margin. Otherwise the result is `inconclusive`.
+Equivalence uses an exact two-sided confidence interval for the population median based on observed
+order statistics. The configured confidence level determines a mathematical minimum observation
+count; callers may raise but cannot lower that minimum. `unchanged` requires this interval to lie
+strictly inside +/-10% and requires the established A/A band to be strictly below 10%.
 
-Established `target` calibration yields `actionable` evidence. Established `marginal` or `unresolvable` calibration
-yields `informational` evidence. The analysis library deliberately has no `mergeBlocking` field; a later workflow may
-map evidence and verdict to execution policy only after real A/A data supports that decision.
+## Reports and persistence
 
-## Arms and process isolation
-
-`ArmModule.ts` validates serializable arm paths and package manifests for a future child-process runner. It never
-imports both transformer arms, links peers, starts `IModelHost`, or loads native modules in the analysis process.
-Child processes must return runtime identities, and comparison rejects arms that report different core-backend version
-or package hashes.
-
-## Reports
-
-The report includes the full execution fingerprint, calibration status and quality, evidence level, aggregate and
-diagnostics, arm/environment identity, and collapsed observations. Writers emit `comparison.json` and
-`comparison.md`.
-
-Unpaired baseline verdicts are deferred. They require an estimator and bootstrap over the two arms independently;
-zipping unrelated observations into synthetic pairs would make the result depend on arbitrary ordering. Report
-construction rejects unpaired execution fingerprints until that distinct estimator exists.
+Reports include the execution fingerprint, calibration provenance and quality, evidence level,
+aggregate and diagnostics, arm/environment identity, and collapsed observations. Writers emit
+`comparison.json` and `comparison.md` only after runtime validation confirms that numeric values are
+finite and the observation plan is internally consistent.

@@ -32,6 +32,31 @@ export interface EnvironmentClass {
   readonly descriptor: EnvironmentDescriptor;
 }
 
+function assertNonEmpty(value: string, label: string): void {
+  if (typeof value !== "string" || value.trim().length === 0)
+    throw new Error(`${label} cannot be empty`);
+}
+
+export function validateEnvironmentClass(environment: EnvironmentClass): void {
+  if (!environment || typeof environment !== "object")
+    throw new Error("Environment class must be an object");
+  if (!environment.descriptor || typeof environment.descriptor !== "object")
+    throw new Error("Environment descriptor must be an object");
+  assertNonEmpty(environment.id, "Environment id");
+  const descriptor = environment.descriptor;
+  assertNonEmpty(descriptor.platform, "Environment platform");
+  assertNonEmpty(descriptor.arch, "Environment architecture");
+  assertNonEmpty(descriptor.cpuModel, "Environment CPU model");
+  assertNonEmpty(descriptor.runner, "Environment runner");
+  for (const [label, value, minimum] of [
+    ["CPU count", descriptor.cpuCount, 1],
+    ["Memory bucket", descriptor.memoryGibBucket, 0],
+    ["Node major version", descriptor.nodeMajor, 1],
+  ] as const)
+    if (!Number.isSafeInteger(value) || value < minimum)
+      throw new Error(`Environment ${label} must be an integer >= ${minimum}`);
+}
+
 function memoryBucketGib(totalBytes: number): number {
   const gib = totalBytes / 1024 ** 3;
   return gib < 1 ? 0 : 2 ** Math.floor(Math.log2(gib));
@@ -82,7 +107,7 @@ export function classifyEnvironment(
     descriptor.runner,
     descriptor.runnerImage ?? "none",
   ].join("|");
-  return {
+  const environment = {
     id: crypto
       .createHash("sha256")
       .update(canonical)
@@ -90,4 +115,6 @@ export function classifyEnvironment(
       .slice(0, 16),
     descriptor,
   };
+  validateEnvironmentClass(environment);
+  return environment;
 }

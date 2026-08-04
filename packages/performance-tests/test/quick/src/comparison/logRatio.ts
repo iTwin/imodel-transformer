@@ -4,7 +4,7 @@
  *--------------------------------------------------------------------------------------------*/
 
 import { median } from "../reporting/statistics.js";
-import { twoSidedSignTestP } from "./binomial.js";
+import { binomialPmf, twoSidedSignTestP } from "./binomial.js";
 import {
   defaultResampleCount,
   defaultSeed,
@@ -45,6 +45,28 @@ export interface CollapsedPair {
   readonly logRatio: number;
 }
 
+export function validateCollapsedPair(pair: CollapsedPair): void {
+  if (!pair || typeof pair !== "object")
+    throw new Error("Collapsed pair must be an object");
+  if (!Number.isSafeInteger(pair.pair) || pair.pair < 0)
+    throw new Error("Pair index must be a non-negative integer");
+  if (pair.order !== "AB" && pair.order !== "BA")
+    throw new Error(
+      `Pair order must be AB or BA, received ${String(pair.order)}`
+    );
+  assertPositiveDuration(pair.armA, "Collapsed arm A value");
+  assertPositiveDuration(pair.armB, "Collapsed arm B value");
+  if (!Number.isFinite(pair.logRatio))
+    throw new Error("Collapsed pair log ratio must be finite");
+  const expected = logRatio(pair.armA, pair.armB);
+  const tolerance =
+    Number.EPSILON *
+    Math.max(1, Math.abs(expected), Math.abs(pair.logRatio)) *
+    16;
+  if (Math.abs(pair.logRatio - expected) > tolerance)
+    throw new Error("Collapsed pair log ratio does not match its arm values");
+}
+
 function assertPositiveDuration(value: number, label: string): void {
   if (!Number.isFinite(value) || value <= 0)
     throw new Error(
@@ -68,19 +90,31 @@ export function collapseArmSamples(samples: readonly number[]): number {
 export function logRatio(armA: number, armB: number): number {
   assertPositiveDuration(armA, "Arm A value");
   assertPositiveDuration(armB, "Arm B value");
-  return Math.log(armB / armA);
+  const value = Math.log(armB) - Math.log(armA);
+  const ratio = Math.exp(value);
+  if (!Number.isFinite(value) || !Number.isFinite(ratio) || ratio === 0)
+    throw new Error("Arm duration ratio must be finite and representable");
+  return value;
 }
 
 export function collapsePair(observation: PairObservation): CollapsedPair {
+  if (!Number.isSafeInteger(observation.pair) || observation.pair < 0)
+    throw new Error("Pair index must be a non-negative integer");
+  if (observation.order !== "AB" && observation.order !== "BA")
+    throw new Error(
+      `Pair order must be AB or BA, received ${String(observation.order)}`
+    );
   const armA = collapseArmSamples(observation.armASamples);
   const armB = collapseArmSamples(observation.armBSamples);
-  return {
+  const pair = {
     pair: observation.pair,
     order: observation.order,
     armA,
     armB,
     logRatio: logRatio(armA, armB),
   };
+  validateCollapsedPair(pair);
+  return pair;
 }
 
 export function collapsePairs(
@@ -91,12 +125,22 @@ export function collapsePairs(
 
 /** Convert a log-scale quantity to a percentage change. */
 export function logRatioToPercent(value: number): number {
-  return (Math.exp(value) - 1) * 100;
+  if (!Number.isFinite(value)) throw new Error("Log ratio must be finite");
+  const ratio = Math.exp(value);
+  const percent = (ratio - 1) * 100;
+  if (!Number.isFinite(ratio) || ratio === 0 || !Number.isFinite(percent))
+    throw new Error("Log ratio cannot be represented as a finite percentage");
+  return percent;
 }
 
 /** Convert a percentage change back to the log scale. */
 export function percentToLogRatio(percent: number): number {
-  return Math.log(1 + percent / 100);
+  if (!Number.isFinite(percent) || percent <= -100)
+    throw new Error("Percentage change must be finite and greater than -100");
+  const value = Math.log1p(percent / 100);
+  if (!Number.isFinite(value))
+    throw new Error("Percentage change cannot be represented as a log ratio");
+  return value;
 }
 
 export interface BootstrapInterval {
@@ -105,6 +149,76 @@ export interface BootstrapInterval {
   readonly level: number;
   readonly resamples: number;
   readonly seed: number;
+}
+
+export interface MedianConfidenceInterval {
+  readonly lower: number;
+  readonly upper: number;
+  readonly requestedLevel: number;
+  readonly coverage: number;
+  readonly lowerOrderStatistic: number;
+  readonly upperOrderStatistic: number;
+}
+
+function assertFiniteValues(values: readonly number[], label: string): void {
+  for (const value of values)
+    if (!Number.isFinite(value))
+      throw new Error(`${label} must contain only finite values`);
+}
+
+function assertProbability(value: number, label: string): void {
+  if (!Number.isFinite(value) || value <= 0 || value >= 1)
+    throw new Error(`${label} must lie strictly between zero and one`);
+}
+
+function medianIntervalCoverage(
+  observations: number,
+  excludedFromEachTail: number
+): number {
+  let tailProbability = 0;
+  for (let count = 0; count <= excludedFromEachTail; count++)
+    tailProbability += binomialPmf(observations, count);
+  return 1 - 2 * tailProbability;
+}
+
+export function minimumObservationsForMedianConfidence(level = 0.95): number {
+  assertProbability(level, "Median confidence level");
+  for (let observations = 1; observations < 10_000; observations++)
+    if (medianIntervalCoverage(observations, 0) >= level) return observations;
+  throw new Error(
+    `No practical observation count supports confidence ${level}`
+  );
+}
+
+/**
+ * Exact distribution-free confidence interval for the population median.
+ *
+ * The bounds are observed order statistics, not interpolated percentiles. The widest interval
+ * [minimum, maximum] first reaches at least 95% coverage with six independent observations.
+ */
+export function exactMedianConfidenceInterval(
+  logRatios: readonly number[],
+  level = 0.95
+): MedianConfidenceInterval {
+  if (logRatios.length === 0)
+    throw new Error("Median confidence interval requires at least one pair");
+  assertFiniteValues(logRatios, "Median confidence interval");
+  assertProbability(level, "Median confidence level");
+  const ordered = [...logRatios].sort((left, right) => left - right);
+  let excludedFromEachTail = 0;
+  while (
+    excludedFromEachTail + 1 < ordered.length / 2 &&
+    medianIntervalCoverage(ordered.length, excludedFromEachTail + 1) >= level
+  )
+    excludedFromEachTail++;
+  return {
+    lower: ordered[excludedFromEachTail],
+    upper: ordered[ordered.length - excludedFromEachTail - 1],
+    requestedLevel: level,
+    coverage: medianIntervalCoverage(ordered.length, excludedFromEachTail),
+    lowerOrderStatistic: excludedFromEachTail + 1,
+    upperOrderStatistic: ordered.length - excludedFromEachTail,
+  };
 }
 
 /**
@@ -122,8 +236,10 @@ export function bootstrapMedianInterval(
 ): BootstrapInterval {
   if (logRatios.length === 0)
     throw new Error("Bootstrap requires at least one pair");
-  if (level <= 0 || level >= 1)
-    throw new Error("Bootstrap level must lie strictly between zero and one");
+  assertFiniteValues(logRatios, "Bootstrap input");
+  assertProbability(level, "Bootstrap level");
+  if (!Number.isSafeInteger(resamples) || resamples < 1)
+    throw new Error("Bootstrap resamples must be a positive integer");
   const random = new SeededRandom(seed);
   const medians = new Array<number>(resamples);
   for (let index = 0; index < resamples; index++)
@@ -159,6 +275,7 @@ export interface SignSummary {
 }
 
 export function summarizeSigns(logRatios: readonly number[]): SignSummary {
+  assertFiniteValues(logRatios, "Sign summary");
   const positive = logRatios.filter((value) => value > 0).length;
   const negative = logRatios.filter((value) => value < 0).length;
   const ties = logRatios.length - positive - negative;
@@ -190,16 +307,80 @@ export interface LogRatioAggregate {
   readonly logRatios: readonly number[];
 }
 
+export function validateLogRatioAggregate(aggregate: LogRatioAggregate): void {
+  if (!aggregate || typeof aggregate !== "object")
+    throw new Error("Log-ratio aggregate must be an object");
+  if (!Array.isArray(aggregate.logRatios))
+    throw new Error("Log-ratio aggregate observations must be an array");
+  if (!aggregate.bootstrap || typeof aggregate.bootstrap !== "object")
+    throw new Error("Log-ratio aggregate bootstrap must be an object");
+  if (!aggregate.signs || typeof aggregate.signs !== "object")
+    throw new Error("Log-ratio aggregate sign summary must be an object");
+  if (
+    !Number.isSafeInteger(aggregate.pairs) ||
+    aggregate.pairs < 1 ||
+    aggregate.pairs !== aggregate.logRatios.length
+  )
+    throw new Error(
+      "Log-ratio aggregate pair count must match its non-empty observations"
+    );
+  assertFiniteValues(aggregate.logRatios, "Log-ratio aggregate");
+  for (const [label, value] of [
+    ["median log ratio", aggregate.medianLogRatio],
+    ["mean log ratio", aggregate.meanLogRatio],
+    ["percent change", aggregate.percentChange],
+    ["geometric mean percent change", aggregate.geometricMeanPercentChange],
+    ["bootstrap lower bound", aggregate.bootstrap.lower],
+    ["bootstrap upper bound", aggregate.bootstrap.upper],
+    ["bootstrap level", aggregate.bootstrap.level],
+  ] as const)
+    if (!Number.isFinite(value))
+      throw new Error(`Aggregate ${label} must be finite`);
+  assertProbability(aggregate.bootstrap.level, "Bootstrap level");
+  if (
+    !Number.isSafeInteger(aggregate.bootstrap.resamples) ||
+    aggregate.bootstrap.resamples < 1
+  )
+    throw new Error("Bootstrap resamples must be a positive integer");
+  new SeededRandom(aggregate.bootstrap.seed);
+  if (aggregate.bootstrap.lower > aggregate.bootstrap.upper)
+    throw new Error("Bootstrap lower bound cannot exceed upper bound");
+  const signs = aggregate.signs;
+  for (const [label, value] of [
+    ["positive signs", signs.positive],
+    ["negative signs", signs.negative],
+    ["ties", signs.ties],
+    ["effective pairs", signs.effectivePairs],
+    ["agreeing signs", signs.agreeing],
+  ] as const)
+    if (!Number.isSafeInteger(value) || value < 0)
+      throw new Error(`Aggregate ${label} must be a non-negative integer`);
+  if (
+    signs.positive + signs.negative + signs.ties !== aggregate.pairs ||
+    signs.positive + signs.negative !== signs.effectivePairs ||
+    Math.max(signs.positive, signs.negative) !== signs.agreeing ||
+    !Number.isFinite(signs.exactP) ||
+    signs.exactP < 0 ||
+    signs.exactP > 1
+  )
+    throw new Error("Aggregate sign summary is inconsistent");
+}
+
 export function aggregateLogRatios(
   logRatios: readonly number[],
   options: { level?: number; resamples?: number; seed?: number } = {}
 ): LogRatioAggregate {
   if (logRatios.length === 0)
     throw new Error("Cannot aggregate an empty set of pairs");
+  assertFiniteValues(logRatios, "Log-ratio aggregate");
   const medianLogRatio = median(logRatios);
-  const meanLogRatio =
-    logRatios.reduce((sum, value) => sum + value, 0) / logRatios.length;
-  return {
+  const meanLogRatio = logRatios.reduce(
+    (sum, value) => sum + value / logRatios.length,
+    0
+  );
+  if (!Number.isFinite(meanLogRatio))
+    throw new Error("Mean log ratio must be finite");
+  const aggregate = {
     pairs: logRatios.length,
     medianLogRatio,
     meanLogRatio,
@@ -214,6 +395,8 @@ export function aggregateLogRatios(
     ),
     logRatios: [...logRatios],
   };
+  validateLogRatioAggregate(aggregate);
+  return aggregate;
 }
 
 export function aggregatePairs(

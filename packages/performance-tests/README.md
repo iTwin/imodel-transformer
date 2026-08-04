@@ -166,10 +166,13 @@ within-process samples are never treated as three independent pairs.
 Calibration mode builds one selected `calibration_ref` for both labeled arms and
 runs three independent jobs in `AB`, `BA`, `AB` order. The aggregation job
 rejects fixture, recipe, workload, environment, execution-policy, build, or
-fingerprint mismatches. Three matching observations from three jobs establish
-the initial pool. An absolute A/A band at or below 5% is target quality, between
-5% and 10% is marginal, and 10% or greater is unresolvable. All three remain
-informational; the practical effect and equivalence threshold is 10%.
+fingerprint mismatches. The three matching observations seed a provisional pool;
+calibration remains provisional until an explicit policy supplies and satisfies
+both independent-job and observation thresholds. An absolute A/A band at or
+below 5% is target quality once established, between 5% and 10% is marginal,
+and 10% or greater is unresolvable. Provisional calibration is reported as
+uncalibrated quality. All outcomes remain informational; the practical effect
+and equivalence threshold is 10%.
 
 ```sh
 gh workflow run quick-performance-comparison.yml --ref main \
@@ -182,7 +185,11 @@ Comparison mode checks out and builds baseline and candidate separately. The
 top-layer harness loads `ChangedInstanceIds` from each explicit built package in
 its own child process, so the baseline ref does not need to contain the
 comparison harness. Supply the prior calibration workflow run ID and artifact;
-leave `candidate_ref` blank to use the workflow ref selected by `--ref`.
+leave `candidate_ref` blank to use the workflow ref selected by `--ref`. The
+single A/B job is pair index zero in `AB` order. It cannot establish an
+`unchanged` result: the exact distribution-free 95% median interval requires at
+least six accumulated independent pairs, and a configured equivalence policy may
+raise that minimum.
 
 ```sh
 gh workflow run quick-performance-comparison.yml --ref main \
@@ -190,7 +197,6 @@ gh workflow run quick-performance-comparison.yml --ref main \
   -f scenario=changeset-scanning \
   -f baseline_ref=main \
   -f candidate_ref=my-candidate \
-  -f pair_order=AB \
   -f calibration_run_id=123456789 \
   -f calibration_artifact=QuickPerformanceCalibration \
   -f calibration_file=calibration.json

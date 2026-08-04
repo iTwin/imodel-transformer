@@ -20,7 +20,12 @@ import {
   fingerprintForArtifact,
   hashFixtureArtifact,
   PairRunArtifact,
+  readCalibrationArtifact,
+  readPairArtifact,
   runPair,
+  validateCalibrationArtifact,
+  validatePairRunArtifact,
+  writeJson,
 } from "../../src/comparison/ComparisonRunner";
 import {
   artifactBriefcaseFileName,
@@ -121,9 +126,9 @@ describe("quick comparison runner", () => {
       runtime: {
         armId: request.arm.id,
         transformerVersion: "1.0.0",
-        transformerPackageHash: "same-transformer",
+        transformerPackageHash: "1".repeat(64),
         coreBackendVersion: "5.10.3",
-        coreBackendPackageHash: "same-core",
+        coreBackendPackageHash: "2".repeat(64),
       },
       fingerprint: request.fingerprint,
       fixtureArtifactHash: request.fixtureArtifactHash,
@@ -344,7 +349,7 @@ describe("quick comparison runner", () => {
     expect(hashFixtureArtifact(fixtureDirectory)).to.have.length(64);
   });
 
-  it("aggregates three independent A/A jobs and enforces job-level order", async () => {
+  it("aggregates a complete three-job A/A plan as provisional by default", async () => {
     const artifacts = await Promise.all([
       validPair(0, "AB", [100, 101, 102], [101, 102, 103]),
       validPair(1, "BA", [100, 101, 102], [99, 100, 101]),
@@ -353,15 +358,127 @@ describe("quick comparison runner", () => {
     const calibration = aggregateCalibration(artifacts);
     expect(calibration.pool.independentJobs).to.equal(3);
     expect(calibration.pool.observations).to.have.length(3);
-    expect(calibration.band.status).to.equal("established");
+    expect(calibration.band.status).to.equal("provisional");
     expect(calibration.orders).to.deep.equal(["AB", "BA", "AB"]);
+    expect(calibration.jobs.map((job) => job.pair)).to.deep.equal([0, 1, 2]);
+
+    const established = aggregateCalibration(artifacts, {
+      expectedPairs: 3,
+      requirements: {
+        provisionalIndependentJobs: 1,
+        provisionalObservations: 1,
+        establishedIndependentJobs: 3,
+        establishedObservations: 3,
+      },
+    });
+    expect(established.band.status).to.equal("established");
+
     expect(() =>
       aggregateCalibration([
         artifacts[0],
         { ...artifacts[1], order: "AB" },
         artifacts[2],
       ])
-    ).to.throw("requires BA");
+    ).to.throw("does not match execution plan BA");
+    expect(() =>
+      aggregateCalibration([artifacts[0], artifacts[2]], { expectedPairs: 2 })
+    ).to.throw("expected 1, received 2");
+    expect(() =>
+      aggregateCalibration([artifacts[0], artifacts[0], artifacts[2]])
+    ).to.throw("expected 1, received 0");
+  });
+
+  it("retains discarded calibration jobs while pooling only valid observations", async () => {
+    const artifacts = await Promise.all([
+      validPair(0, "AB", [100, 101, 102], [101, 102, 103]),
+      validPair(1, "BA", [100, 101, 102], [99, 100, 101]),
+      validPair(2, "AB", [100, 101, 102], [100, 101, 102]),
+    ]);
+    const discarded: PairRunArtifact = {
+      ...artifacts[1],
+      observation: undefined,
+      collapsed: undefined,
+      discardedReason: "child crashed",
+    };
+    const calibration = aggregateCalibration(
+      [artifacts[0], discarded, artifacts[2]],
+      { expectedPairs: 3 }
+    );
+    expect(calibration.jobs).to.have.length(3);
+    expect(calibration.jobs[1].discardedReason).to.equal("child crashed");
+    expect(calibration.pool.independentJobs).to.equal(2);
+    expect(calibration.pool.observations).to.have.length(2);
+    expect(calibration.band.status).to.equal("provisional");
+  });
+
+  it("rejects tampered provenance, malformed artifacts, and non-finite JSON", async () => {
+    const artifacts = await Promise.all([
+      validPair(0, "AB", [100, 101, 102], [101, 102, 103]),
+      validPair(1, "BA", [100, 101, 102], [99, 100, 101]),
+      validPair(2, "AB", [100, 101, 102], [100, 101, 102]),
+    ]);
+    const calibration = aggregateCalibration(artifacts);
+    expect(() =>
+      validateCalibrationArtifact({
+        ...calibration,
+        band: {
+          ...calibration.band,
+          derivation: {
+            ...calibration.band.derivation,
+            poolDigest: "0".repeat(64),
+          },
+        },
+      })
+    ).to.throw("not derived from the supplied pool");
+
+    const pairPath = path.join(root, "pair.json");
+    fs.writeFileSync(
+      pairPath,
+      JSON.stringify({ ...artifacts[0], order: "BA" })
+    );
+    expect(() => readPairArtifact(pairPath)).to.throw(
+      "does not match execution plan AB"
+    );
+    const observation = artifacts[0].observation;
+    const armB = artifacts[0].armB;
+    if (!observation || !armB)
+      throw new Error("Expected a valid pair artifact");
+    expect(() =>
+      validatePairRunArtifact({
+        ...artifacts[0],
+        observation: {
+          ...observation,
+          armASamples: [1, 2, 3],
+        },
+      })
+    ).to.throw("do not match the raw measured samples");
+    expect(() =>
+      validatePairRunArtifact({
+        ...artifacts[0],
+        armB: {
+          ...armB,
+          runtime: {
+            ...armB.runtime,
+            coreBackendPackageHash: "3".repeat(64),
+          },
+        },
+      })
+    ).to.throw("core-backend package");
+
+    const calibrationPath = path.join(root, "calibration.json");
+    fs.writeFileSync(
+      calibrationPath,
+      JSON.stringify({
+        ...calibration,
+        pool: { ...calibration.pool, independentJobs: 2 },
+      })
+    );
+    expect(() => readCalibrationArtifact(calibrationPath)).to.throw(
+      "does not match the valid independent job observations"
+    );
+    expect(() =>
+      writeJson(path.join(root, "non-finite.json"), { value: Number.NaN })
+    ).to.throw("non-finite");
   });
 
   it("uses the layer-3 5% and 10% calibration quality boundaries", () => {
