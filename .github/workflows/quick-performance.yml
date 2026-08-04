@@ -10,6 +10,11 @@ on:
         type: choice
         options:
           - incremental-synchronization
+          - changeset-scanning
+      scenario_override:
+        description: Optional scenario id override for feature branches
+        required: false
+        type: string
       fixture:
         description: Fixture id (blank uses the scenario's default)
         required: false
@@ -20,7 +25,7 @@ permissions:
 
 jobs:
   quick-performance:
-    name: ${{ inputs.scenario || 'incremental-synchronization' }}
+    name: ${{ inputs.scenario_override || inputs.scenario || 'incremental-synchronization' }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -60,7 +65,7 @@ jobs:
         env:
           QUICK_PERF_OUTPUT: ${{ runner.temp }}/quick-performance
           QUICK_PERF_SAMPLES: 8
-          QUICK_PERF_SCENARIO: ${{ inputs.scenario || 'incremental-synchronization' }}
+          QUICK_PERF_SCENARIO: ${{ inputs.scenario_override || inputs.scenario || 'incremental-synchronization' }}
           QUICK_PERF_FIXTURE: ${{ inputs.fixture }}
 
       - name: Report variance reliability

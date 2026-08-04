@@ -1,6 +1,6 @@
 {
   "name": "@itwin/imodel-transformer",
-  "version": "2.0.0-dev.36",
+  "version": "2.0.0-dev.40",
   "description": "API for exporting an iModel's parts and also importing them into another iModel",
   "main": "lib/cjs/imodel-transformer.js",
   "typings": "lib/cjs/imodel-transformer.d.ts",
@@ -71,8 +71,7 @@
     "This package relies on @internal APIs in iTwin.js, and therefore has very strict peerDep versions",
     "We perform a version check at runtime to ensure this.",
     "Every new iTwin.js version must be validated, and fixes are rarely ported to old versions.",
-    "Removing Dependencies on internal APIs is ongoing.",
-    "You can find a script to see the latest @itwin/imodel-transformer version for your iTwin.js version in the README"
+    "Removing Dependencies on internal APIs is ongoing."
   ],
   "peerDependencies": {
     "@itwin/core-backend": "^5.9.1",
@@ -107,6 +106,7 @@
     "@itwin/ecschema-locaters": "5.10.3",
     "@itwin/ecschema-metadata": "^5.10.3",
     "@itwin/eslint-plugin": "^5.2.1",
+    "@itwin/imodel-transformer-test-utils": "workspace:*",
     "@types/node": "^22.18.8",
     "@types/node-fetch": "^2.6.13",
     "@types/semver": "^7.7.1",

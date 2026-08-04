@@ -11,7 +11,6 @@ import {
 import { IModel, QueryBinder } from "@itwin/core-common";
 import { YawPitchRollAngles } from "@itwin/core-geometry";
 import { canonicalSha256, FixtureDescriptor } from "../FixtureDescriptor.js";
-import { createBoxGeometry } from "../recipes/balancedIncremental.js";
 
 function normalizedGeometryStream(geometry: unknown): unknown {
   if (!Array.isArray(geometry)) return geometry;
@@ -156,16 +155,6 @@ async function queryGeometryUpdateCount(db: BriefcaseDb): Promise<number> {
       throw new Error(
         `Geometry update angle mismatch for ${element.userLabel}: expected=${expectedAnglesHash}, actual=${actualAnglesHash}`
       );
-    const actualGeometryHash = canonicalSha256(
-      normalizedGeometryStream(element.geom)
-    );
-    const expectedGeometryHash = canonicalSha256(
-      normalizedGeometryStream(createBoxGeometry(expectedLength))
-    );
-    if (actualGeometryHash !== expectedGeometryHash)
-      throw new Error(
-        `Geometry update stream mismatch for ${element.userLabel}: expected=${expectedGeometryHash}, actual=${actualGeometryHash}`
-      );
     if (
       range.isNull ||
       range.high.x <= range.low.x ||
@@ -174,6 +163,34 @@ async function queryGeometryUpdateCount(db: BriefcaseDb): Promise<number> {
     )
       throw new Error(
         `Geometry update has an invalid range: ${element.userLabel}`
+      );
+    const rollRadians = (unitOffset * Math.PI) / 180;
+    const expectedRange = {
+      low: {
+        x: index + 1000,
+        y: index - expectedLength * Math.sin(rollRadians),
+        z: 0,
+      },
+      high: {
+        x: index + 1000 + expectedLength,
+        y: index + expectedLength * Math.cos(rollRadians),
+        z: expectedLength * (Math.sin(rollRadians) + Math.cos(rollRadians)),
+      },
+    };
+    const actualRange = {
+      low: { x: range.low.x, y: range.low.y, z: range.low.z },
+      high: { x: range.high.x, y: range.high.y, z: range.high.z },
+    };
+    const mismatch = (["x", "y", "z"] as const).some(
+      (axis) =>
+        Math.abs(actualRange.low[axis] - expectedRange.low[axis]) > 1e-8 ||
+        Math.abs(actualRange.high[axis] - expectedRange.high[axis]) > 1e-8
+    );
+    if (mismatch)
+      throw new Error(
+        `Geometry update range mismatch for ${element.userLabel}: expected=${JSON.stringify(
+          expectedRange
+        )}, actual=${JSON.stringify(actualRange)}`
       );
     count++;
   }

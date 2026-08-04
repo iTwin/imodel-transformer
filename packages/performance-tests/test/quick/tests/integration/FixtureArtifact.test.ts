@@ -8,9 +8,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { BriefcaseDb } from "@itwin/core-backend";
-import { HubMock } from "@itwin/core-backend/lib/cjs/internal/HubMock.js";
 import { ChangedInstanceIds } from "@itwin/imodel-transformer";
-import { FixtureDescriptor } from "../../src/fixtures/FixtureDescriptor.js";
 import {
   artifactBriefcasePath,
   artifactManifestFileName,
@@ -19,10 +17,14 @@ import {
   readFixtureRecipeData,
   writeFixtureRecipeData,
 } from "../../src/fixtures/FixtureArtifact.js";
-import { balancedIncrementalSourceOnlyDescriptor } from "../../src/catalogs/FixtureCatalog.js";
 import {
   balancedIncrementalRecipe,
-  registerFixtureRecipe,
+  balancedIncrementalSourceOnlyDescriptor,
+  balancedIncrementalSourceOnlyFixture,
+} from "../../src/fixtures/recipes/balancedIncremental.js";
+import {
+  configureFixture,
+  defineFixtureRecipe,
 } from "../../src/fixtures/FixtureRecipe.js";
 import {
   BuiltFixture,
@@ -31,12 +33,14 @@ import {
   requireFixtureArtifact,
 } from "../../src/fixtures/FixtureProvider.js";
 import { detachedBriefcaseFixtureProvider } from "../../src/fixtures/providers/detachedBriefcaseProvider.js";
+import { quickTestHub } from "../../src/fixtures/QuickTestHub.js";
 import {
   shutdownIsolatedHost,
   startIsolatedHost,
 } from "../support/isolatedHost.js";
 
 describe("detached fixture artifact", () => {
+  const fixture = balancedIncrementalSourceOnlyFixture;
   const descriptor = balancedIncrementalSourceOnlyDescriptor;
   let root: string;
   let built: BuiltFixture;
@@ -45,7 +49,7 @@ describe("detached fixture artifact", () => {
     root = fs.mkdtempSync(path.join(os.tmpdir(), "quick-artifact-"));
     await startIsolatedHost();
     built = await detachedBriefcaseFixtureProvider.build(
-      descriptor,
+      fixture,
       path.join(root, "fixture-artifact")
     );
   });
@@ -71,7 +75,7 @@ describe("detached fixture artifact", () => {
    * this fails here with a clear cause instead of surfacing as an inscrutable benchmark failure.
    */
   it("opens a relocated briefcase readonly with no hub of any kind", async () => {
-    expect(HubMock.isValid).to.equal(
+    expect(quickTestHub.isActive).to.equal(
       false,
       "stage 1 must release its build hub before any working copy is opened"
     );
@@ -152,7 +156,7 @@ describe("detached fixture artifact", () => {
   });
 
   it("materializes independent working copies without a hub", async () => {
-    expect(HubMock.isValid).to.equal(
+    expect(quickTestHub.isActive).to.equal(
       false,
       "stage 2 must not require a live hub"
     );
@@ -334,36 +338,36 @@ describe("recipe data across the stage boundary", () => {
     changesets: 8,
   };
   const recipeId = "balanced-incremental-with-data";
-  const descriptor: FixtureDescriptor = {
-    ...balancedIncrementalSourceOnlyDescriptor,
-    id: "balanced-incremental-emitting-data",
-    layout: {
-      ...balancedIncrementalSourceOnlyDescriptor.layout,
-      recipe: recipeId,
+  const recipe = defineFixtureRecipe({
+    ...balancedIncrementalRecipe,
+    id: recipeId,
+    async applySourceChangesets(db, token, context, state) {
+      await balancedIncrementalRecipe.applySourceChangesets(
+        db,
+        token,
+        context,
+        state
+      );
+      return emitted;
     },
-  };
+  });
+  const fixture = configureFixture(recipe, {
+    id: "balanced-incremental-emitting-data",
+    version: 1,
+    label: "balanced incremental emitting data",
+    scenarioClaims: balancedIncrementalSourceOnlyDescriptor.scenarioClaims,
+    topology: "source-only",
+    seed: 328,
+    parameters: { scale: 25 },
+  });
   let root: string;
   let built: BuiltFixture;
 
   beforeAll(async () => {
-    registerFixtureRecipe({
-      id: recipeId,
-      createSeed: async (fileName, forDescriptor) =>
-        balancedIncrementalRecipe.createSeed(fileName, forDescriptor),
-      applySourceChangesets: async (db, token, forDescriptor, state) => {
-        await balancedIncrementalRecipe.applySourceChangesets(
-          db,
-          token,
-          forDescriptor,
-          state
-        );
-        return emitted;
-      },
-    });
     root = fs.mkdtempSync(path.join(os.tmpdir(), "quick-recipe-data-"));
     await startIsolatedHost();
     built = await detachedBriefcaseFixtureProvider.build(
-      descriptor,
+      fixture,
       path.join(root, "fixture-artifact")
     );
   });
@@ -418,31 +422,31 @@ describe("recipe data across the stage boundary", () => {
  */
 describe("recipe data that cannot survive JSON", () => {
   const recipeId = "balanced-incremental-emitting-a-set";
-  const descriptor: FixtureDescriptor = {
-    ...balancedIncrementalSourceOnlyDescriptor,
-    id: "balanced-incremental-emitting-a-set",
-    layout: {
-      ...balancedIncrementalSourceOnlyDescriptor.layout,
-      recipe: recipeId,
+  const recipe = defineFixtureRecipe({
+    ...balancedIncrementalRecipe,
+    id: recipeId,
+    async applySourceChangesets(db, token, context, state) {
+      await balancedIncrementalRecipe.applySourceChangesets(
+        db,
+        token,
+        context,
+        state
+      );
+      return { elements: { deleteIds: new Set(["0x20", "0x21"]) } };
     },
-  };
+  });
+  const fixture = configureFixture(recipe, {
+    id: "balanced-incremental-emitting-a-set",
+    version: 1,
+    label: "balanced incremental emitting a set",
+    scenarioClaims: balancedIncrementalSourceOnlyDescriptor.scenarioClaims,
+    topology: "source-only",
+    seed: 328,
+    parameters: { scale: 25 },
+  });
   let root: string;
 
   beforeAll(async () => {
-    registerFixtureRecipe({
-      id: recipeId,
-      createSeed: async (fileName, forDescriptor) =>
-        balancedIncrementalRecipe.createSeed(fileName, forDescriptor),
-      applySourceChangesets: async (db, token, forDescriptor, state) => {
-        await balancedIncrementalRecipe.applySourceChangesets(
-          db,
-          token,
-          forDescriptor,
-          state
-        );
-        return { elements: { deleteIds: new Set(["0x20", "0x21"]) } };
-      },
-    });
     root = fs.mkdtempSync(path.join(os.tmpdir(), "quick-bad-recipe-"));
     await startIsolatedHost();
   });
@@ -457,7 +461,7 @@ describe("recipe data that cannot survive JSON", () => {
     let built: BuiltFixture | undefined;
     try {
       built = await detachedBriefcaseFixtureProvider.build(
-        descriptor,
+        fixture,
         artifactDir
       );
     } catch (error) {

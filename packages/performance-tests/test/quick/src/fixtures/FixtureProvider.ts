@@ -8,6 +8,7 @@ import { BriefcaseDb } from "@itwin/core-backend";
 import { ChangesetFileProps } from "@itwin/core-common";
 import { FixtureArtifact, FixtureArtifactManifest } from "./FixtureArtifact.js";
 import { FixtureDescriptor } from "./FixtureDescriptor.js";
+import { ConfiguredFixture } from "./FixtureRecipe.js";
 import { ReconstructedHub } from "./LocalHubFixture.js";
 import { detachedBriefcaseFixtureProvider } from "./providers/detachedBriefcaseProvider.js";
 import { liveHubFixtureProvider } from "./providers/liveHubProvider.js";
@@ -18,7 +19,7 @@ interface PreparedDatasetBase {
   readonly reconstructionMilliseconds: number;
 }
 
-/** A live HubMock with an open source briefcase and an already-transformed-into target. */
+/** A live local test hub with an open source briefcase and an already-transformed-into target. */
 export interface PreparedLiveHubDataset extends PreparedDatasetBase {
   readonly topology: "source-and-empty-target";
   readonly hub: ReconstructedHub;
@@ -78,6 +79,7 @@ export function fixtureWorkingDirectory(
  * capture and stage 1 is structural only.
  */
 export interface BuiltFixture {
+  readonly fixture: ConfiguredFixture;
   readonly descriptor: FixtureDescriptor;
   readonly directory: string;
   readonly buildMilliseconds: number;
@@ -103,10 +105,7 @@ export function requireFixtureArtifact(built: BuiltFixture): FixtureArtifact {
  */
 export interface FixtureProvider {
   /** Build once, outside the sample loop. */
-  build(
-    descriptor: FixtureDescriptor,
-    artifactDir: string
-  ): Promise<BuiltFixture>;
+  build(fixture: ConfiguredFixture, artifactDir: string): Promise<BuiltFixture>;
   /** Produce a fresh working copy for one sample. */
   materialize(
     built: BuiltFixture,

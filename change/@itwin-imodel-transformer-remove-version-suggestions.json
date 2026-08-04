@@ -1,0 +1,7 @@
+{
+  "type": "major",
+  "comment": "Remove the SUGGEST_TRANSFORMER_VERSIONS registry lookup and the README version-selection script.",
+  "packageName": "@itwin/imodel-transformer",
+  "email": "50554904+hl662@users.noreply.github.com",
+  "dependentChangeType": "patch"
+}

@@ -61,7 +61,6 @@ import {
   ViewDefinition2d,
   withEditTxn,
 } from "@itwin/core-backend";
-import { HubMock } from "@itwin/core-backend/lib/cjs/internal/HubMock";
 import * as TestUtils from "./TestUtils";
 import {
   Base64EncodedString,
@@ -142,11 +141,7 @@ export async function expectTransformerError(
   return error;
 }
 
-export class HubWrappers extends TestUtils.HubWrappers {
-  protected static override get hubMock() {
-    return HubMock;
-  }
-}
+export { HubWrappers } from "./TestUtils/IModelTestUtils";
 
 export class IModelTransformerTestUtils extends TestUtils.IModelTestUtils {
   protected static override get knownTestLocations(): {
