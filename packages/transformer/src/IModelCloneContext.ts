@@ -57,6 +57,13 @@ export class IModelCloneContext extends IModelElementCloneContext {
     const targetElementProps: ElementProps = this[
       "_nativeContext"
     ].cloneElement(sourceElement.id, cloneOptions);
+    // Native same-iModel cloning clears codes for inserts, but identity mappings are updates.
+    if (
+      !this.isBetweenIModels &&
+      this.findTargetElementId(sourceElement.id) === sourceElement.id
+    ) {
+      targetElementProps.code = sourceElement.code.toJSON();
+    }
     // Ensure that all NavigationProperties in targetElementProps have a defined value so "clearing" changes will be part of the JSON used for update
     const sourceElementClass =
       sourceElement.iModel.schemaContext.getSchemaItemSync(
