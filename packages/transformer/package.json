@@ -49,8 +49,7 @@
     "This package relies on @internal APIs in iTwin.js, and therefore has very strict peerDep versions",
     "We perform a version check at runtime to ensure this.",
     "Every new iTwin.js version must be validated, and fixes are rarely ported to old versions.",
-    "Removing Dependencies on internal APIs is ongoing.",
-    "You can find a script to see the latest @itwin/imodel-transformer version for your iTwin.js version in the README"
+    "Removing Dependencies on internal APIs is ongoing."
   ],
   "peerDependencies": {
     "@itwin/core-backend": "^5.9.1",
