@@ -1,0 +1,187 @@
+name: Quick performance A/B comparison
+
+on:
+  workflow_dispatch:
+    inputs:
+      scenario:
+        description: Comparison scenario
+        required: true
+        default: changeset-scanning
+        type: choice
+        options:
+          - changeset-scanning
+      baseline_ref:
+        description: Baseline ref
+        required: true
+        default: main
+        type: string
+      candidate_ref:
+        description: Candidate ref (blank uses the immutable dispatched SHA)
+        required: false
+        type: string
+      pair_order:
+        description: Execution order for the isolated arm processes
+        required: true
+        default: AB
+        type: choice
+        options:
+          - AB
+          - BA
+
+permissions:
+  contents: read
+
+env:
+  NODE_OPTIONS: --disable-warning=MODULE_TYPELESS_PACKAGE_JSON
+
+jobs:
+  compare:
+    name: A/B comparison (${{ inputs.pair_order }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+
+    steps:
+      - name: Validate dispatch inputs
+        shell: bash
+        env:
+          BASELINE_REF: ${{ inputs.baseline_ref }}
+          CANDIDATE_REF: ${{ inputs.candidate_ref || github.sha }}
+          PAIR_ORDER: ${{ inputs.pair_order }}
+          SCENARIO: ${{ inputs.scenario }}
+        run: |
+          node - <<'NODE'
+          const { spawnSync } = require("child_process");
+          function ref(value, label) {
+            if (!/^[A-Za-z0-9._/-]+$/.test(value) || value.includes("..") || value.includes("@{") || value.startsWith("-"))
+              throw new Error(`${label} contains unsafe characters`);
+            if (/^[0-9a-fA-F]{40}$/.test(value))
+              return;
+            const branch = spawnSync("git", ["check-ref-format", "--branch", value]);
+            const full = spawnSync("git", ["check-ref-format", value]);
+            if (branch.status !== 0 && full.status !== 0)
+              throw new Error(`${label} is not a valid Git ref`);
+          }
+          ref(process.env.BASELINE_REF, "baseline_ref");
+          ref(process.env.CANDIDATE_REF, "candidate_ref");
+          if (!["AB", "BA"].includes(process.env.PAIR_ORDER))
+            throw new Error("pair_order must be AB or BA");
+          if (process.env.SCENARIO !== "changeset-scanning")
+            throw new Error("Only changeset-scanning is supported");
+          NODE
+
+      - name: Checkout harness
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          path: harness
+          persist-credentials: false
+
+      - name: Checkout baseline
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          path: baseline
+          ref: ${{ inputs.baseline_ref }}
+          persist-credentials: false
+
+      - name: Checkout candidate
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          path: candidate
+          ref: ${{ inputs.candidate_ref || github.sha }}
+          persist-credentials: false
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@0e279bb959325dab635dd2c09392533439d90093
+        with:
+          version: 11.9.0
+
+      - name: Use Node.js 24
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e
+        with:
+          node-version: 24.18.0
+          cache: pnpm
+          cache-dependency-path: |
+            harness/pnpm-lock.yaml
+            baseline/pnpm-lock.yaml
+            candidate/pnpm-lock.yaml
+
+      - name: Build harness, baseline, and candidate
+        shell: bash
+        run: |
+          pnpm --dir harness install --frozen-lockfile
+          pnpm --dir harness/packages/transformer build:cjs
+          pnpm --dir harness/packages/performance-tests build
+          pnpm --dir harness/packages/performance-tests build:quick-cli
+          pnpm --dir baseline install --frozen-lockfile
+          pnpm --dir baseline/packages/transformer build:cjs
+          pnpm --dir candidate install --frozen-lockfile
+          pnpm --dir candidate/packages/transformer build:cjs
+
+      - name: Resolve checked-out SHAs
+        id: refs
+        shell: bash
+        run: |
+          echo "baseline_sha=$(git -C baseline rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+          echo "candidate_sha=$(git -C candidate rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+      - name: Validate comparison harness
+        shell: bash
+        run: pnpm --dir harness/packages/performance-tests test:comparison
+
+      - name: Prepare deterministic fixture
+        shell: bash
+        run: |
+          node harness/packages/performance-tests/test/quick/runtime/.compiled/quick/src/cli/comparisonCli.js \
+            prepare-fixture \
+            --scenario changeset-scanning \
+            --output "$RUNNER_TEMP/quick-comparison-fixture"
+
+      - name: Run isolated A/B pair
+        id: pair
+        continue-on-error: true
+        shell: bash
+        env:
+          BASELINE_REF: ${{ inputs.baseline_ref }}
+          BASELINE_SHA: ${{ steps.refs.outputs.baseline_sha }}
+          CANDIDATE_REF: ${{ inputs.candidate_ref || github.sha }}
+          CANDIDATE_SHA: ${{ steps.refs.outputs.candidate_sha }}
+          PAIR_ORDER: ${{ inputs.pair_order }}
+        run: |
+          node harness/packages/performance-tests/test/quick/runtime/.compiled/quick/src/cli/comparisonCli.js \
+            run-pair \
+            --job-id "$GITHUB_RUN_ID" \
+            --pair 0 \
+            --order "$PAIR_ORDER" \
+            --scenario changeset-scanning \
+            --fixture "$RUNNER_TEMP/quick-comparison-fixture" \
+            --arm-a-id baseline \
+            --arm-a-label baseline \
+            --arm-a-package "$GITHUB_WORKSPACE/baseline/packages/transformer" \
+            --arm-a-ref "$BASELINE_REF" \
+            --arm-a-sha "$BASELINE_SHA" \
+            --arm-b-id candidate \
+            --arm-b-label candidate \
+            --arm-b-package "$GITHUB_WORKSPACE/candidate/packages/transformer" \
+            --arm-b-ref "$CANDIDATE_REF" \
+            --arm-b-sha "$CANDIDATE_SHA" \
+            --output "$RUNNER_TEMP/quick-comparison-report"
+
+      - name: Add comparison summary
+        if: always()
+        shell: bash
+        run: |
+          if [[ -f "$RUNNER_TEMP/quick-comparison-report/comparison.md" ]]; then
+            cat "$RUNNER_TEMP/quick-comparison-report/comparison.md" >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Publish comparison report
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: QuickPerformanceComparison
+          if-no-files-found: error
+          path: ${{ runner.temp }}/quick-comparison-report
+
+      - name: Fail invalid pair
+        if: steps.pair.outcome == 'failure'
+        shell: bash
+        run: exit 1

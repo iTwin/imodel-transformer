@@ -12,13 +12,11 @@ The quick infrastructure tests are separate from both performance suites:
 
 | Tests                 | Location                                    | Purpose                                                                      |
 | --------------------- | ------------------------------------------- | ---------------------------------------------------------------------------- |
-| Quick unit            | `test/quick/tests/unit/**/*.test.ts`        | Validate catalogs, fixture descriptors, resolution, and statistics           |
+| Quick unit            | `test/quick/tests/unit/**/*.test.ts`        | Validate catalogs, fixtures, resolution, and isolated A/B orchestration      |
 | Quick integration     | `test/quick/tests/integration/**/*.test.ts` | Validate database, HubMock, fixture artifact, runner, and cleanup lifecycles |
 | Weekly infrastructure | `test/unit/**/*.test.ts`                    | Validate registration and cleanup used by the weekly suite                   |
 
 See [ARCHITECTURE.md](./ARCHITECTURE.md) for the quick suite's component model,
-and [COMPARISON_STATISTICS.md](./COMPARISON_STATISTICS.md) for the calibrated
-paired-comparison estimator, evidence levels, and execution identity contract.
 provider lifecycles, execution diagram, timing boundaries, and report format.
 
 ## Quick performance terminology
@@ -151,6 +149,55 @@ scenario that exists only on a feature branch, set the optional free-form
 gh workflow run quick-performance.yml --ref <branch> \
   -f scenario_override=my-feature-scenario
 ```
+
+### Quick isolated A/B comparison
+
+`quick-performance-comparison.yml` is a separate manual-only workflow for an
+informational `changeset-scanning` comparison. It checks out and builds baseline
+and candidate refs separately, then loads each selected transformer package in
+its own child process. The baseline checkout does not need to contain the
+comparison harness.
+
+Each arm receives a byte-identical prepared fixture and performs one excluded
+warm-up plus three measured scenario executions. The runner takes the median of
+each arm's three measured durations and reports the candidate's percentage change
+from baseline. The declared `AB` or `BA` input controls process execution order
+without changing which arm is baseline. This is exactly eight scenario executions
+per workflow run.
+
+```sh
+gh workflow run quick-performance-comparison.yml --ref main \
+  -f scenario=changeset-scanning \
+  -f baseline_ref=main \
+  -f candidate_ref=my-candidate \
+  -f pair_order=AB
+```
+
+Leaving `candidate_ref` blank uses the immutable `github.sha` captured for the
+workflow. The output labels absolute changes below 10% as
+`within-threshold`; larger changes are labeled `candidate-faster` or
+`candidate-slower`. This threshold is only a readable signal for one A/B
+observation. It is not a confidence interval, calibration result, or
+merge-blocking gate.
+
+The workflow publishes raw arm samples, refs and SHAs, runtime package hashes,
+fixture and semantic identities, medians, percentage delta, summary JSON, and
+Markdown. A child crash, timeout, malformed output, fixture mismatch, or semantic
+result mismatch discards the whole comparison. Timed-out children receive
+`SIGTERM`, a bounded grace period, then `SIGKILL`, and the runner settles only
+after child exit.
+
+The commands run from compiled ESM output under
+`test/quick/runtime/.compiled`, produced by `pnpm build:quick-cli`; focused tests
+run with `pnpm test:comparison`. `pnpm test:comparison-smoke` uses an explicitly
+reduced fixture and a distinct copied transformer package to exercise the
+compiled child-process boundary without adding executions to a dispatched A/B
+comparison. GitHub can dispatch the workflow only after the workflow file
+reaches the default branch.
+
+`pnpm quick:build-fixture` writes the canonical recipe manifest.
+`pnpm quick:verify-fixture` performs two fresh reconstructions (warm-up plus one
+measured sample), checks their semantic digests, and writes a diagnostic report.
 
 ## Adding quick performance coverage
 

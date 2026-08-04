@@ -3,8 +3,13 @@
  * See LICENSE.md in the project root for license terms and full copyright notice.
  *--------------------------------------------------------------------------------------------*/
 
-import * as fs from "fs";
-import * as path from "path";
+import * as crypto from "node:crypto";
+import * as fs from "node:fs";
+import { createRequire } from "node:module";
+import * as path from "node:path";
+import type { ChangedInstanceIdsDependency } from "../scenarios/changesetScanningFactory.js";
+
+const harnessRequire = createRequire(import.meta.url);
 
 export type ArmOperation = "identity" | "fork-init" | "change-processing";
 
@@ -34,6 +39,33 @@ interface PackageManifest {
   readonly main?: string;
   readonly version?: string;
   readonly peerDependencies?: Readonly<Record<string, string>>;
+}
+
+function hashRuntimeFiles(
+  packageRoot: string,
+  roots: readonly string[]
+): string {
+  const files: string[] = [];
+  const visit = (current: string): void => {
+    const stat = fs.statSync(current);
+    if (stat.isFile()) {
+      files.push(current);
+      return;
+    }
+    for (const entry of fs.readdirSync(current, { withFileTypes: true })) {
+      if (entry.name === "node_modules") continue;
+      visit(path.join(current, entry.name));
+    }
+  };
+  roots.forEach(visit);
+  const hash = crypto.createHash("sha256");
+  for (const file of [...new Set(files)].sort()) {
+    hash.update(path.relative(packageRoot, file).split(path.sep).join("/"));
+    hash.update("\0");
+    hash.update(fs.readFileSync(file));
+    hash.update("\0");
+  }
+  return hash.digest("hex");
 }
 
 function readManifest(packageRoot: string): PackageManifest {
@@ -79,9 +111,97 @@ export function resolveArmSpec(spec: ArmSpec): ResolvedArmSpec {
 export interface ArmRuntimeIdentity {
   readonly armId: string;
   readonly transformerVersion: string;
+  readonly transformerPackageHash: string;
   readonly coreBackendVersion: string;
   /** SHA-256 identity of the resolved core-backend package produced by the child process. */
   readonly coreBackendPackageHash: string;
+}
+
+export interface LoadedArmModule {
+  readonly changedInstanceIds: ChangedInstanceIdsDependency;
+  readonly runtime: ArmRuntimeIdentity;
+}
+
+/** Verify the minimal child bootstrap has not loaded either harness native dependency. */
+export function assertArmIsolationReady(arm: ResolvedArmSpec): void {
+  const harnessTransformerEntry = harnessRequire.resolve(
+    "@itwin/imodel-transformer"
+  );
+  const harnessCoreBackendEntry = harnessRequire.resolve("@itwin/core-backend");
+  if (harnessRequire.cache[harnessTransformerEntry])
+    throw new Error(
+      `Arm "${arm.spec.id}" cannot start because the harness transformer was already loaded`
+    );
+  if (harnessRequire.cache[harnessCoreBackendEntry])
+    throw new Error(
+      `Arm "${arm.spec.id}" cannot start because the harness core-backend was already loaded`
+    );
+}
+
+/**
+ * Make the child harness and selected transformer share the arm checkout's core-backend instance.
+ *
+ * This must run before importing any module that imports core-backend.
+ */
+export function aliasHarnessCoreBackendToArm(arm: ResolvedArmSpec): void {
+  const armRequire = createRequire(arm.modulePath);
+  const armEntry = armRequire.resolve("@itwin/core-backend");
+  const harnessEntry = harnessRequire.resolve("@itwin/core-backend");
+  armRequire("@itwin/core-backend");
+  const armModule = armRequire.cache[armEntry];
+  if (!armModule)
+    throw new Error(
+      `Arm "${arm.spec.id}" core-backend module could not be initialized`
+    );
+  harnessRequire.cache[harnessEntry] = armModule;
+}
+
+/**
+ * Load the selected transformer only inside an arm child. The comparison parent must use
+ * {@link resolveArmSpec} instead so native dependencies from two checkouts cannot share a process.
+ */
+export function loadArmModule(arm: ResolvedArmSpec): LoadedArmModule {
+  const armRequire = createRequire(arm.modulePath);
+  const harnessTransformerEntry = harnessRequire.resolve(
+    "@itwin/imodel-transformer"
+  );
+  if (
+    harnessTransformerEntry !== arm.modulePath &&
+    harnessRequire.cache[harnessTransformerEntry]
+  )
+    throw new Error(
+      `Arm "${arm.spec.id}" loaded the harness transformer in addition to the selected package`
+    );
+  const exports = armRequire(arm.modulePath) as {
+    readonly ChangedInstanceIds?: ChangedInstanceIdsDependency;
+  };
+  if (!exports.ChangedInstanceIds?.initialize)
+    throw new Error(
+      `Arm "${arm.spec.id}" does not export ChangedInstanceIds.initialize`
+    );
+  const coreManifestPath = armRequire.resolve(
+    "@itwin/core-backend/package.json"
+  );
+  const coreManifestBytes = fs.readFileSync(coreManifestPath);
+  const coreManifest = JSON.parse(coreManifestBytes.toString("utf8")) as {
+    readonly version?: string;
+  };
+  const corePackageRoot = path.dirname(coreManifestPath);
+  return {
+    changedInstanceIds: exports.ChangedInstanceIds,
+    runtime: {
+      armId: arm.spec.id,
+      transformerVersion: arm.transformerVersion,
+      transformerPackageHash: hashRuntimeFiles(arm.packageRoot, [
+        path.join(arm.packageRoot, "package.json"),
+        path.dirname(arm.modulePath),
+      ]),
+      coreBackendVersion: coreManifest.version ?? "unknown",
+      coreBackendPackageHash: hashRuntimeFiles(corePackageRoot, [
+        corePackageRoot,
+      ]),
+    },
+  };
 }
 
 /**
