@@ -7,6 +7,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { BenchmarkSample } from "../framework/BenchmarkRunner.js";
 import { median } from "../reporting/statistics.js";
+import { TransformerProvenance } from "./TransformerProvenance.js";
 
 export type ComparisonArm = "baseline" | "candidate";
 
@@ -34,6 +35,7 @@ export interface ComparisonSummary {
   readonly fixtureId: string;
   readonly fixtureVersion: number;
   readonly fixtureRecipeHash: string;
+  readonly fixtureContentHash: string;
   readonly semanticDigest: string;
   readonly policy: {
     readonly warmupsPerArm: 1;
@@ -43,11 +45,13 @@ export interface ComparisonSummary {
   };
   readonly baseline: {
     readonly revision: string;
+    readonly transformerProvenance: TransformerProvenance;
     readonly medianMilliseconds: number;
     readonly measuredMilliseconds: readonly number[];
   };
   readonly candidate: {
     readonly revision: string;
+    readonly transformerProvenance: TransformerProvenance;
     readonly medianMilliseconds: number;
     readonly measuredMilliseconds: readonly number[];
   };
@@ -64,7 +68,11 @@ function configurationIdentity(sample: BenchmarkSample): string {
     sample.fixtureId,
     sample.fixtureVersion,
     sample.fixtureRecipeHash,
-    sample.fixtureGenerator,
+    sample.fixtureContentHash,
+    {
+      coreBackend: sample.fixtureGenerator.coreBackend,
+      node: sample.fixtureGenerator.node,
+    },
     sample.topology,
     sample.operations,
   ]);
@@ -74,7 +82,7 @@ function validateArm(
   arm: ComparisonArm,
   result: ComparisonArmResult,
   measuredSamplesPerArm: number
-): void {
+): TransformerProvenance {
   const warmups = result.samples.filter((sample) => !sample.measured);
   const measured = result.samples.filter((sample) => sample.measured);
   if (
@@ -94,6 +102,13 @@ function validateArm(
   );
   if (JSON.stringify(measuredIds) !== JSON.stringify(expectedIds))
     throw new Error(`${arm} measured sample identifiers are incomplete`);
+  const transformerProvenances = new Set(
+    result.samples.map((sample) => JSON.stringify(sample.transformerProvenance))
+  );
+  const transformerProvenance = result.samples[0].transformerProvenance;
+  if (transformerProvenances.size !== 1 || transformerProvenance === undefined)
+    throw new Error(`${arm} workers did not resolve one transformer build`);
+  return transformerProvenance;
 }
 
 export function percentageDelta(
@@ -128,8 +143,16 @@ export function createComparisonSummary(
       "The informational threshold must be a non-negative number"
     );
 
-  validateArm("baseline", input.baseline, input.measuredSamplesPerArm);
-  validateArm("candidate", input.candidate, input.measuredSamplesPerArm);
+  const baselineTransformer = validateArm(
+    "baseline",
+    input.baseline,
+    input.measuredSamplesPerArm
+  );
+  const candidateTransformer = validateArm(
+    "candidate",
+    input.candidate,
+    input.measuredSamplesPerArm
+  );
   const allSamples = [...input.baseline.samples, ...input.candidate.samples];
   if (new Set(allSamples.map(configurationIdentity)).size !== 1)
     throw new Error(
@@ -159,6 +182,9 @@ export function createComparisonSummary(
         ? "candidate-faster-than-threshold"
         : "within-informational-threshold";
   const identity = allSamples[0];
+  const fixtureContentHash = identity.fixtureContentHash;
+  if (fixtureContentHash === undefined)
+    throw new Error("A/B comparison requires a fixture artifact content hash");
 
   return {
     reportSchemaVersion: 1,
@@ -166,6 +192,7 @@ export function createComparisonSummary(
     fixtureId: identity.fixtureId,
     fixtureVersion: identity.fixtureVersion,
     fixtureRecipeHash: identity.fixtureRecipeHash,
+    fixtureContentHash,
     semanticDigest: identity.semanticDigest,
     policy: {
       warmupsPerArm: 1,
@@ -175,11 +202,13 @@ export function createComparisonSummary(
     },
     baseline: {
       revision: input.baseline.revision,
+      transformerProvenance: baselineTransformer,
       medianMilliseconds: baselineMedian,
       measuredMilliseconds: baselineMeasured,
     },
     candidate: {
       revision: input.candidate.revision,
+      transformerProvenance: candidateTransformer,
       medianMilliseconds: candidateMedian,
       measuredMilliseconds: candidateMeasured,
     },

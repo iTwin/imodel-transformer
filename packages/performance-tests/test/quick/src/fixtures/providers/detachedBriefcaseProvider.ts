@@ -12,6 +12,7 @@ import {
   artifactChangesetDirectoryName,
   artifactChangesetPropsFileName,
   changesetArtifactFileName,
+  fixtureArtifactContentHash,
   FixtureArtifactManifest,
   fixtureArtifactVersion,
   readChangesetFileProps,
@@ -155,6 +156,8 @@ export const detachedBriefcaseFixtureProvider: FixtureProvider = {
           "Failed to release the fixture build hub"
         );
       hub = undefined;
+      fs.rmSync(hubDir, { recursive: true, force: true });
+      fs.rmSync(scratchDir, { recursive: true, force: true });
 
       const recipeDataFile =
         recipeData === undefined || recipeData === null
@@ -166,6 +169,7 @@ export const detachedBriefcaseFixtureProvider: FixtureProvider = {
       const indices = downloaded.map((changeset) => changeset.index);
       const manifest: FixtureArtifactManifest = {
         artifactVersion: fixtureArtifactVersion,
+        contentHash: fixtureArtifactContentHash(artifactDir),
         descriptor,
         briefcase: {
           fileName: artifactBriefcaseFileName,

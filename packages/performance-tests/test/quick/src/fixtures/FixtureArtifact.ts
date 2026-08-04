@@ -5,8 +5,10 @@
 
 import * as fs from "node:fs";
 import * as path from "node:path";
+import { createHash } from "node:crypto";
 import { ChangesetFileProps } from "@itwin/core-common";
 import {
+  canonicalSha256,
   FixtureDescriptor,
   validateFixtureDescriptor,
 } from "./FixtureDescriptor.js";
@@ -15,7 +17,7 @@ import {
  * Version of the on-disk artifact layout. Bump when the directory contract changes in a way that
  * an older reader cannot interpret.
  */
-export const fixtureArtifactVersion = 1;
+export const fixtureArtifactVersion = 2;
 
 export const artifactBriefcaseFileName = "briefcase.bim";
 export const artifactChangesetDirectoryName = "changesets";
@@ -25,6 +27,8 @@ export const artifactRecipeDataFileName = "recipe.json";
 
 export interface FixtureArtifactManifest {
   readonly artifactVersion: number;
+  /** SHA-256 identity of every immutable workload file in the artifact. */
+  readonly contentHash: string;
   readonly descriptor: FixtureDescriptor;
   readonly briefcase: {
     readonly fileName: string;
@@ -54,6 +58,33 @@ export interface FixtureArtifactManifest {
 export interface FixtureArtifact {
   readonly directory: string;
   readonly manifest: FixtureArtifactManifest;
+}
+
+function artifactContentFiles(directory: string, relative = ""): string[] {
+  return fs
+    .readdirSync(path.join(directory, relative), { withFileTypes: true })
+    .flatMap((entry) => {
+      const entryRelative = path.join(relative, entry.name);
+      if (entryRelative === artifactManifestFileName) return [];
+      return entry.isDirectory()
+        ? artifactContentFiles(directory, entryRelative)
+        : [entryRelative];
+    });
+}
+
+/** Hash the relative path, length, and bytes of every immutable workload file. */
+export function fixtureArtifactContentHash(directory: string): string {
+  const entries = artifactContentFiles(directory)
+    .map((relative) => {
+      const contents = fs.readFileSync(path.join(directory, relative));
+      return {
+        path: relative.replaceAll(path.sep, "/"),
+        byteLength: contents.byteLength,
+        sha256: createHash("sha256").update(contents).digest("hex"),
+      };
+    })
+    .sort((left, right) => left.path.localeCompare(right.path));
+  return canonicalSha256(entries);
 }
 
 function describeValue(value: unknown): string {
@@ -226,6 +257,7 @@ export function validateFixtureArtifactManifest(
     typeof manifest.changesets.propsFile !== "string" ||
     typeof manifest.changesets.count !== "number" ||
     typeof manifest.changesets.baseChangesetIndex !== "number" ||
+    typeof manifest.contentHash !== "string" ||
     typeof manifest.buildMilliseconds !== "number" ||
     typeof manifest.builtAt !== "string"
   )
@@ -270,6 +302,11 @@ export function readFixtureArtifact(directory: string): FixtureArtifact {
   )
     throw new Error(
       `Fixture artifact is missing the recipe data its manifest declares: ${manifest.recipeDataFile}`
+    );
+  const contentHash = fixtureArtifactContentHash(directory);
+  if (contentHash !== manifest.contentHash)
+    throw new Error(
+      `Fixture artifact content hash is ${contentHash} but its manifest declares ${manifest.contentHash}`
     );
   return { directory, manifest };
 }

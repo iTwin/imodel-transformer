@@ -222,6 +222,17 @@ describe("detached fixture artifact", () => {
     fs.rmSync(corrupt, { recursive: true, force: true });
   });
 
+  it("rejects an artifact whose workload bytes changed without changing size", () => {
+    const corrupt = path.join(root, "content-hash-mismatch");
+    fs.cpSync(built.directory, corrupt, { recursive: true });
+    const briefcase = artifactBriefcasePath(corrupt);
+    const contents = fs.readFileSync(briefcase);
+    contents[0] ^= 0xff;
+    fs.writeFileSync(briefcase, contents);
+    expect(() => readFixtureArtifact(corrupt)).to.throw(/content hash/);
+    fs.rmSync(corrupt, { recursive: true, force: true });
+  });
+
   it("rejects changeset props that escape the artifact directory", () => {
     const corrupt = path.join(root, "escaping-artifact");
     fs.cpSync(built.directory, corrupt, { recursive: true });

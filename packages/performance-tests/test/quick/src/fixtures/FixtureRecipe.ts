@@ -221,7 +221,10 @@ export function configureFixture<TParameters, TState, TArtifactData>(
         recipe.identity.implementationFiles.map(identityFile),
       schemaFiles: schemaFiles.map(identityFile),
       lockfile: identityFile(lockfileName),
-      versions: generator,
+      versions: {
+        coreBackend: generator.coreBackend,
+        node: generator.node,
+      },
     }),
   });
   const context: FixtureRecipeContext<TParameters> = Object.freeze({

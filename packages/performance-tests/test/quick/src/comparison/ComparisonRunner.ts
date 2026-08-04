@@ -8,8 +8,13 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import {
   BenchmarkSample,
+  fixtureArtifactDirectoryName,
   prepareBenchmarkOutputDirectory,
 } from "../framework/BenchmarkRunner.js";
+import {
+  FixtureArtifactManifest,
+  readFixtureArtifact,
+} from "../fixtures/FixtureArtifact.js";
 import {
   ComparisonArm,
   ComparisonReporter,
@@ -36,6 +41,7 @@ export interface ComparisonRunOptions {
 
 export interface ArmExecutionRequest {
   readonly arm: ComparisonArm;
+  readonly fixtureArtifactDirectory: string;
   readonly fixtureId?: string;
   readonly harnessRootDirectory: string;
   readonly measured: boolean;
@@ -49,6 +55,18 @@ export interface ArmExecutionRequest {
 export type ArmExecutor = (
   request: ArmExecutionRequest
 ) => Promise<BenchmarkSample>;
+
+export interface FixtureArtifactBuildRequest {
+  readonly artifactDirectory: string;
+  readonly fixtureId?: string;
+  readonly harnessRootDirectory: string;
+  readonly rootDirectory: string;
+  readonly scenarioId?: string;
+}
+
+export type FixtureArtifactBuilder = (
+  request: FixtureArtifactBuildRequest
+) => Promise<FixtureArtifactManifest>;
 
 export interface ScheduledExecution {
   readonly arm: ComparisonArm;
@@ -97,6 +115,7 @@ function isBenchmarkSample(value: unknown): value is BenchmarkSample {
   return (
     typeof sample.scenarioId === "string" &&
     typeof sample.fixtureId === "string" &&
+    typeof sample.fixtureContentHash === "string" &&
     typeof sample.fixtureRecipeHash === "string" &&
     typeof sample.semanticDigest === "string" &&
     typeof sample.measured === "boolean" &&
@@ -108,32 +127,39 @@ function isBenchmarkSample(value: unknown): value is BenchmarkSample {
     sample.fixtureGenerator !== null &&
     typeof sample.fixtureGenerator === "object" &&
     sample.operations !== null &&
-    typeof sample.operations === "object"
+    typeof sample.operations === "object" &&
+    sample.transformerProvenance !== null &&
+    typeof sample.transformerProvenance === "object" &&
+    typeof (sample.transformerProvenance as Record<string, unknown>)
+      .contentHash === "string" &&
+    typeof (sample.transformerProvenance as Record<string, unknown>)
+      .entryPoint === "string" &&
+    typeof (sample.transformerProvenance as Record<string, unknown>).version ===
+      "string"
   );
 }
 
-export async function executeArmProcess(
-  request: ArmExecutionRequest
-): Promise<BenchmarkSample> {
-  const workerPath = comparisonArmWorkerPath(request.rootDirectory);
+interface WorkerProcessResult {
+  readonly exitCode: number | null;
+  readonly stderr: string;
+  readonly stdout: string;
+}
+
+async function runWorkerProcess(
+  rootDirectory: string,
+  harnessRootDirectory: string,
+  serializedRequest: string
+): Promise<WorkerProcessResult> {
+  const workerPath = comparisonArmWorkerPath(rootDirectory);
   if (!fs.existsSync(workerPath))
-    throw new Error(
-      `Compiled A/B arm worker does not exist for ${request.arm}: ${workerPath}`
-    );
-  const resultFile = path.join(request.outputDir, "sample-result.json");
-  fs.mkdirSync(request.outputDir, { recursive: true });
-  const serializedRequest = JSON.stringify({ ...request, resultFile });
-  const processResult = await new Promise<{
-    exitCode: number | null;
-    stderr: string;
-    stdout: string;
-  }>((resolve, reject) => {
+    throw new Error(`Compiled A/B arm worker does not exist: ${workerPath}`);
+  return new Promise<WorkerProcessResult>((resolve, reject) => {
     const child = spawn(process.execPath, [workerPath], {
-      cwd: request.rootDirectory,
+      cwd: rootDirectory,
       env: {
         ...process.env,
         QUICK_PERF_ARM_REQUEST: serializedRequest,
-        QUICK_PERF_HARNESS_ROOT: request.harnessRootDirectory,
+        QUICK_PERF_HARNESS_ROOT: harnessRootDirectory,
       },
       stdio: ["ignore", "pipe", "pipe"],
       windowsHide: true,
@@ -147,6 +173,23 @@ export async function executeArmProcess(
     child.once("error", reject);
     child.once("close", (exitCode) => resolve({ exitCode, stderr, stdout }));
   });
+}
+
+export async function executeArmProcess(
+  request: ArmExecutionRequest
+): Promise<BenchmarkSample> {
+  const resultFile = path.join(request.outputDir, "sample-result.json");
+  fs.mkdirSync(request.outputDir, { recursive: true });
+  const processResult = await runWorkerProcess(
+    request.rootDirectory,
+    request.harnessRootDirectory,
+    JSON.stringify({
+      ...request,
+      expectedTransformerRootDirectory: request.rootDirectory,
+      kind: "run-sample",
+      resultFile,
+    })
+  );
   if (processResult.exitCode !== 0)
     throw new Error(
       `${request.arm} sample ${request.sample} process failed with exit code ${processResult.exitCode}: ${processResult.stderr || processResult.stdout}`
@@ -163,9 +206,46 @@ export async function executeArmProcess(
   return parsed;
 }
 
+export async function buildFixtureArtifactProcess(
+  request: FixtureArtifactBuildRequest
+): Promise<FixtureArtifactManifest> {
+  const resultFile = path.join(
+    path.dirname(request.artifactDirectory),
+    "fixture-build-result.json"
+  );
+  fs.rmSync(resultFile, { force: true });
+  const processResult = await runWorkerProcess(
+    request.rootDirectory,
+    request.harnessRootDirectory,
+    JSON.stringify({
+      ...request,
+      expectedTransformerRootDirectory: request.rootDirectory,
+      kind: "build-fixture",
+      resultFile,
+    })
+  );
+  if (processResult.exitCode !== 0)
+    throw new Error(
+      `candidate fixture build process failed with exit code ${processResult.exitCode}: ${processResult.stderr || processResult.stdout}`
+    );
+  if (!fs.existsSync(resultFile))
+    throw new Error("Candidate fixture build process did not write a result");
+  const artifact = readFixtureArtifact(request.artifactDirectory);
+  const parsed: unknown = JSON.parse(fs.readFileSync(resultFile, "utf8"));
+  if (
+    parsed === null ||
+    typeof parsed !== "object" ||
+    (parsed as Partial<FixtureArtifactManifest>).contentHash !==
+      artifact.manifest.contentHash
+  )
+    throw new Error("Candidate fixture build process wrote an invalid result");
+  return artifact.manifest;
+}
+
 export async function runComparison(
   options: ComparisonRunOptions,
-  execute: ArmExecutor = executeArmProcess
+  execute: ArmExecutor = executeArmProcess,
+  buildFixture: FixtureArtifactBuilder = buildFixtureArtifactProcess
 ): Promise<ComparisonSummary> {
   const measuredSamplesPerArm =
     options.measuredSamplesPerArm ?? defaultComparisonMeasuredSamples;
@@ -183,6 +263,24 @@ export async function runComparison(
   const executionRoot = path.join(options.outputDir, "executions");
   fs.rmSync(executionRoot, { recursive: true, force: true });
   fs.mkdirSync(executionRoot, { recursive: true });
+  const harnessRootDirectory = path.join(
+    options.candidate.rootDirectory,
+    "packages",
+    "performance-tests",
+    "test",
+    "quick"
+  );
+  const fixtureArtifactDirectory = path.join(
+    options.outputDir,
+    fixtureArtifactDirectoryName
+  );
+  const fixtureManifest = await buildFixture({
+    artifactDirectory: fixtureArtifactDirectory,
+    fixtureId: options.fixtureId,
+    harnessRootDirectory,
+    rootDirectory: options.candidate.rootDirectory,
+    scenarioId: options.scenarioId,
+  });
   const samples: Record<ComparisonArm, BenchmarkSample[]> = {
     baseline: [],
     candidate: [],
@@ -197,18 +295,17 @@ export async function runComparison(
     const sample = await execute({
       ...execution,
       fixtureId: options.fixtureId,
-      harnessRootDirectory: path.join(
-        options.candidate.rootDirectory,
-        "packages",
-        "performance-tests",
-        "test",
-        "quick"
-      ),
+      fixtureArtifactDirectory,
+      harnessRootDirectory,
       outputDir,
       revision: arm.revision,
       rootDirectory: arm.rootDirectory,
       scenarioId: options.scenarioId,
     });
+    if (sample.fixtureContentHash !== fixtureManifest.contentHash)
+      throw new Error(
+        `${execution.arm} sample ${execution.sample} did not consume the candidate-authored fixture artifact`
+      );
     samples[execution.arm].push(sample);
   }
 

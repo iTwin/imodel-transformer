@@ -108,6 +108,43 @@ describe("A/B comparison reporting", () => {
     );
   });
 
+  it("keeps arm transformer provenance outside workload identity", () => {
+    const versioned = input();
+    versioned.baseline.samples = armSamples([90, 100, 110]).map((sample) => ({
+      ...sample,
+      fixtureGenerator: {
+        ...sample.fixtureGenerator,
+        transformer: "baseline-author-version",
+      },
+      transformerProvenance: {
+        contentHash: "baseline-transformer-hash",
+        entryPoint: "baseline/transformer.js",
+        version: "baseline-version",
+      },
+    }));
+    versioned.candidate.samples = armSamples([99, 110, 121]).map((sample) => ({
+      ...sample,
+      fixtureGenerator: {
+        ...sample.fixtureGenerator,
+        transformer: "candidate-author-version",
+      },
+      transformerProvenance: {
+        contentHash: "candidate-transformer-hash",
+        entryPoint: "candidate/transformer.js",
+        version: "candidate-version",
+      },
+    }));
+
+    const summary = createComparisonSummary(versioned);
+    expect(summary.percentageDelta).to.be.closeTo(10, 0.000_001);
+    expect(summary.baseline.transformerProvenance.version).to.equal(
+      "baseline-version"
+    );
+    expect(summary.candidate.transformerProvenance.version).to.equal(
+      "candidate-version"
+    );
+  });
+
   it("rejects incomplete arm samples and invalid baseline timing", () => {
     const incomplete = input();
     incomplete.baseline.samples = armSamples([90, 100]);

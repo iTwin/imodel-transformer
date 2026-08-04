@@ -12,9 +12,14 @@ import {
   comparisonArmWorkerPath,
   createExecutionSchedule,
   executeArmProcess,
+  FixtureArtifactBuildRequest,
   runComparison,
 } from "../../src/comparison/ComparisonRunner.js";
-import { benchmarkSample } from "./comparisonTestUtils.js";
+import { resolveTransformerProvenance } from "../../src/comparison/TransformerProvenance.js";
+import {
+  benchmarkSample,
+  fixtureArtifactManifest,
+} from "./comparisonTestUtils.js";
 
 describe("A/B comparison orchestration", () => {
   const temporaryDirectories: string[] = [];
@@ -51,9 +56,10 @@ describe("A/B comparison orchestration", () => {
     ).to.have.length(4);
   });
 
-  it("passes identical scenario and fixture configuration to isolated arms", async () => {
+  it("authors one candidate fixture artifact reused by every isolated arm", async () => {
     const outputDir = temporaryDirectory("quick-ab-runner-");
     const requests: ArmExecutionRequest[] = [];
+    const buildRequests: FixtureArtifactBuildRequest[] = [];
     const summary = await runComparison(
       {
         baseline: {
@@ -77,9 +83,21 @@ describe("A/B comparison orchestration", () => {
           wallMilliseconds:
             (request.arm === "baseline" ? 100 : 105) + request.sample,
         });
+      },
+      async (request) => {
+        buildRequests.push(request);
+        return fixtureArtifactManifest();
       }
     );
 
+    expect(buildRequests).to.have.length(1);
+    expect(buildRequests[0].rootDirectory).to.equal("candidate-root");
+    expect(buildRequests[0].artifactDirectory).to.equal(
+      path.join(outputDir, "fixture-artifact")
+    );
+    expect(
+      new Set(requests.map((request) => request.fixtureArtifactDirectory))
+    ).to.deep.equal(new Set([buildRequests[0].artifactDirectory]));
     expect(
       new Set(requests.map((request) => request.scenarioId))
     ).to.deep.equal(new Set(["changeset-scanning"]));
@@ -131,6 +149,7 @@ describe("A/B comparison orchestration", () => {
     );
     const sample = await executeArmProcess({
       arm: "baseline",
+      fixtureArtifactDirectory: path.join(rootDirectory, "fixture-artifact"),
       harnessRootDirectory: path.join(rootDirectory, "harness"),
       measured: true,
       outputDir: path.join(rootDirectory, "output"),
@@ -153,6 +172,7 @@ describe("A/B comparison orchestration", () => {
     await expect(
       executeArmProcess({
         arm: "candidate",
+        fixtureArtifactDirectory: path.join(rootDirectory, "fixture-artifact"),
         harnessRootDirectory: path.join(rootDirectory, "harness"),
         measured: true,
         outputDir: path.join(rootDirectory, "output"),
@@ -178,16 +198,23 @@ describe("A/B comparison orchestration", () => {
       },
       outputDir,
     };
-    await runComparison(options, async (request) =>
-      benchmarkSample({
-        measured: request.measured,
-        sample: request.sample,
-      })
+    await runComparison(
+      options,
+      async (request) =>
+        benchmarkSample({
+          measured: request.measured,
+          sample: request.sample,
+        }),
+      async () => fixtureArtifactManifest()
     );
     await expect(
-      runComparison(options, async () => {
-        throw new Error("intentional worker failure");
-      })
+      runComparison(
+        options,
+        async () => {
+          throw new Error("intentional worker failure");
+        },
+        async () => fixtureArtifactManifest()
+      )
     ).rejects.toThrow(/intentional worker failure/);
     expect(fs.existsSync(path.join(outputDir, "comparison.json"))).to.equal(
       false
@@ -198,5 +225,44 @@ describe("A/B comparison orchestration", () => {
     expect(
       fs.existsSync(path.join(outputDir, "comparison-samples.jsonl"))
     ).to.equal(false);
+  });
+
+  it("rejects a transformer resolved outside the expected arm checkout", () => {
+    const expectedRoot = temporaryDirectory("quick-ab-transformer-");
+    const packageDirectory = path.join(expectedRoot, "packages", "transformer");
+    const expectedEntry = path.join(packageDirectory, "lib", "cjs", "index.js");
+    fs.mkdirSync(path.dirname(expectedEntry), { recursive: true });
+    fs.writeFileSync(
+      path.join(packageDirectory, "package.json"),
+      JSON.stringify({ main: "lib/cjs/index.js", version: "1.2.3" })
+    );
+    fs.writeFileSync(expectedEntry, "module.exports = {};\n");
+
+    const initial = resolveTransformerProvenance(
+      expectedRoot,
+      () => expectedEntry
+    );
+    expect(initial).to.include({ version: "1.2.3", entryPoint: expectedEntry });
+    const implementation = path.join(
+      packageDirectory,
+      "lib",
+      "cjs",
+      "implementation.js"
+    );
+    fs.writeFileSync(implementation, "module.exports = 1;\n");
+    const changed = resolveTransformerProvenance(
+      expectedRoot,
+      () => expectedEntry
+    );
+    expect(changed.contentHash).not.to.equal(initial.contentHash);
+
+    const wrongEntry = path.join(
+      temporaryDirectory("quick-ab-wrong-transformer-"),
+      "index.js"
+    );
+    fs.writeFileSync(wrongEntry, "module.exports = {};\n");
+    expect(() =>
+      resolveTransformerProvenance(expectedRoot, () => wrongEntry)
+    ).to.throw(/resolved .* expected/);
   });
 });
