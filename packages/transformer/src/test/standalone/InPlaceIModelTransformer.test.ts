@@ -23,11 +23,9 @@ import {
   IModel,
   PhysicalElementProps,
 } from "@itwin/core-common";
-import { assert } from "chai";
+import { expect } from "vitest";
 import { IModelTransformer } from "../../IModelTransformer";
 import { IModelTransformerTestUtils } from "../IModelTransformerUtils";
-
-import "./TransformerTestStartup"; // calls startup/shutdown IModelHost before/after all tests
 
 describe("In-place IModelTransformer", () => {
   it("should update Category elements", async () => {
@@ -95,22 +93,19 @@ describe("In-place IModelTransformer", () => {
       await transformer.process();
       editTxn.saveChanges();
 
-      assert.equal(
+      expect(
         iModel.elements.queryElementIdByCode(
           SpatialCategory.createCode(
             iModel,
             IModel.dictionaryId,
             "TestCategory"
           )
-        ),
-        insertedCategoryId
-      );
-      assert.equal(
-        iModel.elements.getElement(defaultSubCategoryId).classFullName,
-        SubCategory.classFullName
-      );
-      assert.equal(
-        iModel.elements.getElement(insertedElementId).userLabel,
+        )
+      ).toBe(insertedCategoryId);
+      expect(
+        iModel.elements.getElement(defaultSubCategoryId).classFullName
+      ).toBe(SubCategory.classFullName);
+      expect(iModel.elements.getElement(insertedElementId).userLabel).toBe(
         "TestElement"
       );
     } finally {
