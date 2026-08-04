@@ -197,10 +197,6 @@ export class BenchmarkRunner {
   public async buildReusableFixtureArtifact(
     artifactDirectory: string
   ): Promise<FixtureArtifactManifest> {
-    if (this._fixture.descriptor.layout.topology !== "source-only")
-      throw new Error(
-        `Reusable comparison artifacts require a "source-only" fixture; received "${this._fixture.descriptor.layout.topology}"`
-      );
     assertSafeBenchmarkOutputPath(artifactDirectory);
     const stagingDirectory = `${artifactDirectory}.building`;
     fs.rmSync(stagingDirectory, { recursive: true, force: true });

@@ -83,7 +83,7 @@ jobs:
           QUICK_PERF_COMPARISON_SAMPLES: 3
           QUICK_PERF_COMPARISON_THRESHOLD_PERCENT: 5
           QUICK_PERF_COMPARISON_WORKER_TIMEOUT_SECONDS: 600
-          QUICK_PERF_SCENARIO: changeset-scanning
+          QUICK_PERF_SCENARIO: incremental-synchronization
 
       - name: Annotate concerning performance
         shell: bash

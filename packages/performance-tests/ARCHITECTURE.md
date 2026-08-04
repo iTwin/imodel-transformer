@@ -67,10 +67,10 @@ delivered to each scenario sample. It owns database, Hub, changeset, and cleanup
 resources. The scenario constructs `IModelTransformer` from those resources and
 chooses its options and measured operation.
 
-| Provider                    | Data delivered to the scenario                                                                     | Hub availability during the scenario | Stage-one behavior                                                                   |
-| --------------------------- | -------------------------------------------------------------------------------------------------- | ------------------------------------ | ------------------------------------------------------------------------------------ |
-| `liveHubProvider`           | Open source and target `BriefcaseDb`s backed by `HubMock`                                          | Available                            | Structural no-op; the complete Hub and briefcase dataset is rebuilt for every sample |
-| `detachedBriefcaseProvider` | Read-only source `BriefcaseDb`, local changeset files, artifact metadata, and optional recipe data | Not available                        | Uses `HubMock` once to generate changesets, then captures a reusable local artifact  |
+| Provider                    | Data delivered to the scenario                                                                     | Hub availability during the scenario | Stage-one behavior                                                                  |
+| --------------------------- | -------------------------------------------------------------------------------------------------- | ------------------------------------ | ----------------------------------------------------------------------------------- |
+| `liveHubProvider`           | Open source and target `BriefcaseDb`s backed by `HubMock`                                          | Available                            | Captures prepared briefcases, seeds, and local-hub timelines once                   |
+| `detachedBriefcaseProvider` | Read-only source `BriefcaseDb`, local changeset files, artifact metadata, and optional recipe data | Not available                        | Uses `HubMock` once to generate changesets, then captures a reusable local artifact |
 
 Both providers are credential-free and use local `HubMock` when they need
 iModelHub semantics. “Detached” means detached during scenario consumption, not
@@ -79,9 +79,11 @@ that no Hub APIs were used to create the changesets.
 There is currently no provider for a completely standalone
 `SnapshotDb`-to-`SnapshotDb` transformation.
 
-`liveHubProvider` currently performs the initial full transformation required by
-incremental synchronization. A first-time schema or full-transform scenario
-would need a provider topology that leaves the target pristine.
+`liveHubProvider` performs the initial full transformation required by
+incremental synchronization once while building the artifact. Each sample copies
+that artifact and restores the source and target hubs with the same iModel,
+briefcase, and changeset identities. A first-time schema or full-transform
+scenario would need a provider topology that leaves the target pristine.
 
 #### Configured fixture and generated descriptor
 
@@ -170,7 +172,7 @@ sequenceDiagram
 
     loop warm-up and measured samples
         Runner->>Provider: materialize fresh sample
-        Provider->>Recipe: generate sample when live topology requires it
+        Provider->>Provider: copy artifact and restore sample resources
         Provider-->>Runner: PreparedDataset
         Runner->>Scenario: factory(PreparedDataset)
         Runner->>Scenario: measure()
@@ -197,14 +199,14 @@ from the candidate and installs those exact compiled files in both checkouts. A
 dedicated candidate process authors one relocatable fixture artifact before the
 execution schedule begins. Its manifest carries a content hash over every
 workload file. All baseline and candidate workers validate and copy that same
-artifact, rather than independently regenerating fixtures that merely produce
-the same affected-ID digest.
+artifact, rather than independently regenerating fixtures.
 
-One candidate worker builds the detached fixture artifact before the execution
-schedule starts. The artifact manifest hashes the immutable briefcase,
-changesets, props, and optional recipe data. Every later worker verifies that
-content hash and materializes its private working copy from the same artifact;
-no warm-up or measured worker regenerates fixture contents.
+One candidate worker builds the fixture artifact before the execution schedule
+starts. For live incremental synchronization, the artifact contains both
+prepared briefcases, their version-zero seeds, and both local-hub timelines.
+Every later worker verifies the content hash and restores a private working copy
+from the same artifact; no warm-up or measured worker regenerates fixture
+contents or repeats the initial full transform.
 
 The coordinator starts a separate worker process for every warm-up and measured
 execution. Workers use `resolveBenchmarkRun()` and `BenchmarkRunner.runSample()`;
