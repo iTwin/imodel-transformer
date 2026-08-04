@@ -81,11 +81,13 @@ Then run commands from `packages/performance-tests`:
 | `pnpm build`                  | Type-check the performance-test package                                                               |
 | `pnpm lint`                   | Lint the performance-test sources                                                                     |
 | `pnpm test:quick-unit`        | Run the quick infrastructure unit tests                                                               |
+| `pnpm test:quick-comparison`  | Run focused isolated A/B orchestration and reporting tests                                            |
 | `pnpm test:quick-integration` | Run the database- and HubMock-backed integration tests                                                |
 | `pnpm test:quick-harness`     | Run all quick unit and integration tests; does not run the benchmark                                  |
 | `pnpm test:quick`             | Run the selected performance scenario                                                                 |
 | `pnpm quick:build-fixture`    | Compile the native ESM fixture CLI, initialize its output, and write the selected fixture descriptor  |
 | `pnpm quick:verify-fixture`   | Run one warm-up plus one measured sample, verify deterministic results, and write a diagnostic report |
+| `pnpm quick:compare`          | Compile and run the A/B coordinator against prepared baseline and candidate checkouts                 |
 
 The local benchmark default is one warm-up followed by one measured sample:
 
@@ -128,6 +130,42 @@ Each run writes:
 - `samples.jsonl`: one record for the warm-up and each measured sample.
 - `summary.json`: structured aggregate and reliability classification.
 - `summary.csv`: compact aggregate for spreadsheet or dashboard ingestion.
+
+## Pull request A/B comparison
+
+`.github/workflows/quick-performance-comparison.yml` compares a pull request's
+head SHA with its base SHA. Both checkouts build their own transformer package.
+The candidate's compiled quick harness is copied into both checkouts, and both
+workers resolve fixture assets and identity inputs from the candidate harness
+root. The scenario, configured fixture, recipe, workload, and orchestration code
+are therefore identical; each worker process still resolves
+`@itwin/imodel-transformer` from its own checkout.
+
+The initial policy runs one warm-up and three measured
+`changeset-scanning` executions per arm. Every execution has a fresh Node
+process and module graph. The coordinator orders the warm-up candidate/baseline,
+then alternates baseline/candidate and candidate/baseline measured pairs. This
+gives each arm the same number of first and second positions for the default
+three measured samples.
+
+The comparison fails when a worker fails, arm configuration differs, or
+semantic digests differ. A performance delta never fails the job. Successful
+runs publish:
+
+- `comparison.json`: baseline median, candidate median, percentage delta, raw
+  measured values, execution order, and informational threshold status.
+- `comparison.md`: the same small result set for the Actions job summary.
+- `comparison-samples.jsonl`: all warm-up and measured sample records with arm
+  and revision labels.
+
+The five-percent threshold is a visible informational label only. Three
+measured samples do not establish statistical confidence or merge-blocking
+significance.
+
+The coordinator accepts `QUICK_PERF_SCENARIO`, `QUICK_PERF_FIXTURE`,
+`QUICK_PERF_COMPARISON_SAMPLES`, and
+`QUICK_PERF_COMPARISON_THRESHOLD_PERCENT`. `QUICK_PERF_BASELINE_ROOT` is
+required; candidate and revision paths are set by the workflow.
 
 ## Running the manual workflow
 

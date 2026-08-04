@@ -11,11 +11,13 @@
     "test": "vitest run",
     "format": "prettier \"./test/**/*.ts\" --write",
     "test:quick-unit": "vitest run --config vitest.quick.config.ts tests/unit",
+    "test:quick-comparison": "vitest run --config vitest.quick.config.ts test/quick/tests/unit/ComparisonReport.test.ts test/quick/tests/unit/ComparisonRunner.test.ts",
     "test:quick-integration": "vitest run --config vitest.quick.config.ts tests/integration",
     "test:quick-harness": "vitest run --config vitest.quick.config.ts tests",
     "test:quick": "vitest run --config vitest.quick.config.ts QuickPerformance.test.ts",
     "quick:build-fixture": "pnpm build:quick-cli && node test/quick/runtime/.compiled/quick/src/cli/fixtureCli.js build-fixture",
     "quick:verify-fixture": "pnpm build:quick-cli && node test/quick/runtime/.compiled/quick/src/cli/fixtureCli.js verify-fixture",
+    "quick:compare": "pnpm build:quick-cli && node test/quick/runtime/.compiled/quick/src/cli/comparisonCli.js",
     "process-reports": "node scripts/process-reports"
   },
   "repository": {},

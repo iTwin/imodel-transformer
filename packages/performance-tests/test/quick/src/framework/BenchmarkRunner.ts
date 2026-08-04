@@ -129,6 +129,11 @@ export interface BenchmarkSample {
   readonly wallMilliseconds: number;
 }
 
+interface BenchmarkExecution {
+  readonly measured: boolean;
+  readonly sample: number;
+}
+
 export class BenchmarkRunner {
   public constructor(
     private readonly _fixture: ConfiguredFixture,
@@ -145,6 +150,34 @@ export class BenchmarkRunner {
       throw new Error(
         "Quick performance requires at least one measured sample"
       );
+    return this.runExecutions([
+      { measured: false, sample: 0 },
+      ...Array.from({ length: measuredSamples }, (_, index) => ({
+        measured: true,
+        sample: index + 1,
+      })),
+    ]);
+  }
+
+  /**
+   * Run one explicitly identified execution. Comparison orchestration uses this to place every arm
+   * execution in its own process while retaining the normal provider and scenario lifecycle.
+   */
+  public async runSample(
+    sample: number,
+    measured: boolean
+  ): Promise<BenchmarkSample> {
+    if (!Number.isSafeInteger(sample) || sample < 0 || measured !== sample > 0)
+      throw new Error(
+        "Quick performance sample zero must be the warm-up and positive samples must be measured"
+      );
+    const [result] = await this.runExecutions([{ measured, sample }]);
+    return result;
+  }
+
+  private async runExecutions(
+    executions: readonly BenchmarkExecution[]
+  ): Promise<BenchmarkSample[]> {
     prepareBenchmarkOutputDirectory(this._outputDir);
     const { descriptor } = this._fixture;
     const provider = getFixtureProvider(descriptor);
@@ -157,7 +190,8 @@ export class BenchmarkRunner {
         path.join(this._outputDir, fixtureArtifactDirectoryName)
       );
       await runWithCleanup(async () => {
-        for (let sample = 0; sample <= measuredSamples; sample++) {
+        for (const execution of executions) {
+          const { measured, sample } = execution;
           const sampleDir = path.join(this._outputDir, `sample-${sample}`);
           let dataset: PreparedDataset | undefined;
           let scenario: BenchmarkScenario | undefined;
@@ -216,7 +250,7 @@ export class BenchmarkRunner {
               fixtureId: descriptor.id,
               fixtureRecipeHash: descriptor.recipeHash,
               fixtureVersion: descriptor.version,
-              measured: sample !== 0,
+              measured,
               operations: descriptor.distribution.operations,
               reconstructionMilliseconds: dataset.reconstructionMilliseconds,
               reportSchemaVersion: benchmarkReportSchemaVersion,

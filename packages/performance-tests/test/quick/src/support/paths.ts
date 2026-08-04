@@ -24,11 +24,14 @@ function findPackageDirectory(from: string): string {
   }
 }
 
-export const quickRootDirectory = path.join(
-  findPackageDirectory(path.dirname(fileURLToPath(import.meta.url))),
-  "test",
-  "quick"
-);
+export const quickRootDirectory =
+  process.env.QUICK_PERF_HARNESS_ROOT === undefined
+    ? path.join(
+        findPackageDirectory(path.dirname(fileURLToPath(import.meta.url))),
+        "test",
+        "quick"
+      )
+    : path.resolve(process.env.QUICK_PERF_HARNESS_ROOT);
 
 export function quickPath(...segments: string[]): string {
   return path.join(quickRootDirectory, ...segments);

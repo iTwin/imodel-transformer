@@ -189,6 +189,34 @@ The runner wraps scenario, sample, fixture-build, and `IModelHost` lifecycles in
 cleanup tasks. It attempts all applicable cleanup and preserves both originating
 and cleanup errors when more than one operation fails.
 
+### Isolated pull request A/B flow
+
+The A/B workflow checks out the pull request base and head independently and
+builds each checkout's transformer package. It compiles the quick harness once
+from the candidate and installs those exact compiled files in both checkouts.
+Both workers also resolve fixture assets and identity files from the candidate
+harness root. This keeps benchmark authoring and fixture resolution symmetric
+while allowing Node's normal module resolution to load the baseline or candidate
+transformer from the corresponding checkout.
+
+The coordinator starts a separate worker process for every warm-up and measured
+execution. Workers use `resolveBenchmarkRun()` and `BenchmarkRunner.runSample()`;
+there is no second scenario, fixture, scanner, or correctness API. The default
+schedule is:
+
+```text
+candidate warm-up, baseline warm-up
+baseline sample 1, candidate sample 1
+candidate sample 2, baseline sample 2
+baseline sample 3, candidate sample 3
+```
+
+Before reporting, the coordinator requires identical scenario and fixture
+identity fields and one semantic digest across both arms. It reports only arm
+medians, measured samples, candidate percentage delta, and an explicitly
+informational threshold status. The threshold is not a confidence interval,
+significance test, or merge gate.
+
 ## Current incremental-synchronization run
 
 The default run resolves these components:
