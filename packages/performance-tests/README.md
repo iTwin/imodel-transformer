@@ -12,13 +12,11 @@ The quick infrastructure tests are separate from both performance suites:
 
 | Tests                 | Location                                    | Purpose                                                                      |
 | --------------------- | ------------------------------------------- | ---------------------------------------------------------------------------- |
-| Quick unit            | `test/quick/tests/unit/**/*.test.ts`        | Validate catalogs, fixture descriptors, resolution, and statistics           |
+| Quick unit            | `test/quick/tests/unit/**/*.test.ts`        | Validate catalogs, fixtures, resolution, and isolated A/B orchestration      |
 | Quick integration     | `test/quick/tests/integration/**/*.test.ts` | Validate database, HubMock, fixture artifact, runner, and cleanup lifecycles |
 | Weekly infrastructure | `test/unit/**/*.test.ts`                    | Validate registration and cleanup used by the weekly suite                   |
 
 See [ARCHITECTURE.md](./ARCHITECTURE.md) for the quick suite's component model,
-and [COMPARISON_STATISTICS.md](./COMPARISON_STATISTICS.md) for the calibrated
-paired-comparison estimator, evidence levels, and execution identity contract,
 provider lifecycles, execution diagram, timing boundaries, and report format.
 
 ## Quick performance terminology
@@ -152,89 +150,50 @@ gh workflow run quick-performance.yml --ref <branch> \
   -f scenario_override=my-feature-scenario
 ```
 
-### Quick A/A calibration and A/B comparison
+### Quick isolated A/B comparison
 
-`quick-performance-comparison.yml` is a separate manual-only workflow for
-`changeset-scanning`. It does not use the weekly Hub-backed regression suite and
-never creates a merge-blocking performance gate. Each independent job produces
-exactly one `PairObservation`: the declared `AB` or `BA` order runs one isolated
-process per arm, each process performs one excluded warm-up plus three measured
-scenario executions, and each arm's three measurements are median-collapsed
-before computing one log-ratio. This is eight scenario executions per job; the
-within-process samples are never treated as three independent pairs.
+`quick-performance-comparison.yml` is a separate manual-only workflow for an
+informational `changeset-scanning` comparison. It checks out and builds baseline
+and candidate refs separately, then loads each selected transformer package in
+its own child process. The baseline checkout does not need to contain the
+comparison harness.
 
-Calibration mode builds one selected `calibration_ref` for both labeled arms and
-runs three independent jobs in `AB`, `BA`, `AB` order. The aggregation job
-rejects fixture, recipe, workload, environment, execution-policy, build, or
-fingerprint mismatches. The fingerprint includes a deterministic hash of the
-complete compiled quick harness implementation. Calibration also requires one
-stable generated-fixture content digest, derived from the tip content and
-normalized semantic changeset rows, plus one stable scan-result semantic digest
-across every valid job. Artifact schemas are versioned; artifacts from an older
-harness are rejected rather than silently upgraded. The three
-matching observations seed a provisional pool; calibration remains provisional
-until an explicit policy supplies and satisfies both independent-job and
-observation thresholds. An absolute A/A band at or below 5% is target quality
-once established, between 5% and 10% is marginal, and 10% or greater is
-unresolvable. Provisional calibration is reported as uncalibrated quality. All
-outcomes remain informational; the practical effect and equivalence threshold is
-10%.
+Each arm receives a byte-identical prepared fixture and performs one excluded
+warm-up plus three measured scenario executions. The runner takes the median of
+each arm's three measured durations and reports the candidate's percentage change
+from baseline. The declared `AB` or `BA` input controls process execution order
+without changing which arm is baseline. This is exactly eight scenario executions
+per workflow run.
 
 ```sh
 gh workflow run quick-performance-comparison.yml --ref main \
-  -f mode=calibrate-a-a \
-  -f scenario=changeset-scanning \
-  -f calibration_ref=main
-```
-
-Comparison mode checks out and builds baseline and candidate separately. The
-top-layer harness loads `ChangedInstanceIds` from each explicit built package in
-its own child process, so the baseline ref does not need to contain the
-comparison harness. Supply the prior calibration workflow run ID and artifact;
-leave `candidate_ref` blank to use the immutable `github.sha` captured for the
-dispatched workflow. The single A/B job is pair index zero in `AB` order. It
-must match the calibration's harness, fixture-content, and scan-result digests.
-It cannot establish an
-`unchanged` result: the exact distribution-free 95% median interval requires at
-least six accumulated independent pairs, and a configured equivalence policy may
-raise that minimum.
-
-```sh
-gh workflow run quick-performance-comparison.yml --ref main \
-  -f mode=compare-a-b \
   -f scenario=changeset-scanning \
   -f baseline_ref=main \
   -f candidate_ref=my-candidate \
-  -f calibration_run_id=123456789 \
-  -f calibration_artifact=QuickPerformanceCalibration \
-  -f calibration_file=calibration.json
+  -f pair_order=AB
 ```
 
-The workflow publishes raw arm samples, the pair observation (including discard
-reasons), the calibration pool and band, summary JSON, and Markdown used for the
-job summary. A/B rejects a missing calibration or any calibration fingerprint
-or hosted-runner class mismatch instead of borrowing a nearby result. Timed-out
-arm children receive `SIGTERM`, a bounded grace period, then `SIGKILL`; the pair
-settles only after the child exits and is discarded as a whole.
+Leaving `candidate_ref` blank uses the immutable `github.sha` captured for the
+workflow. The output labels absolute changes below 10% as
+`within-threshold`; larger changes are labeled `candidate-faster` or
+`candidate-slower`. This threshold is only a readable signal for one A/B
+observation. It is not a confidence interval, calibration result, or
+merge-blocking gate.
 
-The comparison commands run from explicit native ESM output under
-`test/quick/runtime/.compiled`, produced by `pnpm build:quick-cli`; unit coverage
-runs under the package's serialized Vitest configuration with
-`pnpm test:comparison`. Neither the harness nor an arm checkout requires Mocha,
-Chai, or ts-node.
+The workflow publishes raw arm samples, refs and SHAs, runtime package hashes,
+fixture and semantic identities, medians, percentage delta, summary JSON, and
+Markdown. A child crash, timeout, malformed output, fixture mismatch, or semantic
+result mismatch discards the whole comparison. Timed-out children receive
+`SIGTERM`, a bounded grace period, then `SIGKILL`, and the runner settles only
+after child exit.
 
-Every dispatched comparison workflow first runs
-`pnpm test:comparison-smoke`. This explicitly reduced, smoke-only fixture
-executes the compiled CLI, two isolated child processes, fixture reconstruction,
-one warm-up plus three measurements per arm, and result validation. It is never
-published or accepted as calibration evidence.
-
-GitHub can dispatch this workflow only after
-`quick-performance-comparison.yml` reaches the repository's default branch.
-Before then, local smoke runs can exercise process orchestration but cannot
-create hosted calibration evidence. The CLI's `prepare-fixture --smoke true`
-uses an explicitly labeled reduced fixture; its different identity prevents it
-from being accepted as calibration for the full fixture.
+The commands run from compiled ESM output under
+`test/quick/runtime/.compiled`, produced by `pnpm build:quick-cli`; focused tests
+run with `pnpm test:comparison`. `pnpm test:comparison-smoke` uses an explicitly
+reduced fixture and a distinct copied transformer package to exercise the
+compiled child-process boundary without adding executions to a dispatched A/B
+comparison. GitHub can dispatch the workflow only after the workflow file
+reaches the default branch.
 
 `pnpm quick:build-fixture` writes the canonical recipe manifest.
 `pnpm quick:verify-fixture` performs two fresh reconstructions (warm-up plus one

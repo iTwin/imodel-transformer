@@ -11,7 +11,6 @@ import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   artifactBriefcasePath,
-  artifactManifestFileName,
   FixtureArtifact,
   readChangesetFileProps,
   readFixtureArtifact,
@@ -28,55 +27,26 @@ import {
   resolveArmSpec,
 } from "./ArmModule.js";
 import {
-  classifyEnvironment,
-  EnvironmentClass,
-  validateEnvironmentClass,
-} from "./EnvironmentClass.js";
-import {
-  ExecutionFingerprint,
-  executionFingerprintKey,
-  expectedPairOrder,
-  expectedPairOrders,
-  validateExecutionFingerprint,
-} from "./ExecutionFingerprint.js";
-import {
-  CollapsedPair,
-  collapsePair,
-  logRatioToPercent,
-  PairObservation,
-  PairOrder,
-  validateCollapsedPair,
-} from "./logRatio.js";
-import {
-  assertBandApplies,
-  assertBandDerivedFromPool,
-  assertPoolApplies,
-  CalibrationRequirements,
-  deriveNoiseBand,
-  NoiseBand,
-  NoiseBandKey,
-  NoiseBandPool,
-  validateNoiseBand,
-  validateNoiseBandPool,
-} from "./NoiseBand.js";
-import {
   ComparisonFixtureIdentity,
   readComparisonFixtureIdentity,
   validateComparisonFixtureIdentity,
 } from "./ComparisonFixtureIdentity.js";
 
 export const comparisonScenarioId = "changeset-scanning";
-export const comparisonArtifactVersion = 2;
-export const comparisonHarnessVersion = "changeset-scanning-isolated-v3";
-const comparisonImplementationExtension = path.extname(
-  fileURLToPath(import.meta.url)
-);
+export const comparisonArtifactVersion = 3;
+export const comparisonHarnessVersion = "isolated-ab-v1";
+export const comparisonWarmups = 1;
+export const comparisonMeasuredSamples = 3;
+export const comparisonExecutionsPerPair = 8;
+export const informationalThresholdPercent = 10;
+
+const implementationExtension = path.extname(fileURLToPath(import.meta.url));
 const quickSourceRoot = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
   ".."
 );
 
-function comparisonImplementationFiles(): string[] {
+function implementationFiles(): string[] {
   const files: string[] = [];
   const visit = (current: string): void => {
     for (const entry of fs.readdirSync(current, { withFileTypes: true })) {
@@ -84,24 +54,21 @@ function comparisonImplementationFiles(): string[] {
       if (entry.isDirectory()) visit(absolute);
       else if (
         entry.isFile() &&
-        path.extname(entry.name) === comparisonImplementationExtension
+        path.extname(entry.name) === implementationExtension
       )
         files.push(absolute);
     }
   };
   visit(quickSourceRoot);
   files.push(
-    path.resolve(
-      quickSourceRoot,
-      `../../Cleanup${comparisonImplementationExtension}`
-    )
+    path.resolve(quickSourceRoot, `../../Cleanup${implementationExtension}`)
   );
   return files.sort();
 }
 
-function hashComparisonImplementation(): string {
+function hashImplementation(): string {
   const hash = crypto.createHash("sha256");
-  for (const file of comparisonImplementationFiles()) {
+  for (const file of implementationFiles()) {
     hash.update(path.relative(quickSourceRoot, file).split(path.sep).join("/"));
     hash.update("\0");
     hash.update(fs.readFileSync(file));
@@ -110,20 +77,9 @@ function hashComparisonImplementation(): string {
   return hash.digest("hex");
 }
 
-export const comparisonHarnessHash = hashComparisonImplementation();
-export const comparisonWarmups = 1;
-export const comparisonMeasuredSamples = 3;
-export const comparisonExecutionsPerPair = 8;
-export const comparisonExecution: ExecutionFingerprint = {
-  warmupSamplesPerArm: comparisonWarmups,
-  measuredSamplesPerArm: comparisonMeasuredSamples,
-  processPolicy: {
-    kind: "one-process-per-arm",
-    restartBetweenPairs: true,
-  },
-  pairPolicy: { kind: "paired", pairsPerJob: 1 },
-  orderPolicy: { kind: "alternating", first: "AB" },
-};
+export const comparisonHarnessHash = hashImplementation();
+
+export type PairOrder = "AB" | "BA";
 
 export interface ComparisonFingerprint {
   readonly artifactVersion: number;
@@ -133,7 +89,11 @@ export interface ComparisonFingerprint {
   readonly fixtureId: string;
   readonly recipeHash: string;
   readonly workloadHash: string;
-  readonly execution: ExecutionFingerprint;
+  readonly warmupsPerArm: number;
+  readonly measuredSamplesPerArm: number;
+  readonly processPolicy: "one-isolated-process-per-arm";
+  readonly samplePolicy: "median";
+  readonly orderPolicy: "declared-per-job";
 }
 
 export interface ArmSource {
@@ -173,13 +133,26 @@ export interface ArmRunResult {
   readonly generatedAt: string;
 }
 
+export type InformationalComparison =
+  | "candidate-faster"
+  | "candidate-slower"
+  | "within-threshold";
+
+export interface PairSummary {
+  readonly armAMedianMilliseconds: number;
+  readonly armBMedianMilliseconds: number;
+  /** Candidate (arm B) relative to baseline (arm A); negative is faster. */
+  readonly percentDelta: number;
+  readonly informationalThresholdPercent: number;
+  readonly classification: InformationalComparison;
+}
+
 export interface PairRunArtifact {
   readonly artifactVersion: number;
   readonly jobId: string;
   readonly pair: number;
   readonly order: PairOrder;
   readonly fingerprint: ComparisonFingerprint;
-  readonly environment: EnvironmentClass;
   readonly fixtureArtifactHash: string;
   readonly fixtureIdentity: ComparisonFixtureIdentity;
   readonly semanticDigest?: string;
@@ -187,34 +160,8 @@ export interface PairRunArtifact {
   readonly armBSource: ArmSource;
   readonly armA?: ArmRunResult;
   readonly armB?: ArmRunResult;
-  readonly observation?: PairObservation;
-  readonly collapsed?: CollapsedPair;
+  readonly summary?: PairSummary;
   readonly discardedReason?: string;
-  readonly generatedAt: string;
-}
-
-export interface CalibrationJobArtifact {
-  readonly jobId: string;
-  readonly pair: number;
-  readonly order: PairOrder;
-  readonly source: ArmSource;
-  readonly fixtureContentDigest: string;
-  readonly semanticDigest?: string;
-  readonly logRatio?: number;
-  readonly discardedReason?: string;
-}
-
-export interface CalibrationArtifact {
-  readonly artifactVersion: number;
-  readonly fingerprint: ComparisonFingerprint;
-  readonly environment: EnvironmentClass;
-  readonly pool: NoiseBandPool;
-  readonly band: NoiseBand;
-  readonly refs: readonly ArmSource[];
-  readonly orders: readonly PairOrder[];
-  readonly jobs: readonly CalibrationJobArtifact[];
-  readonly fixtureIdentity: ComparisonFixtureIdentity;
-  readonly semanticDigest: string;
   readonly generatedAt: string;
 }
 
@@ -241,21 +188,6 @@ function normalizeError(error: unknown): Error {
   return error instanceof Error ? error : new Error(String(error));
 }
 
-export function comparisonFingerprintKey(
-  fingerprint: ComparisonFingerprint
-): string {
-  return canonicalJson({
-    artifactVersion: fingerprint.artifactVersion,
-    harnessVersion: fingerprint.harnessVersion,
-    harnessHash: fingerprint.harnessHash,
-    scenarioId: fingerprint.scenarioId,
-    fixtureId: fingerprint.fixtureId,
-    recipeHash: fingerprint.recipeHash,
-    workloadHash: fingerprint.workloadHash,
-    execution: executionFingerprintKey(fingerprint.execution),
-  });
-}
-
 function assertNonEmpty(value: string, label: string): void {
   if (typeof value !== "string" || value.trim().length === 0)
     throw new Error(`${label} cannot be empty`);
@@ -272,6 +204,12 @@ function validateArmSource(source: ArmSource, label: string): void {
   assertNonEmpty(source.ref, `${label} ref`);
   if (!/^[a-f0-9]{40}$|^[a-f0-9]{64}$/i.test(source.sha))
     throw new Error(`${label} SHA must be a 40- or 64-character hex object id`);
+}
+
+export function comparisonFingerprintKey(
+  fingerprint: ComparisonFingerprint
+): string {
+  return canonicalJson(fingerprint);
 }
 
 export function validateComparisonFingerprint(
@@ -300,7 +238,14 @@ export function validateComparisonFingerprint(
   assertNonEmpty(fingerprint.fixtureId, "Comparison fixture id");
   assertSha256(fingerprint.recipeHash, "Comparison recipe hash");
   assertSha256(fingerprint.workloadHash, "Comparison workload hash");
-  validateExecutionFingerprint(fingerprint.execution);
+  if (
+    fingerprint.warmupsPerArm !== comparisonWarmups ||
+    fingerprint.measuredSamplesPerArm !== comparisonMeasuredSamples ||
+    fingerprint.processPolicy !== "one-isolated-process-per-arm" ||
+    fingerprint.samplePolicy !== "median" ||
+    fingerprint.orderPolicy !== "declared-per-job"
+  )
+    throw new Error("Comparison execution policy is unsupported");
 }
 
 export function assertComparisonFingerprintMatches(
@@ -329,7 +274,11 @@ export function fingerprintForArtifact(
     fixtureId: descriptor.id,
     recipeHash: descriptor.recipeHash,
     workloadHash: sha256(canonicalJson(descriptor.distribution)),
-    execution: comparisonExecution,
+    warmupsPerArm: comparisonWarmups,
+    measuredSamplesPerArm: comparisonMeasuredSamples,
+    processPolicy: "one-isolated-process-per-arm",
+    samplePolicy: "median",
+    orderPolicy: "declared-per-job",
   };
 }
 
@@ -410,14 +359,13 @@ function validateArmSpecValue(arm: ArmSpec, label: string): void {
 
 function validateRawArmSample(
   sample: RawArmSample,
-  expectedIndex: number,
-  warmups: number
+  expectedIndex: number
 ): void {
   if (!sample || typeof sample !== "object")
     throw new Error(`Arm sample ${expectedIndex} must be an object`);
   if (sample.sample !== expectedIndex)
     throw new Error(`Arm sample index ${sample.sample} != ${expectedIndex}`);
-  if (sample.measured !== expectedIndex >= warmups)
+  if (sample.measured !== expectedIndex >= comparisonWarmups)
     throw new Error(
       `Arm sample ${expectedIndex} measured flag is inconsistent`
     );
@@ -429,7 +377,7 @@ function validateRawArmSample(
   ] as const)
     if (!Number.isFinite(value) || (strictlyPositive ? value <= 0 : value < 0))
       throw new Error(`Arm sample ${expectedIndex} ${label} is invalid`);
-  assertNonEmpty(sample.semanticDigest, `Arm sample ${expectedIndex} digest`);
+  assertSha256(sample.semanticDigest, `Arm sample ${expectedIndex} digest`);
 }
 
 function validateArmRunResult(
@@ -473,18 +421,13 @@ function validateArmRunResult(
   validateComparisonFixtureIdentity(result.fixtureIdentity);
   if (!Array.isArray(result.samples))
     throw new Error("Arm samples must be an array");
-  const expectedSamples =
-    fingerprint.execution.warmupSamplesPerArm +
-    fingerprint.execution.measuredSamplesPerArm;
-  if (result.samples.length !== expectedSamples)
-    throw new Error(`Arm result requires exactly ${expectedSamples} samples`);
-  result.samples.forEach((sample, index) =>
-    validateRawArmSample(
-      sample,
-      index,
-      fingerprint.execution.warmupSamplesPerArm
-    )
-  );
+  if (result.samples.length !== comparisonWarmups + comparisonMeasuredSamples)
+    throw new Error(
+      `Arm result requires exactly ${
+        comparisonWarmups + comparisonMeasuredSamples
+      } samples`
+    );
+  result.samples.forEach(validateRawArmSample);
   if (!Number.isFinite(Date.parse(result.generatedAt)))
     throw new Error("Arm result generatedAt must be a valid timestamp");
 }
@@ -493,50 +436,19 @@ function validateArmResult(
   value: unknown,
   request: ArmRunRequest
 ): ArmRunResult {
-  if (value === null || typeof value !== "object")
+  if (!value || typeof value !== "object")
     throw new Error(`Arm "${request.arm.id}" returned malformed output`);
-  const result = value as Partial<ArmRunResult>;
-  if (
-    !Array.isArray(result.samples) ||
-    result.samples.length !== comparisonWarmups + comparisonMeasuredSamples ||
-    result.samples.filter((sample) => sample.measured).length !==
-      comparisonMeasuredSamples ||
-    result.samples[0]?.measured !== false
-  )
-    throw new Error(
-      `Arm "${request.arm.id}" did not return exactly one warm-up and three measured samples`
-    );
-  for (const [index, sample] of result.samples.entries()) {
-    if (
-      sample.sample !== index ||
-      typeof sample.wallMilliseconds !== "number" ||
-      !Number.isFinite(sample.wallMilliseconds) ||
-      sample.wallMilliseconds <= 0 ||
-      typeof sample.semanticDigest !== "string"
-    )
-      throw new Error(
-        `Arm "${request.arm.id}" returned malformed sample ${index}`
-      );
-  }
-  if (
-    !result.runtime ||
-    result.arm?.id !== request.arm.id ||
-    result.runtime.armId !== request.arm.id ||
-    result.source?.ref !== request.source.ref ||
-    result.source.sha !== request.source.sha ||
-    result.fixtureArtifactHash !== request.fixtureArtifactHash ||
-    !result.fingerprint
-  )
-    throw new Error(`Arm "${request.arm.id}" returned malformed identity data`);
-  assertComparisonFingerprintMatches(result.fingerprint, request.fingerprint);
+  const result = value as ArmRunResult;
   validateArmRunResult(
-    result as ArmRunResult,
+    result,
     request.fingerprint,
     request.source,
     request.fixtureArtifactHash,
     request.fixtureIdentity
   );
-  return result as ArmRunResult;
+  if (result.arm.id !== request.arm.id)
+    throw new Error(`Arm "${request.arm.id}" returned malformed identity data`);
+  return result;
 }
 
 export async function runArm(request: ArmRunRequest): Promise<ArmRunResult> {
@@ -557,8 +469,7 @@ export async function runArm(request: ArmRunRequest): Promise<ArmRunResult> {
   );
   if (canonicalJson(fixtureIdentity) !== canonicalJson(request.fixtureIdentity))
     throw new Error("Fixture content identity changed before arm execution");
-  const resolvedArm = resolveArmSpec(request.arm);
-  const loaded = loadArmModule(resolvedArm);
+  const loaded = loadArmModule(resolveArmSpec(request.arm));
   const samples: RawArmSample[] = [];
   await withHost(
     `quick-compare-${request.arm.id.replace(/[^A-Za-z0-9_-]/g, "-")}-${
@@ -626,8 +537,7 @@ export async function runArm(request: ArmRunRequest): Promise<ArmRunResult> {
       }
     }
   );
-  const digests = new Set(samples.map((sample) => sample.semanticDigest));
-  if (digests.size !== 1)
+  if (new Set(samples.map((sample) => sample.semanticDigest)).size !== 1)
     throw new Error(`Arm "${request.arm.id}" produced inconsistent semantics`);
   return {
     arm: request.arm,
@@ -729,6 +639,43 @@ export async function spawnArmProcess(
   });
 }
 
+function median(values: readonly number[]): number {
+  if (values.length === 0) throw new Error("Cannot calculate an empty median");
+  const sorted = [...values].sort((left, right) => left - right);
+  const middle = Math.floor(sorted.length / 2);
+  return sorted.length % 2 === 0
+    ? (sorted[middle - 1] + sorted[middle]) / 2
+    : sorted[middle];
+}
+
+function measuredSamples(result: ArmRunResult): number[] {
+  return result.samples
+    .filter((sample) => sample.measured)
+    .map((sample) => sample.wallMilliseconds);
+}
+
+function buildPairSummary(armA: ArmRunResult, armB: ArmRunResult): PairSummary {
+  const armAMedianMilliseconds = median(measuredSamples(armA));
+  const armBMedianMilliseconds = median(measuredSamples(armB));
+  const percentDelta =
+    ((armBMedianMilliseconds - armAMedianMilliseconds) /
+      armAMedianMilliseconds) *
+    100;
+  const classification: InformationalComparison =
+    percentDelta <= -informationalThresholdPercent
+      ? "candidate-faster"
+      : percentDelta >= informationalThresholdPercent
+        ? "candidate-slower"
+        : "within-threshold";
+  return {
+    armAMedianMilliseconds,
+    armBMedianMilliseconds,
+    percentDelta,
+    informationalThresholdPercent,
+    classification,
+  };
+}
+
 export async function runPair(options: {
   readonly jobId: string;
   readonly pair: number;
@@ -745,7 +692,6 @@ export async function runPair(options: {
   readonly launcher?: ArmLauncher;
 }): Promise<PairRunArtifact> {
   const generatedAt = new Date().toISOString();
-  const environment = classifyEnvironment();
   const fixtureArtifactHash = hashFixtureArtifact(options.fixtureDirectory);
   const fixtureIdentity = readComparisonFixtureIdentity(
     options.fixtureDirectory
@@ -760,15 +706,12 @@ export async function runPair(options: {
     throw new Error(
       `Pair order must be AB or BA, received "${String(options.order)}"`
     );
+  if (!Number.isSafeInteger(options.pair) || options.pair < 0)
+    throw new Error("Pair index must be a non-negative integer");
   if (options.jobId.trim().length === 0)
     throw new Error("Pair job id cannot be empty");
   validateArmSource(options.armASource, "Arm A source");
   validateArmSource(options.armBSource, "Arm B source");
-  const scheduledOrder = expectedPairOrder(fingerprint.execution, options.pair);
-  if (options.order !== scheduledOrder)
-    throw new Error(
-      `Pair ${options.pair} must use ${scheduledOrder}, received ${options.order}`
-    );
   const resolvedA = resolveArmSpec(options.armA);
   const resolvedB = resolveArmSpec(options.armB);
   assertArmSpecsComparable(resolvedA, resolvedB);
@@ -825,25 +768,12 @@ export async function runPair(options: {
     if (semanticDigests.size !== 1)
       throw new Error("Arms produced different semantic results");
     const [semanticDigest] = semanticDigests;
-    const armASamples = armA.samples
-      .filter((sample) => sample.measured)
-      .map((sample) => sample.wallMilliseconds);
-    const armBSamples = armB.samples
-      .filter((sample) => sample.measured)
-      .map((sample) => sample.wallMilliseconds);
-    const observation: PairObservation = {
-      pair: options.pair,
-      order: options.order,
-      armASamples,
-      armBSamples,
-    };
-    return {
+    const artifact: PairRunArtifact = {
       artifactVersion: comparisonArtifactVersion,
       jobId: options.jobId,
       pair: options.pair,
       order: options.order,
       fingerprint,
-      environment,
       fixtureArtifactHash,
       fixtureIdentity,
       semanticDigest,
@@ -851,27 +781,29 @@ export async function runPair(options: {
       armBSource: options.armBSource,
       armA,
       armB,
-      observation,
-      collapsed: collapsePair(observation),
+      summary: buildPairSummary(armA, armB),
       generatedAt,
     };
+    validatePairRunArtifact(artifact);
+    return artifact;
   } catch (error) {
-    return {
+    const artifact: PairRunArtifact = {
       artifactVersion: comparisonArtifactVersion,
       jobId: options.jobId,
       pair: options.pair,
       order: options.order,
       fingerprint,
-      environment,
       fixtureArtifactHash,
       fixtureIdentity,
       armASource: options.armASource,
       armBSource: options.armBSource,
       armA: results.A,
       armB: results.B,
-      discardedReason: error instanceof Error ? error.message : String(error),
+      discardedReason: normalizeError(error).message,
       generatedAt,
     };
+    validatePairRunArtifact(artifact);
+    return artifact;
   }
 }
 
@@ -898,7 +830,10 @@ function sameFiniteNumber(actual: number, expected: number): boolean {
   return Number.isFinite(actual) && Math.abs(actual - expected) <= tolerance;
 }
 
-export function validatePairRunArtifact(artifact: PairRunArtifact): void {
+export function validatePairRunArtifact(
+  artifact: PairRunArtifact
+): PairRunArtifact {
+  assertFiniteJsonNumbers(artifact, "Pair artifact");
   if (!artifact || typeof artifact !== "object")
     throw new Error("Pair artifact must be an object");
   if (artifact.artifactVersion !== comparisonArtifactVersion)
@@ -909,23 +844,16 @@ export function validatePairRunArtifact(artifact: PairRunArtifact): void {
     );
   assertNonEmpty(artifact.jobId, "Pair job id");
   if (!Number.isSafeInteger(artifact.pair) || artifact.pair < 0)
-    throw new Error("Pair index must be a non-negative integer");
+    throw new Error("Pair artifact index must be a non-negative integer");
+  if (artifact.order !== "AB" && artifact.order !== "BA")
+    throw new Error("Pair artifact order must be AB or BA");
   validateComparisonFingerprint(artifact.fingerprint);
-  const expectedOrder = expectedPairOrder(
-    artifact.fingerprint.execution,
-    artifact.pair
-  );
-  if (artifact.order !== expectedOrder)
-    throw new Error(
-      `Pair ${artifact.pair} order ${artifact.order} does not match execution plan ${expectedOrder}`
-    );
-  validateEnvironmentClass(artifact.environment);
-  assertSha256(artifact.fixtureArtifactHash, "Fixture artifact hash");
   validateComparisonFixtureIdentity(artifact.fixtureIdentity);
-  validateArmSource(artifact.armASource, "Arm A source");
-  validateArmSource(artifact.armBSource, "Arm B source");
+  assertSha256(artifact.fixtureArtifactHash, "Fixture artifact hash");
+  validateArmSource(artifact.armASource, "Pair arm A source");
+  validateArmSource(artifact.armBSource, "Pair arm B source");
   if (!Number.isFinite(Date.parse(artifact.generatedAt)))
-    throw new Error("Pair artifact generatedAt must be a valid timestamp");
+    throw new Error("Pair generatedAt must be a valid timestamp");
   if (artifact.armA)
     validateArmRunResult(
       artifact.armA,
@@ -942,451 +870,49 @@ export function validatePairRunArtifact(artifact: PairRunArtifact): void {
       artifact.fixtureArtifactHash,
       artifact.fixtureIdentity
     );
-  if (artifact.armA && artifact.armB)
-    assertArmRuntimeComparable(artifact.armA.runtime, artifact.armB.runtime);
   if (artifact.discardedReason !== undefined) {
-    assertNonEmpty(artifact.discardedReason, "Discarded pair reason");
-    if (artifact.observation || artifact.collapsed || artifact.semanticDigest)
-      throw new Error("A discarded pair cannot contain a valid observation");
-  } else {
-    if (
-      !artifact.armA ||
-      !artifact.armB ||
-      !artifact.observation ||
-      !artifact.collapsed
-    )
-      throw new Error(
-        "A valid pair requires both arms and a collapsed observation"
-      );
-    if (
-      artifact.observation.pair !== artifact.pair ||
-      artifact.observation.order !== artifact.order
-    )
-      throw new Error("Pair observation identity is inconsistent");
-    assertSha256(artifact.semanticDigest as string, "Pair semantic digest");
-    if (
-      artifact.armA.samples.some(
-        (sample) => sample.semanticDigest !== artifact.semanticDigest
-      ) ||
-      artifact.armB.samples.some(
-        (sample) => sample.semanticDigest !== artifact.semanticDigest
-      )
-    )
-      throw new Error(
-        "Pair semantic digest does not match the raw arm results"
-      );
-    for (const [label, observed, arm] of [
-      ["A", artifact.observation.armASamples, artifact.armA],
-      ["B", artifact.observation.armBSamples, artifact.armB],
-    ] as const) {
-      const measured = arm.samples
-        .filter((sample) => sample.measured)
-        .map((sample) => sample.wallMilliseconds);
-      if (
-        observed.length !== measured.length ||
-        observed.some((value, index) => value !== measured[index])
-      )
-        throw new Error(
-          `Pair observation arm ${label} samples do not match the raw measured samples`
-        );
-    }
-    const expectedCollapsed = collapsePair(artifact.observation);
-    validateCollapsedPair(artifact.collapsed);
-    if (
-      artifact.collapsed.pair !== expectedCollapsed.pair ||
-      artifact.collapsed.order !== expectedCollapsed.order ||
-      !sameFiniteNumber(artifact.collapsed.armA, expectedCollapsed.armA) ||
-      !sameFiniteNumber(artifact.collapsed.armB, expectedCollapsed.armB) ||
-      !sameFiniteNumber(artifact.collapsed.logRatio, expectedCollapsed.logRatio)
-    )
-      throw new Error(
-        "Collapsed pair does not match its raw measured observations"
-      );
+    assertNonEmpty(artifact.discardedReason, "Pair discard reason");
+    if (artifact.summary !== undefined || artifact.semanticDigest !== undefined)
+      throw new Error("Discarded pair cannot contain a summary or digest");
+    return artifact;
   }
-  assertFiniteJsonNumbers(artifact, "Pair artifact");
-}
-
-export function aggregateCalibration(
-  artifacts: readonly PairRunArtifact[],
-  options: {
-    readonly expectedPairs?: number;
-    readonly requirements?: CalibrationRequirements;
-  } = {}
-): CalibrationArtifact {
-  const expectedPairs = options.expectedPairs ?? 3;
-  if (!Number.isSafeInteger(expectedPairs) || expectedPairs < 1)
-    throw new Error("Calibration expected pairs must be a positive integer");
-  if (artifacts.length !== expectedPairs)
-    throw new Error(
-      `Calibration contains ${artifacts.length} job artifacts; expected ${expectedPairs}`
-    );
-  artifacts.forEach(validatePairRunArtifact);
-  const ordered = [...artifacts].sort((left, right) => left.pair - right.pair);
-  const first = ordered[0];
-  const jobs = new Set<string>();
-  const observations: number[] = [];
-  const refs: ArmSource[] = [];
-  const jobRecords: CalibrationJobArtifact[] = [];
-  for (const [expectedPair, artifact] of ordered.entries()) {
-    if (artifact.pair !== expectedPair)
-      throw new Error(
-        `Calibration pair indexes must be complete and zero-based; expected ${expectedPair}, received ${artifact.pair}`
-      );
-    if (jobs.has(artifact.jobId))
-      throw new Error(`Duplicate calibration job id: ${artifact.jobId}`);
-    jobs.add(artifact.jobId);
-    assertComparisonFingerprintMatches(artifact.fingerprint, first.fingerprint);
-    if (
-      canonicalJson(artifact.environment) !== canonicalJson(first.environment)
-    )
-      throw new Error(
-        `Calibration environment mismatch: ${artifact.environment.id} != ${first.environment.id}`
-      );
-    if (
-      canonicalJson(artifact.fixtureIdentity) !==
-      canonicalJson(first.fixtureIdentity)
-    )
-      throw new Error(
-        `Calibration pair ${artifact.jobId} used different fixture content`
-      );
-    if (
-      artifact.armASource.sha !== artifact.armBSource.sha ||
-      artifact.armASource.ref !== artifact.armBSource.ref
-    )
-      throw new Error(
-        `Calibration pair ${artifact.jobId} did not use the same build for both labeled arms`
-      );
-    if (
-      artifact.armA &&
-      artifact.armB &&
-      (artifact.armA.runtime.transformerVersion !==
-        artifact.armB.runtime.transformerVersion ||
-        artifact.armA.runtime.transformerPackageHash !==
-          artifact.armB.runtime.transformerPackageHash)
-    )
-      throw new Error(
-        `Calibration pair ${artifact.jobId} did not load identical transformer packages`
-      );
-    const source = artifact.armASource;
-    refs.push(source);
-    if (artifact.collapsed) observations.push(artifact.collapsed.logRatio);
-    jobRecords.push({
-      jobId: artifact.jobId,
-      pair: artifact.pair,
-      order: artifact.order,
-      source,
-      fixtureContentDigest: artifact.fixtureIdentity.contentDigest,
-      semanticDigest: artifact.semanticDigest,
-      logRatio: artifact.collapsed?.logRatio,
-      discardedReason: artifact.discardedReason,
-    });
-  }
-  if (observations.length === 0)
-    throw new Error("Calibration contains no valid independent observations");
-  const semanticDigests = new Set(
-    ordered
-      .map((artifact) => artifact.semanticDigest)
-      .filter((digest): digest is string => digest !== undefined)
-  );
-  if (semanticDigests.size !== 1)
-    throw new Error(
-      "Calibration jobs produced different semantic result digests"
-    );
-  const semanticDigest = [...semanticDigests][0];
-  if (!semanticDigest)
-    throw new Error("Calibration contains no semantic result digest");
-  if (refs.some((source) => source.sha !== refs[0].sha))
-    throw new Error(
-      "Calibration jobs did not use one identical calibration build"
-    );
-  const pool: NoiseBandPool = {
-    scenarioId: first.fingerprint.scenarioId,
-    fixtureId: first.fingerprint.fixtureId,
-    recipeHash: first.fingerprint.recipeHash,
-    environmentClass: first.environment.id,
-    execution: first.fingerprint.execution,
-    kind: "paired",
-    observations,
-    independentJobs: observations.length,
-    updatedAt: new Date().toISOString(),
-  };
-  const calibration: CalibrationArtifact = {
-    artifactVersion: comparisonArtifactVersion,
-    fingerprint: first.fingerprint,
-    environment: first.environment,
-    pool,
-    band: deriveNoiseBand(pool, 1, {
-      requirements: options.requirements,
-    }),
-    refs,
-    orders: ordered.map((artifact) => artifact.order),
-    jobs: jobRecords,
-    fixtureIdentity: first.fixtureIdentity,
-    semanticDigest,
-    generatedAt: new Date().toISOString(),
-  };
-  validateCalibrationArtifact(calibration);
-  return calibration;
-}
-
-export function renderCalibration(calibration: CalibrationArtifact): string {
-  validateCalibrationArtifact(calibration);
-  return [
-    "# Quick performance A/A calibration",
-    "",
-    `**Status:** ${calibration.band.status}`,
-    "",
-    `**Quality:** ${calibration.band.quality} (informational)`,
-    "",
-    "| Property | Value |",
-    "|---|---|",
-    `| Scenario | ${calibration.fingerprint.scenarioId} |`,
-    `| Fixture | ${calibration.fingerprint.fixtureId} |`,
-    `| Harness version | ${calibration.fingerprint.harnessVersion} |`,
-    `| Harness SHA-256 | \`${calibration.fingerprint.harnessHash}\` |`,
-    `| Recipe hash | ${calibration.fingerprint.recipeHash} |`,
-    `| Fixture content SHA-256 | \`${calibration.fixtureIdentity.contentDigest}\` |`,
-    `| Fixture semantic SHA-256 | \`${calibration.fixtureIdentity.baseSemanticDigest}\` |`,
-    `| Changeset semantic SHA-256 | \`${calibration.fixtureIdentity.changesetSemanticDigest}\` |`,
-    `| Scan result SHA-256 | \`${calibration.semanticDigest}\` |`,
-    `| Fingerprint key | \`${sha256(
-      comparisonFingerprintKey(calibration.fingerprint)
-    )}\` |`,
-    `| Planned independent jobs | ${calibration.jobs.length} |`,
-    `| Valid independent observations | ${calibration.pool.independentJobs} |`,
-    `| Discarded jobs | ${
-      calibration.jobs.length - calibration.pool.independentJobs
-    } |`,
-    `| Calibration ref / SHA | ${calibration.refs[0]?.ref ?? "n/a"} / ${
-      calibration.refs[0]?.sha ?? "n/a"
-    } |`,
-    `| Pair orders | ${calibration.orders.join(", ")} |`,
-    `| Pair log-ratios | ${calibration.pool.observations
-      .map((value) => value.toFixed(6))
-      .join(", ")} |`,
-    `| A/A band | ${calibration.band.bandPercent.toFixed(2)}% |`,
-    `| Source pool SHA-256 | \`${calibration.band.derivation.poolDigest}\` |`,
-    "| Target | <=5% actionable; 5-10% marginal; >=10% unresolvable |",
-    "",
-    "This calibration is informational and does not create a merge-blocking gate.",
-    "",
-  ].join("\n");
-}
-
-export function renderPairSummary(artifact: PairRunArtifact): string {
-  validatePairRunArtifact(artifact);
-  const lines = [
-    "# Quick performance pair",
-    "",
-    `**Status:** ${artifact.discardedReason ? "DISCARDED" : "VALID"}`,
-    "",
-    "| Property | Value |",
-    "|---|---|",
-    `| Job | ${artifact.jobId} |`,
-    `| Scenario | ${artifact.fingerprint.scenarioId} |`,
-    `| Fixture | ${artifact.fingerprint.fixtureId} |`,
-    `| Harness version | ${artifact.fingerprint.harnessVersion} |`,
-    `| Harness SHA-256 | \`${artifact.fingerprint.harnessHash}\` |`,
-    `| Fixture artifact hash | ${artifact.fixtureArtifactHash} |`,
-    `| Fixture content SHA-256 | ${artifact.fixtureIdentity.contentDigest} |`,
-    `| Fixture semantic SHA-256 | ${artifact.fixtureIdentity.baseSemanticDigest} |`,
-    `| Changeset semantic SHA-256 | ${artifact.fixtureIdentity.changesetSemanticDigest} |`,
-    `| Scan result SHA-256 | ${artifact.semanticDigest ?? "n/a"} |`,
-    `| Recipe hash | ${artifact.fingerprint.recipeHash} |`,
-    `| Fingerprint key | \`${sha256(
-      comparisonFingerprintKey(artifact.fingerprint)
-    )}\` |`,
-    `| Order | ${artifact.order} |`,
-    `| Arm A ref / SHA | ${artifact.armASource.ref} / ${artifact.armASource.sha} |`,
-    `| Arm B ref / SHA | ${artifact.armBSource.ref} / ${artifact.armBSource.sha} |`,
-    `| Arm A median | ${artifact.collapsed?.armA.toFixed(3) ?? "n/a"} ms |`,
-    `| Arm B median | ${artifact.collapsed?.armB.toFixed(3) ?? "n/a"} ms |`,
-    `| Delta | ${
-      artifact.collapsed
-        ? `${logRatioToPercent(artifact.collapsed.logRatio).toFixed(2)}%`
-        : "n/a"
-    } |`,
-  ];
-  if (artifact.discardedReason)
-    lines.push("", `Discarded pair: ${artifact.discardedReason}`);
-  lines.push(
-    "",
-    "This result is informational and does not create a merge-blocking gate.",
-    ""
-  );
-  return lines.join("\n");
-}
-
-export function validateCalibrationArtifact(
-  calibration: CalibrationArtifact
-): void {
-  if (!calibration || typeof calibration !== "object")
-    throw new Error("Calibration artifact must be an object");
-  if (calibration.artifactVersion !== comparisonArtifactVersion)
-    throw new Error(
-      `Unsupported calibration artifact version ${String(
-        calibration.artifactVersion
-      )}; expected ${comparisonArtifactVersion}`
-    );
-  validateComparisonFingerprint(calibration.fingerprint);
-  validateEnvironmentClass(calibration.environment);
-  validateComparisonFixtureIdentity(calibration.fixtureIdentity);
-  assertSha256(calibration.semanticDigest, "Calibration semantic digest");
-  validateNoiseBandPool(calibration.pool);
-  validateNoiseBand(calibration.band);
-  if (!Array.isArray(calibration.refs) || !Array.isArray(calibration.orders))
-    throw new Error("Calibration refs and orders must be arrays");
-  if (!Array.isArray(calibration.jobs) || calibration.jobs.length === 0)
-    throw new Error("Calibration jobs must be a non-empty array");
+  if (!artifact.armA || !artifact.armB || !artifact.summary)
+    throw new Error("Valid pair requires both arms and a summary");
+  if (artifact.semanticDigest === undefined)
+    throw new Error("Valid pair requires a semantic digest");
+  assertSha256(artifact.semanticDigest, "Pair semantic digest");
+  const semanticDigests = new Set([
+    ...artifact.armA.samples.map((sample) => sample.semanticDigest),
+    ...artifact.armB.samples.map((sample) => sample.semanticDigest),
+  ]);
   if (
-    calibration.refs.length !== calibration.jobs.length ||
-    calibration.orders.length !== calibration.jobs.length
+    semanticDigests.size !== 1 ||
+    !semanticDigests.has(artifact.semanticDigest)
   )
-    throw new Error(
-      "Calibration refs, orders, and jobs must have equal lengths"
-    );
-  const expectedOrders = expectedPairOrders(
-    calibration.fingerprint.execution,
-    calibration.jobs.length
-  );
-  const validLogRatios: number[] = [];
-  const jobIds = new Set<string>();
-  calibration.jobs.forEach((job, index) => {
-    if (!job || typeof job !== "object")
-      throw new Error(`Calibration job ${index} must be an object`);
-    assertNonEmpty(job.jobId, `Calibration job ${index} id`);
-    if (jobIds.has(job.jobId))
-      throw new Error(`Duplicate calibration job id: ${job.jobId}`);
-    jobIds.add(job.jobId);
-    if (job.pair !== index)
-      throw new Error(
-        `Calibration pair indexes must be complete and zero-based; expected ${index}, received ${job.pair}`
-      );
-    if (job.order !== expectedOrders[index])
-      throw new Error(
-        `Calibration pair ${index} order ${job.order} does not match execution plan ${expectedOrders[index]}`
-      );
-    validateArmSource(job.source, `Calibration job ${index} source`);
-    assertSha256(
-      job.fixtureContentDigest,
-      `Calibration job ${index} fixture content digest`
-    );
-    if (job.fixtureContentDigest !== calibration.fixtureIdentity.contentDigest)
-      throw new Error(
-        `Calibration job ${index} fixture content digest does not match the calibration`
-      );
-    validateArmSource(calibration.refs[index], `Calibration ref ${index}`);
-    if (
-      job.source.ref !== calibration.refs[index].ref ||
-      job.source.sha !== calibration.refs[index].sha
-    )
-      throw new Error(`Calibration job ${index} source does not match its ref`);
-    if (calibration.orders[index] !== job.order)
-      throw new Error(`Calibration job ${index} order does not match orders`);
-    const valid = job.logRatio !== undefined;
-    const discarded = job.discardedReason !== undefined;
-    if (valid === discarded)
-      throw new Error(
-        `Calibration job ${index} must contain exactly one of logRatio or discardedReason`
-      );
-    if (valid) {
-      if (!Number.isFinite(job.logRatio))
-        throw new Error(`Calibration job ${index} log ratio is not finite`);
-      if (job.semanticDigest !== calibration.semanticDigest)
-        throw new Error(
-          `Calibration job ${index} semantic digest does not match the calibration`
-        );
-      validLogRatios.push(job.logRatio);
-    } else {
-      if (job.semanticDigest !== undefined)
-        throw new Error(
-          `Discarded calibration job ${index} cannot contain a semantic digest`
-        );
-      assertNonEmpty(
-        job.discardedReason as string,
-        `Calibration job ${index} discarded reason`
-      );
-    }
-  });
+    throw new Error("Pair semantic digest does not match arm samples");
+  const expected = buildPairSummary(artifact.armA, artifact.armB);
   if (
-    calibration.refs.some(
-      (source) =>
-        source.sha !== calibration.refs[0].sha ||
-        source.ref !== calibration.refs[0].ref
-    )
+    !sameFiniteNumber(
+      artifact.summary.armAMedianMilliseconds,
+      expected.armAMedianMilliseconds
+    ) ||
+    !sameFiniteNumber(
+      artifact.summary.armBMedianMilliseconds,
+      expected.armBMedianMilliseconds
+    ) ||
+    !sameFiniteNumber(artifact.summary.percentDelta, expected.percentDelta) ||
+    artifact.summary.informationalThresholdPercent !==
+      informationalThresholdPercent ||
+    artifact.summary.classification !== expected.classification
   )
-    throw new Error("Calibration jobs did not use one identical A/A build");
-  const expectedKey: NoiseBandKey = {
-    scenarioId: calibration.fingerprint.scenarioId,
-    fixtureId: calibration.fingerprint.fixtureId,
-    recipeHash: calibration.fingerprint.recipeHash,
-    environmentClass: calibration.environment.id,
-    execution: calibration.fingerprint.execution,
-    kind: "paired",
-  };
-  assertPoolApplies(calibration.pool, expectedKey);
-  if (
-    calibration.pool.kind !== "paired" ||
-    calibration.pool.independentJobs !== validLogRatios.length ||
-    calibration.pool.observations.length !== validLogRatios.length ||
-    calibration.pool.observations.some(
-      (value, index) => !sameFiniteNumber(value, validLogRatios[index])
-    )
-  )
-    throw new Error(
-      "Calibration pool does not match the valid independent job observations"
-    );
-  assertBandApplies(
-    calibration.band,
-    expectedKey,
-    calibration.band.statisticSampleSize
-  );
-  assertBandDerivedFromPool(calibration.band, calibration.pool);
-  if (!Number.isFinite(Date.parse(calibration.generatedAt)))
-    throw new Error("Calibration generatedAt must be a valid timestamp");
-  assertFiniteJsonNumbers(calibration, "Calibration artifact");
-}
-
-export function assertCalibrationMatchesPair(
-  pair: PairRunArtifact,
-  calibration: CalibrationArtifact
-): void {
-  validatePairRunArtifact(pair);
-  validateCalibrationArtifact(calibration);
-  assertComparisonFingerprintMatches(pair.fingerprint, calibration.fingerprint);
-  if (
-    canonicalJson(pair.environment) !== canonicalJson(calibration.environment)
-  )
-    throw new Error(
-      `Comparison environment ${pair.environment.id} does not match calibration ${calibration.environment.id}`
-    );
-  if (
-    canonicalJson(pair.fixtureIdentity) !==
-    canonicalJson(calibration.fixtureIdentity)
-  )
-    throw new Error(
-      "Comparison fixture content identity does not match calibration"
-    );
-  if (pair.semanticDigest !== calibration.semanticDigest)
-    throw new Error(
-      "Comparison semantic result digest does not match calibration"
-    );
-}
-
-export function readPairArtifact(fileName: string): PairRunArtifact {
-  const artifact = JSON.parse(
-    fs.readFileSync(fileName, "utf8")
-  ) as PairRunArtifact;
-  validatePairRunArtifact(artifact);
+    throw new Error("Pair summary does not match measured arm samples");
   return artifact;
 }
 
-export function readCalibrationArtifact(fileName: string): CalibrationArtifact {
-  const calibration = JSON.parse(
-    fs.readFileSync(fileName, "utf8")
-  ) as CalibrationArtifact;
-  validateCalibrationArtifact(calibration);
-  return calibration;
+export function readPairArtifact(fileName: string): PairRunArtifact {
+  return validatePairRunArtifact(
+    JSON.parse(fs.readFileSync(fileName, "utf8")) as PairRunArtifact
+  );
 }
 
 export function writeJson(fileName: string, value: unknown): void {
@@ -1395,4 +921,43 @@ export function writeJson(fileName: string, value: unknown): void {
   fs.writeFileSync(fileName, `${JSON.stringify(value, undefined, 2)}\n`);
 }
 
-export { artifactManifestFileName };
+export function renderPairSummary(artifact: PairRunArtifact): string {
+  validatePairRunArtifact(artifact);
+  const lines = [
+    "# Isolated quick A/B comparison",
+    "",
+    "| Field | Value |",
+    "| --- | --- |",
+    `| Scenario | ${artifact.fingerprint.scenarioId} |`,
+    `| Fixture | ${artifact.fingerprint.fixtureId} |`,
+    `| Order | ${artifact.order} |`,
+    `| Baseline | ${artifact.armASource.ref} (\`${artifact.armASource.sha}\`) |`,
+    `| Candidate | ${artifact.armBSource.ref} (\`${artifact.armBSource.sha}\`) |`,
+    `| Harness SHA-256 | \`${artifact.fingerprint.harnessHash}\` |`,
+    `| Fixture artifact SHA-256 | \`${artifact.fixtureArtifactHash}\` |`,
+    `| Fixture content SHA-256 | \`${artifact.fixtureIdentity.contentDigest}\` |`,
+    `| Changeset semantic SHA-256 | \`${artifact.fixtureIdentity.changesetSemanticDigest}\` |`,
+  ];
+  if (artifact.discardedReason) {
+    lines.push(
+      `| Result | Discarded: ${artifact.discardedReason.replaceAll("|", "\\|")} |`
+    );
+  } else {
+    const summary = artifact.summary;
+    if (!summary) throw new Error("Valid pair is missing its summary");
+    lines.push(
+      `| Result semantic SHA-256 | \`${artifact.semanticDigest}\` |`,
+      `| Baseline median | ${summary.armAMedianMilliseconds.toFixed(3)} ms |`,
+      `| Candidate median | ${summary.armBMedianMilliseconds.toFixed(3)} ms |`,
+      `| Candidate delta | ${summary.percentDelta.toFixed(2)}% |`,
+      `| Informational classification | ${summary.classification} |`,
+      `| Informational threshold | ±${summary.informationalThresholdPercent}% |`
+    );
+  }
+  lines.push(
+    "",
+    "This is a single informational A/B observation. It is not a statistical confidence claim and never blocks merging.",
+    ""
+  );
+  return lines.join("\n");
+}

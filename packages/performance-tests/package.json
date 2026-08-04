@@ -11,7 +11,7 @@
     "test": "vitest run",
     "format": "prettier \"./test/**/*.ts\" --write",
     "test:quick-unit": "vitest run --config vitest.quick.config.ts tests/unit",
-    "test:comparison": "vitest run --config vitest.quick.config.ts tests/unit/comparison.test.ts tests/unit/ComparisonRunner.test.ts",
+    "test:comparison": "vitest run --config vitest.quick.config.ts tests/unit/ComparisonRunner.test.ts tests/unit/ComparisonWorkflow.test.ts",
     "test:comparison-smoke": "node test/quick/runtime/.compiled/quick/src/cli/comparisonCli.js smoke --scenario changeset-scanning",
     "test:quick-integration": "vitest run --config vitest.quick.config.ts tests/integration",
     "test:quick-harness": "vitest run --config vitest.quick.config.ts tests",

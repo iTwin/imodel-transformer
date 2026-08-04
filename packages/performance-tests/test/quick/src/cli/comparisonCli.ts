@@ -4,36 +4,26 @@
  *--------------------------------------------------------------------------------------------*/
 
 import { spawnSync } from "node:child_process";
-import * as crypto from "node:crypto";
 import * as fs from "node:fs";
 import { createRequire } from "node:module";
 import * as os from "node:os";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
+import { ArmOperation, ArmSpec } from "../comparison/ArmModule.js";
+import { prepareComparisonFixture } from "../comparison/ComparisonFixture.js";
 import {
-  buildComparisonReport,
-  writeComparisonReport,
-} from "../comparison/ComparisonReport.js";
-import {
-  aggregateCalibration,
   ArmRunRequest,
-  assertCalibrationMatchesPair,
   comparisonExecutionsPerPair,
-  comparisonFingerprintKey,
   comparisonMeasuredSamples,
   comparisonScenarioId,
   comparisonWarmups,
-  readCalibrationArtifact,
-  readPairArtifact,
-  renderCalibration,
+  PairRunArtifact,
   renderPairSummary,
   runPair,
   spawnArmProcess,
   validatePairRunArtifact,
   writeJson,
 } from "../comparison/ComparisonRunner.js";
-import { prepareComparisonFixture } from "../comparison/ComparisonFixture.js";
-import { ArmOperation, ArmSpec } from "../comparison/ArmModule.js";
 
 const cliRequire = createRequire(import.meta.url);
 
@@ -65,7 +55,7 @@ function optional(args: Map<string, string>, name: string): string | undefined {
 function integer(args: Map<string, string>, name: string): number {
   const raw = required(args, name);
   const value = Number(raw);
-  if (!Number.isInteger(value) || value < 0)
+  if (!Number.isSafeInteger(value) || value < 0)
     throw new Error(`--${name} must be a non-negative integer`);
   return value;
 }
@@ -97,19 +87,6 @@ function armSpec(
     modulePath: optional(args, `${prefix}-module`),
     operation,
   };
-}
-
-function findFiles(directory: string, name: string): string[] {
-  const files: string[] = [];
-  const visit = (current: string): void => {
-    for (const entry of fs.readdirSync(current, { withFileTypes: true })) {
-      const absolute = path.join(current, entry.name);
-      if (entry.isDirectory()) visit(absolute);
-      else if (entry.isFile() && entry.name === name) files.push(absolute);
-    }
-  };
-  visit(directory);
-  return files.sort();
 }
 
 function createSmokeArmPackage(outputRoot: string): string {
@@ -167,9 +144,8 @@ function createSmokeArmPackage(outputRoot: string): string {
 
 async function prepareFixture(args: Map<string, string>): Promise<void> {
   assertScenario(args);
-  const output = required(args, "output");
   const result = await prepareComparisonFixture(
-    output,
+    required(args, "output"),
     optional(args, "smoke") === "true"
   );
   process.stdout.write(`${JSON.stringify(result)}\n`);
@@ -194,6 +170,36 @@ function executeArm(args: Map<string, string>): void {
     );
 }
 
+function writePairArtifacts(
+  outputDirectory: string,
+  artifact: PairRunArtifact
+): void {
+  validatePairRunArtifact(artifact);
+  writeJson(path.join(outputDirectory, "pair-result.json"), artifact);
+  if (artifact.armA)
+    writeJson(path.join(outputDirectory, "baseline-arm.json"), artifact.armA);
+  if (artifact.armB)
+    writeJson(path.join(outputDirectory, "candidate-arm.json"), artifact.armB);
+  writeJson(path.join(outputDirectory, "summary.json"), {
+    artifactVersion: artifact.artifactVersion,
+    jobId: artifact.jobId,
+    pair: artifact.pair,
+    order: artifact.order,
+    baseline: artifact.armASource,
+    candidate: artifact.armBSource,
+    fingerprint: artifact.fingerprint,
+    fixtureArtifactHash: artifact.fixtureArtifactHash,
+    fixtureIdentity: artifact.fixtureIdentity,
+    semanticDigest: artifact.semanticDigest,
+    summary: artifact.summary,
+    discardedReason: artifact.discardedReason,
+  });
+  fs.writeFileSync(
+    path.join(outputDirectory, "comparison.md"),
+    renderPairSummary(artifact)
+  );
+}
+
 async function executePair(args: Map<string, string>): Promise<void> {
   const output = required(args, "output");
   const artifact = await runPair({
@@ -214,14 +220,10 @@ async function executePair(args: Map<string, string>): Promise<void> {
     },
     outputDirectory: output,
     timeoutMilliseconds: optional(args, "timeout-ms")
-      ? integer(args, "timeout-ms")
+      ? positiveInteger(args, "timeout-ms")
       : undefined,
   });
-  writeJson(path.join(output, "pair-observation.json"), artifact);
-  fs.writeFileSync(
-    path.join(output, "pair-summary.md"),
-    renderPairSummary(artifact)
-  );
+  writePairArtifacts(output, artifact);
   if (artifact.discardedReason)
     throw new Error(`Pair discarded: ${artifact.discardedReason}`);
 }
@@ -299,14 +301,14 @@ async function smoke(args: Map<string, string>): Promise<void> {
       fixtureDirectory: fixture,
       armA: {
         id: "smoke-a",
-        label: "smoke",
+        label: "baseline",
         packageRoot: armPackage,
         operation: "change-processing",
       },
       armASource: { ref: "smoke", sha: "0".repeat(40) },
       armB: {
         id: "smoke-b",
-        label: "smoke",
+        label: "candidate",
         packageRoot: armPackage,
         operation: "change-processing",
       },
@@ -346,6 +348,7 @@ async function smoke(args: Map<string, string>): Promise<void> {
         changesetSemanticDigest:
           artifact.fixtureIdentity.changesetSemanticDigest,
         semanticDigest: artifact.semanticDigest,
+        percentDelta: artifact.summary?.percentDelta,
         timeoutProbeMilliseconds,
         elapsedMilliseconds: Date.now() - startedAt,
       })}\n`
@@ -354,113 +357,6 @@ async function smoke(args: Map<string, string>): Promise<void> {
     if (!requestedOutput)
       fs.rmSync(outputRoot, { recursive: true, force: true });
   }
-}
-
-function aggregate(args: Map<string, string>): void {
-  const input = required(args, "input");
-  const output = required(args, "output");
-  const files = findFiles(input, "pair-observation.json");
-  const calibration = aggregateCalibration(files.map(readPairArtifact), {
-    expectedPairs: positiveInteger(args, "expected-pairs"),
-  });
-  fs.mkdirSync(output, { recursive: true });
-  writeJson(path.join(output, "calibration.json"), calibration);
-  writeJson(path.join(output, "noise-pool.json"), calibration.pool);
-  writeJson(path.join(output, "noise-band.json"), calibration.band);
-  fs.writeFileSync(
-    path.join(output, "calibration-summary.md"),
-    renderCalibration(calibration)
-  );
-}
-
-function compare(args: Map<string, string>): void {
-  const pair = readPairArtifact(required(args, "observation"));
-  const calibration = readCalibrationArtifact(required(args, "calibration"));
-  const output = required(args, "output");
-  if (pair.discardedReason || !pair.collapsed || !pair.armA || !pair.armB)
-    throw new Error(
-      `Cannot compare a discarded pair: ${
-        pair.discardedReason ?? "missing arm or collapsed result"
-      }`
-    );
-  assertCalibrationMatchesPair(pair, calibration);
-  const baseReport = buildComparisonReport({
-    scenarioId: pair.fingerprint.scenarioId,
-    fixtureId: pair.fingerprint.fixtureId,
-    recipeHash: pair.fingerprint.recipeHash,
-    mode: "paired",
-    environment: pair.environment,
-    execution: pair.fingerprint.execution,
-    armA: {
-      id: pair.armA.arm.id,
-      label: pair.armA.arm.label,
-      ref: pair.armA.source.ref,
-      sha: pair.armA.source.sha,
-      transformerVersion: pair.armA.runtime.transformerVersion,
-      transformerPackageHash: pair.armA.runtime.transformerPackageHash,
-      coreBackendVersion: pair.armA.runtime.coreBackendVersion,
-      coreBackendPackageHash: pair.armA.runtime.coreBackendPackageHash,
-    },
-    armB: {
-      id: pair.armB.arm.id,
-      label: pair.armB.arm.label,
-      ref: pair.armB.source.ref,
-      sha: pair.armB.source.sha,
-      transformerVersion: pair.armB.runtime.transformerVersion,
-      transformerPackageHash: pair.armB.runtime.transformerPackageHash,
-      coreBackendVersion: pair.armB.runtime.coreBackendVersion,
-      coreBackendPackageHash: pair.armB.runtime.coreBackendPackageHash,
-    },
-    pairs: [pair.collapsed],
-    independentJobs: 1,
-    pool: calibration.pool,
-    band: calibration.band,
-  });
-  const report = {
-    ...baseReport,
-    verdict: {
-      ...baseReport.verdict,
-      evidence: "informational" as const,
-      reason: `${baseReport.verdict.reason} This workflow is informational-only.`,
-    },
-  };
-  writeComparisonReport(output, report);
-  fs.appendFileSync(
-    path.join(output, "comparison.md"),
-    [
-      "",
-      "## Runner identity",
-      "",
-      `- Fingerprint key: \`${crypto
-        .createHash("sha256")
-        .update(comparisonFingerprintKey(pair.fingerprint))
-        .digest("hex")}\``,
-      `- Fixture artifact hash: \`${pair.fixtureArtifactHash}\``,
-      `- Fixture content SHA-256: \`${pair.fixtureIdentity.contentDigest}\``,
-      `- Fixture semantic SHA-256: \`${pair.fixtureIdentity.baseSemanticDigest}\``,
-      `- Changeset semantic SHA-256: \`${pair.fixtureIdentity.changesetSemanticDigest}\``,
-      `- Scan result SHA-256: \`${pair.semanticDigest}\``,
-      `- Harness SHA-256: \`${pair.fingerprint.harnessHash}\``,
-      `- Pair order: ${pair.order}`,
-      `- Arm A median: ${pair.collapsed.armA.toFixed(3)} ms`,
-      `- Arm B median: ${pair.collapsed.armB.toFixed(3)} ms`,
-      "",
-      "This workflow is informational-only and never creates a merge-blocking performance gate.",
-      "",
-    ].join("\n")
-  );
-  writeJson(path.join(output, "summary.json"), {
-    report,
-    pair,
-    calibration: {
-      fingerprint: calibration.fingerprint,
-      environment: calibration.environment,
-      pool: calibration.pool,
-      band: calibration.band,
-      fixtureIdentity: calibration.fixtureIdentity,
-      semanticDigest: calibration.semanticDigest,
-    },
-  });
 }
 
 async function main(): Promise<void> {
@@ -478,12 +374,6 @@ async function main(): Promise<void> {
       return;
     case "smoke":
       await smoke(args);
-      return;
-    case "aggregate-calibration":
-      aggregate(args);
-      return;
-    case "compare":
-      compare(args);
       return;
     default:
       throw new Error(`Unknown comparison command: ${command ?? "<missing>"}`);
