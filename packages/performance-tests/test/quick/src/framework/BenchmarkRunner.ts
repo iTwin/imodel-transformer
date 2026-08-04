@@ -19,7 +19,6 @@ import {
 import {
   FixtureDescriptor,
   FixtureTopology,
-  fixtureWorkloadGeneratorIdentity,
 } from "../fixtures/FixtureDescriptor.js";
 import { ConfiguredFixture } from "../fixtures/FixtureRecipe.js";
 import {
@@ -116,7 +115,6 @@ export function prepareBenchmarkOutputDirectory(outputDir: string): void {
 export interface BenchmarkSample {
   readonly cpuSystemMilliseconds: number;
   readonly cpuUserMilliseconds: number;
-  readonly fixtureContentHash?: string;
   readonly fixtureId: string;
   readonly fixtureGenerator: FixtureDescriptor["generator"];
   readonly fixtureRecipeHash: string;
@@ -143,95 +141,6 @@ export interface BenchmarkSample {
 interface BenchmarkExecution {
   readonly measured: boolean;
   readonly sample: number;
-}
-
-function comparableFixtureIdentity(descriptor: FixtureDescriptor): string {
-  return JSON.stringify({
-    distribution: descriptor.distribution,
-    generator: fixtureWorkloadGeneratorIdentity(descriptor.generator),
-    id: descriptor.id,
-    label: descriptor.label,
-    layout: descriptor.layout,
-    recipeHash: descriptor.recipeHash,
-    scenarioClaims: descriptor.scenarioClaims,
-    version: descriptor.version,
-  });
-}
-
-function builtFromArtifact(
-  fixture: ConfiguredFixture,
-  artifactDirectory: string
-): BuiltFixture {
-  const artifact = readFixtureArtifact(artifactDirectory);
-  if (
-    comparableFixtureIdentity(artifact.manifest.descriptor) !==
-    comparableFixtureIdentity(fixture.descriptor)
-  )
-    throw new Error(
-      "Shared fixture artifact does not match the configured benchmark workload"
-    );
-  return {
-    artifact,
-    buildMilliseconds: artifact.manifest.buildMilliseconds,
-    descriptor: artifact.manifest.descriptor,
-    directory: artifact.directory,
-    fixture,
-  };
-}
-
-export async function buildBenchmarkFixtureArtifact(
-  fixture: ConfiguredFixture,
-  artifactDirectory: string
-): Promise<FixtureArtifact> {
-  if (fixture.descriptor.layout.topology !== "source-only")
-    throw new Error(
-      `Shared comparison artifacts require a "source-only" fixture; received "${fixture.descriptor.layout.topology}"`
-    );
-  assertSafeBenchmarkOutputPath(artifactDirectory);
-  const stagingDirectory = `${artifactDirectory}.building`;
-  fs.rmSync(stagingDirectory, { recursive: true, force: true });
-  fs.rmSync(artifactDirectory, { recursive: true, force: true });
-  const provider = getFixtureProvider(fixture.descriptor);
-  let built: BuiltFixture | undefined;
-  let completed = false;
-  let shutdownSucceeded = false;
-  return runWithCleanup(async () => {
-    await IModelHost.startup({ hubAccess: quickTestHub });
-    const artifact = await runWithCleanup(async () => {
-      built = await provider.build(fixture, stagingDirectory);
-      requireFixtureArtifact(built);
-      fs.cpSync(stagingDirectory, artifactDirectory, { recursive: true });
-      return readFixtureArtifact(artifactDirectory);
-    }, [
-      {
-        name: "dispose staged quick performance fixture build",
-        run: async () => {
-          try {
-            if (built) await provider.disposeBuild(built);
-          } finally {
-            fs.rmSync(stagingDirectory, { recursive: true, force: true });
-          }
-        },
-      },
-    ]);
-    completed = true;
-    return artifact;
-  }, [
-    {
-      name: "shut down IModelHost after fixture artifact build",
-      run: async () => {
-        if (IModelHost.isValid) await IModelHost.shutdown();
-        shutdownSucceeded = true;
-      },
-    },
-    {
-      name: "remove incomplete shared fixture artifact",
-      run: () => {
-        if (!completed || !shutdownSucceeded)
-          fs.rmSync(artifactDirectory, { recursive: true, force: true });
-      },
-    },
-  ]);
 }
 
 export class BenchmarkRunner {
@@ -288,29 +197,52 @@ export class BenchmarkRunner {
   public async buildReusableFixtureArtifact(
     artifactDirectory: string
   ): Promise<FixtureArtifactManifest> {
+    if (this._fixture.descriptor.layout.topology !== "source-only")
+      throw new Error(
+        `Reusable comparison artifacts require a "source-only" fixture; received "${this._fixture.descriptor.layout.topology}"`
+      );
+    assertSafeBenchmarkOutputPath(artifactDirectory);
+    const stagingDirectory = `${artifactDirectory}.building`;
+    fs.rmSync(stagingDirectory, { recursive: true, force: true });
+    fs.rmSync(artifactDirectory, { recursive: true, force: true });
     const provider = getFixtureProvider(this._fixture.descriptor);
     let built: BuiltFixture | undefined;
-    let preserveArtifact = false;
+    let completed = false;
+    let shutdownSucceeded = false;
     return runWithCleanup(async () => {
       await IModelHost.startup({ hubAccess: quickTestHub });
-      return runWithCleanup(async () => {
-        built = await provider.build(this._fixture, artifactDirectory);
-        const artifact = requireFixtureArtifact(built);
-        preserveArtifact = true;
-        return artifact.manifest;
+      const manifest = await runWithCleanup(async () => {
+        built = await provider.build(this._fixture, stagingDirectory);
+        requireFixtureArtifact(built);
+        fs.cpSync(stagingDirectory, artifactDirectory, { recursive: true });
+        return readFixtureArtifact(artifactDirectory).manifest;
       }, [
         {
-          name: "dispose failed reusable quick performance fixture build",
+          name: "dispose staged reusable quick performance fixture build",
           run: async () => {
-            if (built && !preserveArtifact) await provider.disposeBuild(built);
+            try {
+              if (built) await provider.disposeBuild(built);
+            } finally {
+              fs.rmSync(stagingDirectory, { recursive: true, force: true });
+            }
           },
         },
       ]);
+      completed = true;
+      return manifest;
     }, [
       {
         name: "shut down IModelHost after reusable fixture build",
         run: async () => {
           if (IModelHost.isValid) await IModelHost.shutdown();
+          shutdownSucceeded = true;
+        },
+      },
+      {
+        name: "remove incomplete reusable fixture artifact",
+        run: () => {
+          if (!completed || !shutdownSucceeded)
+            fs.rmSync(artifactDirectory, { recursive: true, force: true });
         },
       },
     ]);
@@ -464,17 +396,7 @@ export class BenchmarkRunner {
             if (ownsBuild) await provider.disposeBuild(built);
           },
         },
-        artifactDirectory === undefined
-          ? [
-              {
-                name: "dispose quick performance fixture build",
-                run: async () => {
-                  await provider.disposeBuild(built);
-                },
-              },
-            ]
-          : []
-      );
+      ]);
     }, [
       {
         name: "shut down IModelHost after quick performance run",

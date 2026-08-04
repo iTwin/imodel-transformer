@@ -3,10 +3,9 @@
  * See LICENSE.md in the project root for license terms and full copyright notice.
  *--------------------------------------------------------------------------------------------*/
 
+import { createHash } from "node:crypto";
 import * as fs from "node:fs";
-import { createHash } from "node:crypto";
 import * as path from "node:path";
-import { createHash } from "node:crypto";
 import { ChangesetFileProps } from "@itwin/core-common";
 import {
   canonicalSha256,
@@ -237,27 +236,6 @@ export function writeFixtureArtifactManifest(
   );
 }
 
-export function fixtureArtifactContentHash(
-  directory: string,
-  recipeDataFile?: string
-): string {
-  const relativeFiles = [
-    artifactBriefcaseFileName,
-    artifactChangesetPropsFileName,
-    ...readChangesetFileProps(directory).map((changeset) =>
-      path.relative(directory, changeset.pathname).replaceAll(path.sep, "/")
-    ),
-    ...(recipeDataFile === undefined ? [] : [recipeDataFile]),
-  ].sort();
-  const hash = createHash("sha256");
-  for (const relativeFile of relativeFiles) {
-    const fileName = path.join(directory, ...relativeFile.split("/"));
-    hash.update(`${relativeFile.length}:${relativeFile}:`);
-    hash.update(fs.readFileSync(fileName));
-  }
-  return hash.digest("hex");
-}
-
 export function validateFixtureArtifactManifest(
   value: unknown
 ): FixtureArtifactManifest {
@@ -281,7 +259,6 @@ export function validateFixtureArtifactManifest(
     typeof manifest.changesets.propsFile !== "string" ||
     typeof manifest.changesets.count !== "number" ||
     typeof manifest.changesets.baseChangesetIndex !== "number" ||
-    typeof manifest.contentHash !== "string" ||
     typeof manifest.buildMilliseconds !== "number" ||
     typeof manifest.builtAt !== "string"
   )

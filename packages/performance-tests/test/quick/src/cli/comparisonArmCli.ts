@@ -8,7 +8,6 @@ import * as path from "node:path";
 import {
   BenchmarkRunner,
   BenchmarkSample,
-  buildBenchmarkFixtureArtifact,
 } from "../framework/BenchmarkRunner.js";
 import { resolveBenchmarkRun } from "../framework/BenchmarkResolution.js";
 import { resolveTransformerProvenance } from "../comparison/TransformerProvenance.js";

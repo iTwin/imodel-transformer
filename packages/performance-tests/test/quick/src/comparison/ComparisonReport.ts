@@ -6,7 +6,6 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { BenchmarkSample } from "../framework/BenchmarkRunner.js";
-import { fixtureWorkloadGeneratorIdentity } from "../fixtures/FixtureDescriptor.js";
 import { median } from "../reporting/statistics.js";
 import { TransformerProvenance } from "./TransformerProvenance.js";
 
@@ -49,14 +48,12 @@ export interface ComparisonSummary {
     readonly transformerProvenance: TransformerProvenance;
     readonly medianMilliseconds: number;
     readonly measuredMilliseconds: readonly number[];
-    readonly transformerVersion: string;
   };
   readonly candidate: {
     readonly revision: string;
     readonly transformerProvenance: TransformerProvenance;
     readonly medianMilliseconds: number;
     readonly measuredMilliseconds: readonly number[];
-    readonly transformerVersion: string;
   };
   readonly percentageDelta: number;
   readonly informationalStatus: InformationalComparisonStatus;
@@ -193,9 +190,6 @@ export function createComparisonSummary(
         ? "candidate-faster-than-threshold"
         : "within-informational-threshold";
   const identity = allSamples[0];
-  const fixtureContentHash = identity.fixtureContentHash;
-  if (fixtureContentHash === undefined)
-    throw new Error("A/B comparison requires a fixture artifact content hash");
 
   return {
     reportSchemaVersion: 1,
@@ -216,14 +210,12 @@ export function createComparisonSummary(
       transformerProvenance: baselineTransformer,
       medianMilliseconds: baselineMedian,
       measuredMilliseconds: baselineMeasured,
-      transformerVersion: input.baseline.samples[0].transformerVersion,
     },
     candidate: {
       revision: input.candidate.revision,
       transformerProvenance: candidateTransformer,
       medianMilliseconds: candidateMedian,
       measuredMilliseconds: candidateMeasured,
-      transformerVersion: input.candidate.samples[0].transformerVersion,
     },
     percentageDelta: delta,
     informationalStatus,
@@ -251,8 +243,8 @@ function markdown(summary: ComparisonSummary): string {
     "",
     "| Arm | Revision | Transformer | Median | Measured samples |",
     "| --- | --- | --- | ---: | --- |",
-    `| Baseline | \`${summary.baseline.revision}\` | \`${summary.baseline.transformerVersion}\` | ${formatMilliseconds(summary.baseline.medianMilliseconds)} | ${summary.baseline.measuredMilliseconds.map(formatMilliseconds).join(", ")} |`,
-    `| Candidate | \`${summary.candidate.revision}\` | \`${summary.candidate.transformerVersion}\` | ${formatMilliseconds(summary.candidate.medianMilliseconds)} | ${summary.candidate.measuredMilliseconds.map(formatMilliseconds).join(", ")} |`,
+    `| Baseline | \`${summary.baseline.revision}\` | \`${summary.baseline.transformerProvenance.version}\` | ${formatMilliseconds(summary.baseline.medianMilliseconds)} | ${summary.baseline.measuredMilliseconds.map(formatMilliseconds).join(", ")} |`,
+    `| Candidate | \`${summary.candidate.revision}\` | \`${summary.candidate.transformerProvenance.version}\` | ${formatMilliseconds(summary.candidate.medianMilliseconds)} | ${summary.candidate.measuredMilliseconds.map(formatMilliseconds).join(", ")} |`,
     "",
     `**Candidate delta:** ${signedDelta}  `,
     `**Informational status (${summary.policy.informationalThresholdPercent}% threshold):** \`${summary.informationalStatus}\``,

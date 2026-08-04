@@ -15,8 +15,6 @@ export function benchmarkSample(
   return {
     cpuSystemMilliseconds: 1,
     cpuUserMilliseconds: 2,
-    fixtureContentHash:
-      "1111111111111111111111111111111111111111111111111111111111111111",
     fixtureBuildMilliseconds: 10,
     fixtureGenerator: {
       coreBackend: "5.10.3",

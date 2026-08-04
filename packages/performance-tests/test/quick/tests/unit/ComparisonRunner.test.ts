@@ -119,7 +119,7 @@ describe("A/B comparison orchestration", () => {
     );
     expect(
       new Set(requests.map((request) => request.fixtureArtifactDirectory))
-    ).to.deep.equal(new Set(fixtureBuilds));
+    ).to.deep.equal(new Set([buildRequests[0].artifactDirectory]));
     expect(
       requests.filter((request) => request.rootDirectory === "baseline-root")
     ).to.have.length(4);

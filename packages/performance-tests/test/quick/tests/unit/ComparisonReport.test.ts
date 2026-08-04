@@ -108,6 +108,19 @@ describe("A/B comparison reporting", () => {
     );
   });
 
+  it("rejects different fixture bytes even when semantic digests match", () => {
+    const mismatchedContent = input();
+    mismatchedContent.candidate.samples = armSamples([99, 110, 121]).map(
+      (sample) => ({
+        ...sample,
+        fixtureContentHash: "different-fixture-content",
+      })
+    );
+    expect(() => createComparisonSummary(mismatchedContent)).to.throw(
+      /same immutable fixture artifact/
+    );
+  });
+
   it("keeps arm transformer provenance outside workload identity", () => {
     const versioned = input();
     versioned.baseline.samples = armSamples([90, 100, 110]).map((sample) => ({
