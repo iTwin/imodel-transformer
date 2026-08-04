@@ -7,7 +7,7 @@
  */
 import { EntityReference } from "@itwin/core-common";
 import { ConcreteEntity, EntityReferences } from "@itwin/core-backend";
-import { BigMap } from "./BigMap";
+import { BigMap } from "./BigMap.js";
 
 /** @internal */
 export type EntityKey = EntityReference;

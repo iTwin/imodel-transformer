@@ -1,8 +1,23 @@
-const itwinjsRecommended = require("@itwin/eslint-plugin/dist/configs/itwinjs-recommended");
-const iTwinPlugin = require("@itwin/eslint-plugin");
-const prettier = require("eslint-config-prettier/prettier");
+/*---------------------------------------------------------------------------------------------
+ * Copyright (c) Bentley Systems, Incorporated. All rights reserved.
+ * See LICENSE.md in the project root for license terms and full copyright notice.
+ *--------------------------------------------------------------------------------------------*/
 
-module.exports = [
+import { createRequire } from "node:module";
+import * as path from "node:path";
+import { fileURLToPath } from "node:url";
+
+const repositoryRoot = path.dirname(fileURLToPath(import.meta.url));
+const loadCommonJs = createRequire(
+  path.join(repositoryRoot, "packages/transformer/package.json")
+);
+const itwinjsRecommended = loadCommonJs(
+  "@itwin/eslint-plugin/dist/configs/itwinjs-recommended"
+);
+const iTwinPlugin = loadCommonJs("@itwin/eslint-plugin");
+const prettier = loadCommonJs("eslint-config-prettier/prettier");
+
+export default [
   {
     files: ["**/*.ts"],
     ...iTwinPlugin.configs.iTwinjsRecommendedConfig,
@@ -70,9 +85,9 @@ module.exports = [
     languageOptions: {
       parserOptions: {
         project: "packages/transformer/tsconfig.json",
-        tsconfigRootDir: __dirname,
+        tsconfigRootDir: repositoryRoot,
       },
-      sourceType: "commonjs",
+      sourceType: "module",
     },
   },
   {
@@ -97,9 +112,9 @@ module.exports = [
     languageOptions: {
       parserOptions: {
         project: "packages/performance-tests/tsconfig.json",
-        tsconfigRootDir: __dirname,
+        tsconfigRootDir: repositoryRoot,
       },
-      sourceType: "commonjs",
+      sourceType: "module",
     },
   },
   {
@@ -107,9 +122,9 @@ module.exports = [
     languageOptions: {
       parserOptions: {
         project: "packages/test-app/tsconfig.json",
-        tsconfigRootDir: __dirname,
+        tsconfigRootDir: repositoryRoot,
       },
-      sourceType: "commonjs",
+      sourceType: "module",
     },
   },
 ];

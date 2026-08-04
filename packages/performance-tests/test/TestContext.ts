@@ -13,7 +13,7 @@ import { LocalBriefcaseProps } from "@itwin/core-common";
 import { AccessTokenAdapter } from "@itwin/imodels-access-common";
 import { IModelsClient } from "@itwin/imodels-client-authoring";
 import assert from "node:assert";
-import { generateTestIModel } from "./iModelUtils";
+import { generateTestIModel } from "./iModelUtils.js";
 
 const loggerCategory = "TestContext";
 

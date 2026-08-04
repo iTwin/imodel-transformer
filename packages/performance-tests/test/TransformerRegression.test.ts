@@ -3,7 +3,8 @@
  * See LICENSE.md in the project root for license terms and full copyright notice.
  *--------------------------------------------------------------------------------------------*/
 
-import "./setup";
+import { fileURLToPath } from "node:url";
+import "./setup.js";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import assert from "node:assert";
@@ -28,25 +29,25 @@ import {
   runCleanupTasks,
   runWithCleanup,
   throwAfterCleanup,
-} from "./Cleanup";
-import { getBranchName } from "./GitUtils";
+} from "./Cleanup.js";
+import { getBranchName } from "./GitUtils.js";
 import {
   getRegressionTestDefinitions,
   RegressionTestCase,
-} from "./RegressionTestRegistration";
-import { ReporterInfo } from "./ReporterUtils";
-import { getTestIModels, TestIModel } from "./TestContext";
-import { TestTransformerModule } from "./TestTransformerModule";
+} from "./RegressionTestRegistration.js";
+import { ReporterInfo } from "./ReporterUtils.js";
+import { getTestIModels, TestIModel } from "./TestContext.js";
+import { TestTransformerModule } from "./TestTransformerModule.js";
 import {
   filterIModels,
   initOutputFile,
   preFetchAsyncIterator,
-} from "./TestUtils";
-import identityTransformer from "./cases/identity-transformer";
-import prepareFork from "./cases/prepare-fork";
-import rawInserts from "./rawInserts";
-import nativeTransformerTestModule from "./transformers/NativeTransformer";
-import rawForkOperationsTestModule from "./transformers/RawForkOperations";
+} from "./TestUtils.js";
+import identityTransformer from "./cases/identity-transformer.js";
+import prepareFork from "./cases/prepare-fork.js";
+import rawInserts from "./rawInserts.js";
+import nativeTransformerTestModule from "./transformers/NativeTransformer.js";
+import rawForkOperationsTestModule from "./transformers/RawForkOperations.js";
 
 type AuthorizationClient =
   | NodeCliAuthorizationClient
@@ -71,7 +72,10 @@ const testCasesMap = new Map<string, RegressionTestCase<PerformanceTestCase>>([
 ]);
 
 const loggerCategory = "Transformer Performance Regression Tests";
-const outputDir = path.join(__dirname, ".output");
+const outputDir = path.join(
+  path.dirname(fileURLToPath(import.meta.url)),
+  ".output"
+);
 
 vi.setConfig({ testTimeout: 0, hookTimeout: 0 });
 

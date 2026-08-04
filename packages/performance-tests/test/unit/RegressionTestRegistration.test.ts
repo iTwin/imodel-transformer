@@ -4,8 +4,8 @@
  *--------------------------------------------------------------------------------------------*/
 
 import { describe, expect, it } from "vitest";
-import { getRegressionTestDefinitions } from "../RegressionTestRegistration";
-import { TestTransformerModule } from "../TestTransformerModule";
+import { getRegressionTestDefinitions } from "../RegressionTestRegistration.js";
+import { TestTransformerModule } from "../TestTransformerModule.js";
 
 describe("getRegressionTestDefinitions", () => {
   it("registers each supported case and skips unsupported combinations", () => {

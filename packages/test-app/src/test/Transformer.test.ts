@@ -3,6 +3,7 @@
  * See LICENSE.md in the project root for license terms and full copyright notice.
  *--------------------------------------------------------------------------------------------*/
 
+import { fileURLToPath } from "node:url";
 import { assert } from "chai";
 import * as path from "node:path";
 import {
@@ -30,11 +31,14 @@ import {
 } from "@itwin/core-common";
 import { TransformerLoggerCategory } from "@itwin/imodel-transformer";
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-import { loggerCategory, Transformer } from "../Transformer";
+import { loggerCategory, Transformer } from "../Transformer.js";
 
 describe("imodel-transformer", () => {
-  const sourceDbFileName = require.resolve(
-    "../../../transformer/src/test/assets/CompatibilityTestSeed.bim"
+  const sourceDbFileName = fileURLToPath(
+    new URL(
+      "../../../transformer/src/test/assets/CompatibilityTestSeed.bim",
+      import.meta.url
+    )
   );
   let sourceDb: IModelDb;
 
@@ -64,7 +68,10 @@ describe("imodel-transformer", () => {
   });
 
   function initOutputFile(fileBaseName: string) {
-    const outputDirName = path.join(__dirname, "output");
+    const outputDirName = path.join(
+      path.dirname(fileURLToPath(import.meta.url)),
+      "output"
+    );
     if (!IModelJsFs.existsSync(outputDirName)) {
       IModelJsFs.mkdirSync(outputDirName);
     }

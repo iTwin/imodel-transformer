@@ -3,7 +3,9 @@
   "compilerOptions": {
     "skipLibCheck": true,
     "esModuleInterop": true,
-    "module": "ESNext"
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "resolveJsonModule": true
   },
   "include": ["./test/**/*.ts"]
 }

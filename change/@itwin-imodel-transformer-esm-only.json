@@ -1,0 +1,7 @@
+{
+  "type": "major",
+  "comment": "Publish @itwin/imodel-transformer as ESM-only and remove the CommonJS lib/cjs output",
+  "packageName": "@itwin/imodel-transformer",
+  "email": "50554904+hl662@users.noreply.github.com",
+  "dependentChangeType": "major"
+}

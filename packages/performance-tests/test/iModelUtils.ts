@@ -2,6 +2,7 @@
  * Copyright (c) Bentley Systems, Incorporated. All rights reserved.
  * See LICENSE.md in the project root for license terms and full copyright notice.
  *--------------------------------------------------------------------------------------------*/
+import { fileURLToPath } from "node:url";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import {
@@ -15,11 +16,14 @@ import {
 } from "@itwin/core-backend";
 import { Guid, OpenMode } from "@itwin/core-bentley";
 import { Code } from "@itwin/core-common";
-import { createBox, initOutputFile } from "./TestUtils";
+import { createBox, initOutputFile } from "./TestUtils.js";
 import { Point3d, YawPitchRollAngles } from "@itwin/core-geometry";
-import { getTShirtSizeFromName, TestIModel } from "./TestContext";
+import { getTShirtSizeFromName, TestIModel } from "./TestContext.js";
 
-const outputDir = path.join(__dirname, ".output");
+const outputDir = path.join(
+  path.dirname(fileURLToPath(import.meta.url)),
+  ".output"
+);
 
 export interface IModelParams {
   fileName: string;

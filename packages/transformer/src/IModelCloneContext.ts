@@ -29,11 +29,11 @@ import {
   IModelJsNative,
 } from "@itwin/core-backend";
 import { EntityClass } from "@itwin/ecschema-metadata";
-import { ECReferenceTypesCache } from "./ECReferenceTypesCache";
-import { EntityUnifier } from "./EntityUnifier";
-import { TransformerLoggerCategory } from "./TransformerLoggerCategory";
-import { BigMap } from "./BigMap";
-import type { IModelTransformContext } from "./IModelTransformContext";
+import { ECReferenceTypesCache } from "./ECReferenceTypesCache.js";
+import { EntityUnifier } from "./EntityUnifier.js";
+import { TransformerLoggerCategory } from "./TransformerLoggerCategory.js";
+import { BigMap } from "./BigMap.js";
+import type { IModelTransformContext } from "./IModelTransformContext.js";
 
 const loggerCategory: string = TransformerLoggerCategory.IModelCloneContext;
 

@@ -3,7 +3,7 @@
  * See LICENSE.md in the project root for license terms and full copyright notice.
  *--------------------------------------------------------------------------------------------*/
 
-import * as path from "node:path";
+import { readFileSync } from "node:fs";
 
 interface TransformerPackageMetadata {
   name: string;
@@ -11,12 +11,6 @@ interface TransformerPackageMetadata {
   peerDependencies: Record<string, string>;
 }
 
-const packageRoot =
-  path.basename(__dirname) === "src"
-    ? path.resolve(__dirname, "..")
-    : path.resolve(__dirname, "../..");
-
-// eslint-disable-next-line @typescript-eslint/no-var-requires, @typescript-eslint/no-require-imports
-export const transformerPackageMetadata = require(
-  path.join(packageRoot, "package.json")
+export const transformerPackageMetadata = JSON.parse(
+  readFileSync(new URL("../package.json", import.meta.url), "utf8")
 ) as TransformerPackageMetadata;

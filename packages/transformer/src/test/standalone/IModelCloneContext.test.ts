@@ -28,10 +28,10 @@ import * as path from "node:path";
 import {
   createStartedEditTxn,
   IModelTransformerTestUtils,
-} from "../IModelTransformerUtils";
-import { KnownTestLocations } from "../TestUtils/KnownTestLocations";
+} from "../IModelTransformerUtils.js";
+import { KnownTestLocations } from "../TestUtils/KnownTestLocations.js";
 
-import { IModelTransformer } from "../../IModelTransformer";
+import { IModelTransformer } from "../../IModelTransformer.js";
 
 describe("IModelCloneContext", () => {
   const outputDir = path.join(

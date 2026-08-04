@@ -3,7 +3,7 @@
  * See LICENSE.md in the project root for license terms and full copyright notice.
  *--------------------------------------------------------------------------------------------*/
 
-import { TestTransformerModule } from "./TestTransformerModule";
+import { TestTransformerModule } from "./TestTransformerModule.js";
 
 export interface RegressionTestCase<T> {
   testCase: T;

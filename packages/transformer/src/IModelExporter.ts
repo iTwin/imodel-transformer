@@ -47,15 +47,15 @@ import {
   QueryBinder,
 } from "@itwin/core-common";
 import { ECVersion, Schema, SchemaKey } from "@itwin/ecschema-metadata";
-import { TransformerLoggerCategory } from "./TransformerLoggerCategory";
+import { TransformerLoggerCategory } from "./TransformerLoggerCategory.js";
 import { strict as nodeAssert } from "node:assert";
-import { ElementAspectExportProcessor } from "./ElementAspectExportProcessor";
-import { ElementAspectExportCoordinator } from "./ElementAspectExportCoordinator";
+import { ElementAspectExportProcessor } from "./ElementAspectExportProcessor.js";
+import { ElementAspectExportCoordinator } from "./ElementAspectExportCoordinator.js";
 import {
   IModelTransformerError,
   IModelTransformerErrorScope,
-} from "./IModelTransformerError";
-import { ChangesetScanner } from "./ChangesetScanner";
+} from "./IModelTransformerError.js";
+import { ChangesetScanner } from "./ChangesetScanner.js";
 
 const loggerCategory = TransformerLoggerCategory.IModelExporter;
 

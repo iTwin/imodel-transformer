@@ -37,8 +37,8 @@ import {
   TypeDefinitionElement,
   withEditTxn,
 } from "@itwin/core-backend";
-import { IModelTestUtils } from "../TestUtils/IModelTestUtils";
-import { KnownTestLocations as BackendKnownTestLocations } from "../TestUtils/KnownTestLocations";
+import { IModelTestUtils } from "../TestUtils/IModelTestUtils.js";
+import { KnownTestLocations as BackendKnownTestLocations } from "../TestUtils/KnownTestLocations.js";
 import {
   Id64,
   Id64Set,
@@ -69,18 +69,18 @@ import {
   Range3d,
   YawPitchRollAngles,
 } from "@itwin/core-geometry";
-import { IModelImporter } from "../../IModelImporter";
+import { IModelImporter } from "../../IModelImporter.js";
 import {
   IModelTransformer,
   IModelTransformOptions,
   TemplateModelCloner,
-} from "../../IModelTransformer";
-import { TransformerLoggerCategory } from "../../TransformerLoggerCategory";
+} from "../../IModelTransformer.js";
+import { TransformerLoggerCategory } from "../../TransformerLoggerCategory.js";
 import {
   IModelTransformerError,
   IModelTransformerErrorScope,
-} from "../../IModelTransformerError";
-import { createStartedEditTxn } from "../IModelTransformerUtils";
+} from "../../IModelTransformerError.js";
+import { createStartedEditTxn } from "../IModelTransformerUtils.js";
 
 const createClassViews = false; // can set to true to make it easier to debug the catalog structure
 
