@@ -2,6 +2,7 @@
  * Copyright (c) Bentley Systems, Incorporated. All rights reserved.
  * See LICENSE.md in the project root for license terms and full copyright notice.
  *--------------------------------------------------------------------------------------------*/
+import { resolve } from "import-meta-resolve";
 import { createRequire } from "node:module";
 import * as os from "node:os";
 import * as path from "node:path";
@@ -39,11 +40,10 @@ if (!process.env.FUNCTIONS) {
   process.exit(1);
 }
 
-const contextRequire = createRequire(
-  path.resolve(process.cwd(), "package.json")
-);
+const contextUrl = pathToFileURL(path.resolve(process.cwd(), "package.json"));
+const contextRequire = createRequire(contextUrl);
 const load = async (specifier: string): Promise<unknown> =>
-  import(pathToFileURL(contextRequire.resolve(specifier)).href);
+  import(resolve(specifier, contextUrl.href));
 const AsyncFunction = Object.getPrototypeOf(async () => undefined)
   .constructor as new (
   ...args: string[]
