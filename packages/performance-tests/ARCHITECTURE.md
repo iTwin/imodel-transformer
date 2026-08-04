@@ -189,6 +189,46 @@ The runner wraps scenario, sample, fixture-build, and `IModelHost` lifecycles in
 cleanup tasks. It attempts all applicable cleanup and preserves both originating
 and cleanup errors when more than one operation fails.
 
+### Isolated pull request A/B flow
+
+The A/B workflow checks out the pull request base and head independently and
+builds each checkout's transformer package. It compiles the quick harness once
+from the candidate and installs those exact compiled files in both checkouts. A
+dedicated candidate process authors one relocatable fixture artifact before the
+execution schedule begins. Its manifest carries a content hash over every
+workload file. All baseline and candidate workers validate and copy that same
+artifact, rather than independently regenerating fixtures that merely produce
+the same affected-ID digest.
+
+One candidate worker builds the detached fixture artifact before the execution
+schedule starts. The artifact manifest hashes the immutable briefcase,
+changesets, props, and optional recipe data. Every later worker verifies that
+content hash and materializes its private working copy from the same artifact;
+no warm-up or measured worker regenerates fixture contents.
+
+The coordinator starts a separate worker process for every warm-up and measured
+execution. Workers use `resolveBenchmarkRun()` and `BenchmarkRunner.runSample()`;
+there is no second scenario, fixture, scanner, or correctness API. The default
+schedule is:
+
+```text
+candidate warm-up, baseline warm-up
+baseline sample 1, candidate sample 1
+candidate sample 2, baseline sample 2
+baseline sample 3, candidate sample 3
+```
+
+Each worker also proves that its resolved transformer entry point is below the
+checkout assigned to its arm and records the transformer version and a content
+hash of the complete compiled output. That execution provenance is excluded from workload identity:
+different transformer builds are the intended independent variable. Before
+reporting, the coordinator requires one candidate-authored artifact content hash,
+identical scenario and fixture identity fields, and one semantic digest across
+both arms. It reports only arm
+medians, measured samples, candidate percentage delta, and an explicitly
+informational threshold status. The threshold is not a confidence interval,
+significance test, or merge gate.
+
 ## Current incremental-synchronization run
 
 The default run resolves these components:
