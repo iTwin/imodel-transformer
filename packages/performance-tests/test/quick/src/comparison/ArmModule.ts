@@ -7,7 +7,7 @@ import * as crypto from "node:crypto";
 import * as fs from "node:fs";
 import { createRequire } from "node:module";
 import * as path from "node:path";
-import type { ChangedInstanceIdsDependency } from "../scenarios/changesetScanning.js";
+import type { ChangedInstanceIdsDependency } from "../scenarios/changesetScanningFactory.js";
 
 const harnessRequire = createRequire(import.meta.url);
 
@@ -122,6 +122,22 @@ export interface LoadedArmModule {
   readonly runtime: ArmRuntimeIdentity;
 }
 
+/** Verify the minimal child bootstrap has not loaded either harness native dependency. */
+export function assertArmIsolationReady(arm: ResolvedArmSpec): void {
+  const harnessTransformerEntry = harnessRequire.resolve(
+    "@itwin/imodel-transformer"
+  );
+  const harnessCoreBackendEntry = harnessRequire.resolve("@itwin/core-backend");
+  if (harnessRequire.cache[harnessTransformerEntry])
+    throw new Error(
+      `Arm "${arm.spec.id}" cannot start because the harness transformer was already loaded`
+    );
+  if (harnessRequire.cache[harnessCoreBackendEntry])
+    throw new Error(
+      `Arm "${arm.spec.id}" cannot start because the harness core-backend was already loaded`
+    );
+}
+
 /**
  * Make the child harness and selected transformer share the arm checkout's core-backend instance.
  *
@@ -146,6 +162,16 @@ export function aliasHarnessCoreBackendToArm(arm: ResolvedArmSpec): void {
  */
 export function loadArmModule(arm: ResolvedArmSpec): LoadedArmModule {
   const armRequire = createRequire(arm.modulePath);
+  const harnessTransformerEntry = harnessRequire.resolve(
+    "@itwin/imodel-transformer"
+  );
+  if (
+    harnessTransformerEntry !== arm.modulePath &&
+    harnessRequire.cache[harnessTransformerEntry]
+  )
+    throw new Error(
+      `Arm "${arm.spec.id}" loaded the harness transformer in addition to the selected package`
+    );
   const exports = armRequire(arm.modulePath) as {
     readonly ChangedInstanceIds?: ChangedInstanceIdsDependency;
   };

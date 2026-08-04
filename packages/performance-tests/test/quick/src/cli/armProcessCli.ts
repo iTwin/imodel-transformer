@@ -8,6 +8,7 @@ import * as path from "node:path";
 import {
   aliasHarnessCoreBackendToArm,
   ArmSpec,
+  assertArmIsolationReady,
   resolveArmSpec,
 } from "../comparison/ArmModule.js";
 
@@ -28,7 +29,9 @@ async function main(): Promise<void> {
   const request = JSON.parse(
     fs.readFileSync(requestFile, "utf8")
   ) as ArmRequestFile;
-  aliasHarnessCoreBackendToArm(resolveArmSpec(request.arm));
+  const arm = resolveArmSpec(request.arm);
+  assertArmIsolationReady(arm);
+  aliasHarnessCoreBackendToArm(arm);
   const { runArm } = await import("../comparison/ComparisonRunner.js");
   const result = await runArm(request as Parameters<typeof runArm>[0]);
   fs.mkdirSync(path.dirname(outputFile), { recursive: true });

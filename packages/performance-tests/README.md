@@ -166,13 +166,19 @@ within-process samples are never treated as three independent pairs.
 Calibration mode builds one selected `calibration_ref` for both labeled arms and
 runs three independent jobs in `AB`, `BA`, `AB` order. The aggregation job
 rejects fixture, recipe, workload, environment, execution-policy, build, or
-fingerprint mismatches. The three matching observations seed a provisional pool;
-calibration remains provisional until an explicit policy supplies and satisfies
-both independent-job and observation thresholds. An absolute A/A band at or
-below 5% is target quality once established, between 5% and 10% is marginal,
-and 10% or greater is unresolvable. Provisional calibration is reported as
-uncalibrated quality. All outcomes remain informational; the practical effect
-and equivalence threshold is 10%.
+fingerprint mismatches. The fingerprint includes a deterministic hash of the
+complete compiled quick harness implementation. Calibration also requires one
+stable generated-fixture content digest, derived from the tip content and
+normalized semantic changeset rows, plus one stable scan-result semantic digest
+across every valid job. Artifact schemas are versioned; artifacts from an older
+harness are rejected rather than silently upgraded. The three
+matching observations seed a provisional pool; calibration remains provisional
+until an explicit policy supplies and satisfies both independent-job and
+observation thresholds. An absolute A/A band at or below 5% is target quality
+once established, between 5% and 10% is marginal, and 10% or greater is
+unresolvable. Provisional calibration is reported as uncalibrated quality. All
+outcomes remain informational; the practical effect and equivalence threshold is
+10%.
 
 ```sh
 gh workflow run quick-performance-comparison.yml --ref main \
@@ -185,8 +191,10 @@ Comparison mode checks out and builds baseline and candidate separately. The
 top-layer harness loads `ChangedInstanceIds` from each explicit built package in
 its own child process, so the baseline ref does not need to contain the
 comparison harness. Supply the prior calibration workflow run ID and artifact;
-leave `candidate_ref` blank to use the workflow ref selected by `--ref`. The
-single A/B job is pair index zero in `AB` order. It cannot establish an
+leave `candidate_ref` blank to use the immutable `github.sha` captured for the
+dispatched workflow. The single A/B job is pair index zero in `AB` order. It
+must match the calibration's harness, fixture-content, and scan-result digests.
+It cannot establish an
 `unchanged` result: the exact distribution-free 95% median interval requires at
 least six accumulated independent pairs, and a configured equivalence policy may
 raise that minimum.
@@ -205,13 +213,21 @@ gh workflow run quick-performance-comparison.yml --ref main \
 The workflow publishes raw arm samples, the pair observation (including discard
 reasons), the calibration pool and band, summary JSON, and Markdown used for the
 job summary. A/B rejects a missing calibration or any calibration fingerprint
-or hosted-runner class mismatch instead of borrowing a nearby result.
+or hosted-runner class mismatch instead of borrowing a nearby result. Timed-out
+arm children receive `SIGTERM`, a bounded grace period, then `SIGKILL`; the pair
+settles only after the child exits and is discarded as a whole.
 
 The comparison commands run from explicit native ESM output under
 `test/quick/runtime/.compiled`, produced by `pnpm build:quick-cli`; unit coverage
 runs under the package's serialized Vitest configuration with
 `pnpm test:comparison`. Neither the harness nor an arm checkout requires Mocha,
 Chai, or ts-node.
+
+Every dispatched comparison workflow first runs
+`pnpm test:comparison-smoke`. This explicitly reduced, smoke-only fixture
+executes the compiled CLI, two isolated child processes, fixture reconstruction,
+one warm-up plus three measurements per arm, and result validation. It is never
+published or accepted as calibration evidence.
 
 GitHub can dispatch this workflow only after
 `quick-performance-comparison.yml` reaches the repository's default branch.

@@ -6,6 +6,8 @@
 import { spawnSync } from "node:child_process";
 import * as crypto from "node:crypto";
 import * as fs from "node:fs";
+import { createRequire } from "node:module";
+import * as os from "node:os";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import {
@@ -14,18 +16,26 @@ import {
 } from "../comparison/ComparisonReport.js";
 import {
   aggregateCalibration,
-  assertComparisonFingerprintMatches,
+  ArmRunRequest,
+  assertCalibrationMatchesPair,
+  comparisonExecutionsPerPair,
   comparisonFingerprintKey,
+  comparisonMeasuredSamples,
   comparisonScenarioId,
+  comparisonWarmups,
   readCalibrationArtifact,
   readPairArtifact,
   renderCalibration,
   renderPairSummary,
   runPair,
+  spawnArmProcess,
+  validatePairRunArtifact,
   writeJson,
 } from "../comparison/ComparisonRunner.js";
 import { prepareComparisonFixture } from "../comparison/ComparisonFixture.js";
 import { ArmOperation, ArmSpec } from "../comparison/ArmModule.js";
+
+const cliRequire = createRequire(import.meta.url);
 
 function parseArguments(args: readonly string[]): Map<string, string> {
   const parsed = new Map<string, string>();
@@ -102,6 +112,59 @@ function findFiles(directory: string, name: string): string[] {
   return files.sort();
 }
 
+function createSmokeArmPackage(outputRoot: string): string {
+  const sourceRoot = path.dirname(
+    cliRequire.resolve("@itwin/imodel-transformer/package.json")
+  );
+  const sourceRequire = createRequire(path.join(sourceRoot, "package.json"));
+  const manifest = JSON.parse(
+    fs.readFileSync(path.join(sourceRoot, "package.json"), "utf8")
+  ) as {
+    readonly dependencies?: Readonly<Record<string, string>>;
+    readonly main?: string;
+    readonly peerDependencies?: Readonly<Record<string, string>>;
+  };
+  const manifestMain = manifest.main ?? "index.js";
+  const sourceModule = path.join(sourceRoot, manifestMain);
+  if (!fs.existsSync(sourceModule))
+    throw new Error(
+      `Smoke arm transformer must be built before comparison: ${sourceModule}`
+    );
+  const armRoot = path.join(outputRoot, "selected-arm");
+  fs.mkdirSync(path.dirname(path.join(armRoot, manifestMain)), {
+    recursive: true,
+  });
+  fs.copyFileSync(
+    path.join(sourceRoot, "package.json"),
+    path.join(armRoot, "package.json")
+  );
+  fs.cpSync(
+    path.dirname(sourceModule),
+    path.dirname(path.join(armRoot, manifestMain)),
+    { recursive: true }
+  );
+  for (const dependency of Object.keys({
+    ...manifest.dependencies,
+    ...manifest.peerDependencies,
+  })) {
+    const dependencyRoot = fs.realpathSync(
+      path.dirname(sourceRequire.resolve(`${dependency}/package.json`))
+    );
+    const dependencyLink = path.join(
+      armRoot,
+      "node_modules",
+      ...dependency.split("/")
+    );
+    fs.mkdirSync(path.dirname(dependencyLink), { recursive: true });
+    fs.symlinkSync(
+      dependencyRoot,
+      dependencyLink,
+      process.platform === "win32" ? "junction" : "dir"
+    );
+  }
+  return armRoot;
+}
+
 async function prepareFixture(args: Map<string, string>): Promise<void> {
   assertScenario(args);
   const output = required(args, "output");
@@ -163,6 +226,136 @@ async function executePair(args: Map<string, string>): Promise<void> {
     throw new Error(`Pair discarded: ${artifact.discardedReason}`);
 }
 
+async function smoke(args: Map<string, string>): Promise<void> {
+  assertScenario(args);
+  const requestedOutput = optional(args, "output");
+  const outputRoot =
+    requestedOutput ??
+    fs.mkdtempSync(path.join(os.tmpdir(), "quick-comparison-smoke-"));
+  const fixture = path.join(outputRoot, "fixture");
+  const pairOutput = path.join(outputRoot, "pair");
+  const startedAt = Date.now();
+  try {
+    const prepared = await prepareComparisonFixture(fixture, true);
+    const armPackage =
+      optional(args, "arm-package") ?? createSmokeArmPackage(outputRoot);
+    const timeoutMarker = path.join(outputRoot, "timeout-marker.txt");
+    const timeoutChild = path.join(outputRoot, "timeout-child.cjs");
+    fs.writeFileSync(
+      timeoutChild,
+      [
+        'const fs = require("node:fs");',
+        `const marker = ${JSON.stringify(timeoutMarker)};`,
+        "fs.writeFileSync(marker, String(process.pid));",
+        'process.on("SIGTERM", () => fs.appendFileSync(marker, "\\nSIGTERM"));',
+        "setInterval(() => {}, 1_000);",
+      ].join("\n")
+    );
+    const timeoutRequest: ArmRunRequest = {
+      arm: {
+        id: "timeout-probe",
+        packageRoot: armPackage,
+        operation: "change-processing",
+      },
+      source: { ref: "smoke", sha: "0".repeat(40) },
+      scenarioId: comparisonScenarioId,
+      fixtureDirectory: fixture,
+      fixtureArtifactHash: prepared.artifactHash,
+      fixtureIdentity: prepared.fixtureIdentity,
+      fingerprint: prepared.fingerprint,
+      outputDirectory: path.join(outputRoot, "timeout-probe"),
+    };
+    const timeoutStartedAt = Date.now();
+    let timeoutMessage: string | undefined;
+    try {
+      await spawnArmProcess(timeoutChild, timeoutRequest, 500, 150);
+    } catch (error) {
+      timeoutMessage = error instanceof Error ? error.message : String(error);
+    }
+    const timeoutProbeMilliseconds = Date.now() - timeoutStartedAt;
+    if (!timeoutMessage?.includes("timed out"))
+      throw new Error(
+        "Compiled timeout probe did not reach the timeout boundary"
+      );
+    if (timeoutProbeMilliseconds > 5_000)
+      throw new Error(
+        `Compiled timeout probe took ${timeoutProbeMilliseconds}ms to settle`
+      );
+    if (
+      process.platform !== "win32" &&
+      !fs.readFileSync(timeoutMarker, "utf8").includes("SIGTERM")
+    )
+      throw new Error("Compiled timeout probe did not receive SIGTERM");
+    if (
+      process.platform !== "win32" &&
+      !timeoutMessage.includes("required forced termination")
+    )
+      throw new Error("Compiled timeout probe did not escalate to SIGKILL");
+    const artifact = await runPair({
+      jobId: "compiled-isolation-smoke",
+      pair: 0,
+      order: "AB",
+      scenarioId: comparisonScenarioId,
+      fixtureDirectory: fixture,
+      armA: {
+        id: "smoke-a",
+        label: "smoke",
+        packageRoot: armPackage,
+        operation: "change-processing",
+      },
+      armASource: { ref: "smoke", sha: "0".repeat(40) },
+      armB: {
+        id: "smoke-b",
+        label: "smoke",
+        packageRoot: armPackage,
+        operation: "change-processing",
+      },
+      armBSource: { ref: "smoke", sha: "0".repeat(40) },
+      outputDirectory: pairOutput,
+      timeoutMilliseconds: optional(args, "timeout-ms")
+        ? positiveInteger(args, "timeout-ms")
+        : 120_000,
+    });
+    validatePairRunArtifact(artifact);
+    if (artifact.discardedReason || !artifact.armA || !artifact.armB)
+      throw new Error(
+        `Compiled comparison smoke discarded its pair: ${
+          artifact.discardedReason ?? "missing arm results"
+        }`
+      );
+    const samples = [...artifact.armA.samples, ...artifact.armB.samples];
+    const measured = samples.filter((sample) => sample.measured).length;
+    const warmups = samples.length - measured;
+    if (
+      samples.length !== comparisonExecutionsPerPair ||
+      measured !== comparisonMeasuredSamples * 2 ||
+      warmups !== comparisonWarmups * 2
+    )
+      throw new Error(
+        `Compiled comparison smoke executed ${samples.length} samples (${measured} measured, ${warmups} warm-ups)`
+      );
+    process.stdout.write(
+      `${JSON.stringify({
+        smokeOnly: true,
+        totalExecutions: samples.length,
+        measuredExecutions: measured,
+        warmups,
+        order: artifact.order,
+        fixtureId: artifact.fingerprint.fixtureId,
+        fixtureContentDigest: artifact.fixtureIdentity.contentDigest,
+        changesetSemanticDigest:
+          artifact.fixtureIdentity.changesetSemanticDigest,
+        semanticDigest: artifact.semanticDigest,
+        timeoutProbeMilliseconds,
+        elapsedMilliseconds: Date.now() - startedAt,
+      })}\n`
+    );
+  } finally {
+    if (!requestedOutput)
+      fs.rmSync(outputRoot, { recursive: true, force: true });
+  }
+}
+
 function aggregate(args: Map<string, string>): void {
   const input = required(args, "input");
   const output = required(args, "output");
@@ -190,11 +383,7 @@ function compare(args: Map<string, string>): void {
         pair.discardedReason ?? "missing arm or collapsed result"
       }`
     );
-  assertComparisonFingerprintMatches(pair.fingerprint, calibration.fingerprint);
-  if (pair.environment.id !== calibration.environment.id)
-    throw new Error(
-      `Comparison environment ${pair.environment.id} does not match calibration ${calibration.environment.id}`
-    );
+  assertCalibrationMatchesPair(pair, calibration);
   const baseReport = buildComparisonReport({
     scenarioId: pair.fingerprint.scenarioId,
     fixtureId: pair.fingerprint.fixtureId,
@@ -247,6 +436,11 @@ function compare(args: Map<string, string>): void {
         .update(comparisonFingerprintKey(pair.fingerprint))
         .digest("hex")}\``,
       `- Fixture artifact hash: \`${pair.fixtureArtifactHash}\``,
+      `- Fixture content SHA-256: \`${pair.fixtureIdentity.contentDigest}\``,
+      `- Fixture semantic SHA-256: \`${pair.fixtureIdentity.baseSemanticDigest}\``,
+      `- Changeset semantic SHA-256: \`${pair.fixtureIdentity.changesetSemanticDigest}\``,
+      `- Scan result SHA-256: \`${pair.semanticDigest}\``,
+      `- Harness SHA-256: \`${pair.fingerprint.harnessHash}\``,
       `- Pair order: ${pair.order}`,
       `- Arm A median: ${pair.collapsed.armA.toFixed(3)} ms`,
       `- Arm B median: ${pair.collapsed.armB.toFixed(3)} ms`,
@@ -263,6 +457,8 @@ function compare(args: Map<string, string>): void {
       environment: calibration.environment,
       pool: calibration.pool,
       band: calibration.band,
+      fixtureIdentity: calibration.fixtureIdentity,
+      semanticDigest: calibration.semanticDigest,
     },
   });
 }
@@ -279,6 +475,9 @@ async function main(): Promise<void> {
       return;
     case "run-pair":
       await executePair(args);
+      return;
+    case "smoke":
+      await smoke(args);
       return;
     case "aggregate-calibration":
       aggregate(args);

@@ -13,6 +13,7 @@ import {
   aggregateCalibration,
   ArmRunRequest,
   ArmRunResult,
+  assertCalibrationMatchesPair,
   assertComparisonFingerprintMatches,
   comparisonExecutionsPerPair,
   comparisonMeasuredSamples,
@@ -23,10 +24,17 @@ import {
   readCalibrationArtifact,
   readPairArtifact,
   runPair,
+  spawnArmProcess,
   validateCalibrationArtifact,
   validatePairRunArtifact,
   writeJson,
 } from "../../src/comparison/ComparisonRunner";
+import {
+  comparisonFixtureIdentityFileName,
+  comparisonFixtureIdentityVersion,
+  readComparisonFixtureIdentity,
+  validateComparisonFixtureIdentity,
+} from "../../src/comparison/ComparisonFixtureIdentity";
 import {
   artifactBriefcaseFileName,
   artifactChangesetDirectoryName,
@@ -83,6 +91,15 @@ describe("quick comparison runner", () => {
         2
       )}\n`
     );
+    fs.writeFileSync(
+      path.join(fixtureDirectory, comparisonFixtureIdentityFileName),
+      `${JSON.stringify({
+        artifactVersion: comparisonFixtureIdentityVersion,
+        contentDigest: "4".repeat(64),
+        baseSemanticDigest: "5".repeat(64),
+        changesetSemanticDigest: "6".repeat(64),
+      })}\n`
+    );
     armPackage = createArmPackage("explicit-arm", 17);
   });
 
@@ -132,12 +149,13 @@ describe("quick comparison runner", () => {
       },
       fingerprint: request.fingerprint,
       fixtureArtifactHash: request.fixtureArtifactHash,
+      fixtureIdentity: request.fixtureIdentity,
       samples: [
         {
           sample: 0,
           measured: false,
           wallMilliseconds: 999,
-          semanticDigest: "same",
+          semanticDigest: "3".repeat(64),
           reconstructionMilliseconds: 1,
           verificationMilliseconds: 1,
           teardownMilliseconds: 1,
@@ -146,7 +164,7 @@ describe("quick comparison runner", () => {
           sample: index + 1,
           measured: true,
           wallMilliseconds,
-          semanticDigest: "same",
+          semanticDigest: "3".repeat(64),
           reconstructionMilliseconds: 1,
           verificationMilliseconds: 1,
           teardownMilliseconds: 1,
@@ -184,6 +202,23 @@ describe("quick comparison runner", () => {
       launcher: async (request) =>
         armResult(request, request.arm.id === "A" ? armATimes : armBTimes),
     });
+  }
+
+  function armRequest(outputDirectory: string): ArmRunRequest {
+    return {
+      arm: {
+        id: "timeout-arm",
+        packageRoot: armPackage,
+        operation: "change-processing",
+      },
+      source: { ref: "timeout", sha: "a".repeat(40) },
+      scenarioId: "changeset-scanning",
+      fixtureDirectory,
+      fixtureArtifactHash: hashFixtureArtifact(fixtureDirectory),
+      fixtureIdentity: readComparisonFixtureIdentity(fixtureDirectory),
+      fingerprint: fingerprintForArtifact(fixtureDirectory),
+      outputDirectory,
+    };
   }
 
   it("executes one warm-up plus three measurements per arm and collapses one pair", async () => {
@@ -314,6 +349,48 @@ describe("quick comparison runner", () => {
     expect(malformed.discardedReason).to.contain("one warm-up and three");
   });
 
+  it("escalates a timed-out child and settles only after it exits", async () => {
+    const marker = path.join(root, "timeout-child.txt");
+    const childScript = path.join(root, "ignore-term.cjs");
+    fs.writeFileSync(
+      childScript,
+      [
+        'const fs = require("node:fs");',
+        `const marker = ${JSON.stringify(marker)};`,
+        "fs.writeFileSync(marker, String(process.pid));",
+        'process.on("SIGTERM", () => fs.appendFileSync(marker, "\\nSIGTERM"));',
+        "setInterval(() => {}, 1_000);",
+      ].join("\n")
+    );
+    const startedAt = Date.now();
+    let timeoutMessage: string | undefined;
+    try {
+      await spawnArmProcess(
+        childScript,
+        armRequest(path.join(root, "timeout-output")),
+        500,
+        150
+      );
+    } catch (error) {
+      timeoutMessage = error instanceof Error ? error.message : String(error);
+    }
+    expect(timeoutMessage).to.contain("timed out");
+    expect(Date.now() - startedAt).to.be.lessThan(5_000);
+    const [rawPid, signal] = fs.readFileSync(marker, "utf8").split("\n");
+    const pid = Number(rawPid);
+    let alive = true;
+    try {
+      process.kill(pid, 0);
+    } catch {
+      alive = false;
+    }
+    expect(alive).to.equal(false);
+    if (process.platform !== "win32") {
+      expect(signal).to.equal("SIGTERM");
+      expect(timeoutMessage).to.contain("required forced termination");
+    }
+  });
+
   it("rejects fixture and comparison fingerprint mismatches", async () => {
     const discarded = await runPair({
       jobId: "mismatch",
@@ -346,6 +423,15 @@ describe("quick comparison runner", () => {
         fingerprintForArtifact(fixtureDirectory)
       )
     ).to.throw("Comparison fingerprint does not match");
+    expect(() =>
+      assertComparisonFingerprintMatches(
+        {
+          ...fingerprintForArtifact(fixtureDirectory),
+          harnessHash: "0".repeat(64),
+        },
+        fingerprintForArtifact(fixtureDirectory)
+      )
+    ).to.throw("does not match the current implementation");
     expect(hashFixtureArtifact(fixtureDirectory)).to.have.length(64);
   });
 
@@ -386,6 +472,63 @@ describe("quick comparison runner", () => {
     expect(() =>
       aggregateCalibration([artifacts[0], artifacts[0], artifacts[2]])
     ).to.throw("expected 1, received 0");
+    const pairFour = await validPair(4, "AB");
+    expect(() =>
+      aggregateCalibration([artifacts[0], artifacts[2], pairFour])
+    ).to.throw("expected 1, received 2");
+
+    const secondArmA = artifacts[1].armA;
+    const secondArmB = artifacts[1].armB;
+    if (!secondArmA || !secondArmB)
+      throw new Error("Expected a valid pair artifact");
+    const differentFixtureIdentity = {
+      ...artifacts[1].fixtureIdentity,
+      contentDigest: "6".repeat(64),
+    };
+    expect(() =>
+      aggregateCalibration([
+        artifacts[0],
+        {
+          ...artifacts[1],
+          fixtureIdentity: differentFixtureIdentity,
+          armA: {
+            ...secondArmA,
+            fixtureIdentity: differentFixtureIdentity,
+          },
+          armB: {
+            ...secondArmB,
+            fixtureIdentity: differentFixtureIdentity,
+          },
+        },
+        artifacts[2],
+      ])
+    ).to.throw("used different fixture content");
+
+    const differentSemanticDigest = "7".repeat(64);
+    expect(() =>
+      aggregateCalibration([
+        artifacts[0],
+        {
+          ...artifacts[1],
+          semanticDigest: differentSemanticDigest,
+          armA: {
+            ...secondArmA,
+            samples: secondArmA.samples.map((sample) => ({
+              ...sample,
+              semanticDigest: differentSemanticDigest,
+            })),
+          },
+          armB: {
+            ...secondArmB,
+            samples: secondArmB.samples.map((sample) => ({
+              ...sample,
+              semanticDigest: differentSemanticDigest,
+            })),
+          },
+        },
+        artifacts[2],
+      ])
+    ).to.throw("different semantic result digests");
   });
 
   it("retains discarded calibration jobs while pooling only valid observations", async () => {
@@ -398,6 +541,7 @@ describe("quick comparison runner", () => {
       ...artifacts[1],
       observation: undefined,
       collapsed: undefined,
+      semanticDigest: undefined,
       discardedReason: "child crashed",
     };
     const calibration = aggregateCalibration(
@@ -418,6 +562,53 @@ describe("quick comparison runner", () => {
       validPair(2, "AB", [100, 101, 102], [100, 101, 102]),
     ]);
     const calibration = aggregateCalibration(artifacts);
+    const armA = artifacts[0].armA;
+    const armB = artifacts[0].armB;
+    if (!armA || !armB) throw new Error("Expected a valid pair artifact");
+    const mismatchedFixtureIdentity = {
+      ...artifacts[0].fixtureIdentity,
+      contentDigest: "8".repeat(64),
+    };
+    expect(() =>
+      assertCalibrationMatchesPair(
+        {
+          ...artifacts[0],
+          fixtureIdentity: mismatchedFixtureIdentity,
+          armA: {
+            ...armA,
+            fixtureIdentity: mismatchedFixtureIdentity,
+          },
+          armB: {
+            ...armB,
+            fixtureIdentity: mismatchedFixtureIdentity,
+          },
+        },
+        calibration
+      )
+    ).to.throw("fixture content identity does not match calibration");
+    expect(() =>
+      assertCalibrationMatchesPair(
+        {
+          ...artifacts[0],
+          semanticDigest: "9".repeat(64),
+          armA: {
+            ...armA,
+            samples: armA.samples.map((sample) => ({
+              ...sample,
+              semanticDigest: "9".repeat(64),
+            })),
+          },
+          armB: {
+            ...armB,
+            samples: armB.samples.map((sample) => ({
+              ...sample,
+              semanticDigest: "9".repeat(64),
+            })),
+          },
+        },
+        calibration
+      )
+    ).to.throw("semantic result digest does not match calibration");
     expect(() =>
       validateCalibrationArtifact({
         ...calibration,
@@ -430,6 +621,12 @@ describe("quick comparison runner", () => {
         },
       })
     ).to.throw("not derived from the supplied pool");
+    expect(() =>
+      validateComparisonFixtureIdentity({
+        ...artifacts[0].fixtureIdentity,
+        artifactVersion: comparisonFixtureIdentityVersion - 1,
+      })
+    ).to.throw("Unsupported comparison fixture identity version");
 
     const pairPath = path.join(root, "pair.json");
     fs.writeFileSync(
@@ -439,10 +636,15 @@ describe("quick comparison runner", () => {
     expect(() => readPairArtifact(pairPath)).to.throw(
       "does not match execution plan AB"
     );
+    fs.writeFileSync(
+      pairPath,
+      JSON.stringify({ ...artifacts[0], artifactVersion: undefined })
+    );
+    expect(() => readPairArtifact(pairPath)).to.throw(
+      "Unsupported pair artifact version"
+    );
     const observation = artifacts[0].observation;
-    const armB = artifacts[0].armB;
-    if (!observation || !armB)
-      throw new Error("Expected a valid pair artifact");
+    if (!observation) throw new Error("Expected a valid pair artifact");
     expect(() =>
       validatePairRunArtifact({
         ...artifacts[0],
@@ -475,6 +677,13 @@ describe("quick comparison runner", () => {
     );
     expect(() => readCalibrationArtifact(calibrationPath)).to.throw(
       "does not match the valid independent job observations"
+    );
+    fs.writeFileSync(
+      calibrationPath,
+      JSON.stringify({ ...calibration, artifactVersion: undefined })
+    );
+    expect(() => readCalibrationArtifact(calibrationPath)).to.throw(
+      "Unsupported calibration artifact version"
     );
     expect(() =>
       writeJson(path.join(root, "non-finite.json"), { value: Number.NaN })

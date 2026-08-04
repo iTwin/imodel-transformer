@@ -29,7 +29,7 @@ on:
         default: main
         type: string
       candidate_ref:
-        description: Candidate ref for A/B (blank uses the selected workflow ref)
+        description: Candidate ref for A/B (blank uses the immutable dispatched SHA)
         required: false
         type: string
       calibration_run_id:
@@ -55,8 +55,52 @@ env:
   NODE_OPTIONS: --disable-warning=MODULE_TYPELESS_PACKAGE_JSON
 
 jobs:
+  comparison-smoke:
+    name: Compiled isolated comparison smoke
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+
+    steps:
+      - name: Checkout harness
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          persist-credentials: false
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@0e279bb959325dab635dd2c09392533439d90093
+        with:
+          version: 11.9.0
+
+      - name: Use Node.js 24
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e
+        with:
+          node-version: 24.18.0
+          cache: pnpm
+
+      - name: Build compiled comparison harness
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm --dir packages/transformer build:cjs
+          pnpm --dir packages/performance-tests build
+          pnpm --dir packages/performance-tests build:quick-cli
+
+      - name: Run reduced fixture smoke (not calibration evidence)
+        run: |
+          pnpm --dir packages/performance-tests test:comparison-smoke \
+            | tee "$RUNNER_TEMP/quick-comparison-smoke.json"
+          {
+            echo "### Compiled isolated comparison smoke"
+            echo
+            echo "This reduced-fixture run is smoke-only and is never calibration evidence."
+            echo
+            echo '```json'
+            tail -n 1 "$RUNNER_TEMP/quick-comparison-smoke.json"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
   calibrate-pair:
     if: inputs.mode == 'calibrate-a-a'
+    needs: comparison-smoke
     name: A/A pair ${{ matrix.index }} (${{ matrix.order }})
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -261,6 +305,7 @@ jobs:
 
   compare:
     if: inputs.mode == 'compare-a-b'
+    needs: comparison-smoke
     name: A/B comparison (pair 0, AB)
     runs-on: ubuntu-latest
     timeout-minutes: 35
@@ -270,7 +315,7 @@ jobs:
         shell: bash
         env:
           BASELINE_REF: ${{ inputs.baseline_ref }}
-          CANDIDATE_REF: ${{ inputs.candidate_ref || github.ref }}
+          CANDIDATE_REF: ${{ inputs.candidate_ref || github.sha }}
           CALIBRATION_RUN_ID: ${{ inputs.calibration_run_id }}
           CALIBRATION_ARTIFACT: ${{ inputs.calibration_artifact }}
           CALIBRATION_FILE: ${{ inputs.calibration_file }}
@@ -318,7 +363,7 @@ jobs:
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
         with:
           path: candidate
-          ref: ${{ inputs.candidate_ref || github.ref }}
+          ref: ${{ inputs.candidate_ref || github.sha }}
           persist-credentials: false
 
       - name: Install pnpm
@@ -383,7 +428,7 @@ jobs:
         env:
           BASELINE_REF: ${{ inputs.baseline_ref }}
           BASELINE_SHA: ${{ steps.refs.outputs.baseline_sha }}
-          CANDIDATE_REF: ${{ inputs.candidate_ref || github.ref }}
+          CANDIDATE_REF: ${{ inputs.candidate_ref || github.sha }}
           CANDIDATE_SHA: ${{ steps.refs.outputs.candidate_sha }}
           PAIR_INDEX: 0
           PAIR_ORDER: AB

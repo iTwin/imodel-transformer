@@ -4,8 +4,9 @@
  *--------------------------------------------------------------------------------------------*/
 
 import * as fs from "node:fs";
-import { IModelHost } from "@itwin/core-backend";
+import { BriefcaseDb, IModelHost } from "@itwin/core-backend";
 import * as path from "node:path";
+import { artifactBriefcasePath } from "../fixtures/FixtureArtifact.js";
 import { getFixtureProvider } from "../fixtures/FixtureProvider.js";
 import { configureFixture } from "../fixtures/FixtureRecipe.js";
 import {
@@ -14,6 +15,13 @@ import {
 } from "../fixtures/recipes/updateHeavyScan.js";
 import { quickTestHub } from "../fixtures/QuickTestHub.js";
 import { assertSafeBenchmarkOutputPath } from "../framework/BenchmarkRunner.js";
+import { changesetScanningFixtureDigest } from "../scenarios/changesetScanningFactory.js";
+import {
+  ComparisonFixtureIdentity,
+  createComparisonFixtureIdentity,
+  readComparisonFixtureIdentity,
+  writeComparisonFixtureIdentity,
+} from "./ComparisonFixtureIdentity.js";
 import {
   ComparisonFingerprint,
   fingerprintForArtifact,
@@ -39,6 +47,7 @@ export async function prepareComparisonFixture(
   readonly directory: string;
   readonly artifactHash: string;
   readonly fingerprint: ComparisonFingerprint;
+  readonly fixtureIdentity: ComparisonFixtureIdentity;
 }> {
   const fixture = smoke ? updateHeavyScanSmokeFixture : updateHeavyScanFixture;
   const { descriptor } = fixture;
@@ -59,6 +68,22 @@ export async function prepareComparisonFixture(
   try {
     try {
       await provider.build(fixture, outputDirectory);
+      const sourceDb = await BriefcaseDb.open({
+        fileName: artifactBriefcasePath(outputDirectory),
+        readonly: true,
+      });
+      try {
+        writeComparisonFixtureIdentity(
+          outputDirectory,
+          createComparisonFixtureIdentity(
+            outputDirectory,
+            sourceDb,
+            await changesetScanningFixtureDigest(sourceDb)
+          )
+        );
+      } finally {
+        sourceDb.close();
+      }
     } finally {
       fs.mkdirSync(outputDirectory, { recursive: true });
       fs.writeFileSync(marker, "Owned by quick performance comparison.\n");
@@ -72,5 +97,6 @@ export async function prepareComparisonFixture(
     directory: outputDirectory,
     artifactHash: hashFixtureArtifact(outputDirectory),
     fingerprint: fingerprintForArtifact(outputDirectory),
+    fixtureIdentity: readComparisonFixtureIdentity(outputDirectory),
   };
 }
