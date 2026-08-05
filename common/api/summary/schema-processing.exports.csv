@@ -1,0 +1,9 @@
+sep=;
+Release Tag;API Item Type;API Item Name
+beta;class;DynamicSchemaUnionStrategy
+beta;class;NewerVersionSchemaImportStrategy
+beta;interface;ProcessSchemasOptions
+beta;interface;ReadonlySchemaAccessor
+beta;interface;SchemaProcessingContext
+beta;type;SchemaProcessingResult
+beta;interface;SchemaProcessingStrategy

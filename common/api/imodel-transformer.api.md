@@ -141,6 +141,7 @@ export class IModelExporter {
     constructor(sourceDb: IModelDb);
     // @internal
     get elementAspectExportCoordinator(): ElementAspectExportCoordinator;
+    enumerateSchemas(): AsyncIterable<Schema>;
     excludeCodeSpec(codeSpecName: string): void;
     excludeElement(elementId: Id64String): void;
     excludeElementAspectClass(classFullName: string): void;
@@ -333,7 +334,7 @@ export class IModelTransformer extends IModelExportHandler {
     processModel(sourceModeledElementId: Id64String): Promise<void>;
     processModelContents(sourceModelId: Id64String, targetModelId: Id64String, elementClassFullName?: string): Promise<void>;
     processRelationships(baseRelClassFullName: string): Promise<void>;
-    processSchemas(): Promise<void>;
+    processSchemas(options?: ProcessSchemasOptions): Promise<void>;
     processSubject(sourceSubjectId: Id64String, targetSubjectId: Id64String): Promise<void>;
     static get provenanceElementAspectClasses(): (typeof Entity)[];
     static get provenanceElementClasses(): (typeof Entity)[];
@@ -388,6 +389,8 @@ export enum IModelTransformerError {
     RelationshipIdRequired = "relationship-id-required",
     RelationshipProvenanceNotFound = "relationship-provenance-not-found",
     RootSubjectNotProcessable = "root-subject-not-processable",
+    SchemaConflict = "schema-conflict",
+    SchemaDependencyCycle = "schema-dependency-cycle",
     SchemaLoadFailed = "schema-load-failed",
     SourceEditTxnRequired = "source-edit-txn-required",
     SynchronizationRangeInvalid = "synchronization-range-invalid",
@@ -431,6 +434,11 @@ export interface InitOptions {
 }
 
 // @beta
+export class NewerVersionSchemaImportStrategy implements SchemaProcessingStrategy {
+    processSchemas(context: SchemaProcessingContext): Promise<SchemaProcessingResult[]>;
+}
+
+// @beta
 export interface OptimizeGeometryOptions {
     inlineUniqueGeometryParts?: boolean;
 }
@@ -442,6 +450,11 @@ export type ProcessChangesOptions = ExportChangesOptions & {
     unsafeFallbackReverseSyncVersion?: string;
     ignoreMissingChangesetsInSynchronizations?: boolean;
 };
+
+// @beta
+export interface ProcessSchemasOptions {
+    strategy?: SchemaProcessingStrategy;
+}
 
 // @alpha (undocumented)
 export interface ProvenanceInitArgs {
@@ -463,12 +476,38 @@ export interface ProvenanceInitResult {
     targetScopeElementId: Id64String;
 }
 
+// @beta
+export interface ReadonlySchemaAccessor {
+    getSchema(schemaName: string): Promise<Schema | undefined>;
+}
+
 // @beta (undocumented)
 export interface RelationshipPropsForDelete {
     // (undocumented)
     classFullName: string;
     // (undocumented)
     id: Id64String;
+}
+
+// @beta
+export interface SchemaProcessingContext {
+    readonly shouldExportSchema: (schemaKey: SchemaKey) => Promise<boolean>;
+    readonly sourceSchemas: readonly Schema[];
+    readonly targetSchemas: ReadonlySchemaAccessor;
+}
+
+// @beta
+export type SchemaProcessingResult = {
+    kind: "source";
+    schema: Schema;
+} | {
+    kind: "generated";
+    schema: Schema;
+};
+
+// @beta
+export interface SchemaProcessingStrategy {
+    processSchemas(context: SchemaProcessingContext): Promise<SchemaProcessingResult[]>;
 }
 
 // @beta

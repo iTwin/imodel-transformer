@@ -293,9 +293,12 @@ importers:
       '@itwin/core-quantity':
         specifier: ^5.10.3
         version: 5.10.3(@itwin/core-bentley@5.10.3)
+      '@itwin/ecschema-editing':
+        specifier: 5.10.3
+        version: 5.10.3(@itwin/core-bentley@5.10.3)(@itwin/core-quantity@5.10.3(@itwin/core-bentley@5.10.3))(@itwin/ecschema-metadata@5.10.3(@itwin/core-bentley@5.10.3)(@itwin/core-quantity@5.10.3(@itwin/core-bentley@5.10.3)))
       '@itwin/ecschema-locaters':
-        specifier: ^5.9.1
-        version: 5.9.1(@itwin/ecschema-metadata@5.10.3(@itwin/core-bentley@5.10.3)(@itwin/core-quantity@5.10.3(@itwin/core-bentley@5.10.3)))
+        specifier: 5.10.3
+        version: 5.10.3(@itwin/ecschema-metadata@5.10.3(@itwin/core-bentley@5.10.3)(@itwin/core-quantity@5.10.3(@itwin/core-bentley@5.10.3)))
       '@itwin/ecschema-metadata':
         specifier: ^5.10.3
         version: 5.10.3(@itwin/core-bentley@5.10.3)(@itwin/core-quantity@5.10.3(@itwin/core-bentley@5.10.3))
@@ -629,10 +632,17 @@ packages:
     peerDependencies:
       '@itwin/core-bentley': 5.10.3
 
-  '@itwin/ecschema-locaters@5.9.1':
-    resolution: {integrity: sha512-162jdDQDIujUCtRHwBl5xhy+EZDBGgXhjycnuw5kTFqLUCSBo7TsobM8N3D8wiVkldXhccuTjSWP7V91EAo5LA==}
+  '@itwin/ecschema-editing@5.10.3':
+    resolution: {integrity: sha512-dlTlpfhFiAwhOInDFqMyxFMmzZCHxUonVKujz4hXyHWJdagiTYkSODm99E3VfKgSbDCtNcnByMCYGKE4HA3soQ==}
     peerDependencies:
-      '@itwin/ecschema-metadata': 5.9.1
+      '@itwin/core-bentley': 5.10.3
+      '@itwin/core-quantity': 5.10.3
+      '@itwin/ecschema-metadata': 5.10.3
+
+  '@itwin/ecschema-locaters@5.10.3':
+    resolution: {integrity: sha512-3e6WoOLAYrjbvyMaSlpKtzgQ9oNZ6qiwcf21j0m9TTjUYT3i4tEIvyip2TEo+JKuD6T6OqmJGsYrz440VBIjTQ==}
+    peerDependencies:
+      '@itwin/ecschema-metadata': 5.10.3
 
   '@itwin/ecschema-metadata@5.10.3':
     resolution: {integrity: sha512-3hLhIWmSTmcL9OeZ06WUkEytyjydrJygZJTaRBlk+WdxO9E0uvlL/Vu6vynShYjFD3Ydy/EG1urtOodBdYIZDQ==}
@@ -4632,7 +4642,13 @@ snapshots:
     dependencies:
       '@itwin/core-bentley': 5.10.3
 
-  '@itwin/ecschema-locaters@5.9.1(@itwin/ecschema-metadata@5.10.3(@itwin/core-bentley@5.10.3)(@itwin/core-quantity@5.10.3(@itwin/core-bentley@5.10.3)))':
+  '@itwin/ecschema-editing@5.10.3(@itwin/core-bentley@5.10.3)(@itwin/core-quantity@5.10.3(@itwin/core-bentley@5.10.3))(@itwin/ecschema-metadata@5.10.3(@itwin/core-bentley@5.10.3)(@itwin/core-quantity@5.10.3(@itwin/core-bentley@5.10.3)))':
+    dependencies:
+      '@itwin/core-bentley': 5.10.3
+      '@itwin/core-quantity': 5.10.3(@itwin/core-bentley@5.10.3)
+      '@itwin/ecschema-metadata': 5.10.3(@itwin/core-bentley@5.10.3)(@itwin/core-quantity@5.10.3(@itwin/core-bentley@5.10.3))
+
+  '@itwin/ecschema-locaters@5.10.3(@itwin/ecschema-metadata@5.10.3(@itwin/core-bentley@5.10.3)(@itwin/core-quantity@5.10.3(@itwin/core-bentley@5.10.3)))':
     dependencies:
       '@itwin/ecschema-metadata': 5.10.3(@itwin/core-bentley@5.10.3)(@itwin/core-quantity@5.10.3(@itwin/core-bentley@5.10.3))
       '@xmldom/xmldom': 0.8.13

@@ -4,7 +4,7 @@ Copyright © Bentley Systems, Incorporated. All rights reserved. See LICENSE.md 
 
 ## Description
 
-The __@itwin/imodel-transformer__ package contains classes that handle traversing iModels for exporting and importing their parts.
+The **@itwin/imodel-transformer** package contains classes that handle traversing iModels for exporting and importing their parts.
 
 ## Documentation
 
