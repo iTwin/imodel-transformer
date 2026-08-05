@@ -9,12 +9,13 @@ import {
   ElementUniqueAspect,
   IModelDb,
 } from "@itwin/core-backend";
-import { Id64Set, Id64String } from "@itwin/core-bentley";
+import { Id64String, JsonUtils } from "@itwin/core-bentley";
 import { ensureECSqlReaderIsAsyncIterableIterator } from "./ECSqlReaderAsyncIterableIteratorAdapter";
 import {
+  Base64EncodedString,
+  ECJsNames,
   ElementAspectProps,
   QueryBinder,
-  QueryRowFormat,
 } from "@itwin/core-common";
 
 interface AspectChanges {
@@ -38,16 +39,9 @@ export interface ElementAspectExportProcessorHandler {
  * @internal
  */
 export class ElementAspectExportProcessor {
-  private readonly _aspectClasses = new Map<
-    string,
-    Promise<ReadonlyMap<Id64String, { schemaName: string; className: string }>>
-  >();
   /** ElementAspect classes excluded from source queries. */
   private readonly _excludedElementAspectClassFullNames = new Set<string>();
-  /** ECClassIds excluded from source queries: every excluded class plus all of its
-   * declared subclasses.
-   */
-  private _excludedClassIds: Promise<ReadonlySet<Id64String>> | undefined;
+  private _hasExportableAspects: Promise<boolean> | undefined;
   private _aspectChanges: AspectChanges | undefined;
 
   /** ElementAspect class names excluded from source queries. */
@@ -71,40 +65,48 @@ export class ElementAspectExportProcessor {
   public async exportAllElementAspects(
     ownerElementIds: ReadonlySet<Id64String>
   ): Promise<void> {
-    if (ownerElementIds.size === 0) return;
+    if (ownerElementIds.size === 0 || !(await this.getHasExportableAspects()))
+      return;
 
-    await this.exportAspectsLoop<ElementUniqueAspect>(
-      ElementUniqueAspect.classFullName,
-      async (uniqueAspect) => {
-        const isUpdate = this._aspectChanges?.updateIds.has(uniqueAspect.id)
-          ? true
-          : this._aspectChanges?.insertIds.has(uniqueAspect.id)
-            ? false
-            : undefined;
-        await this._handler.onExportElementUniqueAspect(uniqueAspect, isUpdate);
-        await this._handler.trackProgress();
-      },
-      ownerElementIds
-    );
-
-    const multiAspectsByOwner = new Map<Id64String, ElementMultiAspect[]>();
-    await this.exportAspectsLoop<ElementMultiAspect>(
-      ElementMultiAspect.classFullName,
-      async (multiAspect) => {
-        const ownerAspects = multiAspectsByOwner.get(multiAspect.element.id);
-        if (ownerAspects === undefined) {
-          multiAspectsByOwner.set(multiAspect.element.id, [multiAspect]);
-        } else {
-          ownerAspects.push(multiAspect);
-        }
-      },
-      ownerElementIds
-    );
-
-    for (const multiAspects of multiAspectsByOwner.values()) {
+    let multiAspectOwnerId: Id64String | undefined;
+    let multiAspects: ElementMultiAspect[] = [];
+    const exportMultiAspects = async () => {
+      if (multiAspects.length === 0) return;
       await this._handler.onExportElementMultiAspects(multiAspects);
       await this._handler.trackProgress();
+      multiAspects = [];
+      multiAspectOwnerId = undefined;
+    };
+
+    for await (const aspect of this.queryAspects(ownerElementIds)) {
+      if (!(await this._handler.shouldExportElementAspect(aspect))) continue;
+
+      if (
+        multiAspectOwnerId !== undefined &&
+        multiAspectOwnerId !== aspect.element.id
+      ) {
+        await exportMultiAspects();
+      }
+
+      if (aspect instanceof ElementUniqueAspect) {
+        const isUpdate = this._aspectChanges?.updateIds.has(aspect.id)
+          ? true
+          : this._aspectChanges?.insertIds.has(aspect.id)
+            ? false
+            : undefined;
+        await this._handler.onExportElementUniqueAspect(aspect, isUpdate);
+        await this._handler.trackProgress();
+      } else if (aspect instanceof ElementMultiAspect) {
+        multiAspectOwnerId = aspect.element.id;
+        multiAspects.push(aspect);
+      } else {
+        throw new Error(
+          `Unexpected ElementAspect type ${aspect.classFullName}`
+        );
+      }
     }
+
+    await exportMultiAspects();
   }
 
   /** Sets the aspect changes used to distinguish inserted and updated unique aspects during change export. */
@@ -114,184 +116,125 @@ export class ElementAspectExportProcessor {
 
   /** Clears source schema and content caches at an outer export-scope boundary. */
   public resetCaches(): void {
-    this._aspectClasses.clear();
-    this._excludedClassIds = undefined;
+    this._hasExportableAspects = undefined;
   }
 
   /** Excludes an ElementAspect class from subsequent queries and export callbacks. */
   public excludeElementAspectClass(classFullName: string): void {
+    if (this._excludedElementAspectClassFullNames.has(classFullName)) return;
     this._excludedElementAspectClassFullNames.add(classFullName);
-    this._excludedClassIds = undefined;
+    this.resetCaches();
   }
 
-  private async exportAspectsLoop<T extends ElementAspect>(
-    baseAspectClass: string,
-    exportAspect: (aspect: T) => Promise<void>,
-    ownerElementIds: ReadonlySet<Id64String>
-  ): Promise<void> {
-    for await (const aspect of this.queryAspects<T>(
-      baseAspectClass,
-      ownerElementIds
-    )) {
-      if (!(await this._handler.shouldExportElementAspect(aspect))) {
-        continue;
-      }
-      await exportAspect(aspect);
-    }
-  }
-
-  private async *queryAspects<T extends ElementAspect>(
-    baseElementAspectClassFullName: string,
-    ownerElementIds: ReadonlySet<Id64String>
-  ) {
-    const queryOwnerElementIds = new Set(ownerElementIds) as Id64Set;
-    const populatedClassIds = await this.queryPopulatedAspectClassIds(
-      baseElementAspectClassFullName,
-      queryOwnerElementIds
-    );
-    if (populatedClassIds.size === 0) return;
-
-    const aspectClassNameIdMap = await this.getAspectClasses(
-      baseElementAspectClassFullName
-    );
-    const excludedClassIds = await this.getExcludedClassIds();
-    for (const [classId, { schemaName, className }] of aspectClassNameIdMap) {
-      // Skip classes with no rows in the current owner scope: most schemas declare
-      // far more concrete aspect subclasses than a batch actually populates.
-      if (!populatedClassIds.has(classId)) continue;
-      // excludedClassIds is the excluded class plus every declared subclass.
-      if (excludedClassIds.has(classId)) continue;
-
-      const classFullName = `${schemaName}:${className}`;
-      const queryParams = new QueryBinder()
-        .bindId("classId", classId)
-        .bindIdSet("ownerElementIds", queryOwnerElementIds);
-      const aspectQueryReader = this._sourceDb.createQueryReader(
-        `SELECT aspect.* FROM [${schemaName}]:[${className}] aspect
-         INNER JOIN IdSet(:ownerElementIds) ids ON ids.id = aspect.Element.Id
-         WHERE aspect.ECClassId = :classId
-         ORDER BY aspect.Element.Id, aspect.ECInstanceId OPTIONS ENABLE_EXPERIMENTAL_FEATURES`,
-        queryParams,
-        // eslint-disable-next-line @typescript-eslint/no-deprecated
-        { rowFormat: QueryRowFormat.UseJsPropertyNames, usePrimaryConn: true }
-      );
-      for await (const rowProxy of ensureECSqlReaderIsAsyncIterableIterator(
-        aspectQueryReader
-      )) {
-        const { className: _className, ...aspectProps } =
-          rowProxy.toRow() as ElementAspectProps & {
-            className?: string;
-          };
-        aspectProps.classFullName = classFullName;
-        yield this._sourceDb.constructEntity<T>(aspectProps);
-      }
-    }
-  }
-
-  private async getAspectClasses(
-    baseElementAspectClassFullName: string
-  ): Promise<
-    ReadonlyMap<Id64String, { schemaName: string; className: string }>
-  > {
-    let aspectClasses = this._aspectClasses.get(baseElementAspectClassFullName);
-    if (aspectClasses === undefined) {
-      aspectClasses = this.queryAspectClasses(baseElementAspectClassFullName);
-      this._aspectClasses.set(baseElementAspectClassFullName, aspectClasses);
-    }
-    return aspectClasses;
-  }
-
-  private async queryAspectClasses(
-    baseElementAspectClassFullName: string
-  ): Promise<
-    ReadonlyMap<Id64String, { schemaName: string; className: string }>
-  > {
-    const aspectClassNameIdMap = new Map<
-      Id64String,
-      { schemaName: string; className: string }
-    >();
-    const aspectClassesQueryReader = this._sourceDb.createQueryReader(
-      `
-        SELECT c.ECInstanceId as classId,
-          (ec_className(c.ECInstanceId, 's')) as schemaName,
-          (ec_className(c.ECInstanceId, 'c')) as className
-        FROM ECDbMeta.ClassHasAllBaseClasses r
-        JOIN ECDbMeta.ECClassDef c ON c.ECInstanceId = r.SourceECInstanceId
-        WHERE r.TargetECInstanceId = ec_classId(:baseClassName)
-        ORDER BY schemaName, className
-      `,
-      new QueryBinder().bindString(
-        "baseClassName",
-        baseElementAspectClassFullName
-      ),
-      { usePrimaryConn: true }
-    );
-    for await (const rowProxy of ensureECSqlReaderIsAsyncIterableIterator(
-      aspectClassesQueryReader
-    )) {
-      const row = rowProxy.toRow();
-      aspectClassNameIdMap.set(row.classId, {
-        schemaName: row.schemaName,
-        className: row.className,
-      });
-    }
-    return aspectClassNameIdMap;
-  }
-
-  private async getExcludedClassIds(): Promise<ReadonlySet<Id64String>> {
-    if (this._excludedClassIds === undefined) {
-      this._excludedClassIds = this.queryExcludedClassIds();
-    }
-    return this._excludedClassIds;
-  }
-
-  /** Resolves every excluded class full name to the full set of ECClassIds it covers:
-   * the class itself plus every declared subclass. Reuses the same
-   * ECDbMeta.ClassHasAllBaseClasses shape as {@link queryAspectClasses}, rooted at
-   * each excluded class instead of at ElementUniqueAspect/ElementMultiAspect.
-   */
-  private async queryExcludedClassIds(): Promise<ReadonlySet<Id64String>> {
-    const excludedClassIds = new Set<Id64String>();
+  private getExcludedClassFilter(queryParams: QueryBinder): string {
+    const excludedClassParameters: string[] = [];
+    let excludedClassIndex = 0;
     for (const classFullName of this._excludedElementAspectClassFullNames) {
-      const excludedClassesQueryReader = this._sourceDb.createQueryReader(
-        `
-          SELECT c.ECInstanceId as classId
-          FROM ECDbMeta.ClassHasAllBaseClasses r
-          JOIN ECDbMeta.ECClassDef c ON c.ECInstanceId = r.SourceECInstanceId
-          WHERE r.TargetECInstanceId = ec_classId(:excludedClassName)
-        `,
-        new QueryBinder().bindString("excludedClassName", classFullName),
-        { usePrimaryConn: true }
-      );
-      for await (const rowProxy of ensureECSqlReaderIsAsyncIterableIterator(
-        excludedClassesQueryReader
-      )) {
-        excludedClassIds.add(rowProxy.toRow().classId);
-      }
+      const parameterName = `excludedAspectClass${excludedClassIndex++}`;
+      excludedClassParameters.push(`ec_classid(:${parameterName})`);
+      queryParams.bindString(parameterName, classFullName.replace(".", ":"));
     }
-    return excludedClassIds;
+
+    return excludedClassParameters.length === 0
+      ? ""
+      : `AND NOT EXISTS (
+          SELECT 1 FROM meta.ClassHasAllBaseClasses excluded
+          WHERE excluded.SourceECInstanceId = aspect.ECClassId
+            AND excluded.TargetECInstanceId IN (${excludedClassParameters.join(",")})
+        )`;
   }
 
-  /** Scans which concrete subclasses of the given base aspect class have rows for the supplied owners. */
-  private async queryPopulatedAspectClassIds(
-    baseElementAspectClassFullName: string,
-    ownerElementIds: Id64Set
-  ): Promise<ReadonlySet<Id64String>> {
-    const [schemaName, className] = baseElementAspectClassFullName.split(":");
-    const populatedClassIds = new Set<Id64String>();
-    const populatedClassesQueryReader = this._sourceDb.createQueryReader(
-      `SELECT DISTINCT aspect.ECClassId as classId
-       FROM [${schemaName}]:[${className}] aspect
-       INNER JOIN IdSet(:ownerElementIds) ids ON ids.id = aspect.Element.Id
-       OPTIONS ENABLE_EXPERIMENTAL_FEATURES`,
-      new QueryBinder().bindIdSet("ownerElementIds", ownerElementIds),
+  private async getHasExportableAspects(): Promise<boolean> {
+    this._hasExportableAspects ??= this.queryHasExportableAspects();
+    return this._hasExportableAspects;
+  }
+
+  private async queryHasExportableAspects(): Promise<boolean> {
+    const queryParams = new QueryBinder();
+    const excludedClassFilter = this.getExcludedClassFilter(queryParams);
+    const reader = this._sourceDb.createQueryReader(
+      `SELECT ECInstanceId FROM (
+         SELECT aspect.ECInstanceId
+         FROM Bis.ElementMultiAspect aspect
+         WHERE TRUE ${excludedClassFilter}
+         UNION ALL
+         SELECT aspect.ECInstanceId
+         FROM Bis.ElementUniqueAspect aspect
+         WHERE TRUE ${excludedClassFilter}
+       )
+       LIMIT 1`,
+      queryParams,
       { usePrimaryConn: true }
     );
-    for await (const rowProxy of ensureECSqlReaderIsAsyncIterableIterator(
-      populatedClassesQueryReader
-    )) {
-      populatedClassIds.add(rowProxy.toRow().classId);
+
+    for await (const _row of ensureECSqlReaderIsAsyncIterableIterator(reader))
+      return true;
+    return false;
+  }
+
+  private getAspectProps(rawInstance: unknown): ElementAspectProps {
+    const parsedRow: unknown =
+      typeof rawInstance === "string"
+        ? JSON.parse(rawInstance, Base64EncodedString.reviver)
+        : rawInstance;
+    if (!JsonUtils.isObject(parsedRow))
+      throw new Error(
+        "Expected an ElementAspect instance query to return an object"
+      );
+
+    const row: Record<string, unknown> = {};
+    for (const [key, value] of Object.entries(parsedRow)) {
+      const ecPropertyName =
+        key.length === 0 ? key : key[0].toUpperCase() + key.substring(1);
+      row[ECJsNames.toJsName(ecPropertyName)] = value;
     }
-    return populatedClassIds;
+
+    const className = row.className;
+    if (typeof className !== "string")
+      throw new Error(
+        "Expected an ElementAspect instance query to return a className"
+      );
+
+    row.classFullName = className.replace(".", ":");
+    delete row.className;
+    return row as unknown as ElementAspectProps;
+  }
+
+  private async *queryAspects(
+    ownerElementIds: ReadonlySet<Id64String>
+  ): AsyncIterableIterator<ElementAspect> {
+    const queryParams = new QueryBinder().bindIdSet(
+      "ownerElementIds",
+      ownerElementIds
+    );
+    const excludedClassFilter = this.getExcludedClassFilter(queryParams);
+    const aspectQueryReader = this._sourceDb.createQueryReader(
+      `WITH OwnerIds AS (SELECT id FROM IdSet(:ownerElementIds))
+       SELECT $ FROM (
+         SELECT aspect.ECInstanceId, aspect.ECClassId,
+           aspect.Element.Id AS OwnerId, 1 AS AspectKind
+         FROM OwnerIds owners
+         CROSS JOIN Bis.ElementMultiAspect aspect
+         WHERE aspect.Element.Id = owners.id ${excludedClassFilter}
+         UNION ALL
+         SELECT aspect.ECInstanceId, aspect.ECClassId,
+           aspect.Element.Id AS OwnerId, 0 AS AspectKind
+         FROM OwnerIds owners
+         CROSS JOIN Bis.ElementUniqueAspect aspect
+         WHERE aspect.Element.Id = owners.id ${excludedClassFilter}
+       )
+       ORDER BY AspectKind, OwnerId, ECClassId, ECInstanceId
+       OPTIONS USE_JS_PROP_NAMES DO_NOT_TRUNCATE_BLOB`,
+      queryParams,
+      { usePrimaryConn: true }
+    );
+
+    for await (const rowProxy of ensureECSqlReaderIsAsyncIterableIterator(
+      aspectQueryReader
+    )) {
+      yield this._sourceDb.constructEntity<ElementAspect>(
+        this.getAspectProps(rowProxy[0])
+      );
+    }
   }
 }

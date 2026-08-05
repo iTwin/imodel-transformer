@@ -3,10 +3,12 @@
  * See LICENSE.md in the project root for license terms and full copyright notice.
  *--------------------------------------------------------------------------------------------*/
 
+import { createHash } from "node:crypto";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { ChangesetFileProps } from "@itwin/core-common";
 import {
+  canonicalSha256,
   FixtureDescriptor,
   validateFixtureDescriptor,
 } from "./FixtureDescriptor.js";
@@ -15,32 +17,60 @@ import {
  * Version of the on-disk artifact layout. Bump when the directory contract changes in a way that
  * an older reader cannot interpret.
  */
-export const fixtureArtifactVersion = 1;
+export const fixtureArtifactVersion = 2;
 
 export const artifactBriefcaseFileName = "briefcase.bim";
 export const artifactChangesetDirectoryName = "changesets";
 export const artifactChangesetPropsFileName = "csFileProps.json";
 export const artifactManifestFileName = "manifest.json";
 export const artifactRecipeDataFileName = "recipe.json";
+export const artifactSourceSeedFileName = "source-seed.bim";
+export const artifactTargetBriefcaseFileName = "target-briefcase.bim";
+export const artifactTargetChangesetDirectoryName = "target-changesets";
+export const artifactTargetChangesetPropsFileName = "targetCsFileProps.json";
+export const artifactTargetSeedFileName = "target-seed.bim";
+
+export interface FixtureArtifactBriefcaseManifest {
+  readonly fileName: string;
+  readonly briefcaseId: number;
+  readonly changeset: { readonly id: string; readonly index?: number };
+  readonly byteLength: number;
+}
+
+export interface FixtureArtifactChangesetManifest {
+  readonly directory: string;
+  readonly propsFile: string;
+  readonly count: number;
+  readonly baseChangesetIndex: number;
+  readonly firstIndex?: number;
+  readonly lastIndex?: number;
+}
+
+export interface LiveHubFixtureArtifactManifest {
+  readonly iTwinId: string;
+  readonly source: {
+    readonly iModelId: string;
+    readonly iModelName: string;
+    readonly version0File: string;
+  };
+  readonly target: {
+    readonly briefcase: FixtureArtifactBriefcaseManifest;
+    readonly changesets: FixtureArtifactChangesetManifest;
+    readonly iModelId: string;
+    readonly iModelName: string;
+    readonly version0File: string;
+  };
+}
 
 export interface FixtureArtifactManifest {
   readonly artifactVersion: number;
+  /** SHA-256 identity of every immutable workload file in the artifact. */
+  readonly contentHash: string;
   readonly descriptor: FixtureDescriptor;
-  readonly briefcase: {
-    readonly fileName: string;
-    readonly briefcaseId: number;
-    readonly changeset: { readonly id: string; readonly index?: number };
-    readonly byteLength: number;
-  };
-  readonly changesets: {
-    readonly directory: string;
-    readonly propsFile: string;
-    readonly count: number;
-    /** Index of the changeset immediately before the first captured changeset. */
-    readonly baseChangesetIndex: number;
-    readonly firstIndex?: number;
-    readonly lastIndex?: number;
-  };
+  readonly briefcase: FixtureArtifactBriefcaseManifest;
+  readonly changesets: FixtureArtifactChangesetManifest;
+  /** Present when the artifact restores a live source and target hub for incremental sync. */
+  readonly liveHub?: LiveHubFixtureArtifactManifest;
   /**
    * Present only when the recipe returned data to carry across the stage boundary. Absent means
    * the recipe emitted nothing — stage 2 reads this key rather than probing the filesystem.
@@ -54,6 +84,33 @@ export interface FixtureArtifactManifest {
 export interface FixtureArtifact {
   readonly directory: string;
   readonly manifest: FixtureArtifactManifest;
+}
+
+function artifactContentFiles(directory: string, relative = ""): string[] {
+  return fs
+    .readdirSync(path.join(directory, relative), { withFileTypes: true })
+    .flatMap((entry) => {
+      const entryRelative = path.join(relative, entry.name);
+      if (entryRelative === artifactManifestFileName) return [];
+      return entry.isDirectory()
+        ? artifactContentFiles(directory, entryRelative)
+        : [entryRelative];
+    });
+}
+
+/** Hash the relative path, length, and bytes of every immutable workload file. */
+export function fixtureArtifactContentHash(directory: string): string {
+  const entries = artifactContentFiles(directory)
+    .map((relative) => {
+      const contents = fs.readFileSync(path.join(directory, relative));
+      return {
+        path: relative.replaceAll(path.sep, "/"),
+        byteLength: contents.byteLength,
+        sha256: createHash("sha256").update(contents).digest("hex"),
+      };
+    })
+    .sort((left, right) => left.path.localeCompare(right.path));
+  return canonicalSha256(entries);
 }
 
 function describeValue(value: unknown): string {
@@ -147,13 +204,12 @@ export function changesetArtifactFileName(
 
 /** Rewrite `pathname` to a POSIX path relative to the artifact root. */
 export function toRelativeChangesetProps(
-  changesets: readonly ChangesetFileProps[]
+  changesets: readonly ChangesetFileProps[],
+  directory = artifactChangesetDirectoryName
 ): ChangesetFileProps[] {
   return changesets.map((changeset) => ({
     ...changeset,
-    pathname: `${artifactChangesetDirectoryName}/${changesetArtifactFileName(
-      changeset
-    )}`,
+    pathname: `${directory}/${changesetArtifactFileName(changeset)}`,
   }));
 }
 
@@ -173,9 +229,10 @@ function assertRelativeChangesetPath(pathname: unknown, index: number): string {
  * changesets by `pathname` verbatim, so relative paths must never reach it.
  */
 export function readChangesetFileProps(
-  directory: string
+  directory: string,
+  propsFileName = artifactChangesetPropsFileName
 ): ChangesetFileProps[] {
-  const propsFile = path.join(directory, artifactChangesetPropsFileName);
+  const propsFile = path.join(directory, propsFileName);
   const parsed: unknown = JSON.parse(fs.readFileSync(propsFile, "utf8"));
   if (!Array.isArray(parsed))
     throw new Error(`Fixture artifact ${propsFile} must contain an array`);
@@ -193,6 +250,50 @@ export function readChangesetFileProps(
 
 export function artifactBriefcasePath(directory: string): string {
   return path.join(directory, artifactBriefcaseFileName);
+}
+
+function validateBriefcaseManifest(
+  value: unknown
+): value is FixtureArtifactBriefcaseManifest {
+  if (value === null || typeof value !== "object") return false;
+  const briefcase = value as Partial<FixtureArtifactBriefcaseManifest>;
+  return (
+    typeof briefcase.fileName === "string" &&
+    typeof briefcase.briefcaseId === "number" &&
+    typeof briefcase.changeset?.id === "string" &&
+    typeof briefcase.byteLength === "number"
+  );
+}
+
+function validateChangesetManifest(
+  value: unknown
+): value is FixtureArtifactChangesetManifest {
+  if (value === null || typeof value !== "object") return false;
+  const changesets = value as Partial<FixtureArtifactChangesetManifest>;
+  return (
+    typeof changesets.directory === "string" &&
+    typeof changesets.propsFile === "string" &&
+    typeof changesets.count === "number" &&
+    typeof changesets.baseChangesetIndex === "number"
+  );
+}
+
+function validateLiveHubManifest(
+  value: unknown
+): value is LiveHubFixtureArtifactManifest {
+  if (value === null || typeof value !== "object") return false;
+  const liveHub = value as Partial<LiveHubFixtureArtifactManifest>;
+  return (
+    typeof liveHub.iTwinId === "string" &&
+    typeof liveHub.source?.iModelId === "string" &&
+    typeof liveHub.source.iModelName === "string" &&
+    typeof liveHub.source.version0File === "string" &&
+    typeof liveHub.target?.iModelId === "string" &&
+    typeof liveHub.target.iModelName === "string" &&
+    typeof liveHub.target.version0File === "string" &&
+    validateBriefcaseManifest(liveHub.target.briefcase) &&
+    validateChangesetManifest(liveHub.target.changesets)
+  );
 }
 
 export function writeFixtureArtifactManifest(
@@ -218,14 +319,10 @@ export function validateFixtureArtifactManifest(
       )}; expected ${fixtureArtifactVersion}`
     );
   if (
-    typeof manifest.briefcase?.fileName !== "string" ||
-    typeof manifest.briefcase.briefcaseId !== "number" ||
-    typeof manifest.briefcase.changeset?.id !== "string" ||
-    typeof manifest.briefcase.byteLength !== "number" ||
-    typeof manifest.changesets?.directory !== "string" ||
-    typeof manifest.changesets.propsFile !== "string" ||
-    typeof manifest.changesets.count !== "number" ||
-    typeof manifest.changesets.baseChangesetIndex !== "number" ||
+    typeof manifest.contentHash !== "string" ||
+    !/^[a-f0-9]{64}$/.test(manifest.contentHash) ||
+    !validateBriefcaseManifest(manifest.briefcase) ||
+    !validateChangesetManifest(manifest.changesets) ||
     typeof manifest.buildMilliseconds !== "number" ||
     typeof manifest.builtAt !== "string"
   )
@@ -237,7 +334,19 @@ export function validateFixtureArtifactManifest(
     throw new Error(
       "Fixture artifact manifest has an invalid recipeDataFile entry"
     );
-  validateFixtureDescriptor(manifest.descriptor);
+  const descriptor = validateFixtureDescriptor(manifest.descriptor);
+  if (
+    descriptor.layout.topology === "source-and-empty-target" &&
+    !validateLiveHubManifest(manifest.liveHub)
+  )
+    throw new Error(
+      "Live-hub fixture artifact manifest is missing source and target restoration data"
+    );
+  if (
+    descriptor.layout.topology === "source-only" &&
+    manifest.liveHub !== undefined
+  )
+    throw new Error("Source-only fixture artifact cannot declare a live hub");
   return manifest as FixtureArtifactManifest;
 }
 
@@ -251,25 +360,58 @@ export function readFixtureArtifact(directory: string): FixtureArtifact {
       fs.readFileSync(path.join(directory, artifactManifestFileName), "utf8")
     )
   );
-  const briefcase = path.join(directory, manifest.briefcase.fileName);
-  if (!fs.existsSync(briefcase))
-    throw new Error(`Fixture artifact is missing its briefcase: ${briefcase}`);
-  const byteLength = fs.statSync(briefcase).size;
-  if (byteLength !== manifest.briefcase.byteLength)
-    throw new Error(
-      `Fixture artifact briefcase is ${byteLength} bytes but its manifest declares ${manifest.briefcase.byteLength}`
+  const validateBriefcase = (
+    briefcaseManifest: FixtureArtifactBriefcaseManifest,
+    label: string
+  ) => {
+    const briefcase = path.join(directory, briefcaseManifest.fileName);
+    if (!fs.existsSync(briefcase))
+      throw new Error(`Fixture artifact is missing its ${label}: ${briefcase}`);
+    const byteLength = fs.statSync(briefcase).size;
+    if (byteLength !== briefcaseManifest.byteLength)
+      throw new Error(
+        `Fixture artifact ${label} is ${byteLength} bytes but its manifest declares ${briefcaseManifest.byteLength}`
+      );
+  };
+  const validateChangesets = (
+    changesetManifest: FixtureArtifactChangesetManifest,
+    label: string
+  ) => {
+    const changesets = readChangesetFileProps(
+      directory,
+      changesetManifest.propsFile
     );
-  const changesets = readChangesetFileProps(directory);
-  if (changesets.length !== manifest.changesets.count)
-    throw new Error(
-      `Fixture artifact has ${changesets.length} changesets but its manifest declares ${manifest.changesets.count}`
-    );
+    if (changesets.length !== changesetManifest.count)
+      throw new Error(
+        `Fixture artifact has ${changesets.length} ${label} but its manifest declares ${changesetManifest.count}`
+      );
+  };
+  validateBriefcase(manifest.briefcase, "source briefcase");
+  validateChangesets(manifest.changesets, "source changesets");
+  if (manifest.liveHub) {
+    validateBriefcase(manifest.liveHub.target.briefcase, "target briefcase");
+    validateChangesets(manifest.liveHub.target.changesets, "target changesets");
+    for (const seed of [
+      manifest.liveHub.source.version0File,
+      manifest.liveHub.target.version0File,
+    ]) {
+      if (!fs.existsSync(path.join(directory, seed)))
+        throw new Error(
+          `Fixture artifact is missing its version-zero seed: ${seed}`
+        );
+    }
+  }
   if (
     manifest.recipeDataFile !== undefined &&
     !fs.existsSync(path.join(directory, manifest.recipeDataFile))
   )
     throw new Error(
       `Fixture artifact is missing the recipe data its manifest declares: ${manifest.recipeDataFile}`
+    );
+  const contentHash = fixtureArtifactContentHash(directory);
+  if (contentHash !== manifest.contentHash)
+    throw new Error(
+      `Fixture artifact content hash is ${contentHash} but its manifest declares ${manifest.contentHash}`
     );
   return { directory, manifest };
 }

@@ -67,6 +67,10 @@ export enum IModelTransformerError {
   RelationshipProvenanceNotFound = "relationship-provenance-not-found",
   /** The root subject cannot be processed directly. */
   RootSubjectNotProcessable = "root-subject-not-processable",
+  /** A schema conflict or incompatible schema version prevented processing. */
+  SchemaConflict = "schema-conflict",
+  /** The source schema dependency graph contains a cycle. */
+  SchemaDependencyCycle = "schema-dependency-cycle",
   /** A required schema could not be loaded. */
   SchemaLoadFailed = "schema-load-failed",
   /** Reverse synchronization requires a source edit transaction. */

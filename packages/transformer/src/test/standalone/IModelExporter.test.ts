@@ -4,13 +4,11 @@
  *--------------------------------------------------------------------------------------------*/
 
 import {
-  EditTxn,
   // eslint-disable-next-line @typescript-eslint/no-redeclare
   Element,
   ElementAspect,
   ElementMultiAspect,
   ElementOwnsExternalSourceAspects,
-  ElementOwnsMultiAspects,
   ElementOwnsUniqueAspect,
   ElementRefersToElements,
   ElementUniqueAspect,
@@ -56,6 +54,7 @@ import {
   IModelTransformerErrorScope,
 } from "../../IModelTransformerError";
 import { IModelTransformerTestUtils } from "../IModelTransformerUtils";
+import { importElementAspectTestSchema } from "../TestUtils/ElementAspectTestUtils";
 import { createBRepDataProps } from "../TestUtils/GeometryTestUtil";
 import { KnownTestLocations } from "../TestUtils/KnownTestLocations";
 
@@ -117,28 +116,6 @@ describe("IModelExporter", () => {
       IModelJsFs.mkdirSync(outputDir);
     }
   });
-
-  async function importAspectTestSchema(db: IModelDb): Promise<void> {
-    await db.importSchemaStrings([
-      `<?xml version="1.0" encoding="UTF-8"?>
-<ECSchema schemaName="ExporterAspectTest" alias="eat" version="01.00.00" xmlns="http://www.bentley.com/schemas/Bentley.ECXML.3.1">
-  <ECSchemaReference name="BisCore" version="01.00.04" alias="bis"/>
-  <ECEntityClass typeName="UniqueAspect" modifier="Sealed">
-    <BaseClass>bis:ElementUniqueAspect</BaseClass>
-  </ECEntityClass>
-  <ECEntityClass typeName="MultiAspectA" modifier="Sealed">
-    <BaseClass>bis:ElementMultiAspect</BaseClass>
-  </ECEntityClass>
-  <ECEntityClass typeName="MultiAspectB" modifier="Sealed">
-    <BaseClass>bis:ElementMultiAspect</BaseClass>
-  </ECEntityClass>
-</ECSchema>`,
-    ]);
-    const editTxn = new EditTxn(db, "import aspect test schema");
-    editTxn.start();
-    editTxn.saveChanges();
-    editTxn.end();
-  }
 
   it("exports aspects from exportAll and honors owner filtering", async () => {
     const sourceDbPath = IModelTransformerTestUtils.prepareOutputFile(
@@ -207,7 +184,6 @@ describe("IModelExporter", () => {
       coordinator.setPreparation(async (_excludedClasses, elementIds) => {
         preparedOwnerBatchSizes.push(elementIds.size);
       });
-      const createQueryReader = vi.spyOn(sourceDb, "createQueryReader");
       await exporter.exportElement(includedElementId);
       expect(exportedIdentifiers).to.deep.equal(["included"]);
       exportedIdentifiers.length = 0;
@@ -229,13 +205,6 @@ describe("IModelExporter", () => {
       expect(preparedOwnerBatchSizes.length).to.be.greaterThan(0);
       expect(preparedOwnerBatchSizes.every((size) => size === 1)).to.be.true;
       expect(exportedIdentifiers).to.deep.equal(["included"]);
-      // Each of the five outer scopes refreshes class metadata once for the
-      // populated multi-aspect base. Nested calls and batch flushes do not.
-      expect(
-        createQueryReader.mock.calls.filter((call) =>
-          String(call[0]).includes("ECDbMeta.ClassHasAllBaseClasses")
-        )
-      ).to.have.lengthOf(5);
     } finally {
       vi.restoreAllMocks();
       sourceDb.close();
@@ -307,120 +276,6 @@ describe("IModelExporter", () => {
     ]);
   });
 
-  it("prefilters populated aspect classes for each explicit owner batch", async () => {
-    const sourceDbPath = IModelTransformerTestUtils.prepareOutputFile(
-      "IModelExporter",
-      "OwnerScopedAspectClassPrefilter.bim"
-    );
-    const sourceDb = SnapshotDb.createEmpty(sourceDbPath, {
-      rootSubject: { name: "OwnerScopedAspectClassPrefilter" },
-    });
-    try {
-      await importAspectTestSchema(sourceDb);
-      const { emptyOwnerId, populatedOwnerId } = withEditTxn(
-        sourceDb,
-        "insert owner-scoped aspect data",
-        (txn) => {
-          const emptyId = Subject.insert(
-            txn,
-            IModel.rootSubjectId,
-            "EmptyOwner"
-          );
-          const populatedId = Subject.insert(
-            txn,
-            IModel.rootSubjectId,
-            "PopulatedOwner"
-          );
-          txn.insertAspect({
-            classFullName: "ExporterAspectTest:UniqueAspect",
-            element: new ElementOwnsUniqueAspect(populatedId),
-          } as ElementAspectProps);
-          return { emptyOwnerId: emptyId, populatedOwnerId: populatedId };
-        }
-      );
-      let exportedUniqueAspectCount = 0;
-      class Handler extends IModelExportHandler {
-        public override async onExportElementUniqueAspect(
-          aspect: ElementUniqueAspect
-        ) {
-          if (aspect.classFullName === "ExporterAspectTest:UniqueAspect") {
-            exportedUniqueAspectCount++;
-          }
-        }
-      }
-      const exporter = new IModelExporter(sourceDb);
-      exporter.registerHandler(new Handler());
-      exporter.excludeElementAspectClass(ExternalSourceAspect.classFullName);
-      const createQueryReader = vi.spyOn(sourceDb, "createQueryReader");
-
-      await exporter.elementAspectExportCoordinator.exportOwners(
-        new Set([emptyOwnerId])
-      );
-
-      let queries = createQueryReader.mock.calls.map((call) => String(call[0]));
-      expect(
-        queries.filter((query) =>
-          query.includes("INNER JOIN IdSet(:ownerElementIds)")
-        )
-      ).to.have.lengthOf(2);
-      expect(queries.some((query) => query.includes(":excludedClassName"))).to
-        .be.false;
-      expect(
-        queries.some((query) =>
-          query.includes("[ExporterAspectTest]:[UniqueAspect] aspect")
-        )
-      ).to.be.false;
-
-      createQueryReader.mockClear();
-      await exporter.elementAspectExportCoordinator.exportOwners(
-        new Set([populatedOwnerId])
-      );
-
-      queries = createQueryReader.mock.calls.map((call) => String(call[0]));
-      expect(
-        queries.filter((query) =>
-          query.includes("INNER JOIN IdSet(:ownerElementIds)")
-        )
-      ).to.have.lengthOf(3);
-      expect(queries.some((query) => query.includes(":excludedClassName"))).to
-        .be.true;
-      expect(
-        queries.some((query) =>
-          query.includes("[ExporterAspectTest]:[UniqueAspect] aspect")
-        )
-      ).to.be.true;
-      expect(exportedUniqueAspectCount).to.equal(1);
-
-      createQueryReader.mockClear();
-      const coordinator = exporter.elementAspectExportCoordinator;
-      coordinator.begin();
-      coordinator.begin();
-      await coordinator.addAcceptedOwner(populatedOwnerId);
-      await coordinator.end();
-      await coordinator.end();
-      coordinator.begin();
-      await coordinator.addAcceptedOwner(populatedOwnerId);
-      await coordinator.end();
-
-      expect(
-        createQueryReader.mock.calls.filter((call) =>
-          String(call[0]).includes(":excludedClassName")
-        )
-      ).to.have.lengthOf(2);
-      expect(
-        exporter[
-          "_elementAspectExportProcessor"
-        ].excludedElementAspectClassFullNames.has(
-          ExternalSourceAspect.classFullName
-        )
-      ).to.be.true;
-      expect(exportedUniqueAspectCount).to.equal(3);
-    } finally {
-      vi.restoreAllMocks();
-      sourceDb.close();
-    }
-  });
-
   it("rebuilds unchanged unique aspects for changed owners", async () => {
     const sourceDbPath = IModelTransformerTestUtils.prepareOutputFile(
       "IModelExporter",
@@ -430,7 +285,7 @@ describe("IModelExporter", () => {
       rootSubject: { name: "ElementAspectUniqueRebuild" },
     });
     try {
-      await importAspectTestSchema(sourceDb);
+      await importElementAspectTestSchema(sourceDb);
       const ownerId = withEditTxn(sourceDb, "insert unique aspect", (txn) => {
         const id = Subject.insert(txn, IModel.rootSubjectId, "Owner");
         txn.insertAspect({
@@ -466,75 +321,6 @@ describe("IModelExporter", () => {
 
       expect(exportedUniqueAspectCount).to.equal(1);
       expect(exportedUniqueAspectChange).to.be.undefined;
-    } finally {
-      sourceDb.close();
-    }
-  });
-
-  it("keeps every multi-aspect batch scoped to one owner", async () => {
-    const sourceDbPath = IModelTransformerTestUtils.prepareOutputFile(
-      "IModelExporter",
-      "ElementAspectBatchOwners.bim"
-    );
-    const sourceDb = SnapshotDb.createEmpty(sourceDbPath, {
-      rootSubject: { name: "ElementAspectBatchOwners" },
-    });
-    try {
-      await importAspectTestSchema(sourceDb);
-      const ownerIds = withEditTxn(
-        sourceDb,
-        "insert multi-aspect owners",
-        (txn) => {
-          const ids = [
-            Subject.insert(txn, IModel.rootSubjectId, "OwnerA"),
-            Subject.insert(txn, IModel.rootSubjectId, "OwnerB"),
-          ];
-          for (const id of ids) {
-            for (const classFullName of [
-              "ExporterAspectTest:MultiAspectA",
-              "ExporterAspectTest:MultiAspectB",
-            ]) {
-              txn.insertAspect({
-                classFullName,
-                element: new ElementOwnsMultiAspects(id),
-              } as ElementAspectProps);
-              txn.insertAspect({
-                classFullName,
-                element: new ElementOwnsMultiAspects(id),
-              } as ElementAspectProps);
-            }
-          }
-          return ids;
-        }
-      );
-      const batches: ElementMultiAspect[][] = [];
-      let exportedAspectCount = 0;
-      class Handler extends IModelExportHandler {
-        public override async onExportElementMultiAspects(
-          aspects: ElementMultiAspect[]
-        ) {
-          batches.push(aspects);
-          exportedAspectCount += aspects.length;
-        }
-      }
-      const exporter = new IModelExporter(sourceDb);
-      exporter.registerHandler(new Handler());
-
-      await exporter.exportAll();
-
-      expect(exportedAspectCount).to.equal(8);
-      expect(batches).to.have.lengthOf(ownerIds.length);
-      expect(
-        batches.every(
-          (batch) =>
-            batch.length === 4 &&
-            new Set(batch.map((aspect) => aspect.element.id)).size === 1 &&
-            new Set(batch.map((aspect) => aspect.classFullName)).size === 2
-        )
-      ).to.be.true;
-      expect(
-        new Set(batches.map((batch) => batch[0].element.id))
-      ).to.deep.equal(new Set(ownerIds));
     } finally {
       sourceDb.close();
     }
@@ -797,6 +583,46 @@ describe("IModelExporter", () => {
       startChangeset: { id: "current-changeset" },
       ...skipOnlyOptions,
     });
+  });
+
+  it("exports schemas discovered by the canonical enumerator", async () => {
+    const sourceDb = SnapshotDb.createEmpty(
+      IModelTransformerTestUtils.prepareOutputFile(
+        "IModelExporter",
+        "SchemaEnumeration.bim"
+      ),
+      { rootSubject: { name: "SchemaEnumeration" } }
+    );
+    try {
+      class Handler extends IModelExportHandler {
+        public shouldExportCount = 0;
+        public onExportCount = 0;
+
+        public override async shouldExportSchema(): Promise<boolean> {
+          ++this.shouldExportCount;
+          return true;
+        }
+
+        public override async onExportSchema(): Promise<void> {
+          ++this.onExportCount;
+        }
+      }
+
+      const handler = new Handler();
+      const exporter = new IModelExporter(sourceDb);
+      exporter.registerHandler(handler);
+      const enumeratedSchemas: string[] = [];
+      for await (const schema of exporter.enumerateSchemas()) {
+        enumeratedSchemas.push(schema.name);
+      }
+
+      await exporter.exportSchemas();
+      expect(enumeratedSchemas.length).to.be.greaterThan(0);
+      expect(handler.shouldExportCount).to.equal(enumeratedSchemas.length);
+      expect(handler.onExportCount).to.equal(enumeratedSchemas.length);
+    } finally {
+      sourceDb.close();
+    }
   });
 
   it("throws typed errors for sources that cannot export changes", async () => {

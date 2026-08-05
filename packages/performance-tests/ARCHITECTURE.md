@@ -67,10 +67,10 @@ delivered to each scenario sample. It owns database, Hub, changeset, and cleanup
 resources. The scenario constructs `IModelTransformer` from those resources and
 chooses its options and measured operation.
 
-| Provider                    | Data delivered to the scenario                                                                     | Hub availability during the scenario | Stage-one behavior                                                                   |
-| --------------------------- | -------------------------------------------------------------------------------------------------- | ------------------------------------ | ------------------------------------------------------------------------------------ |
-| `liveHubProvider`           | Open source and target `BriefcaseDb`s backed by `HubMock`                                          | Available                            | Structural no-op; the complete Hub and briefcase dataset is rebuilt for every sample |
-| `detachedBriefcaseProvider` | Read-only source `BriefcaseDb`, local changeset files, artifact metadata, and optional recipe data | Not available                        | Uses `HubMock` once to generate changesets, then captures a reusable local artifact  |
+| Provider                    | Data delivered to the scenario                                                                     | Hub availability during the scenario | Stage-one behavior                                                                  |
+| --------------------------- | -------------------------------------------------------------------------------------------------- | ------------------------------------ | ----------------------------------------------------------------------------------- |
+| `liveHubProvider`           | Open source and target `BriefcaseDb`s backed by `HubMock`                                          | Available                            | Captures prepared briefcases, seeds, and local-hub timelines once                   |
+| `detachedBriefcaseProvider` | Read-only source `BriefcaseDb`, local changeset files, artifact metadata, and optional recipe data | Not available                        | Uses `HubMock` once to generate changesets, then captures a reusable local artifact |
 
 Both providers are credential-free and use local `HubMock` when they need
 iModelHub semantics. “Detached” means detached during scenario consumption, not
@@ -79,9 +79,11 @@ that no Hub APIs were used to create the changesets.
 There is currently no provider for a completely standalone
 `SnapshotDb`-to-`SnapshotDb` transformation.
 
-`liveHubProvider` currently performs the initial full transformation required by
-incremental synchronization. A first-time schema or full-transform scenario
-would need a provider topology that leaves the target pristine.
+`liveHubProvider` performs the initial full transformation required by
+incremental synchronization once while building the artifact. Each sample copies
+that artifact and restores the source and target hubs with the same iModel,
+briefcase, and changeset identities. A first-time schema or full-transform
+scenario would need a provider topology that leaves the target pristine.
 
 #### Configured fixture and generated descriptor
 
@@ -170,7 +172,7 @@ sequenceDiagram
 
     loop warm-up and measured samples
         Runner->>Provider: materialize fresh sample
-        Provider->>Recipe: generate sample when live topology requires it
+        Provider->>Provider: copy artifact and restore sample resources
         Provider-->>Runner: PreparedDataset
         Runner->>Scenario: factory(PreparedDataset)
         Runner->>Scenario: measure()
@@ -189,6 +191,49 @@ The runner wraps scenario, sample, fixture-build, and `IModelHost` lifecycles in
 cleanup tasks. It attempts all applicable cleanup and preserves both originating
 and cleanup errors when more than one operation fails.
 
+### Isolated pull request A/B flow
+
+The A/B workflow checks out the pull request base and head independently and
+builds each checkout's transformer package. It compiles the quick harness and
+test-utils runtime once from the candidate and installs those exact files in both
+checkouts. A dedicated baseline process authors one relocatable fixture artifact
+before the execution schedule begins. Its manifest carries a content hash over
+every workload file. All baseline and candidate workers validate and copy that
+same artifact, rather than independently regenerating fixtures.
+
+One baseline worker builds the fixture artifact before the execution schedule
+starts. For live incremental synchronization, the artifact contains both
+prepared briefcases, their version-zero seeds, and both local-hub timelines.
+The baseline transformer performs the initial full transformation and establishes
+target provenance, so candidate measurements represent processing against
+baseline-created state rather than candidate-created setup.
+Every later worker verifies the content hash and restores a private working copy
+from the same artifact; no warm-up or measured worker regenerates fixture
+contents or repeats the initial full transform.
+
+The coordinator starts a separate worker process for every warm-up and measured
+execution. Workers use `resolveBenchmarkRun()` and `BenchmarkRunner.runSample()`;
+there is no second scenario, fixture, scanner, or correctness API. The default
+schedule is:
+
+```text
+candidate warm-up, baseline warm-up
+baseline sample 1, candidate sample 1
+candidate sample 2, baseline sample 2
+baseline sample 3, candidate sample 3
+```
+
+Each worker also proves that its resolved transformer entry point is below the
+checkout assigned to its arm and records the transformer version and a content
+hash of the complete compiled output. That execution provenance is excluded from workload identity:
+different transformer builds are the intended independent variable. Before
+reporting, the coordinator requires one baseline-authored artifact content hash,
+identical scenario and fixture identity fields, and one semantic digest across
+both arms. It reports the fixture-authoring baseline revision and transformer
+version, arm medians, measured samples, candidate percentage delta, and an
+explicitly informational threshold status. The threshold is not a confidence
+interval, significance test, or merge gate.
+
 ## Current incremental-synchronization run
 
 The default run resolves these components:
@@ -201,22 +246,31 @@ The default run resolves these components:
 | Topology  | `source-and-empty-target`     |
 | Provider  | `liveHubProvider`             |
 
-For the warm-up and each measured sample:
+The baseline fixture-artifact worker runs these steps once:
 
-1. `liveHubProvider` starts a fresh `HubMock`.
+1. `liveHubProvider` starts `HubMock`.
 2. The recipe creates a source seed and imports
    `assets/schemas/QuickPerf.ecschema.xml`.
 3. The provider creates source and target iModels and opens their
    `BriefcaseDb`s.
-4. An initial full transformation establishes the target contents.
+4. The baseline transformer performs an initial full transformation to establish
+   the target contents.
 5. The provider pushes the target changes containing synchronization provenance.
 6. The recipe applies eight deterministic source changesets.
 7. Fixture validation checks the source content distribution.
-8. The scenario creates an `IModelTransformer` for the source and target.
-9. `measure()` times only `IModelTransformer.process()`.
-10. `finish()` validates synchronization provenance and semantic equality.
-11. The provider closes and deletes the sample briefcases and shuts down
-    `HubMock`.
+8. The provider captures both briefcases, version-zero seeds, and hub timelines
+   in the immutable artifact, then shuts down `HubMock`.
+
+For the warm-up and each measured sample:
+
+1. The provider validates and copies the shared artifact.
+2. It restores a private `HubMock`, source briefcase, and prepared target
+   briefcase from those bytes.
+3. The scenario creates an `IModelTransformer` for the restored source and target.
+4. `measure()` times only `IModelTransformer.process()`.
+5. `finish()` validates synchronization provenance and semantic equality.
+6. The provider closes and deletes the sample briefcases and shuts down
+   `HubMock`.
 
 The calibrated source contains 6,000 base elements, 12,000 aspects, 3,000
 relationships, and 3,000 geometric elements. Its eight changesets apply:

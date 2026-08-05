@@ -81,11 +81,13 @@ Then run commands from `packages/performance-tests`:
 | `pnpm build`                  | Type-check the performance-test package                                                               |
 | `pnpm lint`                   | Lint the performance-test sources                                                                     |
 | `pnpm test:quick-unit`        | Run the quick infrastructure unit tests                                                               |
+| `pnpm test:quick-comparison`  | Run focused isolated A/B orchestration and reporting tests                                            |
 | `pnpm test:quick-integration` | Run the database- and HubMock-backed integration tests                                                |
 | `pnpm test:quick-harness`     | Run all quick unit and integration tests; does not run the benchmark                                  |
 | `pnpm test:quick`             | Run the selected performance scenario                                                                 |
 | `pnpm quick:build-fixture`    | Compile the native ESM fixture CLI, initialize its output, and write the selected fixture descriptor  |
 | `pnpm quick:verify-fixture`   | Run one warm-up plus one measured sample, verify deterministic results, and write a diagnostic report |
+| `pnpm quick:compare`          | Compile and run the A/B coordinator against prepared baseline and candidate checkouts                 |
 
 The local benchmark default is one warm-up followed by one measured sample:
 
@@ -128,6 +130,66 @@ Each run writes:
 - `samples.jsonl`: one record for the warm-up and each measured sample.
 - `summary.json`: structured aggregate and reliability classification.
 - `summary.csv`: compact aggregate for spreadsheet or dashboard ingestion.
+
+## Pull request A/B comparison
+
+`.github/workflows/quick-performance-comparison.yml` compares a pull request's
+head SHA with its base SHA. Both checkouts build their own transformer package.
+The candidate's compiled quick harness and test-utils runtime are copied into both
+checkouts. A dedicated baseline worker authors one immutable fixture artifact
+before timing begins, and every warm-up and measured worker copies from those exact
+bytes. For incremental synchronization, that artifact includes prepared source and
+target briefcases, their version-zero seeds, and both local-hub changeset timelines.
+The target's initial full transformation and provenance therefore come from the
+baseline transformer, modeling the common upgrade path in which candidate code
+processes changes against baseline-created state. The artifact manifest hashes
+every workload file, and each worker revalidates the hash before restoring its
+private hub and briefcases.
+
+Each execution still gets a fresh Node process and module graph. Before running,
+the worker proves that Node resolved `@itwin/imodel-transformer` to the entry
+point below its assigned baseline or candidate checkout and records that build's
+version and complete compiled-output content hash. Transformer build provenance is intentionally separate
+from fixture identity, so an expected baseline/candidate transformer difference
+does not masquerade as a workload mismatch.
+
+Before any execution, one baseline worker builds the immutable fixture artifact.
+Its manifest records a SHA-256 over every captured briefcase, seed, changeset,
+props, and optional recipe-data file. Every warm-up and measured worker validates
+that hash and materializes a private copy from the same artifact, so fresh process
+isolation never regenerates the workload or repeats the initial full transform.
+
+The initial policy runs one warm-up and three measured
+`incremental-synchronization` executions per arm. The coordinator orders the
+warm-up candidate/baseline, then alternates baseline/candidate and
+candidate/baseline measured pairs. An odd measured-sample count cannot give both
+arms the same number of first positions, so this policy is alternating rather
+than position-balanced.
+
+The comparison fails when a worker fails or times out, arm configuration
+differs, or semantic digests differ. Each worker has a configurable timeout and
+is terminated, then force-killed after a short grace period if it hangs. A
+performance delta never fails the job. Successful runs publish:
+
+- `comparison.json`: baseline median, candidate median, percentage delta, raw
+  measured values, arm transformer versions, baseline fixture-authoring revision
+  and transformer version, shared fixture content hash, execution order, and
+  informational threshold status.
+- `comparison.md`: the same small result set for the Actions job summary.
+- `comparison-samples.jsonl`: all warm-up and measured sample records with arm
+  and revision labels.
+
+The five-percent threshold is a visible informational label only. Three
+measured samples do not establish statistical confidence or merge-blocking
+significance. When the candidate median exceeds that threshold, the pull-request
+workflow emits a GitHub warning annotation and remains successful.
+
+The coordinator accepts `QUICK_PERF_SCENARIO`, `QUICK_PERF_FIXTURE`,
+`QUICK_PERF_COMPARISON_SAMPLES`, and
+`QUICK_PERF_COMPARISON_THRESHOLD_PERCENT`.
+`QUICK_PERF_COMPARISON_WORKER_TIMEOUT_SECONDS` sets the positive per-process
+timeout and defaults to 600 seconds. `QUICK_PERF_BASELINE_ROOT` is required;
+candidate and revision paths are set by the workflow.
 
 ## Running the manual workflow
 
@@ -210,7 +272,8 @@ The three fixture authoring stages are intentionally distinct:
 
 The generated recipe hash includes fixture metadata, parameters, derived
 distribution, seed, topology, declared implementation/schema files,
-`pnpm-lock.yaml`, Node, core backend, and transformer versions. Identity file
+`pnpm-lock.yaml`, Node, and core backend versions. Transformer provenance is
+reported separately because it is the intentional variable in an A/B run. Identity file
 contents are newline-normalized so the same commit has the same identity across
 platforms. Declare every helper file whose implementation affects generation.
 Validation is optional and runs only when the recipe supplies it. Recipes remain
