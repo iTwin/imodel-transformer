@@ -26,7 +26,13 @@ flowchart LR
 
 The caller supplies only the strategy instance. Saving after `processSchemas()` is recommended because processing data is more efficient after schema changes have been saved.
 
-When no strategy is supplied, `NewerVersionSchemaImportStrategy` is used. Passing that strategy explicitly has the same behavior. It imports a schema when the schema is absent from the target or its source version is newer. It also uses the transformer's `shouldExportSchema()` and `onExportSchema()` overrides, so existing subclasses keep their schema selection and serialization behavior.
+When no strategy is supplied, `NewerVersionSchemaImportStrategy` is used. Passing that strategy explicitly has the same behavior. It imports a schema that is absent from the target. For an ordinary schema already present in the target, the default version rules are:
+
+- If the source version is newer, import the source schema.
+- If the versions match, skip the schema and leave the target unchanged.
+- If the target version is newer, skip the schema and leave the target unchanged.
+
+The strategy also uses the transformer's `shouldExportSchema()` and `onExportSchema()` overrides, so existing subclasses keep their schema selection and serialization behavior.
 
 ## Use dynamic schema unions when needed
 
@@ -34,7 +40,7 @@ A dynamic schema is an application-specific schema created while reading source 
 
 `DynamicSchemaUnionStrategy` is opt-in. It compares matching dynamic schemas and generates a union that preserves compatible source-only and target-only definitions. Ordinary schemas use the transformer's `shouldExportSchema()` hook, whose default behavior selects missing or newer schemas. The strategy does not call that hook for dynamic schemas because skipping one side of a dynamic schema could discard definitions that the union must preserve.
 
-Both the source and target schema must declare `CoreCustomAttributes.DynamicSchema`. If neither copy is marked, the strategy treats the schema as ordinary and does not union equal-version differences. If only one copy is marked, the strategy rejects the marker mismatch.
+For a schema to be unioned, both its source and target copies must declare `CoreCustomAttributes.DynamicSchema`. If neither copy is marked, the strategy treats the schema as ordinary and applies the version rules above, including skipping equal-version differences. If only one copy is marked, the strategy rejects the marker mismatch.
 
 ```ts
 import { DynamicSchemaUnionStrategy } from "@itwin/imodel-transformer/schema-processing";
