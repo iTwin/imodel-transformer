@@ -67,7 +67,23 @@ export class IModelCloneContext
       !this.isBetweenIModels &&
       this.findTargetElementId(sourceElement.id) === sourceElement.id
     ) {
-      targetElementProps.code = sourceElement.code.toJSON();
+      targetElementProps.code.value = sourceElement.code.value;
+      if (!Id64.isValidId64(targetElementProps.code.spec)) {
+        const mappedCodeSpecId = this.findTargetCodeSpecId(
+          sourceElement.code.spec
+        );
+        targetElementProps.code.spec = Id64.isValidId64(mappedCodeSpecId)
+          ? mappedCodeSpecId
+          : sourceElement.code.spec;
+      }
+      if (!Id64.isValidId64(targetElementProps.code.scope)) {
+        const mappedCodeScopeId = this.findTargetElementId(
+          sourceElement.code.scope
+        );
+        targetElementProps.code.scope = Id64.isValidId64(mappedCodeScopeId)
+          ? mappedCodeScopeId
+          : sourceElement.code.scope;
+      }
     }
     // Ensure that all NavigationProperties in targetElementProps have a defined value so "clearing" changes will be part of the JSON used for update
     const sourceElementClass =
