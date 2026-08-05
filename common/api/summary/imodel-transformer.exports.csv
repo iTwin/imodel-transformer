@@ -19,11 +19,17 @@ beta;const;IModelTransformerErrorScope
 beta;interface;IModelTransformOptions
 alpha;function;initializeBranchProvenance
 beta;interface;InitOptions
+beta;class;NewerVersionSchemaImportStrategy
 beta;interface;OptimizeGeometryOptions
 beta;type;ProcessChangesOptions
+beta;interface;ProcessSchemasOptions
 alpha;interface;ProvenanceInitArgs
 alpha;interface;ProvenanceInitResult
+beta;interface;ReadonlySchemaAccessor
 beta;interface;RelationshipPropsForDelete
+beta;interface;SchemaProcessingContext
+beta;type;SchemaProcessingResult
+beta;interface;SchemaProcessingStrategy
 beta;interface;TargetScopeProvenanceJsonProps
 beta;class;TemplateModelCloner
 public;enum;TransformerLoggerCategory

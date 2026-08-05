@@ -39,7 +39,6 @@ import {
   DefinitionElement,
   DefinitionModel,
   DefinitionPartition,
-  ECSchemaXmlContext,
   EditTxn,
   // eslint-disable-next-line @typescript-eslint/no-redeclare
   Element,
@@ -54,7 +53,6 @@ import {
   GeometricElement3d,
   IModelDb,
   IModelHost,
-  IModelJsFs,
   InformationPartitionElement,
   KnownLocations,
   Model,
@@ -105,6 +103,11 @@ import { EntityUnifier } from "./EntityUnifier";
 import { rangesFromRangeAndSkipped } from "./Algo";
 import { SyncTypeResolver } from "./SyncTypeResolver";
 import { ProvenanceManager } from "./ProvenanceManager";
+import {
+  NewerVersionSchemaImportStrategy,
+  ProcessSchemasOptions,
+} from "./schema-processing/SchemaProcessingStrategy";
+import { SchemaProcessingCoordinator } from "./schema-processing/SchemaProcessingCoordinator";
 import {
   ChangesetDeletionRecord,
   ChangesetDeletionRecordsByChangeset,
@@ -403,6 +406,7 @@ export interface RelationshipPropsForDelete {
 export class IModelTransformer extends IModelExportHandler {
   /** The IModelExporter that will export from the source iModel. */
   public readonly exporter: IModelExporter;
+  private readonly _schemaProcessingCoordinator: SchemaProcessingCoordinator;
   /** The IModelImporter that will import into the target iModel. */
   public readonly importer: IModelImporter;
   /** The normally read-only source iModel.
@@ -565,6 +569,14 @@ export class IModelTransformer extends IModelExportHandler {
     this.targetDb = this.importer.targetDb;
     this._targetEditTxn = this.importer.editTxn;
     this._sourceEditTxn = options?.sourceEditTxn;
+    this._schemaProcessingCoordinator = new SchemaProcessingCoordinator({
+      exporter: this.exporter,
+      targetDb: this.targetDb,
+      getSchemaExportDirectory: () => this._schemaExportDir,
+      shouldExportSchema: async (schemaKey) =>
+        this.shouldExportSchema(schemaKey),
+      serializeSourceSchema: async (schema) => this.onExportSchema(schema),
+    });
     this.exporter.elementAspectExportCoordinator.setPreparation(
       async (excludedClasses, elementIds) =>
         this.prepareElementAspects(excludedClasses, elementIds)
@@ -2009,88 +2021,26 @@ export class IModelTransformer extends IModelExportHandler {
     );
   }
 
-  private _longNamedSchemasMap = new Map<string, string>();
-
-  /** Override of [IModelExportHandler.onExportSchema]($transformer) that serializes a schema to disk for [[processSchemas]] to import into
-   * the target iModel when it is exported from the source iModel.
-   * @returns {Promise<ExportSchemaResult>} Although the type is possibly void for backwards compatibility of subclasses,
-   *                                        `IModelTransformer.onExportSchema` always returns an[[IModelExportHandler.ExportSchemaResult]]
-   *                                        with a defined `schemaPath` property, for subclasses to know where the schema was written.
-   *                                        Schemas are *not* guaranteed to be written to [[IModelTransformer._schemaExportDir]] by a
-   *                                        known pattern derivable from the schema's name, so you must use this to find it.
+  /** Serialize a source schema to the temporary directory used by [[processSchemas]].
+   * @returns A path to the serialized schema file.
+   * @note The file name is not derived reliably from the schema name. Use the returned path when a subclass calls `super`.
    */
   public override async onExportSchema(
     schema: ECSchemaMetaData.Schema
   ): Promise<void | ExportSchemaResult> {
-    const ext = ".ecschema.xml";
-    let schemaFileName = schema.name + ext;
-    // many file systems have a max file-name/path-segment size of 255, so we workaround that on all systems
-    const systemMaxPathSegmentSize = 255;
-    // windows usually has a limit for the total path length of 260
-    const windowsMaxPathLimit = 260;
-    if (
-      schemaFileName.length > systemMaxPathSegmentSize ||
-      path.join(this._schemaExportDir, schemaFileName).length >=
-        windowsMaxPathLimit
-    ) {
-      // this name should be well under 255 bytes
-      // ( 100 + (Number.MAX_SAFE_INTEGER.toString().length = 16) + (ext.length = 13) ) = 129 which is less than 255
-      // You'd have to be past 2**53-1 (Number.MAX_SAFE_INTEGER) long named schemas in order to hit decimal formatting,
-      // and that's on the scale of at least petabytes. `Map.prototype.size` shouldn't return floating points, and even
-      // if they do they're in scientific notation, size bound and contain no invalid windows path chars
-      schemaFileName = `${schema.name.slice(0, 100)}${
-        this._longNamedSchemasMap.size
-      }${ext}`;
-      nodeAssert(
-        schemaFileName.length <= systemMaxPathSegmentSize,
-        "Schema name was still long. This is a bug."
-      );
-      this._longNamedSchemasMap.set(schema.name, schemaFileName);
-    }
-    this.sourceDb.exportSchema({
-      schemaName: schema.name,
-      outputDirectory: this._schemaExportDir,
-      outputFileName: schemaFileName,
-    });
-    return { schemaPath: path.join(this._schemaExportDir, schemaFileName) };
+    return this._schemaProcessingCoordinator.serializeSourceSchema(schema);
   }
 
-  private _makeLongNameResolvingSchemaCtx(): ECSchemaXmlContext {
-    const result = new ECSchemaXmlContext();
-    result.setSchemaLocater((key) => {
-      const match = this._longNamedSchemasMap.get(key.name);
-      if (match !== undefined) return path.join(this._schemaExportDir, match);
-      return undefined;
-    });
-    return result;
-  }
-
-  /** Cause all schemas to be exported from the source iModel and imported into the target iModel.
+  /** Process source schemas and import selected or generated definitions into the target iModel.
+   * @param options Selects the schema processing strategy.
+   * @note When no strategy is supplied, [[NewerVersionSchemaImportStrategy]] is used.
    * @note For performance reasons, it is recommended that [IModelDb.saveChanges]($backend) be called after `processSchemas` is complete.
    * It is more efficient to process *data* changes after the schema changes have been saved.
    */
-  public async processSchemas(): Promise<void> {
-    // we do not need to initialize for this since no entities are exported
-    try {
-      IModelJsFs.mkdirSync(this._schemaExportDir);
-      this._longNamedSchemasMap.clear();
-      await this.exporter.exportSchemas();
-      const exportedSchemaFiles = IModelJsFs.readdirSync(this._schemaExportDir);
-      if (exportedSchemaFiles.length === 0) return;
-      const schemaFullPaths = exportedSchemaFiles.map((s) =>
-        path.join(this._schemaExportDir, s)
-      );
-      const maybeLongNameResolvingSchemaCtx =
-        this._longNamedSchemasMap.size > 0
-          ? this._makeLongNameResolvingSchemaCtx()
-          : undefined;
-      return await this.targetDb.importSchemas(schemaFullPaths, {
-        ecSchemaXmlContext: maybeLongNameResolvingSchemaCtx,
-      });
-    } finally {
-      IModelJsFs.removeSync(this._schemaExportDir);
-      this._longNamedSchemasMap.clear();
-    }
+  public async processSchemas(options?: ProcessSchemasOptions): Promise<void> {
+    return this._schemaProcessingCoordinator.process(
+      options?.strategy ?? new NewerVersionSchemaImportStrategy()
+    );
   }
 
   /** Cause all fonts to be exported from the source iModel and imported into the target iModel.

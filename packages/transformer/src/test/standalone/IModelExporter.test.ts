@@ -585,6 +585,46 @@ describe("IModelExporter", () => {
     });
   });
 
+  it("exports schemas discovered by the canonical enumerator", async () => {
+    const sourceDb = SnapshotDb.createEmpty(
+      IModelTransformerTestUtils.prepareOutputFile(
+        "IModelExporter",
+        "SchemaEnumeration.bim"
+      ),
+      { rootSubject: { name: "SchemaEnumeration" } }
+    );
+    try {
+      class Handler extends IModelExportHandler {
+        public shouldExportCount = 0;
+        public onExportCount = 0;
+
+        public override async shouldExportSchema(): Promise<boolean> {
+          ++this.shouldExportCount;
+          return true;
+        }
+
+        public override async onExportSchema(): Promise<void> {
+          ++this.onExportCount;
+        }
+      }
+
+      const handler = new Handler();
+      const exporter = new IModelExporter(sourceDb);
+      exporter.registerHandler(handler);
+      const enumeratedSchemas: string[] = [];
+      for await (const schema of exporter.enumerateSchemas()) {
+        enumeratedSchemas.push(schema.name);
+      }
+
+      await exporter.exportSchemas();
+      expect(enumeratedSchemas.length).to.be.greaterThan(0);
+      expect(handler.shouldExportCount).to.equal(enumeratedSchemas.length);
+      expect(handler.onExportCount).to.equal(enumeratedSchemas.length);
+    } finally {
+      sourceDb.close();
+    }
+  });
+
   it("throws typed errors for sources that cannot export changes", async () => {
     class TestExporter extends IModelExporter {
       public exportAllCalled = false;

@@ -31,7 +31,7 @@ export interface FixtureDistribution {
  * The *shape* of a fixture, independent of the change mix a recipe applies to it.
  *
  * - `source-and-empty-target`: a source briefcase plus an empty target that has been transformed
- *   into. Requires a live hub at measure time, so its working copy is a full per-sample rebuild.
+ *   into. Its prepared hub state is captured once and restored from immutable files per sample.
  * - `source-only`: a source briefcase and its pushed changeset files, with no target and no hub at
  *   measure time. Built once into an immutable artifact and copied per sample.
  */

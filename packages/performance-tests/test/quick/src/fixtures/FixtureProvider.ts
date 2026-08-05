@@ -19,7 +19,7 @@ interface PreparedDatasetBase {
   readonly reconstructionMilliseconds: number;
 }
 
-/** A live local test hub with an open source briefcase and an already-transformed-into target. */
+/** A restored local test hub with an open source briefcase and an already-transformed-into target. */
 export interface PreparedLiveHubDataset extends PreparedDatasetBase {
   readonly topology: "source-and-empty-target";
   readonly hub: ReconstructedHub;
@@ -74,9 +74,8 @@ export function fixtureWorkingDirectory(
 /**
  * The result of stage 1.
  *
- * `artifact` is present only for topologies that can be captured as relocatable bytes. A
- * live-hub topology cannot: its measured region re-enters the hub, so there is nothing to
- * capture and stage 1 is structural only.
+ * `artifact` contains the immutable files from which each sample is reconstructed. Live-hub
+ * artifacts include source and target briefcases, version-zero seeds, and both hub timelines.
  */
 export interface BuiltFixture {
   readonly fixture: ConfiguredFixture;
