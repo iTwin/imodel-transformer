@@ -222,7 +222,13 @@ than position-balanced.
 The comparison fails when a worker fails or times out, arm configuration
 differs, or semantic digests differ. Each worker has a configurable timeout and
 is terminated, then force-killed after a short grace period if it hangs. A
-performance delta never fails the job. Successful runs publish:
+performance delta never fails the job.
+
+For standalone full transformation, the semantic digest is a target output-shape
+digest containing entity counts by class. It keeps A/B arms comparable without
+duplicating source-to-target correctness assertions from the transformer test suite.
+
+Successful runs publish:
 
 - `comparison.json`: baseline median, candidate median, percentage delta, raw
   measured values, arm transformer versions, baseline fixture-authoring revision

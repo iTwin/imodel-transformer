@@ -35,7 +35,7 @@ A `BenchmarkScenarioDefinition` contains:
 The created `BenchmarkScenario` separates:
 
 - `measure()`: the transformer operation included in benchmark wall time.
-- `finish()`: untimed correctness and provenance validation.
+- `finish()`: untimed output-comparability and provenance validation.
 - `abort()`: cleanup when measurement or validation fails.
 
 The current `incremental-synchronization` scenario measures
@@ -43,7 +43,11 @@ The current `incremental-synchronization` scenario measures
 `BriefcaseDb` into an existing target `BriefcaseDb`.
 The `standalone-full-transformation` scenario measures a full
 `IModelTransformer.process()` from a read-only `SnapshotDb` into a newly empty
-`SnapshotDb`. Its schema processing and correctness checks are untimed.
+`SnapshotDb`. Its schema processing and output-shape digest are untimed. The digest
+summarizes target entity counts by class so A/B comparison proceeds only when both
+arms produced the same structural workload. It does not assert source-to-target
+correctness; detailed transformation correctness remains the responsibility of the
+transformer test suite.
 
 #### Recipe
 
@@ -323,10 +327,13 @@ opens the private source read-only, and creates a fresh empty target. Scenario
 `IModelTransformer.process()` with source geometry enabled and provenance
 disabled, matching the full-transform setup in
 `packages/transformer/src/test/standalone/TransformerPerf.test.ts`. `finish()`
-saves and ends the target edit transaction, checks element and physical-element
-results, and computes the semantic digest. `abort()` disposes transformer/edit
-state; provider disposal attempts to close both databases before the runner
-removes the sample directory.
+saves and ends the target edit transaction and queries entity totals by class to
+compute a stable target output-shape digest. The A/B coordinator
+requires that digest to match between arms, but the scenario does not compare the
+target with the source. This is a benchmark comparability check, not a duplicate
+full-transformation correctness suite. `abort()` disposes transformer/edit state;
+provider disposal attempts to close both databases before the runner removes the
+sample directory.
 
 External BIMs must be standalone snapshots readable by the installed
 `@itwin/core-backend`. Hub briefcases, corrupt files, incompatible profiles or
@@ -390,7 +397,7 @@ the measured region. Fixture generation, initial target transformation,
 provenance setup, validation, and cleanup remain outside it.
 The standalone full-transform scenario additionally places
 `processSchemas()` in untimed `prepare()`; target creation, edit-transaction
-setup, correctness checks, and disposal remain outside the measured region.
+setup, output-shape digest, and disposal remain outside the measured region.
 
 ## Reporting and reliability
 

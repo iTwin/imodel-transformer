@@ -3,7 +3,7 @@
  * See LICENSE.md in the project root for license terms and full copyright notice.
  *--------------------------------------------------------------------------------------------*/
 
-import { EditTxn, PhysicalObject, SnapshotDb } from "@itwin/core-backend";
+import { EditTxn, SnapshotDb } from "@itwin/core-backend";
 import { IModelTransformer } from "@itwin/imodel-transformer";
 import { canonicalSha256 } from "../fixtures/FixtureDescriptor.js";
 import {
@@ -16,62 +16,6 @@ import {
   BenchmarkScenario,
   BenchmarkScenarioDefinition,
 } from "../framework/BenchmarkScenario.js";
-
-async function queryCount(db: SnapshotDb, ecsql: string): Promise<number> {
-  const reader = db.createQueryReader(ecsql, undefined, {
-    usePrimaryConn: true,
-  });
-  if (!(await reader.step()))
-    throw new Error(
-      `Standalone transform count query returned no row: ${ecsql}`
-    );
-  return reader.current.cnt as number;
-}
-
-async function physicalElementIdentity(db: SnapshotDb): Promise<unknown[]> {
-  const rows: unknown[] = [];
-  const reader = db.createQueryReader(
-    `SELECT ECInstanceId id, ec_classname(ECClassId, 's.c') className, UserLabel userLabel
-     FROM bis.PhysicalElement
-     ORDER BY className, userLabel, ECInstanceId`,
-    undefined,
-    { usePrimaryConn: true }
-  );
-  while (await reader.step()) {
-    const element = db.elements.getElement<PhysicalObject>({
-      id: reader.current.id as string,
-      wantGeometry: true,
-    });
-    const category = db.elements.getElement(element.category);
-    const model = db.models.getModel(element.model);
-    const modeledElement = db.elements.getElement(model.modeledElement.id);
-    const range = element.calculateRange3d();
-    rows.push({
-      category: {
-        className: category.classFullName,
-        code: category.code.value,
-        label: category.userLabel,
-      },
-      className: reader.current.className,
-      code: element.code.value,
-      geometry: element.geom,
-      model: {
-        className: model.classFullName,
-        code: modeledElement.code.value,
-        label: modeledElement.userLabel,
-      },
-      placement: {
-        angles: element.placement.angles.toJSON(),
-        origin: element.placement.origin.toJSON(),
-      },
-      range: range.isNull
-        ? undefined
-        : { low: range.low.toJSON(), high: range.high.toJSON() },
-      userLabel: reader.current.userLabel,
-    });
-  }
-  return rows;
-}
 
 async function classDistribution(
   db: SnapshotDb,
@@ -104,42 +48,8 @@ async function structuralIdentity(db: SnapshotDb): Promise<unknown> {
   return { aspects, elements, models, relationships };
 }
 
-async function assertFullTransformation(
-  sourceDb: SnapshotDb,
-  targetDb: SnapshotDb
-): Promise<string> {
-  const [
-    sourceElements,
-    targetElements,
-    sourcePhysical,
-    targetPhysical,
-    sourceStructure,
-    targetStructure,
-  ] = await Promise.all([
-    queryCount(sourceDb, "SELECT count(*) cnt FROM bis.Element"),
-    queryCount(targetDb, "SELECT count(*) cnt FROM bis.Element"),
-    physicalElementIdentity(sourceDb),
-    physicalElementIdentity(targetDb),
-    structuralIdentity(sourceDb),
-    structuralIdentity(targetDb),
-  ]);
-  if (targetElements !== sourceElements)
-    throw new Error(
-      `Standalone full transform element-count mismatch: source=${sourceElements}, target=${targetElements}`
-    );
-  if (canonicalSha256(sourcePhysical) !== canonicalSha256(targetPhysical))
-    throw new Error(
-      `Standalone full transform physical-element mismatch: source=${sourcePhysical.length}, target=${targetPhysical.length}`
-    );
-  if (canonicalSha256(sourceStructure) !== canonicalSha256(targetStructure))
-    throw new Error(
-      "Standalone full transform structural distribution mismatch"
-    );
-  return canonicalSha256({
-    elementCount: targetElements,
-    physicalElements: targetPhysical,
-    structure: targetStructure,
-  });
+async function outputShapeDigest(targetDb: SnapshotDb): Promise<string> {
+  return canonicalSha256(await structuralIdentity(targetDb));
 }
 
 export function standaloneFullTransformation(
@@ -170,7 +80,7 @@ export function standaloneFullTransformation(
     async finish() {
       editTxn.saveChanges("complete quick standalone full transformation");
       dispose();
-      return assertFullTransformation(sourceDb, targetDb);
+      return outputShapeDigest(targetDb);
     },
   };
 }
