@@ -60,6 +60,8 @@ function distribution(
   };
 }
 
+// Keep this local: the transformer helper is not exported, while the legacy
+// performance helper pulls test-only dependencies into the compiled CLI.
 function createBoxGeometry() {
   const builder = new GeometryStreamBuilder();
   const box = Box.createRange(
