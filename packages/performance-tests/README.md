@@ -135,11 +135,16 @@ Each run writes:
 
 `.github/workflows/quick-performance-comparison.yml` compares a pull request's
 head SHA with its base SHA. Both checkouts build their own transformer package.
-The candidate's compiled quick harness is copied into both checkouts. A dedicated
-candidate worker authors one immutable fixture artifact before timing begins,
-and every warm-up and measured worker copies from those exact bytes. The artifact
-manifest hashes every workload file, and each worker revalidates the hash before
-materializing its pristine copy.
+The candidate's compiled quick harness and test-utils runtime are copied into both
+checkouts. A dedicated baseline worker authors one immutable fixture artifact
+before timing begins, and every warm-up and measured worker copies from those exact
+bytes. For incremental synchronization, that artifact includes prepared source and
+target briefcases, their version-zero seeds, and both local-hub changeset timelines.
+The target's initial full transformation and provenance therefore come from the
+baseline transformer, modeling the common upgrade path in which candidate code
+processes changes against baseline-created state. The artifact manifest hashes
+every workload file, and each worker revalidates the hash before restoring its
+private hub and briefcases.
 
 Each execution still gets a fresh Node process and module graph. Before running,
 the worker proves that Node resolved `@itwin/imodel-transformer` to the entry
@@ -148,17 +153,18 @@ version and complete compiled-output content hash. Transformer build provenance 
 from fixture identity, so an expected baseline/candidate transformer difference
 does not masquerade as a workload mismatch.
 
-Before any execution, one candidate worker builds the immutable detached
-fixture artifact. Its manifest records a SHA-256 over the briefcase, changeset,
-props, and optional recipe-data bytes. Every warm-up and measured worker
-validates that hash and materializes a private copy from the same artifact, so
-fresh process isolation never regenerates the workload.
+Before any execution, one baseline worker builds the immutable fixture artifact.
+Its manifest records a SHA-256 over every captured briefcase, seed, changeset,
+props, and optional recipe-data file. Every warm-up and measured worker validates
+that hash and materializes a private copy from the same artifact, so fresh process
+isolation never regenerates the workload or repeats the initial full transform.
 
 The initial policy runs one warm-up and three measured
-`changeset-scanning` executions per arm. The coordinator orders the warm-up candidate/baseline,
-then alternates baseline/candidate and candidate/baseline measured pairs. An odd
-measured-sample count cannot give both arms the same number of first positions,
-so this policy is alternating rather than position-balanced.
+`incremental-synchronization` executions per arm. The coordinator orders the
+warm-up candidate/baseline, then alternates baseline/candidate and
+candidate/baseline measured pairs. An odd measured-sample count cannot give both
+arms the same number of first positions, so this policy is alternating rather
+than position-balanced.
 
 The comparison fails when a worker fails or times out, arm configuration
 differs, or semantic digests differ. Each worker has a configurable timeout and
@@ -166,8 +172,9 @@ is terminated, then force-killed after a short grace period if it hangs. A
 performance delta never fails the job. Successful runs publish:
 
 - `comparison.json`: baseline median, candidate median, percentage delta, raw
-  measured values, arm transformer versions, shared fixture content hash,
-  execution order, and informational threshold status.
+  measured values, arm transformer versions, baseline fixture-authoring revision
+  and transformer version, shared fixture content hash, execution order, and
+  informational threshold status.
 - `comparison.md`: the same small result set for the Actions job summary.
 - `comparison-samples.jsonl`: all warm-up and measured sample records with arm
   and revision labels.

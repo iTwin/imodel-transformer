@@ -6,7 +6,10 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { AccessToken } from "@itwin/core-bentley";
-import { installCheckpointDownload } from "@itwin/imodel-transformer-test-utils";
+import {
+  installCheckpointDownload,
+  LocalTestHubSnapshot,
+} from "@itwin/imodel-transformer-test-utils";
 import {
   BriefcaseDb,
   BriefcaseManager,
@@ -264,6 +267,76 @@ export async function reconstructHub(
       };
     }
   );
+}
+
+export async function restoreHub(
+  outputDir: string,
+  mockName: string,
+  snapshot: LocalTestHubSnapshot,
+  sourceBriefcaseFileName: string,
+  targetBriefcaseFileName: string
+): Promise<ReconstructedHub> {
+  if (quickTestHub.isActive)
+    throw new Error("Only one quick test hub may be active");
+  quickTestHub.restore(mockName, outputDir, snapshot);
+  try {
+    restoreCheckpointDownload = installCheckpointDownload(quickTestHub);
+  } catch (error) {
+    try {
+      stopQuickTestHub();
+    } catch (cleanupError) {
+      throw new AggregateError(
+        [error, cleanupError],
+        "Quick test hub restoration and cleanup both failed"
+      );
+    }
+    throw error;
+  }
+
+  const sourceSnapshot = snapshot.iModels[0];
+  const targetSnapshot = snapshot.iModels[1];
+  if (!sourceSnapshot || !targetSnapshot) {
+    const snapshotError = new Error(
+      "A restored incremental fixture requires source and target iModels"
+    );
+    try {
+      stopQuickTestHub();
+    } catch (cleanupError) {
+      throw new AggregateError(
+        [snapshotError, cleanupError],
+        "Restored hub validation and cleanup both failed"
+      );
+    }
+    throw snapshotError;
+  }
+
+  const opened: BriefcaseDb[] = [];
+  try {
+    const sourceDb = await BriefcaseDb.open({
+      fileName: sourceBriefcaseFileName,
+    });
+    opened.push(sourceDb);
+    const targetDb = await BriefcaseDb.open({
+      fileName: targetBriefcaseFileName,
+    });
+    opened.push(targetDb);
+    return {
+      accessToken: snapshot.accessToken,
+      iTwinId: snapshot.iTwinId,
+      sourceDb,
+      sourceIModelId: sourceSnapshot.iModelId,
+      targetDb,
+      targetIModelId: targetSnapshot.iModelId,
+    };
+  } catch (error) {
+    const cleanupErrors = await cleanupHub(snapshot.accessToken, opened);
+    if (cleanupErrors.length > 0)
+      throw new AggregateError(
+        [error, ...cleanupErrors],
+        "Restored hub opening and cleanup both failed"
+      );
+    throw error;
+  }
 }
 
 export async function disposeReconstructedHub(
