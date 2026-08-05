@@ -430,6 +430,44 @@ describe("Schema processing", () => {
     expect(newer.targetDb.querySchemaVersion("SchemaHook")).to.equal("1.0.1");
   });
 
+  it("skips equal-version ordinary schemas and unions equal-version dynamic schemas", async () => {
+    const ordinarySchema = (itemName: string) => `<?xml version="1.0"?>
+      <ECSchema schemaName="OrdinarySameVersion" alias="osv" version="01.00.00" xmlns="http://www.bentley.com/schemas/Bentley.ECXML.3.2">
+        <ECSchemaReference name="BisCore" version="01.00.00" alias="bis"/>
+        <ECEntityClass typeName="${itemName}">
+          <BaseClass>bis:PhysicalElement</BaseClass>
+        </ECEntityClass>
+      </ECSchema>`;
+    const ordinary = await createFixture(
+      "OrdinarySameVersion",
+      [ordinarySchema("SourceOnly")],
+      [ordinarySchema("TargetOnly")]
+    );
+    await ordinary.transformer.processSchemas({
+      strategy: new DynamicSchemaUnionStrategy(),
+    });
+    expect(ordinary.targetDb.containsClass("OrdinarySameVersion:SourceOnly")).to
+      .be.false;
+    expect(ordinary.targetDb.containsClass("OrdinarySameVersion:TargetOnly")).to
+      .be.true;
+
+    const dynamic = await createFixture(
+      "DynamicSameVersion",
+      [dynamicSchema("DynamicSameVersion", "01.00.00", "SourceOnly")],
+      [dynamicSchema("DynamicSameVersion", "01.00.00", "TargetOnly")]
+    );
+    await dynamic.transformer.processSchemas({
+      strategy: new DynamicSchemaUnionStrategy(),
+    });
+    expect(dynamic.targetDb.querySchemaVersion("DynamicSameVersion")).to.equal(
+      "1.0.1"
+    );
+    expect(dynamic.targetDb.containsClass("DynamicSameVersion:SourceOnly")).to
+      .be.true;
+    expect(dynamic.targetDb.containsClass("DynamicSameVersion:TargetOnly")).to
+      .be.true;
+  });
+
   it("unions dynamic schemas with dependencies and skips no-op differences", async () => {
     const sourceSchemas = [
       dynamicSchema("Dynamic", "01.00.07", "SourceOnly"),

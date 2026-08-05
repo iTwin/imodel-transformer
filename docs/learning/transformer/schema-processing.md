@@ -6,10 +6,10 @@ An iModel schema defines the classes, properties, relationships, and other metad
 
 `processSchemas()` accepts a `SchemaProcessingStrategy`. A strategy receives source schemas in dependency order and decides which definitions the transformer should import. It can inspect target schemas through a read-only accessor. The transformer owns serialization, long schema-name handling, import, and temporary-file cleanup.
 
-| Strategy | Use it when |
-|---|---|
+| Strategy                           | Use it when                                                                                                 |
+| ---------------------------------- | ----------------------------------------------------------------------------------------------------------- |
 | `NewerVersionSchemaImportStrategy` | The source schemas follow normal versioning and the target should import schemas that are missing or older. |
-| `DynamicSchemaUnionStrategy` | Source and target iModels may contain different compatible additions to the same dynamic schema. |
+| `DynamicSchemaUnionStrategy`       | Source and target iModels may contain different compatible additions to the same dynamic schema.            |
 
 Call `processSchemas()` before `process()`. The transformer does not process schemas automatically because a target may need a different schema policy from its data transformation policy.
 
@@ -33,6 +33,8 @@ When no strategy is supplied, `NewerVersionSchemaImportStrategy` is used. Passin
 A dynamic schema is an application-specific schema created while reading source data whose shape is not fully known in advance, such as data with user-defined classes or properties. These schemas use the `CoreCustomAttributes.DynamicSchema` custom attribute. Different source files or worksets can produce schemas with the same name and version but different valid additions.
 
 `DynamicSchemaUnionStrategy` is opt-in. It compares matching dynamic schemas and generates a union that preserves compatible source-only and target-only definitions. Ordinary schemas use the transformer's `shouldExportSchema()` hook, whose default behavior selects missing or newer schemas. The strategy does not call that hook for dynamic schemas because skipping one side of a dynamic schema could discard definitions that the union must preserve.
+
+Both the source and target schema must declare `CoreCustomAttributes.DynamicSchema`. If neither copy is marked, the strategy treats the schema as ordinary and does not union equal-version differences. If only one copy is marked, the strategy rejects the marker mismatch.
 
 ```ts
 import { DynamicSchemaUnionStrategy } from "@itwin/imodel-transformer/schema-processing";
