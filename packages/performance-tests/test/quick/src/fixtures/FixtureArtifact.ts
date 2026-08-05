@@ -94,6 +94,23 @@ export interface FixtureArtifact {
   readonly manifest: FixtureArtifactManifest;
 }
 
+/** Hash a file in bounded memory so large BIM artifacts do not require one full-size buffer. */
+export function sha256File(fileName: string): string {
+  const hash = createHash("sha256");
+  const file = fs.openSync(fileName, "r");
+  try {
+    const buffer = Buffer.allocUnsafe(1024 * 1024);
+    let bytesRead: number;
+    do {
+      bytesRead = fs.readSync(file, buffer, 0, buffer.length, null);
+      hash.update(buffer.subarray(0, bytesRead));
+    } while (bytesRead > 0);
+  } finally {
+    fs.closeSync(file);
+  }
+  return hash.digest("hex");
+}
+
 function artifactContentFiles(directory: string, relative = ""): string[] {
   return fs
     .readdirSync(path.join(directory, relative), { withFileTypes: true })
@@ -110,11 +127,11 @@ function artifactContentFiles(directory: string, relative = ""): string[] {
 export function fixtureArtifactContentHash(directory: string): string {
   const entries = artifactContentFiles(directory)
     .map((relative) => {
-      const contents = fs.readFileSync(path.join(directory, relative));
+      const fileName = path.join(directory, relative);
       return {
         path: relative.replaceAll(path.sep, "/"),
-        byteLength: contents.byteLength,
-        sha256: createHash("sha256").update(contents).digest("hex"),
+        byteLength: fs.statSync(fileName).size,
+        sha256: sha256File(fileName),
       };
     })
     .sort((left, right) => left.path.localeCompare(right.path));
@@ -446,9 +463,7 @@ export function readFixtureArtifact(directory: string): FixtureArtifact {
       throw new Error(
         `Fixture artifact is missing its standalone source: ${source}`
       );
-    const sourceSha256 = createHash("sha256")
-      .update(fs.readFileSync(source))
-      .digest("hex");
+    const sourceSha256 = sha256File(source);
     if (sourceSha256 !== manifest.standalone.sourceSha256)
       throw new Error(
         `Fixture artifact standalone source hash is ${sourceSha256} but its manifest declares ${manifest.standalone.sourceSha256}`

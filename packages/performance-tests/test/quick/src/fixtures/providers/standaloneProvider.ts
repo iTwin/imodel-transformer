@@ -3,7 +3,6 @@
  * See LICENSE.md in the project root for license terms and full copyright notice.
  *--------------------------------------------------------------------------------------------*/
 
-import { createHash } from "node:crypto";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { SnapshotDb } from "@itwin/core-backend";
@@ -17,6 +16,7 @@ import {
   FixtureArtifactManifest,
   fixtureArtifactVersion,
   readFixtureArtifact,
+  sha256File,
   writeFixtureArtifactManifest,
 } from "../FixtureArtifact.js";
 import {
@@ -30,10 +30,6 @@ import {
   assertExternalFixtureSourceOutsideDirectory,
   ConfiguredFixture,
 } from "../FixtureRecipe.js";
-
-function sha256(fileName: string): string {
-  return createHash("sha256").update(fs.readFileSync(fileName)).digest("hex");
-}
 
 function openStandaloneSource(
   fileName: string,
@@ -97,7 +93,7 @@ export const standaloneFixtureProvider: FixtureProvider = {
         path.join(artifactDir, artifactChangesetPropsFileName),
         "[]\n"
       );
-      const sourceSha256 = sha256(sourceFile);
+      const sourceSha256 = sha256File(sourceFile);
       if (
         descriptor.source !== undefined &&
         descriptor.source.sha256 !== sourceSha256

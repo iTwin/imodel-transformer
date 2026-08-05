@@ -4,7 +4,7 @@
  *--------------------------------------------------------------------------------------------*/
 
 import * as fs from "node:fs";
-import { createHash } from "node:crypto";
+
 import { createRequire } from "node:module";
 import * as path from "node:path";
 import { AccessToken } from "@itwin/core-bentley";
@@ -17,6 +17,7 @@ import {
   FixtureTopology,
   fixtureWorkloadGeneratorIdentity,
 } from "./FixtureDescriptor.js";
+import { sha256File } from "./FixtureArtifact.js";
 import { quickRootDirectory } from "../support/paths.js";
 
 const localRequire = createRequire(import.meta.url);
@@ -238,22 +239,6 @@ export function withExternalFixtureSourceIdentity(
   return Object.freeze({ ...fixture, descriptor });
 }
 
-function fileSha256(fileName: string): string {
-  const hash = createHash("sha256");
-  const file = fs.openSync(fileName, "r");
-  try {
-    const buffer = Buffer.allocUnsafe(1024 * 1024);
-    let bytesRead: number;
-    do {
-      bytesRead = fs.readSync(file, buffer, 0, buffer.length, null);
-      hash.update(buffer.subarray(0, bytesRead));
-    } while (bytesRead > 0);
-  } finally {
-    fs.closeSync(file);
-  }
-  return hash.digest("hex");
-}
-
 /**
  * Bind external standalone bytes to a configured fixture without changing the catalog entry.
  * The recipe still identifies the fixture contract; the derived hash adds the external identity.
@@ -282,7 +267,7 @@ export function withExternalFixtureSource(
     kind: "external-bim",
     fileName: path.basename(resolved),
     byteLength: stat.size,
-    sha256: fileSha256(resolved),
+    sha256: sha256File(resolved),
   });
   const identified = withExternalFixtureSourceIdentity(fixture, source);
   return Object.freeze({
