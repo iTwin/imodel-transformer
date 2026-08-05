@@ -10,6 +10,10 @@ Package-owned schema conflicts and dependency cycles use `IModelTransformerError
 
 Applications using the optional schema-processing subpath must provide compatible `@itwin/ecschema-editing` and `@itwin/ecschema-locaters` peer dependencies. The new package `exports` map exposes the root package, `schema-processing`, and `package.json`; undocumented deep imports are no longer supported.
 
+## Preserve channel roots during synchronization
+
+`IModelTransformOptions.includeSourceChannelRootAspects` can now be set to `true` to preserve source editing-channel boundaries in the target. The default remains `false`, so existing transformations continue to exclude source `ChannelRootAspect` instances.
+
 ## Breaking change: `IModelTransformer.context` exposes a supported transformation contract
 
 `IModelTransformer.context` is now typed as `IModelTransformContext`. The interface supports target lookup, explicit mappings for elements, element aspects, element classes, and CodeSpecs, and SubCategory filtering. Cloning operations, source and target database access, native resource management, context persistence, and other `IModelCloneContext` implementation details are no longer accessible through the public property.
