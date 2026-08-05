@@ -8,6 +8,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { BriefcaseDb } from "@itwin/core-backend";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { fixtureWorkloadGeneratorIdentity } from "../../src/fixtures/FixtureDescriptor.js";
 import {
   configureFixture,
   defineFixtureRecipe,
@@ -93,6 +94,20 @@ describe("configured fixture derivation", () => {
     expect(first.descriptor.generator.node).to.equal(process.version);
     expect(first.descriptor.layout.recipe).to.equal(first.recipeId);
     expect("validate" in first).to.equal(false);
+  });
+
+  it("keeps arm transformer versions outside workload identity", () => {
+    const baseline = fixtureWorkloadGeneratorIdentity({
+      coreBackend: "5.10.3",
+      node: "24.18.0",
+      transformer: "1.9.0",
+    });
+    const candidate = fixtureWorkloadGeneratorIdentity({
+      coreBackend: "5.10.3",
+      node: "24.18.0",
+      transformer: "2.0.0",
+    });
+    expect(baseline).to.deep.equal(candidate);
   });
 
   it("invalidates identity for parameters, topology, implementation, and schema", () => {

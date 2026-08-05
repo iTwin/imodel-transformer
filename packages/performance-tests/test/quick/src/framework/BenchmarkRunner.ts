@@ -22,11 +22,18 @@ import {
 } from "../fixtures/FixtureDescriptor.js";
 import { ConfiguredFixture } from "../fixtures/FixtureRecipe.js";
 import {
+  FixtureArtifactManifest,
+  readFixtureArtifact,
+} from "../fixtures/FixtureArtifact.js";
+import {
+  BuiltFixture,
   getFixtureProvider,
   PreparedDataset,
+  requireFixtureArtifact,
 } from "../fixtures/FixtureProvider.js";
 import { quickTestHub } from "../fixtures/QuickTestHub.js";
 import { quickPath } from "../support/paths.js";
+import { TransformerProvenance } from "../comparison/TransformerProvenance.js";
 
 export const benchmarkOutputMarkerName =
   ".imodel-transformer-quick-performance";
@@ -111,6 +118,7 @@ export interface BenchmarkSample {
   readonly fixtureId: string;
   readonly fixtureGenerator: FixtureDescriptor["generator"];
   readonly fixtureRecipeHash: string;
+  readonly fixtureContentHash?: string;
   readonly fixtureVersion: number;
   readonly measured: boolean;
   readonly operations: FixtureDescriptor["distribution"]["operations"];
@@ -125,8 +133,14 @@ export interface BenchmarkSample {
   readonly semanticDigest: string;
   readonly teardownMilliseconds: number;
   readonly topology: FixtureTopology;
+  readonly transformerProvenance?: TransformerProvenance;
   readonly verificationMilliseconds: number;
   readonly wallMilliseconds: number;
+}
+
+interface BenchmarkExecution {
+  readonly measured: boolean;
+  readonly sample: number;
 }
 
 export class BenchmarkRunner {
@@ -145,19 +159,149 @@ export class BenchmarkRunner {
       throw new Error(
         "Quick performance requires at least one measured sample"
       );
+    return this.runExecutions([
+      { measured: false, sample: 0 },
+      ...Array.from({ length: measuredSamples }, (_, index) => ({
+        measured: true,
+        sample: index + 1,
+      })),
+    ]);
+  }
+
+  /**
+   * Run one explicitly identified execution. Comparison orchestration uses this to place every arm
+   * execution in its own process while retaining the normal provider and scenario lifecycle.
+   */
+  public async runSample(
+    sample: number,
+    measured: boolean,
+    fixtureArtifactDirectory?: string,
+    transformerProvenance?: TransformerProvenance
+  ): Promise<BenchmarkSample> {
+    if (!Number.isSafeInteger(sample) || sample < 0 || measured !== sample > 0)
+      throw new Error(
+        "Quick performance sample zero must be the warm-up and positive samples must be measured"
+      );
+    const [result] = await this.runExecutions(
+      [{ measured, sample }],
+      fixtureArtifactDirectory,
+      transformerProvenance
+    );
+    return result;
+  }
+
+  /**
+   * Author one immutable comparison artifact. The caller owns its lifetime so independent worker
+   * processes can materialize all warm-ups and measured samples from these exact bytes.
+   */
+  public async buildReusableFixtureArtifact(
+    artifactDirectory: string
+  ): Promise<FixtureArtifactManifest> {
+    if (this._fixture.descriptor.layout.topology !== "source-only")
+      throw new Error(
+        `Reusable comparison artifacts require a "source-only" fixture; received "${this._fixture.descriptor.layout.topology}"`
+      );
+    assertSafeBenchmarkOutputPath(artifactDirectory);
+    const stagingDirectory = `${artifactDirectory}.building`;
+    fs.rmSync(stagingDirectory, { recursive: true, force: true });
+    fs.rmSync(artifactDirectory, { recursive: true, force: true });
+    const provider = getFixtureProvider(this._fixture.descriptor);
+    let built: BuiltFixture | undefined;
+    let completed = false;
+    let shutdownSucceeded = false;
+    return runWithCleanup(async () => {
+      await IModelHost.startup({ hubAccess: quickTestHub });
+      const manifest = await runWithCleanup(async () => {
+        built = await provider.build(this._fixture, stagingDirectory);
+        requireFixtureArtifact(built);
+        fs.cpSync(stagingDirectory, artifactDirectory, { recursive: true });
+        return readFixtureArtifact(artifactDirectory).manifest;
+      }, [
+        {
+          name: "dispose staged reusable quick performance fixture build",
+          run: async () => {
+            try {
+              if (built) await provider.disposeBuild(built);
+            } finally {
+              fs.rmSync(stagingDirectory, { recursive: true, force: true });
+            }
+          },
+        },
+      ]);
+      completed = true;
+      return manifest;
+    }, [
+      {
+        name: "shut down IModelHost after reusable fixture build",
+        run: async () => {
+          if (IModelHost.isValid) await IModelHost.shutdown();
+          shutdownSucceeded = true;
+        },
+      },
+      {
+        name: "remove incomplete reusable fixture artifact",
+        run: () => {
+          if (!completed || !shutdownSucceeded)
+            fs.rmSync(artifactDirectory, { recursive: true, force: true });
+        },
+      },
+    ]);
+  }
+
+  private async runExecutions(
+    executions: readonly BenchmarkExecution[],
+    fixtureArtifactDirectory?: string,
+    transformerProvenance?: TransformerProvenance
+  ): Promise<BenchmarkSample[]> {
     prepareBenchmarkOutputDirectory(this._outputDir);
-    const { descriptor } = this._fixture;
-    const provider = getFixtureProvider(descriptor);
     const samples: BenchmarkSample[] = [];
     await runWithCleanup(async () => {
       await IModelHost.startup({ hubAccess: quickTestHub });
-      // Stage 1: build the fixture exactly once, outside the sample loop.
-      const built = await provider.build(
-        this._fixture,
-        path.join(this._outputDir, fixtureArtifactDirectoryName)
-      );
+      let ownsBuild = true;
+      let built: BuiltFixture;
+      if (fixtureArtifactDirectory === undefined) {
+        built = await getFixtureProvider(this._fixture.descriptor).build(
+          this._fixture,
+          path.join(this._outputDir, fixtureArtifactDirectoryName)
+        );
+      } else {
+        const artifact = readFixtureArtifact(fixtureArtifactDirectory);
+        const localIdentity = JSON.stringify({
+          ...this._fixture.descriptor,
+          generator: {
+            coreBackend: this._fixture.descriptor.generator.coreBackend,
+            node: this._fixture.descriptor.generator.node,
+          },
+        });
+        const artifactIdentity = JSON.stringify({
+          ...artifact.manifest.descriptor,
+          generator: {
+            coreBackend: artifact.manifest.descriptor.generator.coreBackend,
+            node: artifact.manifest.descriptor.generator.node,
+          },
+        });
+        if (localIdentity !== artifactIdentity)
+          throw new Error(
+            "Reusable fixture artifact does not match the configured candidate workload"
+          );
+        assertScenarioSupportsFixture(
+          this._scenario,
+          artifact.manifest.descriptor
+        );
+        built = {
+          artifact,
+          buildMilliseconds: artifact.manifest.buildMilliseconds,
+          descriptor: artifact.manifest.descriptor,
+          directory: artifact.directory,
+          fixture: this._fixture,
+        };
+        ownsBuild = false;
+      }
+      const { descriptor } = built;
+      const provider = getFixtureProvider(descriptor);
       await runWithCleanup(async () => {
-        for (let sample = 0; sample <= measuredSamples; sample++) {
+        for (const execution of executions) {
+          const { measured, sample } = execution;
           const sampleDir = path.join(this._outputDir, `sample-${sample}`);
           let dataset: PreparedDataset | undefined;
           let scenario: BenchmarkScenario | undefined;
@@ -214,9 +358,10 @@ export class BenchmarkRunner {
               fixtureBuildMilliseconds: built.buildMilliseconds,
               fixtureGenerator: descriptor.generator,
               fixtureId: descriptor.id,
+              fixtureContentHash: built.artifact?.manifest.contentHash,
               fixtureRecipeHash: descriptor.recipeHash,
               fixtureVersion: descriptor.version,
-              measured: sample !== 0,
+              measured,
               operations: descriptor.distribution.operations,
               reconstructionMilliseconds: dataset.reconstructionMilliseconds,
               reportSchemaVersion: benchmarkReportSchemaVersion,
@@ -225,6 +370,7 @@ export class BenchmarkRunner {
               scenarioId: this._scenario.id,
               semanticDigest,
               topology: descriptor.layout.topology,
+              transformerProvenance,
               verificationMilliseconds,
               wallMilliseconds,
             };
@@ -247,7 +393,7 @@ export class BenchmarkRunner {
         {
           name: "dispose quick performance fixture build",
           run: async () => {
-            await provider.disposeBuild(built);
+            if (ownsBuild) await provider.disposeBuild(built);
           },
         },
       ]);
