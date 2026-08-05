@@ -20,6 +20,7 @@ import {
   ComparisonReporter,
   ComparisonSummary,
 } from "./ComparisonReport.js";
+import { isIModelInventory } from "../fixtures/IModelInventory.js";
 
 export const defaultComparisonMeasuredSamples = 3;
 export const defaultInformationalThresholdPercent = 5;
@@ -116,6 +117,15 @@ export function comparisonArmWorkerPath(rootDirectory: string): string {
   );
 }
 
+function isStringRecord(value: unknown): boolean {
+  return (
+    value !== null &&
+    typeof value === "object" &&
+    !Array.isArray(value) &&
+    Object.values(value).every((entry) => typeof entry === "string")
+  );
+}
+
 function isBenchmarkSample(value: unknown): value is BenchmarkSample {
   if (value === null || typeof value !== "object") return false;
   const sample = value as Record<string, unknown>;
@@ -129,7 +139,11 @@ function isBenchmarkSample(value: unknown): value is BenchmarkSample {
     typeof sample.sample === "number" &&
     typeof sample.wallMilliseconds === "number" &&
     typeof sample.fixtureVersion === "number" &&
+    (sample.fixtureInventory === undefined ||
+      isIModelInventory(sample.fixtureInventory)) &&
     typeof sample.reportSchemaVersion === "number" &&
+    (sample.scenarioConfiguration === undefined ||
+      isStringRecord(sample.scenarioConfiguration)) &&
     typeof sample.topology === "string" &&
     sample.fixtureGenerator !== null &&
     typeof sample.fixtureGenerator === "object" &&

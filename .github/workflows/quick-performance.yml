@@ -1,4 +1,4 @@
-name: Default schema processing performance A/B
+name: Schema processing performance A/B
 
 on:
   workflow_dispatch:
@@ -8,6 +8,15 @@ on:
         required: true
         default: main
         type: string
+      strategy:
+        description: Use default for baseline refs that predate strategy support
+        required: true
+        default: default
+        type: choice
+        options:
+          - default
+          - newer-version
+          - dynamic-union
       samples:
         description: Measured samples per arm
         required: true
@@ -18,12 +27,12 @@ permissions:
   contents: read
 
 concurrency:
-  group: default-schema-processing-ab-${{ github.ref }}
+  group: schema-processing-ab-${{ github.ref }}-${{ inputs.strategy }}
   cancel-in-progress: true
 
 jobs:
   compare:
-    name: Compare default schema processing
+    name: Compare schema processing (${{ inputs.strategy }})
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
@@ -78,6 +87,18 @@ jobs:
       - name: Build baseline transformer
         run: pnpm --dir baseline/packages/transformer build:cjs
 
+      - name: Validate explicit strategy support
+        if: inputs.strategy != 'default'
+        shell: bash
+        run: |
+          for arm in baseline candidate; do
+            entry="${arm}/packages/transformer/lib/cjs/schema-processing.js"
+            if [[ ! -f "${entry}" ]]; then
+              echo "::error::Strategy '${{ inputs.strategy }}' requires ${arm} to export @itwin/imodel-transformer/schema-processing. Choose a strategy-capable baseline ref or use the default strategy."
+              exit 1
+            fi
+          done
+
       - name: Install identical harness in baseline checkout
         shell: bash
         run: |
@@ -100,7 +121,8 @@ jobs:
           QUICK_PERF_COMPARISON_SAMPLES: ${{ inputs.samples }}
           QUICK_PERF_COMPARISON_THRESHOLD_PERCENT: 5
           QUICK_PERF_COMPARISON_WORKER_TIMEOUT_SECONDS: 600
-          QUICK_PERF_SCENARIO: default-schema-processing
+          QUICK_PERF_SCENARIO: schema-processing
+          QUICK_PERF_SCHEMA_PROCESSING_STRATEGY: ${{ inputs.strategy }}
 
       - name: Annotate concerning performance
         shell: bash

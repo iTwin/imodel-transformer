@@ -9,14 +9,20 @@ import { quickPath } from "../../support/paths.js";
 
 export const schemaProcessingSchemaName = "QuickPerfSchemaProcessing";
 export const schemaProcessingClassCount = 1200;
-const propertiesPerClass = 4;
+export const schemaProcessingTargetClassCount = 600;
+export const schemaProcessingSourceVersion = "01.00.02";
+export const schemaProcessingTargetVersion = "01.00.01";
+export const schemaProcessingPropertiesPerClass = 4;
 
-interface SchemaProcessingParameters {
+export interface SchemaProcessingParameters {
   readonly classCount: number;
   readonly propertiesPerClass: number;
 }
 
-function buildSchemaXml(configuration: SchemaProcessingParameters): string {
+export function buildSchemaProcessingXml(
+  configuration: SchemaProcessingParameters,
+  version: string
+): string {
   const classes = Array.from(
     { length: configuration.classCount },
     (_, index) => {
@@ -32,15 +38,18 @@ ${properties}
     }
   ).join("\n");
   return `<?xml version="1.0" encoding="UTF-8"?>
-<ECSchema schemaName="${schemaProcessingSchemaName}" alias="qpsp" version="01.00.00" xmlns="http://www.bentley.com/schemas/Bentley.ECXML.3.2">
+<ECSchema schemaName="${schemaProcessingSchemaName}" alias="qpsp" version="${version}" xmlns="http://www.bentley.com/schemas/Bentley.ECXML.3.2">
   <ECSchemaReference name="BisCore" version="01.00.00" alias="bis"/>
+  <ECCustomAttributes>
+    <DynamicSchema xmlns="CoreCustomAttributes.01.00.03"/>
+  </ECCustomAttributes>
 ${classes}
 </ECSchema>`;
 }
 
 const parameters: SchemaProcessingParameters = {
   classCount: schemaProcessingClassCount,
-  propertiesPerClass,
+  propertiesPerClass: schemaProcessingPropertiesPerClass,
 };
 
 export const schemaProcessingRecipe = defineFixtureRecipe<
@@ -69,7 +78,12 @@ export const schemaProcessingRecipe = defineFixtureRecipe<
       rootSubject: { name: context.descriptor.id },
     });
     try {
-      await db.importSchemaStrings([buildSchemaXml(context.parameters)]);
+      await db.importSchemaStrings([
+        buildSchemaProcessingXml(
+          context.parameters,
+          schemaProcessingSourceVersion
+        ),
+      ]);
     } finally {
       db.close();
     }
@@ -77,9 +91,9 @@ export const schemaProcessingRecipe = defineFixtureRecipe<
   async applySourceChangesets() {},
   async validate(db) {
     const version = db.querySchemaVersion(schemaProcessingSchemaName);
-    if (version !== "1.0.0")
+    if (version !== "1.0.2")
       throw new Error(
-        `Schema-processing fixture version mismatch: expected=1.0.0, actual=${version}`
+        `Schema-processing fixture version mismatch: expected=1.0.2, actual=${version}`
       );
   },
 });
@@ -88,9 +102,9 @@ export const schemaProcessingFixture = configureFixture(
   schemaProcessingRecipe,
   {
     id: "schema-processing-large",
-    version: 1,
-    label: "default schema processing (large)",
-    scenarioClaims: ["default schema processing"],
+    version: 2,
+    label: "schema processing (large)",
+    scenarioClaims: ["schema processing"],
     topology: "source-only",
     seed: 662,
     parameters,

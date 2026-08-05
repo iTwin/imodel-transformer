@@ -8,9 +8,13 @@ import { PreparedDataset } from "../fixtures/FixtureProvider.js";
 
 export interface BenchmarkScenario {
   abort(): void;
+  /** Unmeasured setup performed after materialization and before timing starts. */
+  prepare?(): Promise<void>;
   finish(): Promise<string>;
   measure(): Promise<void>;
 }
+
+export type ScenarioConfiguration = Readonly<Record<string, string>>;
 
 export type BenchmarkScenarioFactory = (
   dataset: PreparedDataset
@@ -31,6 +35,8 @@ export interface BenchmarkScenarioDefinition {
   readonly id: string;
   readonly defaultFixtureId: string;
   readonly capabilities: BenchmarkScenarioCapabilities;
+  /** Opaque, scenario-owned configuration recorded with every sample. */
+  readonly configuration?: ScenarioConfiguration;
   readonly factory: BenchmarkScenarioFactory;
   /** Wall-clock budget for the whole run, in milliseconds. */
   readonly budgetMilliseconds?: number;

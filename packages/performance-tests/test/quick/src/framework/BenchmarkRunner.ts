@@ -15,12 +15,14 @@ import {
 import {
   BenchmarkScenario,
   BenchmarkScenarioDefinition,
+  ScenarioConfiguration,
 } from "./BenchmarkScenario.js";
 import {
   FixtureDescriptor,
   FixtureTopology,
 } from "../fixtures/FixtureDescriptor.js";
 import { ConfiguredFixture } from "../fixtures/FixtureRecipe.js";
+import { IModelInventory } from "../fixtures/IModelInventory.js";
 import {
   FixtureArtifactManifest,
   readFixtureArtifact,
@@ -117,6 +119,7 @@ export interface BenchmarkSample {
   readonly cpuUserMilliseconds: number;
   readonly fixtureId: string;
   readonly fixtureGenerator: FixtureDescriptor["generator"];
+  readonly fixtureInventory?: IModelInventory;
   readonly fixtureRecipeHash: string;
   readonly fixtureContentHash?: string;
   readonly fixtureVersion: number;
@@ -130,6 +133,7 @@ export interface BenchmarkSample {
   readonly reportSchemaVersion: typeof benchmarkReportSchemaVersion;
   readonly sample: number;
   readonly scenarioId: string;
+  readonly scenarioConfiguration?: ScenarioConfiguration;
   readonly semanticDigest: string;
   readonly teardownMilliseconds: number;
   readonly topology: FixtureTopology;
@@ -336,6 +340,7 @@ export class BenchmarkRunner {
               `quick-sample-${sample}`
             );
             scenario = this._scenario.factory(dataset);
+            await scenario.prepare?.();
             const rssBefore = process.memoryUsage().rss;
             const cpuBefore = process.cpuUsage();
             const wallStart = process.hrtime.bigint();
@@ -355,6 +360,7 @@ export class BenchmarkRunner {
               fixtureGenerator: descriptor.generator,
               fixtureId: descriptor.id,
               fixtureContentHash: built.artifact?.manifest.contentHash,
+              fixtureInventory: built.artifact?.manifest.iModelInventory,
               fixtureRecipeHash: descriptor.recipeHash,
               fixtureVersion: descriptor.version,
               measured,
@@ -364,6 +370,7 @@ export class BenchmarkRunner {
               rssDeltaBytes,
               sample,
               scenarioId: this._scenario.id,
+              scenarioConfiguration: this._scenario.configuration,
               semanticDigest,
               topology: descriptor.layout.topology,
               transformerProvenance,
