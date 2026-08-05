@@ -562,13 +562,7 @@ export class IModelTransformer extends IModelExportHandler {
     // create the IModelCloneContext, it must be initialized later
     this._cloneContext = new IModelCloneContext(this.sourceDb, this.targetDb);
 
-    // this internal is guaranteed stable for just transformer usage
-    /* eslint-disable @itwin/no-internal */
-    if (("codeValueBehavior" in this.sourceDb) as any) {
-      (this.sourceDb as any).codeValueBehavior = "exact";
-      (this.targetDb as any).codeValueBehavior = "exact";
-    }
-    /* eslint-enable @itwin/no-internal */
+    this.setCodeValueBehavior("exact");
     this._syncTypeResolver = new SyncTypeResolver(
       this.sourceDb,
       this.targetDb,
@@ -1715,13 +1709,12 @@ export class IModelTransformer extends IModelExportHandler {
         ChangeSummaryManager.detachChangeCache(this.sourceDb);
     }
 
-    // this internal is guaranteed stable for just transformer usage
-    /* eslint-disable @itwin/no-internal */
-    if (("codeValueBehavior" in this.sourceDb) as any) {
-      (this.sourceDb as any).codeValueBehavior = "trim-unicode-whitespace";
-      (this.targetDb as any).codeValueBehavior = "trim-unicode-whitespace";
-    }
-    /* eslint-enable @itwin/no-internal */
+    this.setCodeValueBehavior("trim-unicode-whitespace");
+  }
+
+  private setCodeValueBehavior(behavior: "exact" | "trim-unicode-whitespace") {
+    this.sourceDb.codeValueBehavior = behavior;
+    this.targetDb.codeValueBehavior = behavior;
   }
 
   /** Imports all relationships that subclass from the specified base class.
