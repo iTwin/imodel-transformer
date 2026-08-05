@@ -135,13 +135,13 @@ Each run writes:
 
 `.github/workflows/quick-performance-comparison.yml` compares a pull request's
 head SHA with its base SHA. Both checkouts build their own transformer package.
-The candidate's compiled quick harness is copied into both checkouts. A dedicated
-candidate worker authors one immutable fixture artifact before timing begins, and
-every warm-up and measured worker copies from those exact bytes. For incremental
-synchronization, that artifact includes prepared source and target briefcases,
-their version-zero seeds, and both local-hub changeset timelines. The artifact
-manifest hashes every workload file, and each worker revalidates the hash before
-restoring its private hub and briefcases.
+The candidate's compiled quick harness and test-utils runtime are copied into both
+checkouts. A dedicated candidate worker authors one immutable fixture artifact
+before timing begins, and every warm-up and measured worker copies from those exact
+bytes. For incremental synchronization, that artifact includes prepared source and
+target briefcases, their version-zero seeds, and both local-hub changeset timelines.
+The artifact manifest hashes every workload file, and each worker revalidates the
+hash before restoring its private hub and briefcases.
 
 Each execution still gets a fresh Node process and module graph. Before running,
 the worker proves that Node resolved `@itwin/imodel-transformer` to the entry

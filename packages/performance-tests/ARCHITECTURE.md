@@ -194,12 +194,12 @@ and cleanup errors when more than one operation fails.
 ### Isolated pull request A/B flow
 
 The A/B workflow checks out the pull request base and head independently and
-builds each checkout's transformer package. It compiles the quick harness once
-from the candidate and installs those exact compiled files in both checkouts. A
-dedicated candidate process authors one relocatable fixture artifact before the
-execution schedule begins. Its manifest carries a content hash over every
-workload file. All baseline and candidate workers validate and copy that same
-artifact, rather than independently regenerating fixtures.
+builds each checkout's transformer package. It compiles the quick harness and
+test-utils runtime once from the candidate and installs those exact files in both
+checkouts. A dedicated candidate process authors one relocatable fixture artifact
+before the execution schedule begins. Its manifest carries a content hash over
+every workload file. All baseline and candidate workers validate and copy that
+same artifact, rather than independently regenerating fixtures.
 
 One candidate worker builds the fixture artifact before the execution schedule
 starts. For live incremental synchronization, the artifact contains both
