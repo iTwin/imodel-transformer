@@ -62,7 +62,7 @@ describe("live hub fixture artifact", () => {
   afterAll(async () => {
     if (built) await liveHubFixtureProvider.disposeBuild(built);
     await shutdownIsolatedHost();
-    fs.rmSync(root, { recursive: true, force: true });
+    if (root) fs.rmSync(root, { recursive: true, force: true });
   });
 
   it("selects the artifact-backed live provider", () => {
