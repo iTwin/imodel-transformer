@@ -9,7 +9,7 @@ import { BenchmarkReporter } from "../reporting/BenchmarkReporter.js";
 import { resolveBenchmarkRunFromEnvironment } from "../framework/BenchmarkResolution.js";
 import {
   BenchmarkRunner,
-  prepareBenchmarkOutputDirectory,
+  prepareBenchmarkOutputDirectoryForFixture,
 } from "../framework/BenchmarkRunner.js";
 import { FixtureDescriptor } from "../fixtures/FixtureDescriptor.js";
 import { quickPath } from "../support/paths.js";
@@ -28,7 +28,7 @@ async function main() {
   const outputDir =
     process.env.QUICK_PERF_OUTPUT ?? quickPath(".quick-output", descriptor.id);
   if (command === "build-fixture") {
-    prepareBenchmarkOutputDirectory(outputDir);
+    prepareBenchmarkOutputDirectoryForFixture(outputDir, fixture);
     writeManifest(outputDir, descriptor);
     return;
   }

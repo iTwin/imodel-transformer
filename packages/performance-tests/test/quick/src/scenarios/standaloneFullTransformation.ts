@@ -65,9 +65,24 @@ export function standaloneFullTransformation(
   let disposed = false;
   const dispose = () => {
     if (disposed) return;
-    transformer.dispose();
-    if (editTxn.isActive) editTxn.end();
     disposed = true;
+    const errors: unknown[] = [];
+    try {
+      transformer.dispose();
+    } catch (error) {
+      errors.push(error);
+    }
+    try {
+      if (editTxn.isActive) editTxn.end();
+    } catch (error) {
+      errors.push(error);
+    }
+    if (errors.length === 1) throw errors[0];
+    if (errors.length > 1)
+      throw new AggregateError(
+        errors,
+        "Failed to dispose standalone full transformation"
+      );
   };
   return {
     abort: dispose,

@@ -116,6 +116,14 @@ export function prepareBenchmarkOutputDirectory(outputDir: string): void {
   }
 }
 
+export function prepareBenchmarkOutputDirectoryForFixture(
+  outputDir: string,
+  fixture: ConfiguredFixture
+): void {
+  assertExternalFixtureSourceOutsideDirectory(fixture, outputDir);
+  prepareBenchmarkOutputDirectory(outputDir);
+}
+
 export interface BenchmarkSample {
   readonly cpuSystemMilliseconds: number;
   readonly cpuUserMilliseconds: number;
@@ -262,8 +270,7 @@ export class BenchmarkRunner {
     fixtureArtifactDirectory?: string,
     transformerProvenance?: TransformerProvenance
   ): Promise<BenchmarkSample[]> {
-    assertExternalFixtureSourceOutsideDirectory(this._fixture, this._outputDir);
-    prepareBenchmarkOutputDirectory(this._outputDir);
+    prepareBenchmarkOutputDirectoryForFixture(this._outputDir, this._fixture);
     const samples: BenchmarkSample[] = [];
     await runWithCleanup(async () => {
       await IModelHost.startup({ hubAccess: quickTestHub });

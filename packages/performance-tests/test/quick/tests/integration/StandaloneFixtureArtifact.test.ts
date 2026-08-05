@@ -9,6 +9,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { SnapshotDb } from "@itwin/core-backend";
+import { IModelTransformer } from "@itwin/imodel-transformer";
 import {
   artifactBriefcasePath,
   artifactManifestFileName,
@@ -21,6 +22,11 @@ import {
 } from "../../src/fixtures/FixtureProvider.js";
 import { standaloneFullTransformFixture } from "../../src/fixtures/recipes/standaloneFullTransform.js";
 import { withExternalFixtureSource } from "../../src/fixtures/FixtureRecipe.js";
+import {
+  createEmptySeed,
+  disposeReconstructedHub,
+  reconstructSourceHub,
+} from "../../src/fixtures/LocalHubFixture.js";
 import { standaloneFixtureProvider } from "../../src/fixtures/providers/standaloneProvider.js";
 import { standaloneFullTransformation } from "../../src/scenarios/standaloneFullTransformation.js";
 import {
@@ -44,7 +50,7 @@ async function countPhysicalObjects(db: SnapshotDb): Promise<number> {
 
 describe("standalone fixture artifact", () => {
   let built: BuiltFixture;
-  let root: string;
+  let root = "";
 
   beforeAll(async () => {
     root = fs.mkdtempSync(path.join(os.tmpdir(), "quick-standalone-artifact-"));
@@ -58,7 +64,7 @@ describe("standalone fixture artifact", () => {
   afterAll(async () => {
     if (built) await standaloneFixtureProvider.disposeBuild(built);
     await shutdownIsolatedHost();
-    fs.rmSync(root, { recursive: true, force: true });
+    if (root !== "") fs.rmSync(root, { recursive: true, force: true });
   });
 
   it("selects the standalone provider and emits an immutable source artifact", () => {
@@ -164,6 +170,54 @@ describe("standalone fixture artifact", () => {
       }
     } finally {
       await standaloneFixtureProvider.disposeBuild(externalBuilt);
+    }
+  });
+
+  it("rejects an assigned iModelHub briefcase as an external standalone source", async () => {
+    const hub = await reconstructSourceHub(
+      path.join(root, "assigned-briefcase-hub"),
+      "assigned-briefcase",
+      (seedFileName) => createEmptySeed(seedFileName, "Assigned briefcase")
+    );
+    const fixture = withExternalFixtureSource(
+      standaloneFullTransformFixture,
+      hub.sourceDb.pathName
+    );
+    try {
+      await expect(
+        standaloneFixtureProvider.build(
+          fixture,
+          path.join(root, "assigned-briefcase-artifact")
+        )
+      ).rejects.toThrow(/assigned iModelHub briefcase ID/);
+    } finally {
+      await disposeReconstructedHub(hub);
+    }
+  });
+
+  it("ends the edit transaction when transformer disposal fails", async () => {
+    const sampleDir = path.join(root, "dispose-failure-sample");
+    const dataset = requireStandaloneDataset(
+      await standaloneFixtureProvider.materialize(
+        built,
+        sampleDir,
+        "dispose-failure"
+      )
+    );
+    const dispose = vi
+      .spyOn(IModelTransformer.prototype, "dispose")
+      .mockImplementationOnce(() => {
+        throw new Error("transformer dispose failed");
+      });
+    const scenario = standaloneFullTransformation(dataset);
+    try {
+      expect(() => scenario.abort()).to.throw("transformer dispose failed");
+      expect(() => scenario.abort()).not.to.throw();
+      expect(dispose).toHaveBeenCalledOnce();
+    } finally {
+      dispose.mockRestore();
+      await standaloneFixtureProvider.disposeSample(dataset);
+      fs.rmSync(sampleDir, { recursive: true, force: true });
     }
   });
 

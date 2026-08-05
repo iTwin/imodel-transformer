@@ -247,6 +247,10 @@ export function withExternalFixtureSource(
   fixture: ConfiguredFixture,
   fileName: string
 ): ConfiguredFixture {
+  if (!path.isAbsolute(fileName))
+    throw new Error(
+      `QUICK_PERF_STANDALONE_BIM must be an absolute path: ${fileName}`
+    );
   const resolved = path.resolve(fileName);
   if (!fs.existsSync(resolved))
     throw new Error(`QUICK_PERF_STANDALONE_BIM does not exist: ${resolved}`);

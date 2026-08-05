@@ -65,7 +65,7 @@ The `standalone-full-transformation` scenario uses
 `SnapshotDb`, then gives every warm-up and measured sample a private read-only
 source copy and a newly-created empty target. Untimed `prepare()` imports
 schemas, `measure()` contains only `IModelTransformer.process()`, and
-`finish()` validates the transformed contents.
+`finish()` computes the target output-shape digest used for A/B comparability.
 
 ## Running the quick suite
 
@@ -110,7 +110,7 @@ pnpm test:quick
 | `QUICK_PERF_FIXTURE`  | Fixture catalog ID; must satisfy the selected scenario's required topology and claims  | The scenario's `defaultFixtureId`       |
 | `QUICK_PERF_SAMPLES`  | Positive integer number of measured samples; the runner always adds one warm-up        | `1` locally; `8` in the workflow        |
 | `QUICK_PERF_OUTPUT`   | Report and working directory below `test/quick/.quick-output` or a temporary directory | `test/quick/.quick-output/<fixture-id>` |
-| `QUICK_PERF_STANDALONE_BIM` | Existing standalone `.bim` to copy into the selected standalone fixture artifact | Generated recipe source |
+| `QUICK_PERF_STANDALONE_BIM` | Absolute path to an existing standalone `.bim` copied into the selected artifact | Generated recipe source |
 
 Example in a POSIX shell:
 
@@ -155,8 +155,9 @@ pnpm test:quick
 ```
 
 `QUICK_PERF_STANDALONE_BIM` is valid only for a
-`standalone-source-and-empty-target` fixture. The file must exist, have a
-`.bim` extension, and open as a standalone `SnapshotDb`; briefcases and invalid
+`standalone-source-and-empty-target` fixture. The path must be absolute, and the
+file must exist, have a `.bim` extension, and open as a standalone `SnapshotDb`;
+briefcases and invalid
 or unsupported databases are rejected. It must also be outside
 `QUICK_PERF_OUTPUT` and other harness-managed artifact directories. The harness never opens the user's file
 for benchmarking and never mutates it. Stage one copies it into the immutable

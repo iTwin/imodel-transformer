@@ -341,6 +341,8 @@ schemas, and unsupported encrypted/native formats are rejected. Absolute paths
 are intentionally excluded from identity and reports, so a completed artifact
 is relocatable. Inputs inside benchmark-managed output or artifact directories
 are rejected before cleanup so the harness can never delete the user's original.
+`QUICK_PERF_STANDALONE_BIM` itself must be absolute so the coordinator and
+isolated A/B workers cannot resolve it against different checkout directories.
 
 ## Detached artifact lifecycle
 

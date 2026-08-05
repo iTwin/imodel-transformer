@@ -22,6 +22,7 @@ import {
 } from "../../src/fixtures/recipes/balancedIncremental.js";
 import { incrementalSynchronizationScenario } from "../../src/scenarios/incrementalSynchronization.js";
 import { assertExternalFixtureSourceOutsideDirectory } from "../../src/fixtures/FixtureRecipe.js";
+import { prepareBenchmarkOutputDirectoryForFixture } from "../../src/framework/BenchmarkRunner.js";
 
 describe("benchmark resolution", () => {
   it("resolves the scenario's declared default fixture", () => {
@@ -128,6 +129,40 @@ describe("benchmark resolution", () => {
             input
           )
         ).to.throw(/QUICK_PERF_STANDALONE_BIM/);
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("requires an absolute external BIM path", () => {
+    expect(() =>
+      resolveBenchmarkRun(
+        "standalone-full-transformation",
+        undefined,
+        "relative-input.bim"
+      )
+    ).to.throw(/must be an absolute path/);
+  });
+
+  it("guards fixture CLI output before deleting an external BIM", () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "quick-output-guard-"));
+    const output = path.join(root, "output");
+    const artifact = path.join(output, "fixture-artifact");
+    const external = path.join(artifact, "input.bim");
+    fs.mkdirSync(artifact, { recursive: true });
+    fs.writeFileSync(external, "external fixture bytes");
+    try {
+      const resolved = resolveBenchmarkRun(
+        "standalone-full-transformation",
+        undefined,
+        external
+      );
+      expect(() =>
+        prepareBenchmarkOutputDirectoryForFixture(output, resolved.fixture)
+      ).to.throw(/outside benchmark-managed directories/);
+      expect(fs.readFileSync(external, "utf8")).to.equal(
+        "external fixture bytes"
+      );
     } finally {
       fs.rmSync(root, { recursive: true, force: true });
     }

@@ -6,6 +6,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { SnapshotDb } from "@itwin/core-backend";
+import { BriefcaseIdValue } from "@itwin/core-common";
 import {
   artifactBriefcaseFileName,
   artifactBriefcasePath,
@@ -38,19 +39,21 @@ function openStandaloneSource(
   let db: SnapshotDb | undefined;
   try {
     db = SnapshotDb.openFile(fileName);
-    if (!db.isSnapshot) {
+    if (db.getBriefcaseId() !== Number(BriefcaseIdValue.Unassigned)) {
       db.close();
       db = undefined;
-      throw new Error("the database is not a standalone snapshot");
+      throw new Error("the database has an assigned iModelHub briefcase ID");
     }
     db.elements.getRootSubject();
     return db;
   } catch (error) {
     db?.close();
+    const detail =
+      error instanceof Error ? `: ${error.message}` : `: ${String(error)}`;
     throw new Error(
       `${
         environmentName ?? "Standalone fixture source"
-      } must be an openable standalone SnapshotDb .bim file`,
+      } must be an openable standalone SnapshotDb .bim file${detail}`,
       { cause: error }
     );
   }
