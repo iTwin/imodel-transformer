@@ -19,6 +19,11 @@ export interface ComparisonArmResult {
 export interface ComparisonReportInput {
   readonly baseline: ComparisonArmResult;
   readonly candidate: ComparisonArmResult;
+  readonly fixtureAuthoring: {
+    readonly arm: "baseline";
+    readonly revision: string;
+    readonly transformerVersion: string;
+  };
   readonly informationalThresholdPercent: number;
   readonly measuredSamplesPerArm: number;
   readonly ordering: readonly ComparisonArm[];
@@ -36,6 +41,7 @@ export interface ComparisonSummary {
   readonly fixtureVersion: number;
   readonly fixtureRecipeHash: string;
   readonly fixtureContentHash: string;
+  readonly fixtureAuthoring: ComparisonReportInput["fixtureAuthoring"];
   readonly semanticDigest: string;
   readonly policy: {
     readonly warmupsPerArm: 1;
@@ -198,6 +204,7 @@ export function createComparisonSummary(
     fixtureVersion: identity.fixtureVersion,
     fixtureRecipeHash: identity.fixtureRecipeHash,
     fixtureContentHash,
+    fixtureAuthoring: input.fixtureAuthoring,
     semanticDigest: identity.semanticDigest,
     policy: {
       warmupsPerArm: 1,
@@ -240,6 +247,7 @@ function markdown(summary: ComparisonSummary): string {
     "",
     `Scenario: \`${summary.scenarioId}\`  `,
     `Fixture: \`${summary.fixtureId}\` (version ${summary.fixtureVersion})`,
+    `Prepared target: baseline \`${summary.fixtureAuthoring.revision}\` with transformer \`${summary.fixtureAuthoring.transformerVersion}\``,
     "",
     "| Arm | Revision | Transformer | Median | Measured samples |",
     "| --- | --- | --- | ---: | --- |",

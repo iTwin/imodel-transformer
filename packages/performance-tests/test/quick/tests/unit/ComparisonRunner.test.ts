@@ -67,7 +67,7 @@ describe("A/B comparison orchestration", () => {
     ).to.have.length(4);
   });
 
-  it("authors one candidate fixture artifact reused by every isolated arm", async () => {
+  it("authors one baseline fixture artifact reused by every isolated arm", async () => {
     const outputDir = temporaryDirectory("quick-ab-runner-");
     const requests: ArmExecutionRequest[] = [];
     const buildRequests: FixtureArtifactBuildRequest[] = [];
@@ -103,7 +103,7 @@ describe("A/B comparison orchestration", () => {
     );
 
     expect(buildRequests).to.have.length(1);
-    expect(buildRequests[0].rootDirectory).to.equal("candidate-root");
+    expect(buildRequests[0].rootDirectory).to.equal("baseline-root");
     expect(buildRequests[0].artifactDirectory).to.equal(
       path.join(outputDir, "fixture-artifact")
     );
@@ -148,6 +148,11 @@ describe("A/B comparison orchestration", () => {
     expect(summary.candidate.measuredMilliseconds).to.deep.equal([
       106, 107, 108,
     ]);
+    expect(summary.fixtureAuthoring).to.deep.equal({
+      arm: "baseline",
+      revision: "base-sha",
+      transformerVersion: "0.6.0",
+    });
   });
 
   it("runs the arm worker as a child process and reads its result", async () => {
@@ -382,7 +387,10 @@ describe("A/B comparison orchestration", () => {
       expectedRoot,
       () => expectedEntry
     );
-    expect(initial).to.include({ version: "1.2.3", entryPoint: expectedEntry });
+    expect(initial).to.include({
+      version: "1.2.3",
+      entryPoint: fs.realpathSync(expectedEntry),
+    });
     const implementation = path.join(
       packageDirectory,
       "lib",

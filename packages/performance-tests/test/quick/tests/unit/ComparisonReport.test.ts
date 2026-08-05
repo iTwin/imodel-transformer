@@ -33,6 +33,11 @@ describe("A/B comparison reporting", () => {
         revision: "candidate-sha",
         samples: armSamples([99, 110, 121]),
       },
+      fixtureAuthoring: {
+        arm: "baseline" as const,
+        revision: "base-sha",
+        transformerVersion: "0.6.0",
+      },
       informationalThresholdPercent: 5,
       measuredSamplesPerArm: 3,
       ordering: [
@@ -87,6 +92,9 @@ describe("A/B comparison reporting", () => {
     });
     expect(markdown).to.contain("Informational only");
     expect(markdown).to.contain("does not establish statistical confidence");
+    expect(markdown).to.contain(
+      "Prepared target: baseline `base-sha` with transformer `0.6.0`"
+    );
     expect(records).to.have.length(8);
   });
 

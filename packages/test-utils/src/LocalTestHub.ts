@@ -17,6 +17,24 @@ import {
 } from "@itwin/core-backend";
 import { Guid, GuidString } from "@itwin/core-bentley";
 
+type LocalChangeset = Parameters<
+  BackendHubAccess["pushChangeset"]
+>[0]["changesetProps"];
+
+export interface LocalTestHubIModelSnapshot {
+  readonly briefcaseIds: readonly number[];
+  readonly changesets: readonly LocalChangeset[];
+  readonly iModelId: GuidString;
+  readonly iModelName: string;
+  readonly version0: string;
+}
+
+export interface LocalTestHubSnapshot {
+  readonly accessToken: string;
+  readonly iModels: readonly LocalTestHubIModelSnapshot[];
+  readonly iTwinId: GuidString;
+}
+
 /** Stateful local hub behavior shared by transformer and performance tests. */
 export class LocalTestHub implements BackendHubAccess {
   private readonly _hubs = new Map<GuidString, LocalHub>();
@@ -34,14 +52,77 @@ export class LocalTestHub implements BackendHubAccess {
     return this._iTwinId;
   }
 
-  public start(name: string, outputDir: string): void {
+  private startRoot(
+    name: string,
+    outputDir: string,
+    iTwinId: GuidString
+  ): void {
     if (this.isActive)
       throw new Error(`${this._directoryName} is already active`);
 
     this._rootDir = path.join(outputDir, this._directoryName, name);
     IModelJsFs.recursiveMkDirSync(this._rootDir);
     IModelJsFs.purgeDirSync(this._rootDir);
-    this._iTwinId = Guid.createValue();
+    this._iTwinId = iTwinId;
+  }
+
+  public start(name: string, outputDir: string): void {
+    this.startRoot(name, outputDir, Guid.createValue());
+  }
+
+  public restore(
+    name: string,
+    outputDir: string,
+    snapshot: LocalTestHubSnapshot
+  ): void {
+    this.startRoot(name, outputDir, snapshot.iTwinId);
+    try {
+      for (const iModel of snapshot.iModels) {
+        const hub = new LocalHub(
+          path.join(this._rootDirName, iModel.iModelId),
+          {
+            iTwinId: snapshot.iTwinId,
+            iModelId: iModel.iModelId,
+            iModelName: iModel.iModelName,
+            noLocks: true,
+            version0: iModel.version0,
+          }
+        );
+        this._hubs.set(iModel.iModelId, hub);
+        for (const desiredId of [...new Set(iModel.briefcaseIds)].sort(
+          (left, right) => left - right
+        )) {
+          let acquiredId: number;
+          do {
+            acquiredId = hub.acquireNewBriefcaseId(snapshot.accessToken);
+            if (acquiredId < desiredId) hub.releaseBriefcaseId(acquiredId);
+          } while (acquiredId < desiredId);
+          if (acquiredId !== desiredId)
+            throw new Error(
+              `Cannot restore briefcase ${desiredId}; next local hub briefcase is ${acquiredId}`
+            );
+        }
+        for (const changeset of iModel.changesets) {
+          const restoredIndex = hub.addChangeset({ ...changeset });
+          if (restoredIndex !== changeset.index)
+            throw new Error(
+              `Restored changeset ${changeset.id} at index ${restoredIndex}; expected ${String(
+                changeset.index
+              )}`
+            );
+        }
+      }
+    } catch (error) {
+      try {
+        this.stop();
+      } catch (cleanupError) {
+        throw new AggregateError(
+          [error, cleanupError],
+          `${this._directoryName} restoration and cleanup both failed`
+        );
+      }
+      throw error;
+    }
   }
 
   public stop(): void {
