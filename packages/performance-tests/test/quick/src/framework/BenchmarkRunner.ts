@@ -20,7 +20,11 @@ import {
   FixtureDescriptor,
   FixtureTopology,
 } from "../fixtures/FixtureDescriptor.js";
-import { ConfiguredFixture } from "../fixtures/FixtureRecipe.js";
+import {
+  assertExternalFixtureSourceOutsideDirectory,
+  ConfiguredFixture,
+  withExternalFixtureSourceIdentity,
+} from "../fixtures/FixtureRecipe.js";
 import {
   FixtureArtifactManifest,
   readFixtureArtifact,
@@ -112,12 +116,21 @@ export function prepareBenchmarkOutputDirectory(outputDir: string): void {
   }
 }
 
+export function prepareBenchmarkOutputDirectoryForFixture(
+  outputDir: string,
+  fixture: ConfiguredFixture
+): void {
+  assertExternalFixtureSourceOutsideDirectory(fixture, outputDir);
+  prepareBenchmarkOutputDirectory(outputDir);
+}
+
 export interface BenchmarkSample {
   readonly cpuSystemMilliseconds: number;
   readonly cpuUserMilliseconds: number;
   readonly fixtureId: string;
   readonly fixtureGenerator: FixtureDescriptor["generator"];
   readonly fixtureRecipeHash: string;
+  readonly fixtureSource?: FixtureDescriptor["source"];
   readonly fixtureContentHash?: string;
   readonly fixtureVersion: number;
   readonly measured: boolean;
@@ -199,6 +212,14 @@ export class BenchmarkRunner {
   ): Promise<FixtureArtifactManifest> {
     assertSafeBenchmarkOutputPath(artifactDirectory);
     const stagingDirectory = `${artifactDirectory}.building`;
+    assertExternalFixtureSourceOutsideDirectory(
+      this._fixture,
+      artifactDirectory
+    );
+    assertExternalFixtureSourceOutsideDirectory(
+      this._fixture,
+      stagingDirectory
+    );
     fs.rmSync(stagingDirectory, { recursive: true, force: true });
     fs.rmSync(artifactDirectory, { recursive: true, force: true });
     const provider = getFixtureProvider(this._fixture.descriptor);
@@ -249,7 +270,7 @@ export class BenchmarkRunner {
     fixtureArtifactDirectory?: string,
     transformerProvenance?: TransformerProvenance
   ): Promise<BenchmarkSample[]> {
-    prepareBenchmarkOutputDirectory(this._outputDir);
+    prepareBenchmarkOutputDirectoryForFixture(this._outputDir, this._fixture);
     const samples: BenchmarkSample[] = [];
     await runWithCleanup(async () => {
       await IModelHost.startup({ hubAccess: quickTestHub });
@@ -262,11 +283,18 @@ export class BenchmarkRunner {
         );
       } else {
         const artifact = readFixtureArtifact(fixtureArtifactDirectory);
+        const expectedFixture =
+          artifact.manifest.descriptor.source === undefined
+            ? this._fixture
+            : withExternalFixtureSourceIdentity(
+                this._fixture,
+                artifact.manifest.descriptor.source
+              );
         const localIdentity = JSON.stringify({
-          ...this._fixture.descriptor,
+          ...expectedFixture.descriptor,
           generator: {
-            coreBackend: this._fixture.descriptor.generator.coreBackend,
-            node: this._fixture.descriptor.generator.node,
+            coreBackend: expectedFixture.descriptor.generator.coreBackend,
+            node: expectedFixture.descriptor.generator.node,
           },
         });
         const artifactIdentity = JSON.stringify({
@@ -336,6 +364,7 @@ export class BenchmarkRunner {
               `quick-sample-${sample}`
             );
             scenario = this._scenario.factory(dataset);
+            await scenario.prepare?.();
             const rssBefore = process.memoryUsage().rss;
             const cpuBefore = process.cpuUsage();
             const wallStart = process.hrtime.bigint();
@@ -356,6 +385,9 @@ export class BenchmarkRunner {
               fixtureId: descriptor.id,
               fixtureContentHash: built.artifact?.manifest.contentHash,
               fixtureRecipeHash: descriptor.recipeHash,
+              ...(descriptor.source === undefined
+                ? {}
+                : { fixtureSource: descriptor.source }),
               fixtureVersion: descriptor.version,
               measured,
               operations: descriptor.distribution.operations,

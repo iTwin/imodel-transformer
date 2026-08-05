@@ -30,7 +30,7 @@ parts:
 | **Recipe**             | The typed specification for an iModel workload: schemas and identity inputs, distribution, construction logic, and optional validation.                                                                             |
 | **Configured fixture** | A named immutable invocation of a recipe with explicit parameters, topology, seed, version, label, and scenario claims.                                                                                             |
 | **Fixture descriptor** | The serializable artifact/report manifest generated from a configured fixture. Infrastructure derives distribution, generator versions, and the recipe hash.                                                        |
-| **Provider**           | The form and lifecycle of the iModel data supplied to the scenario. A provider can supply live source and target `BriefcaseDb`s backed by `HubMock`, or a detached source `BriefcaseDb` with local changeset files. |
+| **Provider**           | The form and lifecycle of the iModel data supplied to the scenario. A provider can supply live source and target `BriefcaseDb`s, a detached source `BriefcaseDb`, or a standalone source plus fresh standalone target. |
 | **Registration**       | One cohesive contribution containing a scenario and the configured fixtures that scenario supports.                                                                                                                 |
 | **Harness**            | The registry, runner, fixture infrastructure, validation, reporting, and their unit/integration tests. Harness tests do not measure transformer performance.                                                        |
 
@@ -59,6 +59,13 @@ local changeset files without a running Hub during scenario execution. No
 performance scenario in this layer currently consumes that fixture; its artifact
 lifecycle is covered by integration tests for use by future source-only
 scenarios.
+
+The `standalone-full-transformation` scenario uses
+`standalone-source-and-empty-target`. It prepares one immutable source
+`SnapshotDb`, then gives every warm-up and measured sample a private read-only
+source copy and a newly-created empty target. Untimed `prepare()` imports
+schemas, `measure()` contains only `IModelTransformer.process()`, and
+`finish()` computes the target output-shape digest used for A/B comparability.
 
 ## Running the quick suite
 
@@ -103,6 +110,7 @@ pnpm test:quick
 | `QUICK_PERF_FIXTURE`  | Fixture catalog ID; must satisfy the selected scenario's required topology and claims  | The scenario's `defaultFixtureId`       |
 | `QUICK_PERF_SAMPLES`  | Positive integer number of measured samples; the runner always adds one warm-up        | `1` locally; `8` in the workflow        |
 | `QUICK_PERF_OUTPUT`   | Report and working directory below `test/quick/.quick-output` or a temporary directory | `test/quick/.quick-output/<fixture-id>` |
+| `QUICK_PERF_STANDALONE_BIM` | Absolute path to an existing standalone `.bim` copied into the selected artifact | Generated recipe source |
 
 Example in a POSIX shell:
 
@@ -121,6 +129,50 @@ $env:QUICK_PERF_FIXTURE = "balanced-incremental"
 $env:QUICK_PERF_SAMPLES = "3"
 pnpm test:quick
 ```
+
+Run the generated standalone full-transform workload in a POSIX shell:
+
+```sh
+QUICK_PERF_SCENARIO=standalone-full-transformation \
+QUICK_PERF_SAMPLES=3 \
+pnpm test:quick
+```
+
+Use an existing standalone BIM in a POSIX shell:
+
+```sh
+QUICK_PERF_SCENARIO=standalone-full-transformation \
+QUICK_PERF_STANDALONE_BIM=/absolute/path/source.bim \
+pnpm test:quick
+```
+
+The equivalent PowerShell command is:
+
+```powershell
+$env:QUICK_PERF_SCENARIO = "standalone-full-transformation"
+$env:QUICK_PERF_STANDALONE_BIM = "C:\iModels\source.bim"
+pnpm test:quick
+```
+
+`QUICK_PERF_STANDALONE_BIM` is valid only for a
+`standalone-source-and-empty-target` fixture. The path must be absolute, and the
+file must exist, have a `.bim` extension, and open as a standalone `SnapshotDb`;
+briefcases and invalid
+or unsupported databases are rejected. It must also be outside
+`QUICK_PERF_OUTPUT` and other harness-managed artifact directories. The harness never opens the user's file
+for benchmarking and never mutates it. Stage one copies it into the immutable
+artifact, records its basename, byte length, and SHA-256, and combines that
+identity with the configured recipe hash. The recipe still selects the
+fixture's topology, claims, and scenario contract, but external bytes replace
+recipe generation and generated-distribution validation.
+
+Only the artifact copy is consumed after stage one. Isolated A/B workers do not
+reopen the original file. The copied bytes contribute to the artifact content
+hash, and the external identity is included in sample and comparison JSON, so
+both arms must consume the same source. Portability remains limited by the
+installed `@itwin/core-backend`: a BIM using an incompatible profile, schema,
+encryption, or native format cannot be opened. Paths are not reported or hashed;
+the artifact is relocatable after it is built.
 
 On Windows, use a short `QUICK_PERF_OUTPUT` path under `$env:TEMP` when the
 repository is nested deeply enough to approach the legacy path-length limit.
@@ -144,7 +196,9 @@ The target's initial full transformation and provenance therefore come from the
 baseline transformer, modeling the common upgrade path in which candidate code
 processes changes against baseline-created state. The artifact manifest hashes
 every workload file, and each worker revalidates the hash before restoring its
-private hub and briefcases.
+private hub and briefcases. For standalone full transformation, the artifact
+contains one standalone source and creates no target until a worker materializes
+its private sample.
 
 Each execution still gets a fresh Node process and module graph. Before running,
 the worker proves that Node resolved `@itwin/imodel-transformer` to the entry
@@ -169,7 +223,13 @@ than position-balanced.
 The comparison fails when a worker fails or times out, arm configuration
 differs, or semantic digests differ. Each worker has a configurable timeout and
 is terminated, then force-killed after a short grace period if it hangs. A
-performance delta never fails the job. Successful runs publish:
+performance delta never fails the job.
+
+For standalone full transformation, the semantic digest is a target output-shape
+digest containing entity counts by class. It keeps A/B arms comparable without
+duplicating source-to-target correctness assertions from the transformer test suite.
+
+Successful runs publish:
 
 - `comparison.json`: baseline median, candidate median, percentage delta, raw
   measured values, arm transformer versions, baseline fixture-authoring revision
@@ -186,7 +246,8 @@ workflow emits a GitHub warning annotation and remains successful.
 
 The coordinator accepts `QUICK_PERF_SCENARIO`, `QUICK_PERF_FIXTURE`,
 `QUICK_PERF_COMPARISON_SAMPLES`, and
-`QUICK_PERF_COMPARISON_THRESHOLD_PERCENT`.
+`QUICK_PERF_COMPARISON_THRESHOLD_PERCENT`, and
+`QUICK_PERF_STANDALONE_BIM` for the standalone topology.
 `QUICK_PERF_COMPARISON_WORKER_TIMEOUT_SECONDS` sets the positive per-process
 timeout and defaults to 600 seconds. `QUICK_PERF_BASELINE_ROOT` is required;
 candidate and revision paths are set by the workflow.

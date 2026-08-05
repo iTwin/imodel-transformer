@@ -9,12 +9,13 @@ import * as path from "node:path";
 import {
   BenchmarkSample,
   fixtureArtifactDirectoryName,
-  prepareBenchmarkOutputDirectory,
+  prepareBenchmarkOutputDirectoryForFixture,
 } from "../framework/BenchmarkRunner.js";
 import {
   FixtureArtifactManifest,
   readFixtureArtifact,
 } from "../fixtures/FixtureArtifact.js";
+import { resolveBenchmarkRunFromEnvironment } from "../framework/BenchmarkResolution.js";
 import {
   ComparisonArm,
   ComparisonReporter,
@@ -342,6 +343,11 @@ export async function runComparison(
   execute: ArmExecutor = executeArmProcess,
   buildFixture: FixtureArtifactBuilder = buildFixtureArtifactProcess
 ): Promise<ComparisonSummary> {
+  const resolved = resolveBenchmarkRunFromEnvironment({
+    ...process.env,
+    QUICK_PERF_FIXTURE: options.fixtureId,
+    QUICK_PERF_SCENARIO: options.scenarioId,
+  });
   const measuredSamplesPerArm =
     options.measuredSamplesPerArm ?? defaultComparisonMeasuredSamples;
   const informationalThresholdPercent =
@@ -359,7 +365,10 @@ export async function runComparison(
       `A/B comparison worker timeout must be an integer between 1 and ${maximumWorkerTimeoutMilliseconds} milliseconds`
     );
   const schedule = createExecutionSchedule(measuredSamplesPerArm);
-  prepareBenchmarkOutputDirectory(options.outputDir);
+  prepareBenchmarkOutputDirectoryForFixture(
+    options.outputDir,
+    resolved.fixture
+  );
   for (const reportFile of [
     "comparison.json",
     "comparison.md",

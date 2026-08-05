@@ -4,17 +4,20 @@
  *--------------------------------------------------------------------------------------------*/
 
 import * as fs from "node:fs";
+
 import { createRequire } from "node:module";
 import * as path from "node:path";
 import { AccessToken } from "@itwin/core-bentley";
-import { BriefcaseDb } from "@itwin/core-backend";
+import { BriefcaseDb, IModelDb } from "@itwin/core-backend";
 import {
   canonicalSha256,
+  ExternalFixtureSourceIdentity,
   FixtureDescriptor,
   FixtureDistribution,
   FixtureTopology,
   fixtureWorkloadGeneratorIdentity,
 } from "./FixtureDescriptor.js";
+import { sha256File } from "./FixtureArtifact.js";
 import { quickRootDirectory } from "../support/paths.js";
 
 const localRequire = createRequire(import.meta.url);
@@ -125,7 +128,7 @@ export interface FixtureRecipe<
   ): Promise<TArtifactData | void>;
   /** Optional post-construction validation, run before a fixture is consumed or captured. */
   validate?(
-    db: BriefcaseDb,
+    db: IModelDb,
     context: FixtureRecipeContext<TParameters>
   ): Promise<void>;
 }
@@ -169,6 +172,8 @@ export interface FixtureConfiguration<TParameters> {
  */
 export interface ConfiguredFixture {
   readonly descriptor: FixtureDescriptor;
+  /** Filesystem path used only while authoring an external-source artifact. Never reported. */
+  readonly externalSourceFileName?: string;
   readonly recipeId: string;
   createSeed(fileName: string): Promise<unknown>;
   applySourceChangesets(
@@ -176,7 +181,103 @@ export interface ConfiguredFixture {
     accessToken: AccessToken,
     state: unknown
   ): Promise<unknown>;
-  validate?(db: BriefcaseDb): Promise<void>;
+  validate?(db: IModelDb): Promise<void>;
+}
+
+function resolveThroughExistingAncestor(fileName: string): string {
+  let ancestor = path.resolve(fileName);
+  const suffix: string[] = [];
+  while (!fs.existsSync(ancestor)) {
+    const parent = path.dirname(ancestor);
+    if (parent === ancestor)
+      throw new Error(`Cannot resolve fixture path: ${fileName}`);
+    suffix.unshift(path.basename(ancestor));
+    ancestor = parent;
+  }
+  return path.join(fs.realpathSync(ancestor), ...suffix);
+}
+
+export function assertExternalFixtureSourceOutsideDirectory(
+  fixture: ConfiguredFixture,
+  managedDirectory: string
+): void {
+  if (fixture.externalSourceFileName === undefined) return;
+  const isInside = (candidate: string, root: string) => {
+    const relative = path.relative(root, candidate);
+    return (
+      relative === "" ||
+      (relative !== ".." &&
+        !relative.startsWith(`..${path.sep}`) &&
+        !path.isAbsolute(relative))
+    );
+  };
+  const lexicalSource = path.resolve(fixture.externalSourceFileName);
+  const lexicalManaged = path.resolve(managedDirectory);
+  const canonicalSource = fs.realpathSync(fixture.externalSourceFileName);
+  const canonicalManaged = resolveThroughExistingAncestor(managedDirectory);
+  if (
+    isInside(lexicalSource, lexicalManaged) ||
+    isInside(canonicalSource, canonicalManaged)
+  )
+    throw new Error(
+      `QUICK_PERF_STANDALONE_BIM must be outside benchmark-managed directories: ${fixture.externalSourceFileName}`
+    );
+}
+
+export function withExternalFixtureSourceIdentity(
+  fixture: ConfiguredFixture,
+  source: ExternalFixtureSourceIdentity
+): ConfiguredFixture {
+  const descriptor: FixtureDescriptor = Object.freeze({
+    ...fixture.descriptor,
+    source,
+    recipeHash: canonicalSha256({
+      recipeHash: fixture.descriptor.recipeHash,
+      source,
+    }),
+  });
+  return Object.freeze({ ...fixture, descriptor });
+}
+
+/**
+ * Bind external standalone bytes to a configured fixture without changing the catalog entry.
+ * The recipe still identifies the fixture contract; the derived hash adds the external identity.
+ */
+export function withExternalFixtureSource(
+  fixture: ConfiguredFixture,
+  fileName: string
+): ConfiguredFixture {
+  if (!path.isAbsolute(fileName))
+    throw new Error(
+      `QUICK_PERF_STANDALONE_BIM must be an absolute path: ${fileName}`
+    );
+  const resolved = path.resolve(fileName);
+  if (!fs.existsSync(resolved))
+    throw new Error(`QUICK_PERF_STANDALONE_BIM does not exist: ${resolved}`);
+  const stat = fs.statSync(resolved);
+  if (!stat.isFile())
+    throw new Error(
+      `QUICK_PERF_STANDALONE_BIM must identify a file: ${resolved}`
+    );
+  if (path.extname(resolved).toLowerCase() !== ".bim")
+    throw new Error(
+      `QUICK_PERF_STANDALONE_BIM must have a .bim extension: ${resolved}`
+    );
+  if (!Number.isSafeInteger(stat.size))
+    throw new Error(
+      `QUICK_PERF_STANDALONE_BIM size must be a safe integer: ${resolved}`
+    );
+  const source: ExternalFixtureSourceIdentity = Object.freeze({
+    kind: "external-bim",
+    fileName: path.basename(resolved),
+    byteLength: stat.size,
+    sha256: sha256File(resolved),
+  });
+  const identified = withExternalFixtureSourceIdentity(fixture, source);
+  return Object.freeze({
+    ...identified,
+    externalSourceFileName: resolved,
+  });
 }
 
 export function configureFixture<TParameters, TState, TArtifactData>(
@@ -245,7 +346,7 @@ export function configureFixture<TParameters, TState, TArtifactData>(
   if (recipe.validate === undefined) return Object.freeze(configured);
   return Object.freeze({
     ...configured,
-    validate: async (db: BriefcaseDb) => {
+    validate: async (db: IModelDb) => {
       if (recipe.validate === undefined)
         throw new Error(`Fixture recipe "${recipe.id}" lost its validator`);
       await recipe.validate(db, context);

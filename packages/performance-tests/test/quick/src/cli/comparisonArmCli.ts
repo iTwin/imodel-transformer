@@ -9,7 +9,10 @@ import {
   BenchmarkRunner,
   BenchmarkSample,
 } from "../framework/BenchmarkRunner.js";
-import { resolveBenchmarkRun } from "../framework/BenchmarkResolution.js";
+import {
+  resolveBenchmarkRun,
+  resolveBenchmarkRunFromEnvironment,
+} from "../framework/BenchmarkResolution.js";
 import { resolveTransformerProvenance } from "../comparison/TransformerProvenance.js";
 import { FixtureArtifactManifest } from "../fixtures/FixtureArtifact.js";
 
@@ -71,10 +74,14 @@ async function main(): Promise<BenchmarkSample | FixtureArtifactManifest> {
   const transformerProvenance = resolveTransformerProvenance(
     request.expectedTransformerRootDirectory
   );
-  const { fixture, scenario } = resolveBenchmarkRun(
-    request.scenarioId,
-    request.fixtureId
-  );
+  const { fixture, scenario } =
+    request.kind === "build-fixture"
+      ? resolveBenchmarkRunFromEnvironment({
+          ...process.env,
+          QUICK_PERF_SCENARIO: request.scenarioId,
+          QUICK_PERF_FIXTURE: request.fixtureId,
+        })
+      : resolveBenchmarkRun(request.scenarioId, request.fixtureId);
   const runner = new BenchmarkRunner(
     fixture,
     request.kind === "run-sample"
