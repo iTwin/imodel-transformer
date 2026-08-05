@@ -4,7 +4,7 @@
  *--------------------------------------------------------------------------------------------*/
 
 import * as path from "node:path";
-import { BriefcaseDb } from "@itwin/core-backend";
+import { BriefcaseDb, SnapshotDb } from "@itwin/core-backend";
 import { ChangesetFileProps } from "@itwin/core-common";
 import { FixtureArtifact, FixtureArtifactManifest } from "./FixtureArtifact.js";
 import { FixtureDescriptor } from "./FixtureDescriptor.js";
@@ -12,6 +12,7 @@ import { ConfiguredFixture } from "./FixtureRecipe.js";
 import { ReconstructedHub } from "./LocalHubFixture.js";
 import { detachedBriefcaseFixtureProvider } from "./providers/detachedBriefcaseProvider.js";
 import { liveHubFixtureProvider } from "./providers/liveHubProvider.js";
+import { standaloneFixtureProvider } from "./providers/standaloneProvider.js";
 
 interface PreparedDatasetBase {
   readonly descriptor: FixtureDescriptor;
@@ -42,7 +43,19 @@ export interface PreparedDetachedDataset extends PreparedDatasetBase {
   readonly recipe?: unknown;
 }
 
-export type PreparedDataset = PreparedLiveHubDataset | PreparedDetachedDataset;
+/** A private readonly standalone source plus a newly-created empty target. */
+export interface PreparedStandaloneDataset extends PreparedDatasetBase {
+  readonly topology: "standalone-source-and-empty-target";
+  readonly directory: string;
+  readonly sourceDb: SnapshotDb;
+  readonly targetDb: SnapshotDb;
+  readonly manifest: FixtureArtifactManifest;
+}
+
+export type PreparedDataset =
+  | PreparedLiveHubDataset
+  | PreparedDetachedDataset
+  | PreparedStandaloneDataset;
 
 export function requireLiveHubDataset(
   dataset: PreparedDataset
@@ -60,6 +73,16 @@ export function requireDetachedDataset(
   if (dataset.topology !== "source-only")
     throw new Error(
       `Scenario requires a "source-only" fixture but received "${dataset.topology}"`
+    );
+  return dataset;
+}
+
+export function requireStandaloneDataset(
+  dataset: PreparedDataset
+): PreparedStandaloneDataset {
+  if (dataset.topology !== "standalone-source-and-empty-target")
+    throw new Error(
+      `Scenario requires a "standalone-source-and-empty-target" fixture but received "${dataset.topology}"`
     );
   return dataset;
 }
@@ -125,6 +148,8 @@ export function getFixtureProvider(
       return liveHubFixtureProvider;
     case "source-only":
       return detachedBriefcaseFixtureProvider;
+    case "standalone-source-and-empty-target":
+      return standaloneFixtureProvider;
     default: {
       const unreachable: never = descriptor.layout.topology;
       throw new Error(`Unknown fixture topology: ${String(unreachable)}`);

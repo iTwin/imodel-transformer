@@ -4,6 +4,9 @@
  *--------------------------------------------------------------------------------------------*/
 
 import { describe, expect, it } from "vitest";
+import * as fs from "node:fs";
+import * as os from "node:os";
+import * as path from "node:path";
 import {
   assertScenarioSupportsFixture,
   defaultQuickPerformanceMeasuredSamples,
@@ -18,6 +21,7 @@ import {
   balancedIncrementalSourceOnlyDescriptor,
 } from "../../src/fixtures/recipes/balancedIncremental.js";
 import { incrementalSynchronizationScenario } from "../../src/scenarios/incrementalSynchronization.js";
+import { assertExternalFixtureSourceOutsideDirectory } from "../../src/fixtures/FixtureRecipe.js";
 
 describe("benchmark resolution", () => {
   it("resolves the scenario's declared default fixture", () => {
@@ -76,6 +80,111 @@ describe("benchmark resolution", () => {
     });
     expect(resolved.scenario.id).to.equal("incremental-synchronization");
     expect(resolved.descriptor.id).to.equal("balanced-incremental");
+  });
+
+  it("binds external BIM identity only to the standalone topology", () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "quick-external-unit-"));
+    const external = path.join(root, "input.bim");
+    fs.writeFileSync(external, "external fixture bytes");
+    try {
+      const resolved = resolveBenchmarkRun(
+        "standalone-full-transformation",
+        undefined,
+        external
+      );
+      expect(resolved.descriptor.source).to.deep.include({
+        kind: "external-bim",
+        fileName: "input.bim",
+        byteLength: fs.statSync(external).size,
+      });
+      expect(resolved.fixture.externalSourceFileName).to.equal(
+        path.resolve(external)
+      );
+      expect(() =>
+        assertExternalFixtureSourceOutsideDirectory(resolved.fixture, root)
+      ).to.throw(/outside benchmark-managed directories/);
+      expect(resolved.descriptor.recipeHash).to.not.equal(
+        resolveBenchmarkRun("standalone-full-transformation").descriptor
+          .recipeHash
+      );
+      expect(() =>
+        resolveBenchmarkRun("incremental-synchronization", undefined, external)
+      ).to.throw(/requires a "standalone-source-and-empty-target" fixture/);
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects missing, non-file, and non-BIM external inputs", () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "quick-external-unit-"));
+    const text = path.join(root, "input.txt");
+    fs.writeFileSync(text, "not a BIM");
+    try {
+      for (const input of [path.join(root, "missing.bim"), root, text])
+        expect(() =>
+          resolveBenchmarkRun(
+            "standalone-full-transformation",
+            undefined,
+            input
+          )
+        ).to.throw(/QUICK_PERF_STANDALONE_BIM/);
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("canonicalizes symlinked external inputs before managed-path checks", () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "quick-external-link-"));
+    const managed = path.join(root, "managed");
+    const alias = path.join(root, "alias");
+    fs.mkdirSync(managed);
+    const external = path.join(managed, "input.bim");
+    fs.writeFileSync(external, "external fixture bytes");
+    fs.symlinkSync(
+      managed,
+      alias,
+      process.platform === "win32" ? "junction" : "dir"
+    );
+    try {
+      const resolved = resolveBenchmarkRun(
+        "standalone-full-transformation",
+        undefined,
+        path.join(alias, "input.bim")
+      );
+      expect(() =>
+        assertExternalFixtureSourceOutsideDirectory(resolved.fixture, managed)
+      ).to.throw(/outside benchmark-managed directories/);
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects a managed-path alias to an external BIM before cleanup", () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "quick-managed-link-"));
+    const managed = path.join(root, "managed");
+    const externalDir = path.join(root, "external");
+    const alias = path.join(managed, "alias");
+    fs.mkdirSync(managed);
+    fs.mkdirSync(externalDir);
+    const external = path.join(externalDir, "input.bim");
+    fs.writeFileSync(external, "external fixture bytes");
+    fs.symlinkSync(
+      externalDir,
+      alias,
+      process.platform === "win32" ? "junction" : "dir"
+    );
+    try {
+      const resolved = resolveBenchmarkRun(
+        "standalone-full-transformation",
+        undefined,
+        path.join(alias, "input.bim")
+      );
+      expect(() =>
+        assertExternalFixtureSourceOutsideDirectory(resolved.fixture, managed)
+      ).to.throw(/outside benchmark-managed directories/);
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
   });
 
   it("resolves an explicit measured-sample count from the environment", () => {

@@ -8,6 +8,7 @@ import * as path from "node:path";
 import { BenchmarkSample } from "../framework/BenchmarkRunner.js";
 import { median } from "../reporting/statistics.js";
 import { TransformerProvenance } from "./TransformerProvenance.js";
+import { ExternalFixtureSourceIdentity } from "../fixtures/FixtureDescriptor.js";
 
 export type ComparisonArm = "baseline" | "candidate";
 
@@ -42,6 +43,7 @@ export interface ComparisonSummary {
   readonly fixtureRecipeHash: string;
   readonly fixtureContentHash: string;
   readonly fixtureAuthoring: ComparisonReportInput["fixtureAuthoring"];
+  readonly fixtureSource?: ExternalFixtureSourceIdentity;
   readonly semanticDigest: string;
   readonly policy: {
     readonly warmupsPerArm: 1;
@@ -81,6 +83,7 @@ function configurationIdentity(sample: BenchmarkSample): string {
     },
     sample.topology,
     sample.operations,
+    ...(sample.fixtureSource === undefined ? [] : [sample.fixtureSource]),
   ]);
 }
 
@@ -205,6 +208,9 @@ export function createComparisonSummary(
     fixtureRecipeHash: identity.fixtureRecipeHash,
     fixtureContentHash,
     fixtureAuthoring: input.fixtureAuthoring,
+    ...(identity.fixtureSource === undefined
+      ? {}
+      : { fixtureSource: identity.fixtureSource }),
     semanticDigest: identity.semanticDigest,
     policy: {
       warmupsPerArm: 1,

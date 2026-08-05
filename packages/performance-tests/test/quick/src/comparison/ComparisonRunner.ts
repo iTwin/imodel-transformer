@@ -15,6 +15,8 @@ import {
   FixtureArtifactManifest,
   readFixtureArtifact,
 } from "../fixtures/FixtureArtifact.js";
+import { assertExternalFixtureSourceOutsideDirectory } from "../fixtures/FixtureRecipe.js";
+import { resolveBenchmarkRunFromEnvironment } from "../framework/BenchmarkResolution.js";
 import {
   ComparisonArm,
   ComparisonReporter,
@@ -342,6 +344,15 @@ export async function runComparison(
   execute: ArmExecutor = executeArmProcess,
   buildFixture: FixtureArtifactBuilder = buildFixtureArtifactProcess
 ): Promise<ComparisonSummary> {
+  const resolved = resolveBenchmarkRunFromEnvironment({
+    ...process.env,
+    QUICK_PERF_FIXTURE: options.fixtureId,
+    QUICK_PERF_SCENARIO: options.scenarioId,
+  });
+  assertExternalFixtureSourceOutsideDirectory(
+    resolved.fixture,
+    options.outputDir
+  );
   const measuredSamplesPerArm =
     options.measuredSamplesPerArm ?? defaultComparisonMeasuredSamples;
   const informationalThresholdPercent =

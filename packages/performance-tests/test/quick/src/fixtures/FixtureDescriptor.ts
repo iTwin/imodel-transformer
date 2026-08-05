@@ -34,13 +34,26 @@ export interface FixtureDistribution {
  *   into. Its prepared hub state is captured once and restored from immutable files per sample.
  * - `source-only`: a source briefcase and its pushed changeset files, with no target and no hub at
  *   measure time. Built once into an immutable artifact and copied per sample.
+ * - `standalone-source-and-empty-target`: a readonly standalone source copied from one immutable
+ *   artifact plus a newly-created empty standalone target per sample.
  */
-export type FixtureTopology = "source-and-empty-target" | "source-only";
+export type FixtureTopology =
+  | "source-and-empty-target"
+  | "source-only"
+  | "standalone-source-and-empty-target";
 
 export const fixtureTopologies: readonly FixtureTopology[] = [
   "source-and-empty-target",
   "source-only",
+  "standalone-source-and-empty-target",
 ];
+
+export interface ExternalFixtureSourceIdentity {
+  readonly kind: "external-bim";
+  readonly fileName: string;
+  readonly byteLength: number;
+  readonly sha256: string;
+}
 
 export interface FixtureDescriptor {
   readonly id: string;
@@ -59,6 +72,8 @@ export interface FixtureDescriptor {
     readonly node: string;
     readonly transformer: string;
   };
+  /** Present when external bytes replace recipe generation for this invocation. */
+  readonly source?: ExternalFixtureSourceIdentity;
   readonly recipeHash: string;
 }
 
@@ -92,6 +107,7 @@ export function validateFixtureDescriptor(value: unknown): FixtureDescriptor {
   if (value === null || typeof value !== "object")
     throw new Error("Fixture descriptor must be an object");
   const descriptor = value as Partial<FixtureDescriptor>;
+  const source = descriptor.source;
   if (
     typeof descriptor.id !== "string" ||
     typeof descriptor.version !== "number" ||
@@ -109,5 +125,26 @@ export function validateFixtureDescriptor(value: unknown): FixtureDescriptor {
     typeof descriptor.recipeHash !== "string"
   )
     throw new Error("Fixture descriptor has an invalid shape");
+  if (
+    source !== undefined &&
+    (source.kind !== "external-bim" ||
+      typeof source.fileName !== "string" ||
+      source.fileName.length === 0 ||
+      typeof source.byteLength !== "number" ||
+      !Number.isSafeInteger(source.byteLength) ||
+      source.byteLength < 0 ||
+      typeof source.sha256 !== "string" ||
+      !/^[a-f0-9]{64}$/.test(source.sha256))
+  )
+    throw new Error(
+      "Fixture descriptor has an invalid external source identity"
+    );
+  if (
+    source !== undefined &&
+    descriptor.layout.topology !== "standalone-source-and-empty-target"
+  )
+    throw new Error(
+      "External fixture source identity requires standalone source-and-empty-target topology"
+    );
   return descriptor as FixtureDescriptor;
 }
