@@ -86,7 +86,7 @@ async function countPhysicalObjects(db: IModelDb): Promise<number> {
  * Creates a standalone source with one physical model, one spatial category, and
  * `elementCount` Generic.PhysicalObjects. Each object has unit-box geometry and a
  * deterministic placement on a 100-column grid. The default configured fixture
- * contains 1,000 objects and no aspects, relationships, or changesets.
+ * contains 10,000 objects and no aspects, relationships, or changesets.
  */
 export const standaloneFullTransformRecipe = defineFixtureRecipe({
   id: "standalone-full-transform",
@@ -158,7 +158,7 @@ export const standaloneFullTransformFixture = configureFixture(
     scenarioClaims: ["full transformation"],
     topology: "standalone-source-and-empty-target",
     seed: 104729,
-    parameters: { elementCount: 1000 },
+    parameters: { elementCount: 10000 },
   }
 );
 

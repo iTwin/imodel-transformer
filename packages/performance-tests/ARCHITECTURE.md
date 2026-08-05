@@ -306,7 +306,7 @@ unit.
 The `standalone-full-transformation` registration uses the
 `standalone-full-transform` fixture and
 `standalone-source-and-empty-target` topology. By default, its recipe builds
-1,000 `Generic.PhysicalObject`s with deterministic unit-box geometry and grid
+10,000 `Generic.PhysicalObject`s with deterministic unit-box geometry and grid
 placements in one `withEditTxn`.
 
 Stage one:

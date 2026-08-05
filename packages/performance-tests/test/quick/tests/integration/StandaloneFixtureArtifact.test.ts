@@ -94,7 +94,7 @@ describe("standalone fixture artifact", () => {
       const sourceHash = sha256(sourceFile);
       sourceHashes.push(sourceHash);
       expect(dataset.sourceDb.isReadonly).to.be.true;
-      expect(await countPhysicalObjects(dataset.sourceDb)).to.equal(1000);
+      expect(await countPhysicalObjects(dataset.sourceDb)).to.equal(10000);
       expect(await countPhysicalObjects(dataset.targetDb)).to.equal(0);
       const scenario = standaloneFullTransformation(dataset);
       try {
