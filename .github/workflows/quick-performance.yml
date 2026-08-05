@@ -107,6 +107,10 @@ jobs:
           cp -R \
             candidate/packages/performance-tests/test/quick/runtime/.compiled \
             baseline/packages/performance-tests/test/quick/runtime/.compiled
+          rm -rf baseline/packages/test-utils/lib
+          cp -R \
+            candidate/packages/test-utils/lib \
+            baseline/packages/test-utils/lib
 
       - name: Run isolated A/B comparison
         run: >-
