@@ -1,5 +1,9 @@
 # Next release notes
 
+## Preserve channel roots during synchronization
+
+`IModelTransformOptions.includeSourceChannelRootAspects` can now be set to `true` to preserve source editing-channel boundaries in the target. The default remains `false`, so existing transformations continue to exclude source `ChannelRootAspect` instances.
+
 ## Breaking change: `IModelTransformer.context` exposes a supported transformation contract
 
 `IModelTransformer.context` is now typed as `IModelTransformContext`. The interface supports target lookup, explicit mappings for elements, element aspects, element classes, and CodeSpecs, and SubCategory filtering. Cloning operations, source and target database access, native resource management, context persistence, and other `IModelCloneContext` implementation details are no longer accessible through the public property.

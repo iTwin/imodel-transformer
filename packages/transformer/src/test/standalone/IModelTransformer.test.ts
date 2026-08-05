@@ -9,6 +9,7 @@ import * as path from "node:path";
 import * as Semver from "semver";
 import {
   CategorySelector,
+  ChannelRootAspect,
   DefinitionModel,
   DisplayStyle3d,
   DocumentListModel,
@@ -542,6 +543,101 @@ describe("IModelTransformer", () => {
 
     masterDb.close();
     branchDb.close();
+  });
+
+  it("should optionally preserve source channel root aspects", async () => {
+    const channelKey = "itwin:imodel-transformer:test";
+    const sourceDbFile = IModelTransformerTestUtils.prepareOutputFile(
+      "IModelTransformer",
+      "ChannelRootAspects-Source.bim"
+    );
+    const sourceDb = SnapshotDb.createEmpty(sourceDbFile, {
+      rootSubject: { name: "ChannelRootAspects-Source" },
+    });
+    const { sourceChannelRootId, sourceChannelChildId } = withEditTxn(
+      sourceDb,
+      "create channel",
+      (txn) => {
+        const channelRootId = sourceDb.channels.insertChannelSubject({
+          subjectName: "Channel Root",
+          channelKey,
+          txn,
+        });
+        sourceDb.channels.addAllowedChannel(channelKey);
+        const channelChildId = Subject.insert(
+          txn,
+          channelRootId,
+          "Channel Child"
+        );
+        return {
+          sourceChannelRootId: channelRootId,
+          sourceChannelChildId: channelChildId,
+        };
+      }
+    );
+
+    const transform = async (
+      targetName: string,
+      options?: IModelTransformOptions
+    ) => {
+      const targetDbFile = IModelTransformerTestUtils.prepareOutputFile(
+        "IModelTransformer",
+        `${targetName}.bim`
+      );
+      const targetDb = SnapshotDb.createEmpty(targetDbFile, {
+        rootSubject: { name: targetName },
+      });
+      const editTxn = createStartedEditTxn(targetDb);
+      const transformer = new IModelTransformer(
+        { source: sourceDb, target: editTxn },
+        options
+      );
+      await transformer.process();
+      const targetChannelRootId =
+        transformer.context.findTargetElementId(sourceChannelRootId);
+      const targetChannelChildId =
+        transformer.context.findTargetElementId(sourceChannelChildId);
+      transformer.dispose();
+      editTxn.end();
+      return { targetDb, targetChannelRootId, targetChannelChildId };
+    };
+
+    const defaultResult = await transform("ChannelRootAspects-DefaultTarget");
+    assert.lengthOf(
+      defaultResult.targetDb.elements.getAspects(
+        defaultResult.targetChannelRootId,
+        ChannelRootAspect.classFullName
+      ),
+      0
+    );
+    assert.isUndefined(
+      defaultResult.targetDb.channels.queryChannelRoot(channelKey)
+    );
+    defaultResult.targetDb.close();
+
+    const includedResult = await transform(
+      "ChannelRootAspects-IncludedTarget",
+      { includeSourceChannelRootAspects: true }
+    );
+    const channelRootAspects = includedResult.targetDb.elements.getAspects(
+      includedResult.targetChannelRootId,
+      ChannelRootAspect.classFullName
+    );
+    assert.lengthOf(channelRootAspects, 1);
+    assert.equal(channelRootAspects[0].asAny.owner, channelKey);
+    assert.equal(
+      includedResult.targetDb.channels.queryChannelRoot(channelKey),
+      includedResult.targetChannelRootId
+    );
+    assert.equal(
+      includedResult.targetDb.channels.getChannelKey(
+        includedResult.targetChannelChildId
+      ),
+      channelKey
+    );
+
+    includedResult.targetDb.close();
+    sourceDb.close();
   });
 
   async function count(
