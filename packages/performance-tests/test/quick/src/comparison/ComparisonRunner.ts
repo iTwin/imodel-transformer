@@ -313,7 +313,7 @@ export async function buildFixtureArtifactProcess(
       kind: "build-fixture",
       resultFile,
     }),
-    "candidate fixture build",
+    "baseline fixture build",
     request.workerTimeoutMilliseconds ??
       defaultComparisonWorkerTimeoutMilliseconds,
     defaultWorkerTerminationGraceMilliseconds,
@@ -321,10 +321,10 @@ export async function buildFixtureArtifactProcess(
   );
   if (processResult.exitCode !== 0)
     throw new Error(
-      `candidate fixture build process failed with exit code ${processResult.exitCode}: ${processResult.stderr || processResult.stdout}`
+      `baseline fixture build process failed with exit code ${processResult.exitCode}: ${processResult.stderr || processResult.stdout}`
     );
   if (!fs.existsSync(resultFile))
-    throw new Error("Candidate fixture build process did not write a result");
+    throw new Error("Baseline fixture build process did not write a result");
   const artifact = readFixtureArtifact(request.artifactDirectory);
   const parsed: unknown = JSON.parse(fs.readFileSync(resultFile, "utf8"));
   if (
@@ -333,7 +333,7 @@ export async function buildFixtureArtifactProcess(
     (parsed as Partial<FixtureArtifactManifest>).contentHash !==
       artifact.manifest.contentHash
   )
-    throw new Error("Candidate fixture build process wrote an invalid result");
+    throw new Error("Baseline fixture build process wrote an invalid result");
   return artifact.manifest;
 }
 
@@ -385,7 +385,7 @@ export async function runComparison(
     artifactDirectory: fixtureArtifactDirectory,
     fixtureId: options.fixtureId,
     harnessRootDirectory,
-    rootDirectory: options.candidate.rootDirectory,
+    rootDirectory: options.baseline.rootDirectory,
     scenarioId: options.scenarioId,
     workerTimeoutMilliseconds,
   });
@@ -413,7 +413,7 @@ export async function runComparison(
     });
     if (sample.fixtureContentHash !== fixtureManifest.contentHash)
       throw new Error(
-        `${execution.arm} sample ${execution.sample} did not consume the candidate-authored fixture artifact`
+        `${execution.arm} sample ${execution.sample} did not consume the baseline-authored fixture artifact`
       );
     samples[execution.arm].push(sample);
   }
@@ -426,6 +426,11 @@ export async function runComparison(
     candidate: {
       revision: options.candidate.revision,
       samples: samples.candidate,
+    },
+    fixtureAuthoring: {
+      arm: "baseline",
+      revision: options.baseline.revision,
+      transformerVersion: fixtureManifest.descriptor.generator.transformer,
     },
     informationalThresholdPercent,
     measuredSamplesPerArm,

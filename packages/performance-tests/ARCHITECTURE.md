@@ -196,14 +196,17 @@ and cleanup errors when more than one operation fails.
 The A/B workflow checks out the pull request base and head independently and
 builds each checkout's transformer package. It compiles the quick harness and
 test-utils runtime once from the candidate and installs those exact files in both
-checkouts. A dedicated candidate process authors one relocatable fixture artifact
+checkouts. A dedicated baseline process authors one relocatable fixture artifact
 before the execution schedule begins. Its manifest carries a content hash over
 every workload file. All baseline and candidate workers validate and copy that
 same artifact, rather than independently regenerating fixtures.
 
-One candidate worker builds the fixture artifact before the execution schedule
+One baseline worker builds the fixture artifact before the execution schedule
 starts. For live incremental synchronization, the artifact contains both
 prepared briefcases, their version-zero seeds, and both local-hub timelines.
+The baseline transformer performs the initial full transformation and establishes
+target provenance, so candidate measurements represent processing against
+baseline-created state rather than candidate-created setup.
 Every later worker verifies the content hash and restores a private working copy
 from the same artifact; no warm-up or measured worker regenerates fixture
 contents or repeats the initial full transform.
@@ -224,12 +227,12 @@ Each worker also proves that its resolved transformer entry point is below the
 checkout assigned to its arm and records the transformer version and a content
 hash of the complete compiled output. That execution provenance is excluded from workload identity:
 different transformer builds are the intended independent variable. Before
-reporting, the coordinator requires one candidate-authored artifact content hash,
+reporting, the coordinator requires one baseline-authored artifact content hash,
 identical scenario and fixture identity fields, and one semantic digest across
-both arms. It reports only arm
-medians, measured samples, candidate percentage delta, and an explicitly
-informational threshold status. The threshold is not a confidence interval,
-significance test, or merge gate.
+both arms. It reports the fixture-authoring baseline revision and transformer
+version, arm medians, measured samples, candidate percentage delta, and an
+explicitly informational threshold status. The threshold is not a confidence
+interval, significance test, or merge gate.
 
 ## Current incremental-synchronization run
 
@@ -243,22 +246,31 @@ The default run resolves these components:
 | Topology  | `source-and-empty-target`     |
 | Provider  | `liveHubProvider`             |
 
-For the warm-up and each measured sample:
+The baseline fixture-artifact worker runs these steps once:
 
-1. `liveHubProvider` starts a fresh `HubMock`.
+1. `liveHubProvider` starts `HubMock`.
 2. The recipe creates a source seed and imports
    `assets/schemas/QuickPerf.ecschema.xml`.
 3. The provider creates source and target iModels and opens their
    `BriefcaseDb`s.
-4. An initial full transformation establishes the target contents.
+4. The baseline transformer performs an initial full transformation to establish
+   the target contents.
 5. The provider pushes the target changes containing synchronization provenance.
 6. The recipe applies eight deterministic source changesets.
 7. Fixture validation checks the source content distribution.
-8. The scenario creates an `IModelTransformer` for the source and target.
-9. `measure()` times only `IModelTransformer.process()`.
-10. `finish()` validates synchronization provenance and semantic equality.
-11. The provider closes and deletes the sample briefcases and shuts down
-    `HubMock`.
+8. The provider captures both briefcases, version-zero seeds, and hub timelines
+   in the immutable artifact, then shuts down `HubMock`.
+
+For the warm-up and each measured sample:
+
+1. The provider validates and copies the shared artifact.
+2. It restores a private `HubMock`, source briefcase, and prepared target
+   briefcase from those bytes.
+3. The scenario creates an `IModelTransformer` for the restored source and target.
+4. `measure()` times only `IModelTransformer.process()`.
+5. `finish()` validates synchronization provenance and semantic equality.
+6. The provider closes and deletes the sample briefcases and shuts down
+   `HubMock`.
 
 The calibrated source contains 6,000 base elements, 12,000 aspects, 3,000
 relationships, and 3,000 geometric elements. Its eight changesets apply:
