@@ -242,6 +242,35 @@ describe("standalone fixture artifact", () => {
     fs.rmSync(corrupt, { recursive: true, force: true });
   });
 
+  it.each([
+    ["POSIX traversal", "../outside.bim"],
+    ["Windows traversal", "..\\outside.bim"],
+    ["absolute path", "<absolute>"],
+  ])("rejects a standalone source with a %s", (label, sourceFileInput) => {
+    const sourceFile =
+      sourceFileInput === "<absolute>"
+        ? path.resolve(root, "outside.bim")
+        : sourceFileInput;
+    const corrupt = path.join(
+      root,
+      `standalone-source-path-${label.replaceAll(" ", "-")}`
+    );
+    fs.cpSync(built.directory, corrupt, { recursive: true });
+    const manifestFile = path.join(corrupt, artifactManifestFileName);
+    const manifest = JSON.parse(fs.readFileSync(manifestFile, "utf8")) as {
+      standalone: { sourceFile: string };
+    };
+    manifest.standalone.sourceFile = sourceFile;
+    fs.writeFileSync(
+      manifestFile,
+      `${JSON.stringify(manifest, undefined, 2)}\n`
+    );
+    expect(() => readFixtureArtifact(corrupt)).to.throw(
+      /Standalone fixture artifact manifest has incompatible source/
+    );
+    fs.rmSync(corrupt, { recursive: true, force: true });
+  });
+
   it("rejects an external source inside the artifact directory before deleting it", async () => {
     const artifactDir = path.join(root, "overlap-artifact");
     fs.mkdirSync(artifactDir, { recursive: true });

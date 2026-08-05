@@ -329,6 +329,11 @@ function validateStandaloneManifest(
   return (
     typeof standalone.sourceFile === "string" &&
     standalone.sourceFile.length > 0 &&
+    path.posix.basename(standalone.sourceFile) === standalone.sourceFile &&
+    path.win32.basename(standalone.sourceFile) === standalone.sourceFile &&
+    standalone.sourceFile !== "." &&
+    standalone.sourceFile !== ".." &&
+    !standalone.sourceFile.includes("\0") &&
     typeof standalone.sourceSha256 === "string" &&
     /^[a-f0-9]{64}$/.test(standalone.sourceSha256)
   );
