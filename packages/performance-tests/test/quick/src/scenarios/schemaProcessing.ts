@@ -37,7 +37,7 @@ export type SchemaProcessingStrategyId =
   (typeof schemaProcessingStrategyIds)[number];
 
 export function resolveSchemaProcessingStrategyId(
-  value = process.env.QUICK_PERF_SCHEMA_PROCESSING_STRATEGY
+  value = process.env.QUICK_PERF_STRATEGY
 ): SchemaProcessingStrategyId {
   const strategy = value?.trim() || "default";
   if (
