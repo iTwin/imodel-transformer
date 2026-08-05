@@ -6,6 +6,7 @@
 import {
   BriefcaseDb,
   ExternalSourceAspect,
+  IModelDb,
   PhysicalObject,
 } from "@itwin/core-backend";
 import { IModel, QueryBinder } from "@itwin/core-common";
@@ -42,7 +43,7 @@ function normalizedAngles(value: unknown): unknown {
 }
 
 async function queryValues(
-  db: BriefcaseDb,
+  db: IModelDb,
   ecsql: string,
   propertyName: string
 ): Promise<unknown[]> {
@@ -55,7 +56,7 @@ async function queryValues(
 }
 
 async function queryRecords(
-  db: BriefcaseDb,
+  db: IModelDb,
   ecsql: string,
   propertyNames: readonly string[]
 ): Promise<unknown[]> {
@@ -76,7 +77,7 @@ async function queryRecords(
   return values;
 }
 
-async function queryGeometryRecords(db: BriefcaseDb): Promise<unknown[]> {
+async function queryGeometryRecords(db: IModelDb): Promise<unknown[]> {
   const values: unknown[] = [];
   const reader = db.createQueryReader(
     "SELECT ECInstanceId id FROM Generic.PhysicalObject WHERE UserLabel IS NOT NULL ORDER BY UserLabel",
@@ -106,7 +107,7 @@ async function queryGeometryRecords(db: BriefcaseDb): Promise<unknown[]> {
   return values;
 }
 
-async function queryCount(db: BriefcaseDb, ecsql: string): Promise<number> {
+async function queryCount(db: IModelDb, ecsql: string): Promise<number> {
   const reader = db.createQueryReader(ecsql, undefined, {
     usePrimaryConn: true,
   });
@@ -115,7 +116,7 @@ async function queryCount(db: BriefcaseDb, ecsql: string): Promise<number> {
   return reader.current.cnt as number;
 }
 
-async function queryGeometryUpdateCount(db: BriefcaseDb): Promise<number> {
+async function queryGeometryUpdateCount(db: IModelDb): Promise<number> {
   const reader = db.createQueryReader(
     "SELECT ECInstanceId id FROM Generic.PhysicalObject WHERE UserLabel LIKE 'updated-%'",
     undefined,
@@ -198,7 +199,7 @@ async function queryGeometryUpdateCount(db: BriefcaseDb): Promise<number> {
 }
 
 export async function assertFixtureDistribution(
-  db: BriefcaseDb,
+  db: IModelDb,
   descriptor: FixtureDescriptor
 ): Promise<void> {
   const expected = {
@@ -260,6 +261,8 @@ export async function assertFixtureDistribution(
         expected
       )}, actual=${JSON.stringify(actual)}`
     );
+  if (!db.isBriefcaseDb())
+    throw new Error("Incremental fixture validation requires a briefcase");
   if (
     db.changeset.index !== descriptor.distribution.operations.sourceChangesets
   )

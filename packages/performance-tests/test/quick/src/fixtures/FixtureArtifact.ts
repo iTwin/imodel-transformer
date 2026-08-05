@@ -17,7 +17,7 @@ import {
  * Version of the on-disk artifact layout. Bump when the directory contract changes in a way that
  * an older reader cannot interpret.
  */
-export const fixtureArtifactVersion = 2;
+export const fixtureArtifactVersion = 3;
 
 export const artifactBriefcaseFileName = "briefcase.bim";
 export const artifactChangesetDirectoryName = "changesets";
@@ -29,6 +29,7 @@ export const artifactTargetBriefcaseFileName = "target-briefcase.bim";
 export const artifactTargetChangesetDirectoryName = "target-changesets";
 export const artifactTargetChangesetPropsFileName = "targetCsFileProps.json";
 export const artifactTargetSeedFileName = "target-seed.bim";
+export const artifactStandaloneTargetFileName = "target.bim";
 
 export interface FixtureArtifactBriefcaseManifest {
   readonly fileName: string;
@@ -62,6 +63,11 @@ export interface LiveHubFixtureArtifactManifest {
   };
 }
 
+export interface StandaloneFixtureArtifactManifest {
+  readonly sourceFile: string;
+  readonly sourceSha256: string;
+}
+
 export interface FixtureArtifactManifest {
   readonly artifactVersion: number;
   /** SHA-256 identity of every immutable workload file in the artifact. */
@@ -71,6 +77,8 @@ export interface FixtureArtifactManifest {
   readonly changesets: FixtureArtifactChangesetManifest;
   /** Present when the artifact restores a live source and target hub for incremental sync. */
   readonly liveHub?: LiveHubFixtureArtifactManifest;
+  /** Present for a standalone source copied into a fresh standalone target per sample. */
+  readonly standalone?: StandaloneFixtureArtifactManifest;
   /**
    * Present only when the recipe returned data to carry across the stage boundary. Absent means
    * the recipe emitted nothing — stage 2 reads this key rather than probing the filesystem.
@@ -296,6 +304,19 @@ function validateLiveHubManifest(
   );
 }
 
+function validateStandaloneManifest(
+  value: unknown
+): value is StandaloneFixtureArtifactManifest {
+  if (value === null || typeof value !== "object") return false;
+  const standalone = value as Partial<StandaloneFixtureArtifactManifest>;
+  return (
+    typeof standalone.sourceFile === "string" &&
+    standalone.sourceFile.length > 0 &&
+    typeof standalone.sourceSha256 === "string" &&
+    /^[a-f0-9]{64}$/.test(standalone.sourceSha256)
+  );
+}
+
 export function writeFixtureArtifactManifest(
   directory: string,
   manifest: FixtureArtifactManifest
@@ -344,9 +365,27 @@ export function validateFixtureArtifactManifest(
     );
   if (
     descriptor.layout.topology === "source-only" &&
-    manifest.liveHub !== undefined
+    (manifest.liveHub !== undefined || manifest.standalone !== undefined)
   )
-    throw new Error("Source-only fixture artifact cannot declare a live hub");
+    throw new Error(
+      "Source-only fixture artifact cannot declare live-hub or standalone state"
+    );
+  if (
+    descriptor.layout.topology === "source-and-empty-target" &&
+    manifest.standalone !== undefined
+  )
+    throw new Error(
+      "Live-hub fixture artifact cannot declare standalone state"
+    );
+  if (
+    descriptor.layout.topology === "standalone-source-and-empty-target" &&
+    (!validateStandaloneManifest(manifest.standalone) ||
+      manifest.liveHub !== undefined ||
+      manifest.changesets.count !== 0)
+  )
+    throw new Error(
+      "Standalone fixture artifact manifest has incompatible source or changeset state"
+    );
   return manifest as FixtureArtifactManifest;
 }
 
@@ -400,6 +439,20 @@ export function readFixtureArtifact(directory: string): FixtureArtifact {
           `Fixture artifact is missing its version-zero seed: ${seed}`
         );
     }
+  }
+  if (manifest.standalone) {
+    const source = path.join(directory, manifest.standalone.sourceFile);
+    if (!fs.existsSync(source))
+      throw new Error(
+        `Fixture artifact is missing its standalone source: ${source}`
+      );
+    const sourceSha256 = createHash("sha256")
+      .update(fs.readFileSync(source))
+      .digest("hex");
+    if (sourceSha256 !== manifest.standalone.sourceSha256)
+      throw new Error(
+        `Fixture artifact standalone source hash is ${sourceSha256} but its manifest declares ${manifest.standalone.sourceSha256}`
+      );
   }
   if (
     manifest.recipeDataFile !== undefined &&

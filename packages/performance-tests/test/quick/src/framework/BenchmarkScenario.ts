@@ -10,6 +10,8 @@ export interface BenchmarkScenario {
   abort(): void;
   finish(): Promise<string>;
   measure(): Promise<void>;
+  /** Untimed asynchronous setup that must complete before measurement starts. */
+  prepare?(): Promise<void>;
 }
 
 export type BenchmarkScenarioFactory = (

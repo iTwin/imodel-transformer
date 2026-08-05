@@ -26,6 +26,7 @@ function reportIdentity(sample: BenchmarkSample): string {
     sample.fixtureGenerator.coreBackend,
     sample.fixtureGenerator.node,
     sample.fixtureGenerator.transformer,
+    ...(sample.fixtureSource === undefined ? [] : [sample.fixtureSource]),
   ]);
 }
 
@@ -80,6 +81,9 @@ export class BenchmarkReporter {
       fixtureId: measured[0]?.fixtureId,
       fixtureVersion: identity.fixtureVersion,
       fixtureRecipeHash: identity.fixtureRecipeHash,
+      ...(identity.fixtureSource === undefined
+        ? {}
+        : { fixtureSource: identity.fixtureSource }),
       fixtureGenerator: identity.fixtureGenerator,
       topology: measured[0]?.topology,
       /** Stage 1 runs once per job, so this is a scalar, not a per-sample distribution. */
