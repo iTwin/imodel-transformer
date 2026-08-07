@@ -19,6 +19,11 @@ export async function findBulkDeleteRoots(
   elementIds: ReadonlySet<Id64String>
 ): Promise<Id64Set> {
   const deleteRoots = new Set<Id64String>() as Id64Set;
+  // CascadeIds pairs each traversed element with a root that the native API must delete. The anchor
+  // adds requested roots that still exist. Recursive branches walk child elements and modeled
+  // contents while preserving DeleteRootId. A top-level element whose code is scoped by anything
+  // already traversed becomes a new root, so recursion also covers its tree and code dependents.
+  // DeleteRoots returns only the roots because native deletion performs the child and model cascade.
   const query = `
     WITH RECURSIVE CascadeIds(Id, DeleteRootId) AS (
       SELECT element.ECInstanceId, element.ECInstanceId
