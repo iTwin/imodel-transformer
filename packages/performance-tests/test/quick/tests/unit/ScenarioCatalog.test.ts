@@ -32,8 +32,17 @@ describe("quick performance scenario catalog", () => {
 
   it("rejects unknown scenarios", () => {
     expect(() => getScenarioDefinition("not-a-scenario")).to.throw(
-      'Unknown quick performance scenario "not-a-scenario". Available scenarios: incremental-synchronization, changeset-scanning, standalone-full-transformation'
+      'Unknown quick performance scenario "not-a-scenario". Available scenarios: incremental-synchronization, changeset-scanning, schema-processing, standalone-full-transformation'
     );
+  });
+
+  it("registers the schema-processing scenario and its source fixture", () => {
+    const resolved = resolveBenchmarkRun("schema-processing");
+    expect(resolved.scenario.defaultFixtureId).to.equal(
+      "schema-processing-large"
+    );
+    expect(resolved.descriptor.layout.topology).to.equal("source-only");
+    expect(resolved.descriptor.scenarioClaims).to.include("schema processing");
   });
 
   it("validates every registered benchmark and configured fixture", () => {

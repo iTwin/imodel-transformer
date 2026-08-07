@@ -8,12 +8,14 @@ import { BenchmarkRegistration } from "../framework/BenchmarkRegistration.js";
 import { BenchmarkScenarioDefinition } from "../framework/BenchmarkScenario.js";
 import { changesetScanningBenchmark } from "../scenarios/changesetScanning.js";
 import { incrementalSynchronizationBenchmark } from "../scenarios/incrementalSynchronization.js";
+import { schemaProcessingBenchmark } from "../scenarios/schemaProcessing.js";
 import { standaloneFullTransformationBenchmark } from "../scenarios/standaloneFullTransformation.js";
 
 // Every benchmark is added in exactly one explicit place so the compiled CLI remains predictable.
 const registrations: readonly BenchmarkRegistration[] = Object.freeze([
   incrementalSynchronizationBenchmark,
   changesetScanningBenchmark,
+  schemaProcessingBenchmark,
   standaloneFullTransformationBenchmark,
 ]);
 
