@@ -43,6 +43,12 @@ While it is possible to import data into an iModel using the standard [IModelDb]
 - The ability to optionally simplify element geometry to optimize visualization workflows via the [IModelImportOptions.simplifyElementGeometry]($transformer) setting.
 - Integration with [IModelTransformer]($transformer)
 
+### Incremental element deletion callbacks
+
+[IModelExporter.exportChanges]($transformer) reports source element deletions in one [IModelExportHandler.onDeleteElements]($transformer) callback. Existing export handlers that override only `onDeleteElement()` remain compatible because the base batch callback delegates to the singular callback.
+
+[IModelTransformer]($transformer) and [IModelImporter]($transformer) use batch overrides to map and submit all target deletion roots together. Subclasses of `IModelTransformer` that customize `onDeleteElement()` must move that logic to `onDeleteElements()`. Custom importers that inspect, count, or audit explicitly deleted roots must override `onDeleteElements()`, perform their work for the supplied roots, and call `super.onDeleteElements()` to execute the native bulk deletion.
+
 ### IModelImportOptions.autoExtendProjectExtents
 
 [IModelImportOptions.autoExtendProjectExtents]($transformer) provides different options for handling the projectExtents of the target iModel.

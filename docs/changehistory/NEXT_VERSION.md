@@ -1,5 +1,13 @@
 # Next release notes
 
+## Breaking change: batched incremental element deletion
+
+`IModelExporter.exportChanges()` now reports deleted elements through one `IModelExportHandler.onDeleteElements()` callback. `IModelTransformer` maps that source deletion set once and `IModelImporter.deleteElements()` submits the target roots through the native bulk-delete API. Parent-child trees, modeled contents, and unrelated elements whose codes are scoped by the deleted tree retain the previous cascading behavior.
+
+Custom export handlers that only override `IModelExportHandler.onDeleteElement()` remain compatible through the base batch callback. `IModelTransformer` supplies its own batch override, so subclasses of `IModelTransformer` that customized `onDeleteElement()` must move that logic to `onDeleteElements()`; the singular override is no longer invoked during incremental export. Likewise, `IModelImporter.onDeleteElement()` is no longer invoked once per target root during transformer change processing. Custom importers that inspect, count, or audit explicitly deleted target elements must override `onDeleteElements()`, perform pre-delete work for the supplied roots, and then call `super.onDeleteElements()`.
+
+A native partial or complete deletion failure throws an `ElementBulkDeleteError` with scope `IModelTransformerErrorScope` and key `IModelTransformerError.ElementBulkDeleteFailed`. Its `status`, `sqlDeleteStatus`, and `failedIds` properties expose the native result. A partial failure leaves successful deletions pending in the caller-owned target transaction; abandon that transaction before correcting the dependency and retrying.
+
 ## Schema-processing strategies
 
 `IModelTransformer.processSchemas()` now accepts a `SchemaProcessingStrategy`. Calls without options use `NewerVersionSchemaImportStrategy`, which preserves the existing newer-version selection and schema hooks. `DynamicSchemaUnionStrategy`, imported from `@itwin/imodel-transformer/schema-processing`, is available for iModels that may contain different compatible additions to the same schema marked with `CoreCustomAttributes.DynamicSchema`. See [Schema processing in a transformation](../learning/transformer/schema-processing.md) for strategy selection, compatibility rules, extension points, and failure handling.

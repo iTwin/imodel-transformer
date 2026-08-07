@@ -2102,6 +2102,12 @@ export class CountingIModelImporter extends IModelImporter {
     this.numElementsExplicitlyDeleted++;
     await super.onDeleteElement(elementId);
   }
+  protected override async onDeleteElements(
+    elementIds: readonly Id64String[]
+  ): Promise<void> {
+    this.numElementsExplicitlyDeleted += elementIds.length;
+    await super.onDeleteElements(elementIds);
+  }
   protected override async onInsertElementAspect(
     aspectProps: ElementAspectProps
   ): Promise<Id64String> {
@@ -2210,6 +2216,16 @@ export class RecordingIModelImporter extends CountingIModelImporter {
   protected override async onDeleteElement(
     elementId: Id64String
   ): Promise<void> {
+    this.insertDeleteAuditRecord(elementId);
+    await super.onDeleteElement(elementId); // delete element after AuditRecord is inserted
+  }
+  protected override async onDeleteElements(
+    elementIds: readonly Id64String[]
+  ): Promise<void> {
+    for (const elementId of elementIds) this.insertDeleteAuditRecord(elementId);
+    await super.onDeleteElements(elementIds);
+  }
+  private insertDeleteAuditRecord(elementId: Id64String): void {
     const element: Element = this.targetDb.elements.getElement(elementId);
     if (element instanceof PhysicalElement) {
       const recordPartitionId =
@@ -2218,7 +2234,6 @@ export class RecordingIModelImporter extends CountingIModelImporter {
         this.insertAuditRecord("Delete", recordPartitionId, element);
       }
     }
-    await super.onDeleteElement(elementId); // delete element after AuditRecord is inserted
   }
   private insertAuditRecord(
     operation: string,

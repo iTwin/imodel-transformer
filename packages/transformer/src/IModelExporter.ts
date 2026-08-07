@@ -203,6 +203,24 @@ export abstract class IModelExportHandler {
   /** Called when an element should be deleted. */
   public async onDeleteElement(_elementId: Id64String): Promise<void> {}
 
+  /** Called once with all elements deleted by the source changes being exported.
+   * @note The default implementation preserves compatibility with handlers that only override [[onDeleteElement]].
+   */
+  public async onDeleteElements(
+    elementIds: ReadonlySet<Id64String>
+  ): Promise<void> {
+    for (const elementId of elementIds) {
+      try {
+        await this.onDeleteElement(elementId);
+      } catch (err: unknown) {
+        const isMissingErr =
+          err instanceof IModelError &&
+          err.errorNumber === IModelStatus.NotFound;
+        if (!isMissingErr) throw err;
+      }
+    }
+  }
+
   /** If `true` is returned, then the ElementAspect will be exported.
    * @note This method can optionally be overridden to exclude an individual ElementAspect from the export. The base implementation always returns `true`.
    */
@@ -570,21 +588,10 @@ export class IModelExporter {
       for (const modelId of this._sourceDbChanges.model.deleteIds) {
         await this.handler.onDeleteModel(modelId);
       }
-      for (const elementId of this._sourceDbChanges.element.deleteIds) {
-        // We don't know how the handler wants to handle deletions, and we don't have enough information
-        // to know if deleted entities were related, so when processing changes, ignore errors from deletion.
-        // Technically, to keep the ignored error scope small, we ignore only the error of looking up a missing element,
-        // that approach works at least for the IModelTransformer.
-        // In the future, the handler may be responsible for doing the work of finding out which elements were cascade deleted,
-        // and returning them for the exporter to use to avoid double-deleting with error ignoring
-        try {
-          await this.handler.onDeleteElement(elementId);
-        } catch (err: unknown) {
-          const isMissingErr =
-            err instanceof IModelError &&
-            err.errorNumber === IModelStatus.NotFound;
-          if (!isMissingErr) throw err;
-        }
+      if (this._sourceDbChanges.element.deleteIds.size > 0) {
+        await this.handler.onDeleteElements(
+          new Set(this._sourceDbChanges.element.deleteIds)
+        );
       }
     }
 

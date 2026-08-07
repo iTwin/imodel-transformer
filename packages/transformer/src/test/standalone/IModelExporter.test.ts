@@ -26,7 +26,12 @@ import {
   SubjectOwnsPartitionElements,
   withEditTxn,
 } from "@itwin/core-backend";
-import { Id64, Id64String, ITwinError } from "@itwin/core-bentley";
+import {
+  Id64,
+  Id64String,
+  IModelStatus,
+  ITwinError,
+} from "@itwin/core-bentley";
 import {
   Code,
   ElementAspectProps,
@@ -34,6 +39,7 @@ import {
   GeometryPartProps,
   GeometryStreamBuilder,
   IModel,
+  IModelError,
   PhysicalElementProps,
   RelationshipProps,
   SubCategoryAppearance,
@@ -710,6 +716,60 @@ describe("IModelExporter", () => {
     const exporter = new TestExporter(sourceDb);
     await exporter.exportChanges({ changedInstanceIds });
     expect(exporter.exportHookCalled).to.be.true;
+  });
+
+  it("reports all source element deletions through one batch callback", async () => {
+    const sourceDb = {
+      changeset: { id: "" },
+      isBriefcaseDb: () => true,
+    } as unknown as IModelDb;
+    const changedInstanceIds = new ChangedInstanceIds(sourceDb);
+    changedInstanceIds.element.deleteIds.add("0x11");
+    changedInstanceIds.element.deleteIds.add("0x12");
+
+    class TestExporter extends IModelExporter {
+      public override async exportCodeSpecs(): Promise<void> {}
+      public override async exportFonts(): Promise<void> {}
+      public override async exportModel(): Promise<void> {}
+      public override async exportChildElements(): Promise<void> {}
+      public override async exportModelContents(): Promise<void> {}
+      public override async exportSubModels(): Promise<void> {}
+      public override async exportRelationships(): Promise<void> {}
+    }
+    class Handler extends IModelExportHandler {
+      public batches: ReadonlySet<Id64String>[] = [];
+
+      public override async onDeleteElements(
+        elementIds: ReadonlySet<Id64String>
+      ): Promise<void> {
+        this.batches.push(new Set(elementIds));
+      }
+    }
+
+    const handler = new Handler();
+    const exporter = new TestExporter(sourceDb);
+    exporter.registerHandler(handler);
+    await exporter.exportChanges({ changedInstanceIds });
+
+    expect(handler.batches).to.deep.equal([new Set(["0x11", "0x12"])]);
+  });
+
+  it("preserves singular delete callbacks and missing-element suppression for existing handlers", async () => {
+    class SingularHandler extends IModelExportHandler {
+      public readonly deletedElementIds: Id64String[] = [];
+
+      public override async onDeleteElement(
+        elementId: Id64String
+      ): Promise<void> {
+        this.deletedElementIds.push(elementId);
+        if (elementId === "0x11")
+          throw new IModelError(IModelStatus.NotFound, "already deleted");
+      }
+    }
+
+    const handler = new SingularHandler();
+    await handler.onDeleteElements(new Set(["0x11", "0x12"]));
+    expect(handler.deletedElementIds).to.deep.equal(["0x11", "0x12"]);
   });
 
   it("export element with brep geometry", async () => {

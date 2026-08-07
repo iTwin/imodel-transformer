@@ -6,8 +6,10 @@
  * @module iModels
  */
 import {
+  DbResult,
   Guid,
   Id64,
+  Id64Set,
   Id64String,
   IModelStatus,
   ITwinError,
@@ -22,11 +24,13 @@ import {
   IModel,
   IModelError,
   ModelProps,
+  QueryBinder,
   RelatedElement,
   SubCategoryProps,
 } from "@itwin/core-common";
 import { TransformerLoggerCategory } from "./TransformerLoggerCategory";
 import {
+  BulkDeleteElementsStatus,
   EditTxn,
   ElementAspect,
   ElementMultiAspect,
@@ -52,6 +56,18 @@ import {
 } from "./IModelTransformerError";
 
 const loggerCategory: string = TransformerLoggerCategory.IModelImporter;
+
+/** Error thrown when native bulk element deletion does not delete every requested element tree.
+ * @beta
+ */
+export interface ElementBulkDeleteError extends ITwinError {
+  /** Overall native bulk-delete status. */
+  readonly status: BulkDeleteElementsStatus;
+  /** SQLite status from the native delete statement. */
+  readonly sqlDeleteStatus: DbResult;
+  /** Target element roots that native deletion could not delete. */
+  readonly failedIds: ReadonlySet<Id64String>;
+}
 
 /** Options provided to [[IModelImporter.optimizeGeometry]] specifying post-processing optimizations to be applied to the iModel's geometry.
  * @beta
@@ -478,6 +494,93 @@ export class IModelImporter {
     await this.onDeleteElement(elementId);
   }
 
+  /** Delete the specified Elements and their dependent element trees from the target iModel in one native operation.
+   * @note A subclass may override this method to customize bulk delete behavior but should call `super.onDeleteElements`.
+   */
+  protected async onDeleteElements(
+    elementIds: readonly Id64String[]
+  ): Promise<void> {
+    const expandedElementIds =
+      await this.expandBulkDeleteElementIds(elementIds);
+    if (expandedElementIds.size === 0) return;
+    const result = this._editTxn.deleteElements([...expandedElementIds]);
+    if (result.status !== BulkDeleteElementsStatus.Success) {
+      ITwinError.throwError<ElementBulkDeleteError>({
+        iTwinErrorId: {
+          scope: IModelTransformerErrorScope,
+          key: IModelTransformerError.ElementBulkDeleteFailed,
+        },
+        message:
+          `Bulk element deletion failed with status ${BulkDeleteElementsStatus[result.status]} ` +
+          `and SQLite status ${result.sqlDeleteStatus}. Failed element ids: ${[
+            ...result.failedIds,
+          ].join(", ")}`,
+        status: result.status,
+        sqlDeleteStatus: result.sqlDeleteStatus,
+        failedIds: new Set(result.failedIds),
+      });
+    }
+
+    Logger.logInfo(
+      loggerCategory,
+      `Deleted ${elementIds.length} element trees in one bulk operation`
+    );
+    await this.trackProgress(elementIds.length);
+  }
+
+  /** Delete the specified Elements from the target iModel in one native operation.
+   * @throws [[ElementBulkDeleteError]] if native deletion partially or completely fails. A partial failure leaves successful deletions pending in the caller-owned transaction; abandon that transaction before retrying.
+   */
+  public async deleteElements(
+    elementIds: readonly Id64String[]
+  ): Promise<void> {
+    const idsToDelete = elementIds.filter((elementId) => {
+      if (!this.doNotUpdateElement(elementId)) return true;
+      Logger.logInfo(
+        loggerCategory,
+        `Do not delete target element ${elementId}`
+      );
+      return false;
+    });
+    if (idsToDelete.length === 0) return;
+    await this.onDeleteElements(idsToDelete);
+  }
+
+  private async expandBulkDeleteElementIds(
+    elementIds: readonly Id64String[]
+  ): Promise<Id64Set> {
+    const expandedElementIds = new Set<Id64String>() as Id64Set;
+    const query = `
+      WITH RECURSIVE ElementsToDelete(Id, IsDeleteRoot) AS (
+        SELECT element.ECInstanceId, 1
+        FROM bis.Element element
+        INNER JOIN IdSet(:elementIds) ids ON ids.id = element.ECInstanceId
+        UNION
+        SELECT child.ECInstanceId, 0
+        FROM bis.Element child
+        INNER JOIN ElementsToDelete deletionParent ON child.Parent.Id = deletionParent.Id
+        UNION
+        SELECT modelElement.ECInstanceId, 0
+        FROM bis.Element modelElement
+        INNER JOIN ElementsToDelete modeledElement ON modelElement.Model.Id = modeledElement.Id
+        UNION
+        SELECT codeDependent.ECInstanceId, 1
+        FROM bis.Element codeDependent
+        INNER JOIN ElementsToDelete scope ON codeDependent.CodeScope.Id = scope.Id
+        WHERE codeDependent.Parent.Id IS NULL
+      )
+      SELECT Id AS id FROM ElementsToDelete WHERE IsDeleteRoot = 1
+      OPTIONS ENABLE_EXPERIMENTAL_FEATURES
+    `;
+    const params = new QueryBinder().bindIdSet("elementIds", elementIds);
+    for await (const row of this.targetDb.createQueryReader(query, params, {
+      usePrimaryConn: true,
+    })) {
+      expandedElementIds.add(row.id);
+    }
+    return expandedElementIds;
+  }
+
   /** Delete the specified Model from the target iModel.
    * @note A subclass may override this method to customize delete behavior but should call `super.onDeleteModel`.
    */
@@ -794,11 +897,13 @@ export class IModelImporter {
   }
 
   /** Tracks incremental progress */
-  private async trackProgress(): Promise<void> {
-    this._progressCounter++;
-    if (0 === this._progressCounter % this.progressInterval) {
-      await this.onProgress();
-    }
+  private async trackProgress(increment = 1): Promise<void> {
+    const previousProgressCounter = this._progressCounter;
+    this._progressCounter += increment;
+    const progressCallbacks =
+      Math.floor(this._progressCounter / this.progressInterval) -
+      Math.floor(previousProgressCounter / this.progressInterval);
+    for (let i = 0; i < progressCallbacks; ++i) await this.onProgress();
   }
 
   /** This method is called when IModelImporter has made incremental progress based on the [[progressInterval]] setting.
