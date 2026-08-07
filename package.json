@@ -8,6 +8,7 @@
   },
   "scripts": {
     "build": "pnpm -r build",
+    "compare:build-output": "node scripts/compare-build-output.js",
     "test": "pnpm -r --filter=!transformer-performance-tests test",
     "docs": "pnpm -r run docs",
     "lint": "pnpm -r lint",
