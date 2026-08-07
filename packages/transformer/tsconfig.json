@@ -2,7 +2,12 @@
   "extends": "./node_modules/@itwin/build-tools/tsconfig-base.json",
   "compilerOptions": {
     "resolveJsonModule": true,
-    "rootDir": "src"
+    "rootDir": "src",
+    "esModuleInterop": true,
+    "module": "Node16",
+    "moduleResolution": "Node16",
+    "resolvePackageJsonExports": false,
+    "types": ["node", "vitest/globals"]
   },
   "include": ["./src/**/*.ts"]
 }

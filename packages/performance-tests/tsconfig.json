@@ -3,7 +3,10 @@
   "compilerOptions": {
     "skipLibCheck": true,
     "esModuleInterop": true,
-    "module": "ESNext"
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "resolvePackageJsonExports": false,
+    "types": ["node", "vitest/globals"]
   },
   "include": ["./test/**/*.ts"]
 }

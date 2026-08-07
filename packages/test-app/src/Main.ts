@@ -5,7 +5,7 @@
 
 import * as path from "node:path";
 import * as fs from "node:fs";
-import * as Yargs from "yargs";
+import Yargs from "yargs";
 import { assert, Guid, Logger, LogLevel } from "@itwin/core-bentley";
 import { ProjectsAccessClient } from "@itwin/projects-client";
 import {
@@ -29,7 +29,7 @@ import { IModelHubUtils, IModelTransformerTestAppHost } from "./IModelHubUtils";
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 import { loggerCategory, Transformer, TransformerOptions } from "./Transformer";
 import * as dotenv from "dotenv";
-import * as dotenvExpand from "dotenv-expand";
+import dotenvExpand from "dotenv-expand";
 
 import "source-map-support/register";
 
