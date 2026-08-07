@@ -64,14 +64,26 @@ describe("IModelImporter", () => {
       );
 
       const editTxn = createStartedEditTxn(targetDb);
+      class TrackingImporter extends IModelImporter {
+        public readonly deletionBatches: Id64String[][] = [];
+
+        protected override async onDeleteElements(
+          elementIds: readonly Id64String[]
+        ): Promise<void> {
+          this.deletionBatches.push([...elementIds]);
+          await super.onDeleteElements(elementIds);
+        }
+      }
       // __PUBLISH_EXTRACT_START__ EditTxnInTransformer.custom-importer
       // IModelImporter derives targetDb from the EditTxn.
-      const importer = new IModelImporter(editTxn);
+      const importer = new TrackingImporter(editTxn);
       // __PUBLISH_EXTRACT_END__
       expect(importer.targetDb).to.equal(editTxn.iModel);
       importer.doNotUpdateElementIds.add(protectedId);
 
-      await importer.deleteElements([protectedId, deletableId]);
+      await importer.deleteElements([protectedId]);
+      await importer.deleteElement(deletableId);
+      expect(importer.deletionBatches).to.deep.equal([[deletableId]]);
       editTxn.saveChanges();
       expect(
         targetDb.elements.tryGetElement(protectedId),

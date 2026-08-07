@@ -43,7 +43,6 @@ import {
 } from "@itwin/core-backend";
 import type { RelationshipPropsForDelete } from "./IModelTransformer";
 import { strict as assert } from "node:assert";
-import { deleteElementTreeCascade } from "./ElementCascadingDeleter";
 import { ElementAspectCleanup } from "./ElementAspectCleanup";
 import {
   EntityClass,
@@ -469,29 +468,9 @@ export class IModelImporter {
     }
   }
 
-  /** Delete the specified Element (and all its children) from the target iModel.
-   * Will delete special elements like definition elements and subjects.
-   * @note A subclass may override this method to customize delete behavior but should call `super.onDeleteElement`.
-   */
-  protected async onDeleteElement(elementId: Id64String): Promise<void> {
-    deleteElementTreeCascade(this._editTxn, elementId);
-    Logger.logInfo(
-      loggerCategory,
-      `Deleted element ${elementId} and its descendants`
-    );
-    await this.trackProgress();
-  }
-
-  /** Delete the specified Element from the target iModel. */
+  /** Delete the specified Element from the target iModel through the batch deletion path. */
   public async deleteElement(elementId: Id64String): Promise<void> {
-    if (this.doNotUpdateElement(elementId)) {
-      Logger.logInfo(
-        loggerCategory,
-        `Do not delete target element ${elementId}`
-      );
-      return;
-    }
-    await this.onDeleteElement(elementId);
+    await this.deleteElements([elementId]);
   }
 
   /** Delete the specified Elements and their dependent element trees from the target iModel in one native operation.

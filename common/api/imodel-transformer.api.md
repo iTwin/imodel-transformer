@@ -192,8 +192,7 @@ export class IModelExporter {
 
 // @beta
 export abstract class IModelExportHandler {
-    onDeleteElement(_elementId: Id64String): Promise<void>;
-    onDeleteElements(elementIds: ReadonlySet<Id64String>): Promise<void>;
+    onDeleteElements(_elementIds: ReadonlySet<Id64String>): Promise<void>;
     onDeleteModel(_modelId: Id64String): Promise<void>;
     onDeleteRelationship(_relInstanceId: Id64String): Promise<void>;
     onExportCodeSpec(_codeSpec: CodeSpec, _isUpdate: boolean | undefined): Promise<void>;
@@ -236,7 +235,6 @@ export class IModelImporter {
     importModel(modelProps: ModelProps): Promise<void>;
     importRelationship(relationshipProps: RelationshipProps): Promise<Id64String>;
     markElementToUpdateDuringPreserveIds(elementId: Id64String): void;
-    protected onDeleteElement(elementId: Id64String): Promise<void>;
     protected onDeleteElementAspect(targetElementAspect: ElementAspect): Promise<void>;
     protected onDeleteElements(elementIds: readonly Id64String[]): Promise<void>;
     protected onDeleteModel(modelId: Id64String): Promise<void>;
@@ -317,7 +315,6 @@ export class IModelTransformer extends IModelExportHandler {
     initElementProvenance(sourceElementId: Id64String, targetElementId: Id64String): Promise<ExternalSourceAspectProps>;
     initialize(): Promise<void>;
     protected initScopeProvenance(): Promise<void>;
-    onDeleteElement(sourceElementId: Id64String): Promise<void>;
     onDeleteElements(sourceElementIds: ReadonlySet<Id64String>): Promise<void>;
     onDeleteModel(sourceModelId: Id64String): Promise<void>;
     onDeleteRelationship(sourceRelInstanceId: Id64String): Promise<void>;

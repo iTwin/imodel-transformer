@@ -1490,20 +1490,6 @@ export class IModelTransformer extends IModelExportHandler {
     }
   }
 
-  /** Override of [IModelExportHandler.onDeleteElement]($transformer) that propagates one source element deletion to the target. */
-  public override async onDeleteElement(
-    sourceElementId: Id64String
-  ): Promise<void> {
-    const targetElementId: Id64String =
-      this.context.findTargetElementId(sourceElementId);
-    if (
-      Id64.isValidId64(targetElementId) &&
-      !this._targetElementIdsRemappedByCode.has(targetElementId)
-    ) {
-      await this.importer.deleteElement(targetElementId);
-    }
-  }
-
   /** Override of [IModelExportHandler.onDeleteElements]($transformer) that maps all source deletions before submitting one bulk target deletion. */
   public override async onDeleteElements(
     sourceElementIds: ReadonlySet<Id64String>

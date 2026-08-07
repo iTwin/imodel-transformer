@@ -2061,7 +2061,7 @@ export class CountingIModelImporter extends IModelImporter {
   /**
    * This property does not include implicit deletions that occur when deleting trees.
    * Consider two PhysicalObjects A and B. PhysicalObject A has a code whose scope is PhysicalObject B. When PhysicalObject B is deleted,
-   * PhysicalObject A gets deleted as a part of a cascading delete. The cascading delete is not recorded by onDeleteElement in this class.
+   * PhysicalObject A gets deleted as a part of a cascading delete. The cascading delete is not recorded by onDeleteElements in this class.
    */
   public numElementsExplicitlyDeleted: number = 0;
   public numElementAspectsInserted: number = 0;
@@ -2095,12 +2095,6 @@ export class CountingIModelImporter extends IModelImporter {
   ): Promise<void> {
     this.numElementsUpdated++;
     await super.onUpdateElement(elementProps);
-  }
-  protected override async onDeleteElement(
-    elementId: Id64String
-  ): Promise<void> {
-    this.numElementsExplicitlyDeleted++;
-    await super.onDeleteElement(elementId);
   }
   protected override async onDeleteElements(
     elementIds: readonly Id64String[]
@@ -2212,12 +2206,6 @@ export class RecordingIModelImporter extends CountingIModelImporter {
         this.insertAuditRecord("Update", recordPartitionId, element);
       }
     }
-  }
-  protected override async onDeleteElement(
-    elementId: Id64String
-  ): Promise<void> {
-    this.insertDeleteAuditRecord(elementId);
-    await super.onDeleteElement(elementId); // delete element after AuditRecord is inserted
   }
   protected override async onDeleteElements(
     elementIds: readonly Id64String[]
@@ -2398,9 +2386,12 @@ export class IModelToTextFileExporter extends IModelExportHandler {
     );
     await super.onExportElement(element, isUpdate);
   }
-  public override async onDeleteElement(elementId: Id64String): Promise<void> {
-    this.writeLine(`[Element] ${elementId}, DELETE`);
-    await super.onDeleteElement(elementId);
+  public override async onDeleteElements(
+    elementIds: ReadonlySet<Id64String>
+  ): Promise<void> {
+    for (const elementId of elementIds)
+      this.writeLine(`[Element] ${elementId}, DELETE`);
+    await super.onDeleteElements(elementIds);
   }
   public override async onExportElementUniqueAspect(
     aspect: ElementUniqueAspect,

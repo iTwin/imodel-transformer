@@ -26,12 +26,7 @@ import {
   SubjectOwnsPartitionElements,
   withEditTxn,
 } from "@itwin/core-backend";
-import {
-  Id64,
-  Id64String,
-  IModelStatus,
-  ITwinError,
-} from "@itwin/core-bentley";
+import { Id64, Id64String, ITwinError } from "@itwin/core-bentley";
 import {
   Code,
   ElementAspectProps,
@@ -39,7 +34,6 @@ import {
   GeometryPartProps,
   GeometryStreamBuilder,
   IModel,
-  IModelError,
   PhysicalElementProps,
   RelationshipProps,
   SubCategoryAppearance,
@@ -752,24 +746,6 @@ describe("IModelExporter", () => {
     await exporter.exportChanges({ changedInstanceIds });
 
     expect(handler.batches).to.deep.equal([new Set(["0x11", "0x12"])]);
-  });
-
-  it("preserves singular delete callbacks and missing-element suppression for existing handlers", async () => {
-    class SingularHandler extends IModelExportHandler {
-      public readonly deletedElementIds: Id64String[] = [];
-
-      public override async onDeleteElement(
-        elementId: Id64String
-      ): Promise<void> {
-        this.deletedElementIds.push(elementId);
-        if (elementId === "0x11")
-          throw new IModelError(IModelStatus.NotFound, "already deleted");
-      }
-    }
-
-    const handler = new SingularHandler();
-    await handler.onDeleteElements(new Set(["0x11", "0x12"]));
-    expect(handler.deletedElementIds).to.deep.equal(["0x11", "0x12"]);
   });
 
   it("export element with brep geometry", async () => {

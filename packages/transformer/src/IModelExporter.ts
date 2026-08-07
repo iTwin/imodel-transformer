@@ -200,26 +200,10 @@ export abstract class IModelExportHandler {
    */
   public async preExportElement(_element: Element): Promise<void> {}
 
-  /** Called when an element should be deleted. */
-  public async onDeleteElement(_elementId: Id64String): Promise<void> {}
-
-  /** Called once with all elements deleted by the source changes being exported.
-   * @note The default implementation preserves compatibility with handlers that only override [[onDeleteElement]].
-   */
+  /** Called once with all elements deleted by the source changes being exported. */
   public async onDeleteElements(
-    elementIds: ReadonlySet<Id64String>
-  ): Promise<void> {
-    for (const elementId of elementIds) {
-      try {
-        await this.onDeleteElement(elementId);
-      } catch (err: unknown) {
-        const isMissingErr =
-          err instanceof IModelError &&
-          err.errorNumber === IModelStatus.NotFound;
-        if (!isMissingErr) throw err;
-      }
-    }
-  }
+    _elementIds: ReadonlySet<Id64String>
+  ): Promise<void> {}
 
   /** If `true` is returned, then the ElementAspect will be exported.
    * @note This method can optionally be overridden to exclude an individual ElementAspect from the export. The base implementation always returns `true`.
