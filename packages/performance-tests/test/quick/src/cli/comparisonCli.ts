@@ -9,6 +9,7 @@ import {
   defaultComparisonMeasuredSamples,
   defaultComparisonWorkerTimeoutMilliseconds,
   defaultInformationalThresholdPercent,
+  defaultWorkerRssSamplingIntervalMilliseconds,
   runComparison,
 } from "../comparison/ComparisonRunner.js";
 import { quickPath, quickRootDirectory } from "../support/paths.js";
@@ -40,6 +41,18 @@ function positiveInteger(
     !Number.isSafeInteger(Number(configured))
   )
     throw new Error(`${name} must be a positive safe integer`);
+  return Number(configured);
+}
+
+function nonNegativeInteger(
+  value: string | undefined,
+  name: string,
+  defaultValue: number
+): number {
+  const configured = trimmed(value);
+  if (configured === undefined) return defaultValue;
+  if (!/^\d+$/.test(configured) || !Number.isSafeInteger(Number(configured)))
+    throw new Error(`${name} must be a non-negative safe integer`);
   return Number(configured);
 }
 
@@ -96,6 +109,11 @@ async function main(): Promise<void> {
     ),
     outputDir,
     scenarioId: trimmed(process.env.QUICK_PERF_SCENARIO),
+    workerRssSamplingIntervalMilliseconds: nonNegativeInteger(
+      process.env.QUICK_PERF_RSS_SAMPLE_INTERVAL_MS,
+      "QUICK_PERF_RSS_SAMPLE_INTERVAL_MS",
+      defaultWorkerRssSamplingIntervalMilliseconds
+    ),
     workerTimeoutMilliseconds:
       positiveInteger(
         process.env.QUICK_PERF_COMPARISON_WORKER_TIMEOUT_SECONDS,

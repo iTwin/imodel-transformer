@@ -21,10 +21,15 @@ import {
   ComparisonReporter,
   ComparisonSummary,
 } from "./ComparisonReport.js";
+import {
+  ProcessMemorySample,
+  ProcessMemorySampler,
+} from "./ProcessMemorySampler.js";
 
 export const defaultComparisonMeasuredSamples = 3;
 export const defaultInformationalThresholdPercent = 5;
 export const defaultComparisonWorkerTimeoutMilliseconds = 10 * 60 * 1000;
+export const defaultWorkerRssSamplingIntervalMilliseconds = 0;
 const maximumWorkerTimeoutMilliseconds = 2_147_483_647;
 const defaultWorkerTerminationGraceMilliseconds = 5_000;
 const defaultForcedTerminationConfirmationMilliseconds = 5_000;
@@ -42,6 +47,7 @@ export interface ComparisonRunOptions {
   readonly measuredSamplesPerArm?: number;
   readonly outputDir: string;
   readonly scenarioId?: string;
+  readonly workerRssSamplingIntervalMilliseconds?: number;
   readonly workerTimeoutMilliseconds?: number;
 }
 
@@ -56,6 +62,7 @@ export interface ArmExecutionRequest {
   readonly rootDirectory: string;
   readonly sample: number;
   readonly scenarioId?: string;
+  readonly workerRssSamplingIntervalMilliseconds?: number;
   readonly workerTimeoutMilliseconds?: number;
 }
 
@@ -149,6 +156,7 @@ function isBenchmarkSample(value: unknown): value is BenchmarkSample {
 
 interface WorkerProcessResult {
   readonly exitCode: number | null;
+  readonly memory: ProcessMemorySample;
   readonly stderr: string;
   readonly stdout: string;
 }
@@ -160,7 +168,8 @@ async function runWorkerProcess(
   description: string,
   timeoutMilliseconds: number,
   terminationGraceMilliseconds: number,
-  forcedTerminationConfirmationMilliseconds: number
+  forcedTerminationConfirmationMilliseconds: number,
+  rssSamplingIntervalMilliseconds: number
 ): Promise<WorkerProcessResult> {
   const workerPath = comparisonArmWorkerPath(rootDirectory);
   if (!fs.existsSync(workerPath))
@@ -176,6 +185,11 @@ async function runWorkerProcess(
       stdio: ["ignore", "pipe", "pipe"],
       windowsHide: true,
     });
+    const memorySampler = new ProcessMemorySampler(
+      child.pid ?? 0,
+      rssSamplingIntervalMilliseconds
+    );
+    memorySampler.start();
     let stdout = "";
     let stderr = "";
     let settled = false;
@@ -203,14 +217,14 @@ async function runWorkerProcess(
         }${output.length === 0 ? "" : `: ${output}`}`
       );
     };
-    const settle = (action: () => void) => {
+    const settle = async (action: (memory: ProcessMemorySample) => void) => {
       if (settled) return;
       settled = true;
       clearTimeout(timeout);
       if (forceTermination !== undefined) clearTimeout(forceTermination);
       if (terminationConfirmation !== undefined)
         clearTimeout(terminationConfirmation);
-      action();
+      action(await memorySampler.stop());
     };
     const sendSignal = (signal: NodeJS.Signals): boolean => {
       try {
@@ -232,7 +246,7 @@ async function runWorkerProcess(
         child.stdout.destroy();
         child.stderr.destroy();
         child.unref();
-        settle(() => reject(timeoutError(false)));
+        void settle(() => reject(timeoutError(false)));
       }, forcedTerminationConfirmationMilliseconds);
     };
     child.stdout.setEncoding("utf8");
@@ -244,16 +258,16 @@ async function runWorkerProcess(
         signalFailures.push(`process error after timeout: ${error.message}`);
         return;
       }
-      settle(() =>
+      void settle(() =>
         reject(new Error(`${description} process failed`, { cause: error }))
       );
     });
     child.once("close", (exitCode) => {
       child.stdout.destroy();
       child.stderr.destroy();
-      settle(() => {
+      void settle((memory) => {
         if (timedOut) reject(timeoutError(true));
-        else resolve({ exitCode, stderr, stdout });
+        else resolve({ exitCode, memory, stderr, stdout });
       });
     });
   });
@@ -279,7 +293,9 @@ export async function executeArmProcess(
     request.workerTimeoutMilliseconds ??
       defaultComparisonWorkerTimeoutMilliseconds,
     terminationGraceMilliseconds,
-    forcedTerminationConfirmationMilliseconds
+    forcedTerminationConfirmationMilliseconds,
+    request.workerRssSamplingIntervalMilliseconds ??
+      defaultWorkerRssSamplingIntervalMilliseconds
   );
   if (processResult.exitCode !== 0)
     throw new Error(
@@ -294,7 +310,15 @@ export async function executeArmProcess(
     throw new Error(
       `${request.arm} sample ${request.sample} process wrote an invalid result`
     );
-  return parsed;
+  return {
+    ...parsed,
+    ...(processResult.memory.peakRssBytes === undefined
+      ? {}
+      : { workerPeakRssBytes: processResult.memory.peakRssBytes }),
+    workerRssSampleCount: processResult.memory.sampleCount,
+    workerRssSamplingIntervalMilliseconds:
+      processResult.memory.samplingIntervalMilliseconds,
+  };
 }
 
 export async function buildFixtureArtifactProcess(
@@ -318,7 +342,8 @@ export async function buildFixtureArtifactProcess(
     request.workerTimeoutMilliseconds ??
       defaultComparisonWorkerTimeoutMilliseconds,
     defaultWorkerTerminationGraceMilliseconds,
-    defaultForcedTerminationConfirmationMilliseconds
+    defaultForcedTerminationConfirmationMilliseconds,
+    0
   );
   if (processResult.exitCode !== 0)
     throw new Error(
@@ -356,6 +381,9 @@ export async function runComparison(
   const workerTimeoutMilliseconds =
     options.workerTimeoutMilliseconds ??
     defaultComparisonWorkerTimeoutMilliseconds;
+  const workerRssSamplingIntervalMilliseconds =
+    options.workerRssSamplingIntervalMilliseconds ??
+    defaultWorkerRssSamplingIntervalMilliseconds;
   if (
     !Number.isSafeInteger(workerTimeoutMilliseconds) ||
     workerTimeoutMilliseconds < 1 ||
@@ -363,6 +391,14 @@ export async function runComparison(
   )
     throw new Error(
       `A/B comparison worker timeout must be an integer between 1 and ${maximumWorkerTimeoutMilliseconds} milliseconds`
+    );
+  if (
+    !Number.isSafeInteger(workerRssSamplingIntervalMilliseconds) ||
+    workerRssSamplingIntervalMilliseconds < 0 ||
+    workerRssSamplingIntervalMilliseconds > maximumWorkerTimeoutMilliseconds
+  )
+    throw new Error(
+      `A/B comparison worker RSS sampling interval must be an integer between 0 and ${maximumWorkerTimeoutMilliseconds} milliseconds`
     );
   const schedule = createExecutionSchedule(measuredSamplesPerArm);
   prepareBenchmarkOutputDirectoryForFixture(
@@ -418,6 +454,7 @@ export async function runComparison(
       revision: arm.revision,
       rootDirectory: arm.rootDirectory,
       scenarioId: options.scenarioId,
+      workerRssSamplingIntervalMilliseconds,
       workerTimeoutMilliseconds,
     });
     if (sample.fixtureContentHash !== fixtureManifest.contentHash)

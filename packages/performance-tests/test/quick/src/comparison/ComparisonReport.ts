@@ -36,7 +36,7 @@ export type InformationalComparisonStatus =
   | "within-informational-threshold";
 
 export interface ComparisonSummary {
-  readonly reportSchemaVersion: 1;
+  readonly reportSchemaVersion: 2;
   readonly scenarioId: string;
   readonly fixtureId: string;
   readonly fixtureVersion: number;
@@ -56,12 +56,16 @@ export interface ComparisonSummary {
     readonly transformerProvenance: TransformerProvenance;
     readonly medianMilliseconds: number;
     readonly measuredMilliseconds: readonly number[];
+    readonly medianPeakRssBytes?: number;
+    readonly measuredPeakRssBytes: readonly number[];
   };
   readonly candidate: {
     readonly revision: string;
     readonly transformerProvenance: TransformerProvenance;
     readonly medianMilliseconds: number;
     readonly measuredMilliseconds: readonly number[];
+    readonly medianPeakRssBytes?: number;
+    readonly measuredPeakRssBytes: readonly number[];
   };
   readonly percentageDelta: number;
   readonly informationalStatus: InformationalComparisonStatus;
@@ -134,6 +138,19 @@ export function percentageDelta(
   );
 }
 
+function measuredPeakRss(
+  arm: ComparisonArm,
+  samples: readonly BenchmarkSample[]
+): readonly number[] {
+  const measured = samples.filter((sample) => sample.measured);
+  const values = measured.flatMap((sample) =>
+    sample.workerPeakRssBytes === undefined ? [] : [sample.workerPeakRssBytes]
+  );
+  if (values.length !== 0 && values.length !== measured.length)
+    throw new Error(`${arm} peak RSS samples are incomplete`);
+  return values;
+}
+
 export function createComparisonSummary(
   input: ComparisonReportInput
 ): ComparisonSummary {
@@ -189,6 +206,15 @@ export function createComparisonSummary(
   const candidateMeasured = input.candidate.samples
     .filter((sample) => sample.measured)
     .map((sample) => sample.wallMilliseconds);
+  const baselinePeakRss = measuredPeakRss("baseline", input.baseline.samples);
+  const candidatePeakRss = measuredPeakRss(
+    "candidate",
+    input.candidate.samples
+  );
+  if ((baselinePeakRss.length === 0) !== (candidatePeakRss.length === 0))
+    throw new Error(
+      "Baseline and candidate peak RSS must both be measured or both be unavailable"
+    );
   const baselineMedian = median(baselineMeasured);
   const candidateMedian = median(candidateMeasured);
   const delta = percentageDelta(baselineMedian, candidateMedian);
@@ -201,7 +227,7 @@ export function createComparisonSummary(
   const identity = allSamples[0];
 
   return {
-    reportSchemaVersion: 1,
+    reportSchemaVersion: 2,
     scenarioId: identity.scenarioId,
     fixtureId: identity.fixtureId,
     fixtureVersion: identity.fixtureVersion,
@@ -223,12 +249,20 @@ export function createComparisonSummary(
       transformerProvenance: baselineTransformer,
       medianMilliseconds: baselineMedian,
       measuredMilliseconds: baselineMeasured,
+      ...(baselinePeakRss.length === 0
+        ? {}
+        : { medianPeakRssBytes: median(baselinePeakRss) }),
+      measuredPeakRssBytes: baselinePeakRss,
     },
     candidate: {
       revision: input.candidate.revision,
       transformerProvenance: candidateTransformer,
       medianMilliseconds: candidateMedian,
       measuredMilliseconds: candidateMeasured,
+      ...(candidatePeakRss.length === 0
+        ? {}
+        : { medianPeakRssBytes: median(candidatePeakRss) }),
+      measuredPeakRssBytes: candidatePeakRss,
     },
     percentageDelta: delta,
     informationalStatus,
@@ -239,6 +273,12 @@ export function createComparisonSummary(
 
 function formatMilliseconds(value: number): string {
   return `${value.toFixed(2)} ms`;
+}
+
+function formatBytes(value: number | undefined): string {
+  return value === undefined
+    ? "not measured"
+    : `${(value / 1048576).toFixed(1)} MiB`;
 }
 
 function markdown(summary: ComparisonSummary): string {
@@ -255,10 +295,12 @@ function markdown(summary: ComparisonSummary): string {
     `Fixture: \`${summary.fixtureId}\` (version ${summary.fixtureVersion})`,
     `Prepared target: baseline \`${summary.fixtureAuthoring.revision}\` with transformer \`${summary.fixtureAuthoring.transformerVersion}\``,
     "",
-    "| Arm | Revision | Transformer | Median | Measured samples |",
-    "| --- | --- | --- | ---: | --- |",
-    `| Baseline | \`${summary.baseline.revision}\` | \`${summary.baseline.transformerProvenance.version}\` | ${formatMilliseconds(summary.baseline.medianMilliseconds)} | ${summary.baseline.measuredMilliseconds.map(formatMilliseconds).join(", ")} |`,
-    `| Candidate | \`${summary.candidate.revision}\` | \`${summary.candidate.transformerProvenance.version}\` | ${formatMilliseconds(summary.candidate.medianMilliseconds)} | ${summary.candidate.measuredMilliseconds.map(formatMilliseconds).join(", ")} |`,
+    "| Arm | Revision | Transformer | Median | Peak worker RSS | Measured samples |",
+    "| --- | --- | --- | ---: | ---: | --- |",
+    `| Baseline | \`${summary.baseline.revision}\` | \`${summary.baseline.transformerProvenance.version}\` | ${formatMilliseconds(summary.baseline.medianMilliseconds)} | ${formatBytes(summary.baseline.medianPeakRssBytes)} | ${summary.baseline.measuredMilliseconds.map(formatMilliseconds).join(", ")} |`,
+    `| Candidate | \`${summary.candidate.revision}\` | \`${summary.candidate.transformerProvenance.version}\` | ${formatMilliseconds(summary.candidate.medianMilliseconds)} | ${formatBytes(summary.candidate.medianPeakRssBytes)} | ${summary.candidate.measuredMilliseconds.map(formatMilliseconds).join(", ")} |`,
+    "",
+    "Peak worker RSS is externally sampled across the complete isolated worker lifetime, including setup and teardown.",
     "",
     `**Candidate delta:** ${signedDelta}  `,
     `**Informational status (${summary.policy.informationalThresholdPercent}% threshold):** \`${summary.informationalStatus}\``,

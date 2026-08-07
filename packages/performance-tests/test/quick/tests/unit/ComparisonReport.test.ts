@@ -65,6 +65,30 @@ describe("A/B comparison reporting", () => {
     expect(summary.informationalOnly).to.equal(true);
   });
 
+  it("summarizes externally sampled peak worker RSS", () => {
+    const withMemory = input();
+    withMemory.baseline.samples = withMemory.baseline.samples.map(
+      (sample, index) => ({
+        ...sample,
+        ...(sample.measured
+          ? { workerPeakRssBytes: [90, 100, 110][index - 1] * 1048576 }
+          : {}),
+      })
+    );
+    withMemory.candidate.samples = withMemory.candidate.samples.map(
+      (sample, index) => ({
+        ...sample,
+        ...(sample.measured
+          ? { workerPeakRssBytes: [99, 110, 121][index - 1] * 1048576 }
+          : {}),
+      })
+    );
+
+    const summary = createComparisonSummary(withMemory);
+    expect(summary.baseline.medianPeakRssBytes).to.equal(100 * 1048576);
+    expect(summary.candidate.medianPeakRssBytes).to.equal(110 * 1048576);
+  });
+
   it("writes a simple JSON, Markdown, and raw-sample report", () => {
     const outputDir = fs.mkdtempSync(
       path.join(os.tmpdir(), "quick-ab-report-")
@@ -113,6 +137,17 @@ describe("A/B comparison reporting", () => {
     );
     expect(() => createComparisonSummary(mismatchedSemantics)).to.throw(
       /different semantic results/
+    );
+  });
+
+  it("rejects asymmetric peak RSS availability", () => {
+    const asymmetric = input();
+    asymmetric.baseline.samples = asymmetric.baseline.samples.map((sample) => ({
+      ...sample,
+      ...(sample.measured ? { workerPeakRssBytes: 100 * 1048576 } : {}),
+    }));
+    expect(() => createComparisonSummary(asymmetric)).to.throw(
+      /must both be measured or both be unavailable/
     );
   });
 

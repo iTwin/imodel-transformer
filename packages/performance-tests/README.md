@@ -249,8 +249,7 @@ The coordinator accepts `QUICK_PERF_SCENARIO`, `QUICK_PERF_FIXTURE`,
 `QUICK_PERF_COMPARISON_THRESHOLD_PERCENT`, and
 `QUICK_PERF_STANDALONE_BIM` for the standalone topology.
 `QUICK_PERF_COMPARISON_WORKER_TIMEOUT_SECONDS` sets the positive per-process
-timeout and defaults to 600 seconds. `QUICK_PERF_BASELINE_ROOT` is required;
-candidate and revision paths are set by the workflow.
+timeout and defaults to 600 seconds. `QUICK_PERF_RSS_SAMPLE_INTERVAL_MS` enables external peak worker RSS sampling at the specified interval; it defaults to `0` (disabled) because observation consumes CPU, especially on macOS where each sample invokes `ps`. Use a timing pass with sampling disabled and a separate memory pass with the same alternating arms. The peak covers the complete isolated worker lifetime, while `rssDeltaBytes` continues to cover only the scenario endpoints. `QUICK_PERF_BASELINE_ROOT` is required; candidate and revision paths are set by the workflow.
 
 ## Running the manual workflow
 

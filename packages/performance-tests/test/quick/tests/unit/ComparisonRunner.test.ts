@@ -182,8 +182,48 @@ describe("A/B comparison orchestration", () => {
       sample: 1,
       scenarioId: "changeset-scanning",
     });
-    expect(sample).to.deep.equal(expected);
+    expect(sample).toMatchObject(expected);
+    expect(sample.workerRssSamplingIntervalMilliseconds).to.equal(0);
   });
+
+  it.skipIf(process.platform === "win32")(
+    "samples peak worker RSS from outside the worker process",
+    async () => {
+      const rootDirectory = temporaryDirectory("quick-ab-memory-");
+      const workerPath = comparisonArmWorkerPath(rootDirectory);
+      fs.mkdirSync(path.dirname(workerPath), { recursive: true });
+      const expected = benchmarkSample();
+      fs.writeFileSync(
+        workerPath,
+        [
+          'const fs = require("node:fs");',
+          "const request = JSON.parse(process.env.QUICK_PERF_ARM_REQUEST);",
+          "const allocation = Buffer.alloc(16 * 1024 * 1024, 1);",
+          "setTimeout(() => {",
+          `  fs.writeFileSync(request.resultFile, ${JSON.stringify(
+            `${JSON.stringify(expected)}\n`
+          )});`,
+          "  if (allocation[0] !== 1) process.exit(9);",
+          "}, 250);",
+        ].join("\n")
+      );
+      const sample = await executeArmProcess({
+        arm: "baseline",
+        fixtureArtifactDirectory: path.join(rootDirectory, "fixture-artifact"),
+        harnessRootDirectory: path.join(rootDirectory, "harness"),
+        measured: true,
+        outputDir: path.join(rootDirectory, "output"),
+        revision: "base-sha",
+        rootDirectory,
+        sample: 1,
+        scenarioId: "changeset-scanning",
+        workerRssSamplingIntervalMilliseconds: 20,
+      });
+      expect(sample.workerPeakRssBytes).to.be.greaterThan(16 * 1024 * 1024);
+      expect(sample.workerRssSampleCount).to.be.greaterThan(1);
+      expect(sample.workerRssSamplingIntervalMilliseconds).to.equal(20);
+    }
+  );
 
   it("surfaces child-process failures with arm and sample context", async () => {
     const rootDirectory = temporaryDirectory("quick-ab-failure-");
@@ -327,6 +367,32 @@ describe("A/B comparison orchestration", () => {
         }
       )
     ).rejects.toThrow(/worker timeout must be an integer between 1 and/);
+    expect(buildStarted).to.equal(false);
+  });
+
+  it("rejects an RSS interval above the Node timer limit", async () => {
+    let buildStarted = false;
+    await expect(
+      runComparison(
+        {
+          baseline: {
+            revision: "base-sha",
+            rootDirectory: "baseline-root",
+          },
+          candidate: {
+            revision: "candidate-sha",
+            rootDirectory: "candidate-root",
+          },
+          outputDir: temporaryDirectory("quick-ab-invalid-rss-interval-"),
+          workerRssSamplingIntervalMilliseconds: 2_147_483_648,
+        },
+        async () => benchmarkSample(),
+        async () => {
+          buildStarted = true;
+          return fixtureArtifactManifest();
+        }
+      )
+    ).rejects.toThrow(/RSS sampling interval must be an integer between 0 and/);
     expect(buildStarted).to.equal(false);
   });
 
