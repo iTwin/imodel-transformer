@@ -20,6 +20,11 @@ on:
         required: true
         default: main
         type: string
+      samples:
+        description: Measured samples per arm
+        required: true
+        default: 40
+        type: number
 
 permissions:
   contents: read
@@ -108,7 +113,7 @@ jobs:
           QUICK_PERF_CANDIDATE_REVISION: ${{ steps.revisions.outputs.candidate }}
           QUICK_PERF_CANDIDATE_ROOT: ${{ github.workspace }}/candidate
           QUICK_PERF_COMPARISON_OUTPUT: ${{ runner.temp }}/quick-performance-comparison
-          QUICK_PERF_COMPARISON_SAMPLES: 3
+          QUICK_PERF_COMPARISON_SAMPLES: ${{ inputs.samples || 3 }}
           QUICK_PERF_COMPARISON_THRESHOLD_PERCENT: 5
           QUICK_PERF_COMPARISON_WORKER_TIMEOUT_SECONDS: 600
           QUICK_PERF_SCENARIO: ${{ inputs.scenario || 'incremental-synchronization' }}
