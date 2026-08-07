@@ -42,7 +42,6 @@ export async function findBulkDeleteRoots(
       SELECT DISTINCT DeleteRootId FROM CascadeIds
     )
     SELECT Id AS id FROM DeleteRoots
-    OPTIONS ENABLE_EXPERIMENTAL_FEATURES
   `;
   const params = new QueryBinder().bindIdSet("elementIds", elementIds);
   for await (const row of targetDb.createQueryReader(query, params, {

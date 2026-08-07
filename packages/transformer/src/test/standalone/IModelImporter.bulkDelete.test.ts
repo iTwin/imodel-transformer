@@ -112,10 +112,7 @@ describe("IModelImporter bulk element deletion", () => {
           await super.onDeleteElements(elementIds);
         }
       }
-      // __PUBLISH_EXTRACT_START__ EditTxnInTransformer.custom-importer
-      // IModelImporter derives targetDb from the EditTxn.
       const importer = new TrackingImporter(editTxn);
-      // __PUBLISH_EXTRACT_END__
       expect(importer.targetDb).to.equal(editTxn.iModel);
       importer.doNotUpdateElementIds.add(protectedId);
 
@@ -191,7 +188,11 @@ describe("IModelImporter bulk element deletion", () => {
 
       const editTxn = createStartedEditTxn(targetDb);
       const nativeDeleteSpy = vi.spyOn(editTxn, "deleteElements");
-      await new IModelImporter(editTxn).deleteElements(explicitRoots);
+      // __PUBLISH_EXTRACT_START__ EditTxnInTransformer.custom-importer
+      // IModelImporter derives targetDb from the EditTxn.
+      const importer = new IModelImporter(editTxn);
+      await importer.deleteElements(explicitRoots);
+      // __PUBLISH_EXTRACT_END__
 
       expect(new Set(nativeDeleteSpy.mock.calls[0][0])).to.deep.equal(
         new Set([ids.rootId, ids.firstCodeRootId, ids.secondCodeRootId])

@@ -1304,8 +1304,7 @@ export class IModelExporter {
                 ec_className(e.ECClassId, 's') schemaName,
                 ec_className(e.ECClassId, 'c') className
          FROM bis.Element e
-         INNER JOIN IdSet(:elementIds) ids ON ids.id = e.ECInstanceId
-         OPTIONS ENABLE_EXPERIMENTAL_FEATURES`,
+         INNER JOIN IdSet(:elementIds) ids ON ids.id = e.ECInstanceId`,
         queryParams,
         { usePrimaryConn: true }
       )) {
@@ -1324,8 +1323,7 @@ export class IModelExporter {
         for await (const row of this.sourceDb.createQueryReader(
           `SELECT g.ECInstanceId id, g.Category.Id categoryId
            FROM bis.GeometricElement g
-           INNER JOIN IdSet(:elementIds) ids ON ids.id = g.ECInstanceId
-           OPTIONS ENABLE_EXPERIMENTAL_FEATURES`,
+           INNER JOIN IdSet(:elementIds) ids ON ids.id = g.ECInstanceId`,
           categoryQueryParams,
           { usePrimaryConn: true }
         )) {
@@ -1357,8 +1355,7 @@ export class IModelExporter {
         for await (const row of this.sourceDb.createQueryReader(
           `SELECT model.ECInstanceId id, model.ParentModel.Id parentModelId, model.IsTemplate isTemplate
            FROM bis.Model model
-           INNER JOIN IdSet(:modelIds) ids ON ids.id = model.ECInstanceId
-           OPTIONS ENABLE_EXPERIMENTAL_FEATURES`,
+           INNER JOIN IdSet(:modelIds) ids ON ids.id = model.ECInstanceId`,
           queryParams,
           { usePrimaryConn: true }
         )) {
@@ -1861,7 +1858,6 @@ export class ChangedInstanceIds {
             INNER JOIN hierarchy h ON h.parentId = e.ECInstanceId
         )
         SELECT parentId FROM hierarchy where parentId is not null
-        OPTIONS ENABLE_EXPERIMENTAL_FEATURES
     `;
     const parentModelIds = new Set<Id64String>();
     for await (const row of this._db.createQueryReader(ecQuery, params, {
@@ -1892,8 +1888,7 @@ export class ChangedInstanceIds {
         SELECT relationship.ECInstanceId
         FROM ${relationshipClassName} relationship
         INNER JOIN IdSet(:elementIds) ids
-          ON ids.id = relationship.SourceECInstanceId
-        OPTIONS ENABLE_EXPERIMENTAL_FEATURES`;
+          ON ids.id = relationship.SourceECInstanceId`;
 
     const queryBinder = new QueryBinder().bindIdSet("elementIds", elementIds);
     const queryReader = this._db.createQueryReader(ecQuery, queryBinder, {
@@ -1912,8 +1907,7 @@ export class ChangedInstanceIds {
     ]) {
       const ecQuery = `SELECT aspect.ECInstanceId, aspect.Element.Id
         FROM ${aspectClassName} aspect
-        INNER JOIN IdSet(:elementIds) ids ON ids.id = aspect.Element.Id
-        OPTIONS ENABLE_EXPERIMENTAL_FEATURES`;
+        INNER JOIN IdSet(:elementIds) ids ON ids.id = aspect.Element.Id`;
       const queryBinder = new QueryBinder().bindIdSet("elementIds", elementIds);
       const queryReader = this._db.createQueryReader(ecQuery, queryBinder, {
         usePrimaryConn: true,
