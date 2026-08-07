@@ -43,7 +43,7 @@
   },
   "devDependencies": {
     "@itwin/build-tools": "^5.10.3",
-    "@itwin/eslint-plugin": "^5.2.1",
+    "@itwin/eslint-plugin": "^6.1.0",
     "@itwin/itwins-client": "^1.6.1",
     "@itwin/oidc-signin-tool": "^6.0.0",
     "@types/fs-extra": "^4.0.7",
