@@ -35,12 +35,19 @@ A `BenchmarkScenarioDefinition` contains:
 The created `BenchmarkScenario` separates:
 
 - `measure()`: the transformer operation included in benchmark wall time.
-- `finish()`: untimed correctness and provenance validation.
+- `finish()`: untimed output-comparability and provenance validation.
 - `abort()`: cleanup when measurement or validation fails.
 
 The current `incremental-synchronization` scenario measures
 `IModelTransformer.process()` configured to process changes from a source
 `BriefcaseDb` into an existing target `BriefcaseDb`.
+The `standalone-full-transformation` scenario measures a full
+`IModelTransformer.process()` from a read-only `SnapshotDb` into a newly empty
+`SnapshotDb`. Its schema processing and output-shape digest are untimed. The digest
+summarizes target entity counts by class so A/B comparison proceeds only when both
+arms produced the same structural workload. It does not assert source-to-target
+correctness; detailed transformation correctness remains the responsibility of the
+transformer test suite.
 
 #### Recipe
 
@@ -71,19 +78,18 @@ chooses its options and measured operation.
 | --------------------------- | -------------------------------------------------------------------------------------------------- | ------------------------------------ | ----------------------------------------------------------------------------------- |
 | `liveHubProvider`           | Open source and target `BriefcaseDb`s backed by `HubMock`                                          | Available                            | Captures prepared briefcases, seeds, and local-hub timelines once                   |
 | `detachedBriefcaseProvider` | Read-only source `BriefcaseDb`, local changeset files, artifact metadata, and optional recipe data | Not available                        | Uses `HubMock` once to generate changesets, then captures a reusable local artifact |
+| `standaloneProvider`        | Read-only source `SnapshotDb`, newly empty target `SnapshotDb`, and artifact metadata              | Not available                        | Generates or ingests one standalone source artifact; creates targets only in stage two |
 
 Both providers are credential-free and use local `HubMock` when they need
 iModelHub semantics. “Detached” means detached during scenario consumption, not
 that no Hub APIs were used to create the changesets.
 
-There is currently no provider for a completely standalone
-`SnapshotDb`-to-`SnapshotDb` transformation.
-
 `liveHubProvider` performs the initial full transformation required by
 incremental synchronization once while building the artifact. Each sample copies
 that artifact and restores the source and target hubs with the same iModel,
 briefcase, and changeset identities. A first-time schema or full-transform
-scenario would need a provider topology that leaves the target pristine.
+scenario uses `standaloneProvider`, whose target is created empty for every
+sample and is never part of the immutable artifact.
 
 #### Configured fixture and generated descriptor
 
@@ -130,6 +136,14 @@ Resolution follows this order:
 3. Verify that fixture topology matches the scenario requirement.
 4. Verify that the fixture advertises every required scenario claim.
 5. Pass the registered configured fixture to the provider.
+
+For `standalone-source-and-empty-target`, resolution also accepts
+`QUICK_PERF_STANDALONE_BIM`. It rejects the option for every other topology.
+The external file's basename, length, and SHA-256 are combined with the recipe
+hash. The recipe identity continues to describe the selected fixture contract,
+while the external identity states that those exact bytes replace generation.
+Openability and standalone topology are validated against the copied artifact,
+not by benchmarking the user's original file.
 
 Catalogs select definitions. They do not create iModels or execute transformer
 code.
@@ -211,6 +225,14 @@ Every later worker verifies the content hash and restores a private working copy
 from the same artifact; no warm-up or measured worker regenerates fixture
 contents or repeats the initial full transform.
 
+Standalone artifacts contain one source BIM and no target. The candidate
+artifact-authoring worker either runs the deterministic recipe or copies
+`QUICK_PERF_STANDALONE_BIM`, validates the artifact copy as a `SnapshotDb`, and
+records both source and whole-artifact hashes. Each later worker validates the
+manifest, copies the artifact, opens its private source read-only, and creates a
+new empty target. Workers need only the artifact after stage one; the external
+original is not reopened.
+
 The coordinator starts a separate worker process for every warm-up and measured
 execution. Workers use `resolveBenchmarkRun()` and `BenchmarkRunner.runSample()`;
 there is no second scenario, fixture, scanner, or correctness API. The default
@@ -283,6 +305,45 @@ relationships, and 3,000 geometric elements. Its eight changesets apply:
 These values are 25 deterministic repetitions of the recipe's balanced content
 unit.
 
+## Standalone full-transformation lifecycle
+
+The `standalone-full-transformation` registration uses the
+`standalone-full-transform` fixture and
+`standalone-source-and-empty-target` topology. By default, its recipe builds
+10,000 `Generic.PhysicalObject`s with deterministic unit-box geometry and grid
+placements in one `withEditTxn`.
+
+Stage one:
+
+1. Generate the recipe source, or copy `QUICK_PERF_STANDALONE_BIM`.
+2. Open the artifact copy as a read-only standalone `SnapshotDb`.
+3. Validate generated distribution, or validate external standalone
+   compatibility.
+4. Hash the source and every artifact file, then close the source.
+
+For every warm-up and measured sample, `standaloneProvider` copies that artifact,
+opens the private source read-only, and creates a fresh empty target. Scenario
+`prepare()` runs `processSchemas()` outside measurement. `measure()` runs only
+`IModelTransformer.process()` with source geometry enabled and provenance
+disabled, matching the full-transform setup in
+`packages/transformer/src/test/standalone/TransformerPerf.test.ts`. `finish()`
+saves and ends the target edit transaction and queries entity totals by class to
+compute a stable target output-shape digest. The A/B coordinator
+requires that digest to match between arms, but the scenario does not compare the
+target with the source. This is a benchmark comparability check, not a duplicate
+full-transformation correctness suite. `abort()` disposes transformer/edit state;
+provider disposal attempts to close both databases before the runner removes the
+sample directory.
+
+External BIMs must be standalone snapshots readable by the installed
+`@itwin/core-backend`. Hub briefcases, corrupt files, incompatible profiles or
+schemas, and unsupported encrypted/native formats are rejected. Absolute paths
+are intentionally excluded from identity and reports, so a completed artifact
+is relocatable. Inputs inside benchmark-managed output or artifact directories
+are rejected before cleanup so the harness can never delete the user's original.
+`QUICK_PERF_STANDALONE_BIM` itself must be absolute so the coordinator and
+isolated A/B workers cannot resolve it against different checkout directories.
+
 ## Detached artifact lifecycle
 
 `detachedBriefcaseProvider` supports the `source-only` topology. No benchmark
@@ -336,6 +397,9 @@ excluded from aggregate performance statistics.
 For `incremental-synchronization`, only `IModelTransformer.process()` is inside
 the measured region. Fixture generation, initial target transformation,
 provenance setup, validation, and cleanup remain outside it.
+The standalone full-transform scenario additionally places
+`processSchemas()` in untimed `prepare()`; target creation, edit-transaction
+setup, output-shape digest, and disposal remain outside the measured region.
 
 ## Reporting and reliability
 
@@ -352,6 +416,7 @@ Compare reports only when these identity fields match:
 - `fixtureId`
 - `fixtureVersion`
 - `fixtureRecipeHash`
+- `fixtureSource` when an external standalone BIM is selected
 - Every `fixtureGenerator` version
 
 The reporter rejects mixed scenario or fixture identities within one report.

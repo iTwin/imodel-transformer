@@ -8,10 +8,10 @@ import { PreparedDataset } from "../fixtures/FixtureProvider.js";
 
 export interface BenchmarkScenario {
   abort(): void;
-  /** Unmeasured setup performed after materialization and before timing starts. */
-  prepare?(): Promise<void>;
   finish(): Promise<string>;
   measure(): Promise<void>;
+  /** Untimed asynchronous setup that must complete before measurement starts. */
+  prepare?(): Promise<void>;
 }
 
 export type ScenarioConfiguration = Readonly<Record<string, string>>;

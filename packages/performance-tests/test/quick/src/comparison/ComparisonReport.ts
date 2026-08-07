@@ -10,6 +10,7 @@ import { ScenarioConfiguration } from "../framework/BenchmarkScenario.js";
 import { IModelInventory } from "../fixtures/IModelInventory.js";
 import { median, percentile } from "../reporting/statistics.js";
 import { TransformerProvenance } from "./TransformerProvenance.js";
+import { ExternalFixtureSourceIdentity } from "../fixtures/FixtureDescriptor.js";
 
 export type ComparisonArm = "baseline" | "candidate";
 
@@ -46,6 +47,7 @@ export interface ComparisonSummary {
   readonly fixtureInventory?: IModelInventory;
   readonly scenarioConfiguration?: ScenarioConfiguration;
   readonly fixtureAuthoring: ComparisonReportInput["fixtureAuthoring"];
+  readonly fixtureSource?: ExternalFixtureSourceIdentity;
   readonly semanticDigest: string;
   readonly policy: {
     readonly warmupsPerArm: 1;
@@ -93,6 +95,7 @@ function configurationIdentity(sample: BenchmarkSample): string {
     },
     sample.topology,
     sample.operations,
+    ...(sample.fixtureSource === undefined ? [] : [sample.fixtureSource]),
   ]);
 }
 
@@ -232,6 +235,9 @@ export function createComparisonSummary(
     fixtureInventory: identity.fixtureInventory,
     scenarioConfiguration: identity.scenarioConfiguration,
     fixtureAuthoring: input.fixtureAuthoring,
+    ...(identity.fixtureSource === undefined
+      ? {}
+      : { fixtureSource: identity.fixtureSource }),
     semanticDigest: identity.semanticDigest,
     policy: {
       warmupsPerArm: 1,

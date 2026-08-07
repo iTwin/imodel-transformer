@@ -6,7 +6,10 @@
 import { BenchmarkScenarioDefinition } from "./BenchmarkScenario.js";
 import { FixtureDescriptor } from "../fixtures/FixtureDescriptor.js";
 import { getConfiguredFixture } from "../catalogs/FixtureCatalog.js";
-import { ConfiguredFixture } from "../fixtures/FixtureRecipe.js";
+import {
+  ConfiguredFixture,
+  withExternalFixtureSource,
+} from "../fixtures/FixtureRecipe.js";
 import { getScenarioDefinition } from "../catalogs/ScenarioCatalog.js";
 
 export interface ResolvedBenchmarkRun {
@@ -77,10 +80,25 @@ export function assertScenarioSupportsFixture(
  */
 export function resolveBenchmarkRun(
   scenarioId?: string,
-  fixtureId?: string
+  fixtureId?: string,
+  externalStandaloneBim?: string
 ): ResolvedBenchmarkRun {
   const scenario = getScenarioDefinition(scenarioId);
-  const fixture = getConfiguredFixture(fixtureId ?? scenario.defaultFixtureId);
+  const configuredFixture = getConfiguredFixture(
+    fixtureId ?? scenario.defaultFixtureId
+  );
+  if (
+    externalStandaloneBim !== undefined &&
+    configuredFixture.descriptor.layout.topology !==
+      "standalone-source-and-empty-target"
+  )
+    throw new Error(
+      `QUICK_PERF_STANDALONE_BIM requires a "standalone-source-and-empty-target" fixture; "${configuredFixture.descriptor.id}" uses "${configuredFixture.descriptor.layout.topology}"`
+    );
+  const fixture =
+    externalStandaloneBim === undefined
+      ? configuredFixture
+      : withExternalFixtureSource(configuredFixture, externalStandaloneBim);
   const { descriptor } = fixture;
   assertScenarioSupportsFixture(scenario, descriptor);
   return { scenario, fixture, descriptor };
@@ -93,6 +111,7 @@ export function resolveBenchmarkRunFromEnvironment(
   // CI passes unset inputs through as empty strings; treat those as "not specified".
   return resolveBenchmarkRun(
     orUndefined(env.QUICK_PERF_SCENARIO),
-    orUndefined(env.QUICK_PERF_FIXTURE)
+    orUndefined(env.QUICK_PERF_FIXTURE),
+    orUndefined(env.QUICK_PERF_STANDALONE_BIM)
   );
 }
