@@ -26,11 +26,16 @@ import {
   BenchmarkScenarioDefinition,
 } from "../framework/BenchmarkScenario.js";
 
+interface SchemaProcessor {
+  dispose(): void;
+  processSchemas(): Promise<void>;
+}
+
 export function schemaProcessing(dataset: PreparedDataset): BenchmarkScenario {
   const source = requireDetachedDataset(dataset);
   let targetDb: SnapshotDb | undefined;
   let editTxn: EditTxn | undefined;
-  let transformer: IModelTransformer | undefined;
+  let transformer: SchemaProcessor | undefined;
   let processed = false;
   let disposed = false;
 
