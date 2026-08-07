@@ -1,5 +1,54 @@
 # Next release notes
 
+## Breaking change: batched incremental element deletion
+
+Incremental synchronization now processes element deletions as one batch. `IModelExporter.exportChanges()` passes the deleted source IDs to `IModelExportHandler.onDeleteElements()`. `IModelTransformer` maps the IDs once, and `IModelImporter.deleteElements()` submits the target roots through the native bulk-delete API. Bulk deletion preserves the previous behavior for child elements, modeled contents, and elements whose codes are scoped by a deleted tree.
+
+The following callbacks have been removed:
+
+- `IModelExportHandler.onDeleteElement()`
+- `IModelTransformer.onDeleteElement()`
+- The protected `IModelImporter.onDeleteElement()` hook
+
+Move custom per-element behavior to `onDeleteElements(elementIds: ReadonlySet<Id64String>)`. For example, migrate a custom transformer from the singular callback:
+
+```ts
+// Before
+public override async onDeleteElement(sourceElementId: Id64String): Promise<void> {
+  this.recordDeletion(sourceElementId);
+  await super.onDeleteElement(sourceElementId);
+}
+```
+
+The batch callback receives all deleted source IDs:
+
+```ts
+// After
+public override async onDeleteElements(
+  sourceElementIds: ReadonlySet<Id64String>
+): Promise<void> {
+  for (const sourceElementId of sourceElementIds)
+    this.recordDeletion(sourceElementId);
+  await super.onDeleteElements(sourceElementIds);
+}
+```
+
+Custom importers receive target roots through the same collection contract. If custom work reads an element before deletion, complete that work before calling `super.onDeleteElements()`. The call to `super` performs the bulk deletion:
+
+```ts
+protected override async onDeleteElements(
+  targetElementIds: ReadonlySet<Id64String>
+): Promise<void> {
+  for (const targetElementId of targetElementIds)
+    this.insertDeleteAuditRecord(targetElementId);
+  await super.onDeleteElements(targetElementIds);
+}
+```
+
+Calls to the public `IModelImporter.deleteElement(elementId)` method do not need to change. The method passes its target ID to the batch extension point as a one-element set.
+
+If native deletion fails for any root, `IModelImporter.deleteElements()` throws an `ElementBulkDeleteError` with scope `IModelTransformerErrorScope` and key `IModelTransformerError.ElementBulkDeleteFailed`. The error reports `status`, `sqlDeleteStatus`, and `failedIds`. A partial failure leaves successful deletions pending in the caller-owned target transaction. Abandon that transaction before correcting the dependency and retrying.
+
 ## Schema-processing strategies
 
 `IModelTransformer.processSchemas()` now accepts a `SchemaProcessingStrategy`. Calls without options use `NewerVersionSchemaImportStrategy`, which preserves the existing newer-version selection and schema hooks. `DynamicSchemaUnionStrategy`, imported from `@itwin/imodel-transformer/schema-processing`, is available for iModels that may contain different compatible additions to the same schema marked with `CoreCustomAttributes.DynamicSchema`. See [Schema processing in a transformation](../learning/transformer/schema-processing.md) for strategy selection, compatibility rules, extension points, and failure handling.

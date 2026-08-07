@@ -18,6 +18,14 @@ pnpm --dir ../transformer build:cjs
 `pnpm test` runs the credential-dependent weekly suite. Use the quick scripts
 documented in `README.md` for credential-free harness and benchmark work.
 
+## Quick fixtures
+
+Configured fixtures live with their recipes in `test/quick/src/fixtures/recipes/`. Scenario modules in `test/quick/src/scenarios/` register them. Select a registered fixture with:
+
+```sh
+QUICK_PERF_FIXTURE=<fixture-id> pnpm test:quick
+```
+
 ## Validation
 
 For A/B comparison changes, run:

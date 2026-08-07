@@ -2061,7 +2061,7 @@ export class CountingIModelImporter extends IModelImporter {
   /**
    * This property does not include implicit deletions that occur when deleting trees.
    * Consider two PhysicalObjects A and B. PhysicalObject A has a code whose scope is PhysicalObject B. When PhysicalObject B is deleted,
-   * PhysicalObject A gets deleted as a part of a cascading delete. The cascading delete is not recorded by onDeleteElement in this class.
+   * PhysicalObject A gets deleted as a part of a cascading delete. The cascading delete is not recorded by onDeleteElements in this class.
    */
   public numElementsExplicitlyDeleted: number = 0;
   public numElementAspectsInserted: number = 0;
@@ -2096,11 +2096,11 @@ export class CountingIModelImporter extends IModelImporter {
     this.numElementsUpdated++;
     await super.onUpdateElement(elementProps);
   }
-  protected override async onDeleteElement(
-    elementId: Id64String
+  protected override async onDeleteElements(
+    elementIds: ReadonlySet<Id64String>
   ): Promise<void> {
-    this.numElementsExplicitlyDeleted++;
-    await super.onDeleteElement(elementId);
+    this.numElementsExplicitlyDeleted += elementIds.size;
+    await super.onDeleteElements(elementIds);
   }
   protected override async onInsertElementAspect(
     aspectProps: ElementAspectProps
@@ -2207,9 +2207,13 @@ export class RecordingIModelImporter extends CountingIModelImporter {
       }
     }
   }
-  protected override async onDeleteElement(
-    elementId: Id64String
+  protected override async onDeleteElements(
+    elementIds: ReadonlySet<Id64String>
   ): Promise<void> {
+    for (const elementId of elementIds) this.insertDeleteAuditRecord(elementId);
+    await super.onDeleteElements(elementIds);
+  }
+  private insertDeleteAuditRecord(elementId: Id64String): void {
     const element: Element = this.targetDb.elements.getElement(elementId);
     if (element instanceof PhysicalElement) {
       const recordPartitionId =
@@ -2218,7 +2222,6 @@ export class RecordingIModelImporter extends CountingIModelImporter {
         this.insertAuditRecord("Delete", recordPartitionId, element);
       }
     }
-    await super.onDeleteElement(elementId); // delete element after AuditRecord is inserted
   }
   private insertAuditRecord(
     operation: string,
@@ -2383,9 +2386,12 @@ export class IModelToTextFileExporter extends IModelExportHandler {
     );
     await super.onExportElement(element, isUpdate);
   }
-  public override async onDeleteElement(elementId: Id64String): Promise<void> {
-    this.writeLine(`[Element] ${elementId}, DELETE`);
-    await super.onDeleteElement(elementId);
+  public override async onDeleteElements(
+    elementIds: ReadonlySet<Id64String>
+  ): Promise<void> {
+    for (const elementId of elementIds)
+      this.writeLine(`[Element] ${elementId}, DELETE`);
+    await super.onDeleteElements(elementIds);
   }
   public override async onExportElementUniqueAspect(
     aspect: ElementUniqueAspect,
