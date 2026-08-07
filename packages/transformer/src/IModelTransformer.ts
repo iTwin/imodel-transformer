@@ -1504,7 +1504,7 @@ export class IModelTransformer extends IModelExportHandler {
         targetElementIds.add(targetElementId);
       }
     }
-    await this.importer.deleteElements([...targetElementIds]);
+    await this.importer.deleteElements(targetElementIds);
   }
 
   /** Override of [IModelExportHandler.onExportModel]($transformer) that is called when a Model should be exported from the source iModel.
@@ -1597,7 +1597,7 @@ export class IModelTransformer extends IModelExportHandler {
 
       // Transformer tries to delete models before it deletes elements. Definition models cannot be deleted unless all of their modeled elements are deleted first.
       // In case a definition model needs to be deleted we need to skip it for now and register its modeled partition for deletion.
-      // The `OnDeleteElement` calls `DeleteElementTree` Which deletes the model together with its partition after deleting all of the modeled elements.
+      // Batched element deletion removes the modeled elements before native cascade deletion removes the model and its partition.
       this.scheduleModeledPartitionDeletion(sourceModelId);
     }
   }

@@ -4,7 +4,44 @@
 
 `IModelExporter.exportChanges()` now reports deleted elements through one `IModelExportHandler.onDeleteElements()` callback. `IModelTransformer` maps that source deletion set once and `IModelImporter.deleteElements()` submits the target roots through the native bulk-delete API. Parent-child trees, modeled contents, and unrelated elements whose codes are scoped by the deleted tree retain the previous cascading behavior.
 
-`IModelExportHandler.onDeleteElement()`, `IModelTransformer.onDeleteElement()`, and `IModelImporter.onDeleteElement()` have been removed. Custom export handlers and transformers must override `onDeleteElements()`. Custom importers that inspect, count, or audit explicitly deleted target elements must override `onDeleteElements()`, perform pre-delete work for the supplied roots, and then call `super.onDeleteElements()`. The public `IModelImporter.deleteElement()` convenience method remains available and routes its single target ID through the same batch extension point.
+`IModelExportHandler.onDeleteElement()`, `IModelTransformer.onDeleteElement()`, and the protected `IModelImporter.onDeleteElement()` hook have been removed. Custom export handlers, transformers, and importers must migrate per-element customization to `onDeleteElements(elementIds: ReadonlySet<Id64String>)`.
+
+For example, migrate a custom transformer from the singular callback:
+
+```ts
+// Before
+public override async onDeleteElement(sourceElementId: Id64String): Promise<void> {
+  this.recordDeletion(sourceElementId);
+  await super.onDeleteElement(sourceElementId);
+}
+```
+
+To the batch callback:
+
+```ts
+// After
+public override async onDeleteElements(
+  sourceElementIds: ReadonlySet<Id64String>
+): Promise<void> {
+  for (const sourceElementId of sourceElementIds)
+    this.recordDeletion(sourceElementId);
+  await super.onDeleteElements(sourceElementIds);
+}
+```
+
+Custom importers receive target element roots through the same collection contract. Perform all work that requires the elements to exist before calling `super`, which executes the bulk deletion:
+
+```ts
+protected override async onDeleteElements(
+  targetElementIds: ReadonlySet<Id64String>
+): Promise<void> {
+  for (const targetElementId of targetElementIds)
+    this.insertDeleteAuditRecord(targetElementId);
+  await super.onDeleteElements(targetElementIds);
+}
+```
+
+Direct callers of the public `IModelImporter.deleteElement(elementId)` convenience method do not need to migrate. It remains available and routes its single target ID through the batch extension point.
 
 A native partial or complete deletion failure throws an `ElementBulkDeleteError` with scope `IModelTransformerErrorScope` and key `IModelTransformerError.ElementBulkDeleteFailed`. Its `status`, `sqlDeleteStatus`, and `failedIds` properties expose the native result. A partial failure leaves successful deletions pending in the caller-owned target transaction; abandon that transaction before correcting the dependency and retrying.
 

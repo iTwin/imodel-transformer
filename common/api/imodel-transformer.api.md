@@ -219,7 +219,7 @@ export class IModelImporter {
     constructor(editTxn: EditTxn, options?: IModelImportOptions);
     computeProjectExtents(): void;
     deleteElement(elementId: Id64String): Promise<void>;
-    deleteElements(elementIds: readonly Id64String[]): Promise<void>;
+    deleteElements(elementIds: ReadonlySet<Id64String>): Promise<void>;
     deleteModel(modelId: Id64String): Promise<void>;
     deleteRelationship(relationshipProps: RelationshipPropsForDelete): Promise<void>;
     readonly doNotUpdateElementIds: Set<string>;
@@ -236,7 +236,7 @@ export class IModelImporter {
     importRelationship(relationshipProps: RelationshipProps): Promise<Id64String>;
     markElementToUpdateDuringPreserveIds(elementId: Id64String): void;
     protected onDeleteElementAspect(targetElementAspect: ElementAspect): Promise<void>;
-    protected onDeleteElements(elementIds: readonly Id64String[]): Promise<void>;
+    protected onDeleteElements(elementIds: ReadonlySet<Id64String>): Promise<void>;
     protected onDeleteModel(modelId: Id64String): Promise<void>;
     protected onDeleteRelationship(relationshipProps: RelationshipPropsForDelete): Promise<void>;
     protected onInsertElement(elementProps: ElementProps): Promise<Id64String>;

@@ -2097,9 +2097,9 @@ export class CountingIModelImporter extends IModelImporter {
     await super.onUpdateElement(elementProps);
   }
   protected override async onDeleteElements(
-    elementIds: readonly Id64String[]
+    elementIds: ReadonlySet<Id64String>
   ): Promise<void> {
-    this.numElementsExplicitlyDeleted += elementIds.length;
+    this.numElementsExplicitlyDeleted += elementIds.size;
     await super.onDeleteElements(elementIds);
   }
   protected override async onInsertElementAspect(
@@ -2208,7 +2208,7 @@ export class RecordingIModelImporter extends CountingIModelImporter {
     }
   }
   protected override async onDeleteElements(
-    elementIds: readonly Id64String[]
+    elementIds: ReadonlySet<Id64String>
   ): Promise<void> {
     for (const elementId of elementIds) this.insertDeleteAuditRecord(elementId);
     await super.onDeleteElements(elementIds);
