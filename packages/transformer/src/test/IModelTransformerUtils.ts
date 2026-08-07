@@ -84,7 +84,6 @@ import {
   Placement3d,
   QueryBinder,
   QueryRowFormat,
-  SkyBoxImageProps,
   SkyBoxImageType,
   SpatialViewDefinitionProps,
   SubCategoryAppearance,
@@ -732,8 +731,7 @@ export async function assertIdentityTransformation(
           | undefined;
         if (styles?.environment?.sky) {
           const sky = styles.environment.sky;
-          if (!sky.image)
-            sky.image = { type: SkyBoxImageType.None } as SkyBoxImageProps;
+          if (!sky.image) sky.image = { type: SkyBoxImageType.None };
 
           const image = sky.image;
           if (image?.texture === Id64.invalid)

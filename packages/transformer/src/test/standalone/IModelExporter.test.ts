@@ -29,7 +29,6 @@ import {
 import { Id64, Id64String, ITwinError } from "@itwin/core-bentley";
 import {
   Code,
-  ElementAspectProps,
   ExternalSourceAspectProps,
   GeometryPartProps,
   GeometryStreamBuilder,
@@ -291,7 +290,7 @@ describe("IModelExporter", () => {
         txn.insertAspect({
           classFullName: "ExporterAspectTest:UniqueAspect",
           element: new ElementOwnsUniqueAspect(id),
-        } as ElementAspectProps);
+        });
         return id;
       });
       const exporter = new IModelExporter(sourceDb);
