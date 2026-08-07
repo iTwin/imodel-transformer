@@ -4,7 +4,12 @@
     "declaration": true,
     "incremental": false,
     "outDir": "lib",
-    "rootDir": "src"
+    "rootDir": "src",
+    "esModuleInterop": true,
+    "module": "Node16",
+    "moduleResolution": "Node16",
+    "resolvePackageJsonExports": false,
+    "types": ["node"]
   },
   "include": ["./src/**/*.ts"]
 }
