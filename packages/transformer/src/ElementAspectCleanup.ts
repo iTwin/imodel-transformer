@@ -11,7 +11,7 @@ import {
   ExternalSourceAspect,
   IModelDb,
 } from "@itwin/core-backend";
-import { Id64Set, Id64String } from "@itwin/core-bentley";
+import { Id64String } from "@itwin/core-bentley";
 import { QueryBinder } from "@itwin/core-common";
 
 /** Deletes replaceable ElementAspects for target owners while preserving excluded classes and transformer provenance aspects.
@@ -45,7 +45,7 @@ export class ElementAspectCleanup {
     }
     if (targetElementIds.size === 0) return;
 
-    const ids = new Set<Id64String>(targetElementIds) as Id64Set;
+    const ids = new Set<Id64String>(targetElementIds);
     const targetExcludedElementAspectClassFullNames = [
       ...excludedElementAspectClassFullNames,
     ].filter((classFullName) => this._targetDb.containsClass(classFullName));

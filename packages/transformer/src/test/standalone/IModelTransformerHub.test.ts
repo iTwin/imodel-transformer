@@ -4336,7 +4336,7 @@ describe("IModelTransformerHub", () => {
               pendingSyncChangesetIndices: [],
               reverseSyncVersion: ";0", // not synced yet
             }),
-          } as ExternalSourceAspectProps);
+          });
           targetScopeProvenanceProps = targetScopeProvenance;
         },
       },
@@ -4461,7 +4461,7 @@ describe("IModelTransformerHub", () => {
               pendingSyncChangesetIndices: [],
               reverseSyncVersion: ";0", // not synced yet
             }),
-          } as ExternalSourceAspectProps);
+          });
           targetScopeProvenanceProps = targetScopeProvenance;
         },
       },
@@ -4473,7 +4473,7 @@ describe("IModelTransformerHub", () => {
               txn.updateAspect({
                 ...targetScopeProvenanceProps!,
                 jsonProperties: undefined,
-              } as ExternalSourceAspectProps);
+              });
             });
           },
         },
@@ -4701,7 +4701,7 @@ describe("IModelTransformerHub", () => {
               pendingSyncChangesetIndices: [],
               reverseSyncVersion: ";0", // not synced yet
             }),
-          } as ExternalSourceAspectProps);
+          });
           targetScopeProvenanceProps = targetScopeProvenance;
         },
       },
@@ -4937,7 +4937,7 @@ describe("IModelTransformerHub", () => {
                     ...rootSubjectFromBranch,
                     description: "test description",
                     jsonProperties: { test: 4 },
-                  } as SubjectProps);
+                  });
 
                   const realityDataSourcesElement =
                     branch.elements.getElementProps("0xe");
@@ -5279,7 +5279,7 @@ describe("IModelTransformerHub", () => {
               pendingSyncChangesetIndices: [],
               reverseSyncVersion: ";0", // not synced yet
             }),
-          } as ExternalSourceAspectProps);
+          });
         },
       },
       { master: { sync: ["branch"] } },

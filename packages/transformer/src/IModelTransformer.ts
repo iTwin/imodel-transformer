@@ -1214,7 +1214,7 @@ export class IModelTransformer extends IModelExportHandler {
 
     const unresolvedReferences = elemClass.requiredReferenceKeys
       .map((referenceKey) => {
-        const idContainer = sourceElement[referenceKey as keyof Element];
+        const idContainer = sourceElement.asAny[referenceKey];
         const referenceType =
           elemClass.requiredReferenceKeyTypeMap[referenceKey];
         // For now we just consider all required references to be elements (as they are in biscore), and do not support
