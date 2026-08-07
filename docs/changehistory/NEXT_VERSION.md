@@ -2,11 +2,15 @@
 
 ## Breaking change: batched incremental element deletion
 
-`IModelExporter.exportChanges()` now reports deleted elements through one `IModelExportHandler.onDeleteElements()` callback. `IModelTransformer` maps that source deletion set once and `IModelImporter.deleteElements()` submits the target roots through the native bulk-delete API. Parent-child trees, modeled contents, and unrelated elements whose codes are scoped by the deleted tree retain the previous cascading behavior.
+Incremental synchronization now processes element deletions as one batch. `IModelExporter.exportChanges()` passes the deleted source IDs to `IModelExportHandler.onDeleteElements()`. `IModelTransformer` maps the IDs once, and `IModelImporter.deleteElements()` submits the target roots through the native bulk-delete API. Bulk deletion preserves the previous behavior for child elements, modeled contents, and elements whose codes are scoped by a deleted tree.
 
-`IModelExportHandler.onDeleteElement()`, `IModelTransformer.onDeleteElement()`, and the protected `IModelImporter.onDeleteElement()` hook have been removed. Custom export handlers, transformers, and importers must migrate per-element customization to `onDeleteElements(elementIds: ReadonlySet<Id64String>)`.
+The following callbacks have been removed:
 
-For example, migrate a custom transformer from the singular callback:
+- `IModelExportHandler.onDeleteElement()`
+- `IModelTransformer.onDeleteElement()`
+- The protected `IModelImporter.onDeleteElement()` hook
+
+Move custom per-element behavior to `onDeleteElements(elementIds: ReadonlySet<Id64String>)`. For example, migrate a custom transformer from the singular callback:
 
 ```ts
 // Before
@@ -16,7 +20,7 @@ public override async onDeleteElement(sourceElementId: Id64String): Promise<void
 }
 ```
 
-To the batch callback:
+The batch callback receives all deleted source IDs:
 
 ```ts
 // After
@@ -29,7 +33,7 @@ public override async onDeleteElements(
 }
 ```
 
-Custom importers receive target element roots through the same collection contract. Perform all work that requires the elements to exist before calling `super`, which executes the bulk deletion:
+Custom importers receive target roots through the same collection contract. If custom work reads an element before deletion, complete that work before calling `super.onDeleteElements()`. The call to `super` performs the bulk deletion:
 
 ```ts
 protected override async onDeleteElements(
@@ -41,9 +45,9 @@ protected override async onDeleteElements(
 }
 ```
 
-Direct callers of the public `IModelImporter.deleteElement(elementId)` convenience method do not need to migrate. It remains available and routes its single target ID through the batch extension point.
+Calls to the public `IModelImporter.deleteElement(elementId)` method do not need to change. The method passes its target ID to the batch extension point as a one-element set.
 
-A native partial or complete deletion failure throws an `ElementBulkDeleteError` with scope `IModelTransformerErrorScope` and key `IModelTransformerError.ElementBulkDeleteFailed`. Its `status`, `sqlDeleteStatus`, and `failedIds` properties expose the native result. A partial failure leaves successful deletions pending in the caller-owned target transaction; abandon that transaction before correcting the dependency and retrying.
+If native deletion fails for any root, `IModelImporter.deleteElements()` throws an `ElementBulkDeleteError` with scope `IModelTransformerErrorScope` and key `IModelTransformerError.ElementBulkDeleteFailed`. The error reports `status`, `sqlDeleteStatus`, and `failedIds`. A partial failure leaves successful deletions pending in the caller-owned target transaction. Abandon that transaction before correcting the dependency and retrying.
 
 ## Schema-processing strategies
 

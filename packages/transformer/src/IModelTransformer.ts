@@ -1490,7 +1490,7 @@ export class IModelTransformer extends IModelExportHandler {
     }
   }
 
-  /** Override of [IModelExportHandler.onDeleteElements]($transformer) that maps all source deletions before submitting one bulk target deletion. */
+  /** Maps the deleted source element IDs and passes the target IDs to the importer as one set. */
   public override async onDeleteElements(
     sourceElementIds: ReadonlySet<Id64String>
   ): Promise<void> {
@@ -1595,9 +1595,8 @@ export class IModelTransformer extends IModelExportHandler {
           error.errorNumber === IModelStatus.ForeignKeyConstraint);
       if (!isDeletionProhibitedErr) throw error;
 
-      // Transformer tries to delete models before it deletes elements. Definition models cannot be deleted unless all of their modeled elements are deleted first.
-      // In case a definition model needs to be deleted we need to skip it for now and register its modeled partition for deletion.
-      // Batched element deletion removes the modeled elements before native cascade deletion removes the model and its partition.
+      // Models are processed before elements, but a definition model cannot be deleted while it contains elements.
+      // Add its partition to the element deletion set. Bulk cascade deletion will remove the contents, model, and partition together.
       this.scheduleModeledPartitionDeletion(sourceModelId);
     }
   }

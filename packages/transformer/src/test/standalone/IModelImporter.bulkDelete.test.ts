@@ -204,7 +204,7 @@ describe("IModelImporter bulk element deletion", () => {
     }
   });
 
-  it("deduplicates overlapping roots and ignores missing roots", async () => {
+  it("handles overlapping explicit roots and ignores missing roots", async () => {
     const targetDb = createTargetDb("OverlappingAndMissingRoots");
     try {
       const ids = withEditTxn(targetDb, "insert element tree", (txn) => {
@@ -320,7 +320,7 @@ describe("IModelImporter bulk element deletion", () => {
     }
   });
 
-  it("reports partial native failures without retrying singular deletes", async () => {
+  it("reports partial native failures without retrying individual roots", async () => {
     const targetDb = createTargetDb("PartialFailure");
     try {
       const ids = withEditTxn(
@@ -355,7 +355,7 @@ describe("IModelImporter bulk element deletion", () => {
             new Set([ids.categoryId, ids.independentId])
           ),
         IModelTransformerError.ElementBulkDeleteFailed,
-        /Bulk element deletion failed with status PartialSuccess/
+        /Bulk element deletion failed: status PartialSuccess/
       )) as ElementBulkDeleteError;
 
       expect(error.status).to.equal(BulkDeleteElementsStatus.PartialSuccess);

@@ -200,7 +200,7 @@ export abstract class IModelExportHandler {
    */
   public async preExportElement(_element: Element): Promise<void> {}
 
-  /** Called once with all elements deleted by the source changes being exported. */
+  /** Called once with the source IDs of all elements deleted by the exported changes. */
   public async onDeleteElements(
     _elementIds: ReadonlySet<Id64String>
   ): Promise<void> {}

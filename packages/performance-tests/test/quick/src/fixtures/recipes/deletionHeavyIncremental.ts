@@ -41,7 +41,9 @@ function deletionHeavyDistribution(
   parameters: Readonly<DeletionHeavyIncrementalParameters>
 ): FixtureDistribution {
   if (!Number.isSafeInteger(parameters.scale) || parameters.scale < 1)
-    throw new Error("scale must be a positive safe integer");
+    throw new Error(
+      "Deletion-heavy fixture scale must be a positive safe integer"
+    );
   const baseElements = parameters.scale + defaultSurvivorElements;
   return {
     base: {
@@ -148,7 +150,7 @@ async function applyDeletionHeavyChangeset(
   });
 }
 
-/** Defines the deletion-heavy incremental synchronization workload. */
+/** Recipe for an incremental synchronization workload that deletes many elements in one changeset. */
 export const deletionHeavyIncrementalRecipe = defineFixtureRecipe({
   id: "deletion-heavy-incremental",
   identity: {
@@ -166,7 +168,7 @@ export const deletionHeavyIncrementalRecipe = defineFixtureRecipe({
     assertFixtureDistribution(db, context.descriptor),
 });
 
-/** Configures a 10,000-element deletion workload for incremental synchronization. */
+/** Incremental synchronization fixture that deletes 10,000 elements in one changeset. */
 export const deletionHeavyIncrementalFixture = configureFixture(
   deletionHeavyIncrementalRecipe,
   {

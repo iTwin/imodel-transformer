@@ -55,15 +55,15 @@ import { findBulkDeleteRoots } from "./ElementBulkDelete";
 
 const loggerCategory: string = TransformerLoggerCategory.IModelImporter;
 
-/** Error thrown when native bulk element deletion does not delete every requested element tree.
+/** Error thrown when native bulk deletion fails to delete one or more requested element trees.
  * @beta
  */
 export interface ElementBulkDeleteError extends ITwinError {
-  /** Overall native bulk-delete status. */
+  /** Status returned by the native bulk-delete operation. */
   readonly status: BulkDeleteElementsStatus;
-  /** SQLite status from the native delete statement. */
+  /** SQLite status returned by the native delete statement. */
   readonly sqlDeleteStatus: DbResult;
-  /** Target element roots that native deletion could not delete. */
+  /** Target roots that the native operation did not delete. */
   readonly failedIds: ReadonlySet<Id64String>;
 }
 
@@ -467,13 +467,13 @@ export class IModelImporter {
     }
   }
 
-  /** Delete the specified Element from the target iModel through the batch deletion path. */
+  /** Deletes one target element tree through [[deleteElements]]. */
   public async deleteElement(elementId: Id64String): Promise<void> {
     await this.deleteElements(new Set([elementId]));
   }
 
-  /** Delete the specified Elements and their dependent element trees from the target iModel in one native operation.
-   * @note A subclass may override this method to customize bulk delete behavior but should call `super.onDeleteElements`.
+  /** Adds roots required by code-scope dependencies, then deletes the target element trees in one native operation.
+   * @note An override must call `super.onDeleteElements` once to perform the deletion.
    */
   protected async onDeleteElements(
     elementIds: ReadonlySet<Id64String>
@@ -488,8 +488,8 @@ export class IModelImporter {
           key: IModelTransformerError.ElementBulkDeleteFailed,
         },
         message:
-          `Bulk element deletion failed with status ${BulkDeleteElementsStatus[result.status]} ` +
-          `and SQLite status ${result.sqlDeleteStatus}. Failed element ids: ${[
+          `Bulk element deletion failed: status ${BulkDeleteElementsStatus[result.status]}, ` +
+          `SQLite status ${result.sqlDeleteStatus}, failed element IDs: ${[
             ...result.failedIds,
           ].join(", ")}`,
         status: result.status,
@@ -500,13 +500,14 @@ export class IModelImporter {
 
     Logger.logInfo(
       loggerCategory,
-      `Deleted ${elementIds.size} element trees in one bulk operation`
+      `Deleted ${elementIds.size} requested element trees using ${deleteRoots.size} native deletion roots`
     );
     await this.trackProgress(elementIds.size);
   }
 
-  /** Delete the specified Elements from the target iModel in one native operation.
-   * @throws [[ElementBulkDeleteError]] if native deletion partially or completely fails. A partial failure leaves successful deletions pending in the caller-owned transaction; abandon that transaction before retrying.
+  /** Deletes target element trees in one native operation.
+   * Roots in [[doNotUpdateElementIds]] are skipped.
+   * @throws [[ElementBulkDeleteError]] if native deletion fails for any root. A partial failure leaves successful deletions pending in the caller-owned transaction. Abandon the transaction before retrying.
    */
   public async deleteElements(
     elementIds: ReadonlySet<Id64String>

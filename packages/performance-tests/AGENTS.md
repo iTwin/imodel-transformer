@@ -20,7 +20,7 @@ documented in `README.md` for credential-free harness and benchmark work.
 
 ## Quick fixtures
 
-Configured fixtures live beside their recipes in `test/quick/src/fixtures/recipes/` and are registered by the scenario modules in `test/quick/src/scenarios/`. Select one without adding fixture-specific README instructions:
+Configured fixtures live with their recipes in `test/quick/src/fixtures/recipes/`. Scenario modules in `test/quick/src/scenarios/` register them. Select a registered fixture with:
 
 ```sh
 QUICK_PERF_FIXTURE=<fixture-id> pnpm test:quick

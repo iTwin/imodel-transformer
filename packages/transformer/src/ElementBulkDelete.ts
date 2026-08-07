@@ -7,11 +7,11 @@ import { Id64Set, Id64String } from "@itwin/core-bentley";
 import { QueryBinder } from "@itwin/core-common";
 import { IModelDb } from "@itwin/core-backend";
 
-/** Find the target element roots that must be submitted to native bulk deletion.
+/** Finds the target roots required for native bulk deletion.
  *
- * Native deletion cascades through child elements and modeled contents. The query traverses those
- * same dependencies to find unrelated top-level elements whose codes are scoped by anything in a
- * deleted tree. Each such code dependent becomes another native deletion root.
+ * Native deletion already cascades through child elements and modeled contents. This query follows
+ * those dependencies to find top-level elements whose codes are scoped by an element in a deleted
+ * tree. Each code-dependent element becomes another native deletion root.
  * @internal
  */
 export async function findBulkDeleteRoots(
