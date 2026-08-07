@@ -318,7 +318,7 @@ describe("BenchmarkRunner scenario injection", () => {
     const outputDir = fs.mkdtempSync(
       path.join(os.tmpdir(), "quick-perf-injected-")
     );
-    const calls = { abort: 0, factory: 0, finish: 0, measure: 0 };
+    const calls = { abort: 0, factory: 0, finish: 0, measure: 0, prepare: 0 };
     const scenario: BenchmarkScenarioDefinition = {
       id: "injected-scenario",
       defaultFixtureId: balancedIncrementalDescriptor.id,
@@ -330,6 +330,9 @@ describe("BenchmarkRunner scenario injection", () => {
           abort() {
             calls.abort++;
             delegate.abort();
+          },
+          async prepare() {
+            calls.prepare++;
           },
           async finish() {
             calls.finish++;
@@ -353,6 +356,7 @@ describe("BenchmarkRunner scenario injection", () => {
         factory: 2,
         finish: 2,
         measure: 2,
+        prepare: 2,
       });
       expect(samples.map((sample) => sample.scenarioId)).to.deep.equal([
         scenario.id,

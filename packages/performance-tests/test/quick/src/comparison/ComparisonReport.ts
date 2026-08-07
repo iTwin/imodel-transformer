@@ -6,7 +6,9 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { BenchmarkSample } from "../framework/BenchmarkRunner.js";
-import { median } from "../reporting/statistics.js";
+import { ScenarioConfiguration } from "../framework/BenchmarkScenario.js";
+import { IModelInventory } from "../fixtures/IModelInventory.js";
+import { median, percentile } from "../reporting/statistics.js";
 import { TransformerProvenance } from "./TransformerProvenance.js";
 import { ExternalFixtureSourceIdentity } from "../fixtures/FixtureDescriptor.js";
 
@@ -42,6 +44,8 @@ export interface ComparisonSummary {
   readonly fixtureVersion: number;
   readonly fixtureRecipeHash: string;
   readonly fixtureContentHash: string;
+  readonly fixtureInventory?: IModelInventory;
+  readonly scenarioConfiguration?: ScenarioConfiguration;
   readonly fixtureAuthoring: ComparisonReportInput["fixtureAuthoring"];
   readonly fixtureSource?: ExternalFixtureSourceIdentity;
   readonly semanticDigest: string;
@@ -55,12 +59,18 @@ export interface ComparisonSummary {
     readonly revision: string;
     readonly transformerProvenance: TransformerProvenance;
     readonly medianMilliseconds: number;
+    readonly p90Milliseconds: number;
+    readonly minimumMilliseconds: number;
+    readonly maximumMilliseconds: number;
     readonly measuredMilliseconds: readonly number[];
   };
   readonly candidate: {
     readonly revision: string;
     readonly transformerProvenance: TransformerProvenance;
     readonly medianMilliseconds: number;
+    readonly p90Milliseconds: number;
+    readonly minimumMilliseconds: number;
+    readonly maximumMilliseconds: number;
     readonly measuredMilliseconds: readonly number[];
   };
   readonly percentageDelta: number;
@@ -77,6 +87,8 @@ function configurationIdentity(sample: BenchmarkSample): string {
     sample.fixtureVersion,
     sample.fixtureRecipeHash,
     sample.fixtureContentHash,
+    sample.fixtureInventory,
+    sample.scenarioConfiguration,
     {
       coreBackend: sample.fixtureGenerator.coreBackend,
       node: sample.fixtureGenerator.node,
@@ -134,6 +146,16 @@ export function percentageDelta(
   );
 }
 
+function timingStatistics(measuredMilliseconds: readonly number[]) {
+  return {
+    medianMilliseconds: median(measuredMilliseconds),
+    p90Milliseconds: percentile(measuredMilliseconds, 0.9),
+    minimumMilliseconds: Math.min(...measuredMilliseconds),
+    maximumMilliseconds: Math.max(...measuredMilliseconds),
+    measuredMilliseconds,
+  };
+}
+
 export function createComparisonSummary(
   input: ComparisonReportInput
 ): ComparisonSummary {
@@ -189,9 +211,12 @@ export function createComparisonSummary(
   const candidateMeasured = input.candidate.samples
     .filter((sample) => sample.measured)
     .map((sample) => sample.wallMilliseconds);
-  const baselineMedian = median(baselineMeasured);
-  const candidateMedian = median(candidateMeasured);
-  const delta = percentageDelta(baselineMedian, candidateMedian);
+  const baselineTiming = timingStatistics(baselineMeasured);
+  const candidateTiming = timingStatistics(candidateMeasured);
+  const delta = percentageDelta(
+    baselineTiming.medianMilliseconds,
+    candidateTiming.medianMilliseconds
+  );
   const informationalStatus: InformationalComparisonStatus =
     delta > input.informationalThresholdPercent
       ? "candidate-slower-than-threshold"
@@ -207,6 +232,8 @@ export function createComparisonSummary(
     fixtureVersion: identity.fixtureVersion,
     fixtureRecipeHash: identity.fixtureRecipeHash,
     fixtureContentHash,
+    fixtureInventory: identity.fixtureInventory,
+    scenarioConfiguration: identity.scenarioConfiguration,
     fixtureAuthoring: input.fixtureAuthoring,
     ...(identity.fixtureSource === undefined
       ? {}
@@ -221,14 +248,12 @@ export function createComparisonSummary(
     baseline: {
       revision: input.baseline.revision,
       transformerProvenance: baselineTransformer,
-      medianMilliseconds: baselineMedian,
-      measuredMilliseconds: baselineMeasured,
+      ...baselineTiming,
     },
     candidate: {
       revision: input.candidate.revision,
       transformerProvenance: candidateTransformer,
-      medianMilliseconds: candidateMedian,
-      measuredMilliseconds: candidateMeasured,
+      ...candidateTiming,
     },
     percentageDelta: delta,
     informationalStatus,
@@ -241,27 +266,118 @@ function formatMilliseconds(value: number): string {
   return `${value.toFixed(2)} ms`;
 }
 
+function formatRevision(revision: string): string {
+  return /^[a-f0-9]{12,}$/i.test(revision) ? revision.slice(0, 8) : revision;
+}
+
+function formatBytes(byteLength: number): string {
+  const units = ["B", "KiB", "MiB", "GiB"];
+  let value = byteLength;
+  let unit = units[0];
+  for (const candidate of units.slice(1)) {
+    if (value < 1024) break;
+    value /= 1024;
+    unit = candidate;
+  }
+  return `${value.toFixed(unit === "B" ? 0 : 2)} ${unit}`;
+}
+
+function formatInventory(inventory: IModelInventory | undefined): string {
+  if (inventory === undefined) return "Not available for this fixture topology";
+  return [
+    formatBytes(inventory.byteLength),
+    `${inventory.schemaCount.toLocaleString("en-US")} schemas`,
+    `${inventory.classCount.toLocaleString("en-US")} classes`,
+    `${inventory.propertyCount.toLocaleString("en-US")} properties`,
+    `${inventory.modelCount.toLocaleString("en-US")} models`,
+    `${inventory.elementCount.toLocaleString("en-US")} elements`,
+  ].join(" · ");
+}
+
+function markdownCode(value: string): string {
+  const escaped = value
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll("|", "&#124;")
+    .replaceAll(/\r?\n/g, " ");
+  return `<code>${escaped}</code>`;
+}
+
+function configurationLabel(key: string): string {
+  const words = key
+    .replaceAll(/([a-z])([A-Z])/g, "$1 $2")
+    .replaceAll(/[-_]/g, " ");
+  return words.charAt(0).toUpperCase() + words.slice(1);
+}
+
+function currentStatusMeaning(summary: ComparisonSummary): string {
+  const threshold = summary.policy.informationalThresholdPercent;
+  switch (summary.informationalStatus) {
+    case "candidate-slower-than-threshold":
+      return `The candidate median is more than ${threshold}% slower. Inspect variance and repeat the run before calling this a regression.`;
+    case "candidate-faster-than-threshold":
+      return `The candidate median is more than ${threshold}% faster. Treat this as a promising signal and repeat if it will influence a decision.`;
+    case "within-informational-threshold":
+      return `The candidate median is within ±${threshold}% of baseline, so this run does not flag a material difference. This does not prove equal performance.`;
+  }
+}
+
 function markdown(summary: ComparisonSummary): string {
-  const signedDelta =
-    summary.percentageDelta > 0
-      ? `+${summary.percentageDelta.toFixed(2)}%`
-      : `${summary.percentageDelta.toFixed(2)}%`;
+  const signedDelta = `${summary.percentageDelta >= 0 ? "+" : ""}${summary.percentageDelta.toFixed(2)}%`;
+  const configuration = Object.entries(summary.scenarioConfiguration ?? {});
+  const configurationHeaders = configuration.map(([key]) =>
+    configurationLabel(key)
+  );
+  const configurationValues = configuration.map(([, value]) =>
+    markdownCode(value)
+  );
+  const threshold = summary.policy.informationalThresholdPercent;
   return [
     "# Quick performance A/B comparison",
     "",
-    "> Informational only. This small sample does not establish statistical confidence and is not a merge-blocking result.",
+    `> Informational only. This report flags median differences outside ±${threshold}%; it does not establish statistical confidence or block merging.`,
     "",
-    `Scenario: \`${summary.scenarioId}\`  `,
-    `Fixture: \`${summary.fixtureId}\` (version ${summary.fixtureVersion})`,
-    `Prepared target: baseline \`${summary.fixtureAuthoring.revision}\` with transformer \`${summary.fixtureAuthoring.transformerVersion}\``,
+    "## Run configuration",
     "",
-    "| Arm | Revision | Transformer | Median | Measured samples |",
-    "| --- | --- | --- | ---: | --- |",
-    `| Baseline | \`${summary.baseline.revision}\` | \`${summary.baseline.transformerProvenance.version}\` | ${formatMilliseconds(summary.baseline.medianMilliseconds)} | ${summary.baseline.measuredMilliseconds.map(formatMilliseconds).join(", ")} |`,
-    `| Candidate | \`${summary.candidate.revision}\` | \`${summary.candidate.transformerProvenance.version}\` | ${formatMilliseconds(summary.candidate.medianMilliseconds)} | ${summary.candidate.measuredMilliseconds.map(formatMilliseconds).join(", ")} |`,
+    `| Scenario | ${configurationHeaders.length > 0 ? `${configurationHeaders.join(" | ")} | ` : ""}Fixture | Source iModel scale | Samples |`,
+    `| --- | ${configurationHeaders.map(() => "--- | ").join("")}--- | --- | ---: |`,
+    `| ${markdownCode(summary.scenarioId)} | ${configurationValues.length > 0 ? `${configurationValues.join(" | ")} | ` : ""}${markdownCode(summary.fixtureId)} v${summary.fixtureVersion} | ${formatInventory(summary.fixtureInventory)} | ${summary.policy.measuredSamplesPerArm} + ${summary.policy.warmupsPerArm} warm-up/arm |`,
+    "",
+    `Execution order: ${summary.policy.ordering} baseline/candidate samples in isolated processes.`,
+    `Prepared target: baseline ${markdownCode(formatRevision(summary.fixtureAuthoring.revision))} with transformer ${markdownCode(summary.fixtureAuthoring.transformerVersion)}.`,
+    "",
+    "## Result",
+    "",
+    "| Arm | Revision | Transformer | Median | P90 | Range |",
+    "| --- | --- | --- | ---: | ---: | ---: |",
+    `| Baseline | ${markdownCode(formatRevision(summary.baseline.revision))} | ${markdownCode(summary.baseline.transformerProvenance.version)} | ${formatMilliseconds(summary.baseline.medianMilliseconds)} | ${formatMilliseconds(summary.baseline.p90Milliseconds)} | ${formatMilliseconds(summary.baseline.minimumMilliseconds)}–${formatMilliseconds(summary.baseline.maximumMilliseconds)} |`,
+    `| Candidate | ${markdownCode(formatRevision(summary.candidate.revision))} | ${markdownCode(summary.candidate.transformerProvenance.version)} | ${formatMilliseconds(summary.candidate.medianMilliseconds)} | ${formatMilliseconds(summary.candidate.p90Milliseconds)} | ${formatMilliseconds(summary.candidate.minimumMilliseconds)}–${formatMilliseconds(summary.candidate.maximumMilliseconds)} |`,
     "",
     `**Candidate delta:** ${signedDelta}  `,
-    `**Informational status (${summary.policy.informationalThresholdPercent}% threshold):** \`${summary.informationalStatus}\``,
+    `**Status:** \`${summary.informationalStatus}\``,
+    "",
+    "<details>",
+    `<summary>How to interpret <code>${summary.informationalStatus}</code></summary>`,
+    "",
+    currentStatusMeaning(summary),
+    "",
+    "| Status | Meaning |",
+    "| --- | --- |",
+    `| \`candidate-slower-than-threshold\` | Candidate median is more than ${threshold}% slower. Investigate and repeat before treating it as a regression. |`,
+    `| \`within-informational-threshold\` | Difference is within ±${threshold}%. No material difference is flagged; this is not proof of equivalence. |`,
+    `| \`candidate-faster-than-threshold\` | Candidate median is more than ${threshold}% faster. Repeat if the improvement will influence a decision. |`,
+    "",
+    "The threshold is an investigation trigger, not a confidence interval or pass/fail gate.",
+    "",
+    "</details>",
+    "",
+    "<details>",
+    "<summary>Where are the individual measurements?</summary>",
+    "",
+    `The artifact retains all ${summary.policy.measuredSamplesPerArm} measured timings per arm in \`comparison-samples.jsonl\`, plus each isolated execution record under \`executions/\`. They are intentionally omitted from this summary.`,
+    "",
+    "</details>",
     "",
   ].join("\n");
 }
