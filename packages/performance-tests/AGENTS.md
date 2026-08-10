@@ -33,3 +33,5 @@ pnpm test:quick-harness
 
 Also run a real isolated comparison smoke when changing process orchestration,
 fixture materialization, transformer resolution, or lifecycle cleanup.
+
+Each isolated A/B worker records wall time and peak RSS. Interpret these metrics independently; the informational threshold and workflow warning apply only to wall time. Peak RSS comes from Node's `process.resourceUsage().maxRSS` and covers the complete worker lifetime.
