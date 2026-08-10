@@ -971,15 +971,15 @@ describe("IModelExporter", () => {
       }> = [];
       class CaptureHandler extends IModelExportHandler {
         public override async onExportRelationship(
-          relationship: Relationship,
-          isUpdate: boolean | undefined
+          exportedRelationship: Relationship,
+          exportedIsUpdate: boolean | undefined
         ): Promise<void> {
           exported.push({
-            relationship,
-            isUpdate,
+            relationship: exportedRelationship,
+            isUpdate: exportedIsUpdate,
             cachedFedGuids:
               exporter.getCachedRelationshipEndpointFederationGuids(
-                relationship.id
+                exportedRelationship.id
               ),
           });
         }
