@@ -7,8 +7,8 @@ import { ConfiguredFixture } from "../fixtures/FixtureRecipe.js";
 import { BenchmarkRegistration } from "../framework/BenchmarkRegistration.js";
 import { BenchmarkScenarioDefinition } from "../framework/BenchmarkScenario.js";
 import { changesetScanningBenchmark } from "../scenarios/changesetScanning.js";
-import { schemaProcessingBenchmark } from "../scenarios/schemaProcessing.js";
 import { incrementalSynchronizationBenchmark } from "../scenarios/incrementalSynchronization.js";
+import { schemaProcessingBenchmark } from "../scenarios/schemaProcessing.js";
 import { standaloneFullTransformationBenchmark } from "../scenarios/standaloneFullTransformation.js";
 
 // Every benchmark is added in exactly one explicit place so the compiled CLI remains predictable.
