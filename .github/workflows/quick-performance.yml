@@ -20,11 +20,6 @@ on:
         description: Fixture id (blank uses the scenario's default)
         required: false
         type: string
-      strategy:
-        description: Scenario-specific strategy
-        required: true
-        default: default
-        type: string
       baseline_ref:
         description: Baseline branch, tag, or commit
         required: true
@@ -40,7 +35,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: quick-performance-ab-${{ github.ref }}-${{ inputs.scenario_override || inputs.scenario }}-${{ inputs.strategy }}
+  group: quick-performance-ab-${{ github.ref }}-${{ inputs.scenario_override || inputs.scenario }}
   cancel-in-progress: true
 
 jobs:
@@ -128,7 +123,6 @@ jobs:
           QUICK_PERF_COMPARISON_WORKER_TIMEOUT_SECONDS: 600
           QUICK_PERF_SCENARIO: ${{ inputs.scenario_override || inputs.scenario || 'incremental-synchronization' }}
           QUICK_PERF_FIXTURE: ${{ inputs.fixture }}
-          QUICK_PERF_STRATEGY: ${{ inputs.strategy }}
 
       - name: Annotate concerning performance
         shell: bash

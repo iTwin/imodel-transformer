@@ -19,7 +19,6 @@ import {
   resolveBenchmarkRun,
 } from "../../src/framework/BenchmarkResolution.js";
 import { BenchmarkRegistration } from "../../src/framework/BenchmarkRegistration.js";
-import { resolveSchemaProcessingStrategyId } from "../../src/scenarios/schemaProcessing.js";
 
 describe("quick performance scenario catalog", () => {
   it("selects incremental synchronization by default", () => {
@@ -37,14 +36,13 @@ describe("quick performance scenario catalog", () => {
     );
   });
 
-  it("validates schema processing strategy configuration", () => {
-    expect(resolveSchemaProcessingStrategyId(undefined)).to.equal("default");
-    expect(resolveSchemaProcessingStrategyId(" dynamic-union ")).to.equal(
-      "dynamic-union"
+  it("registers the schema-processing scenario and its source fixture", () => {
+    const resolved = resolveBenchmarkRun("schema-processing");
+    expect(resolved.scenario.defaultFixtureId).to.equal(
+      "schema-processing-large"
     );
-    expect(() => resolveSchemaProcessingStrategyId("unknown")).to.throw(
-      /Available strategies: default, newer-version, dynamic-union/
-    );
+    expect(resolved.descriptor.layout.topology).to.equal("source-only");
+    expect(resolved.descriptor.scenarioClaims).to.include("schema processing");
   });
 
   it("validates every registered benchmark and configured fixture", () => {
@@ -83,11 +81,6 @@ describe("quick performance scenario catalog", () => {
     ).to.throw();
     expect(Object.isFrozen(registrations[0].scenario)).to.be.true;
     expect(Object.isFrozen(registrations[0].scenario.capabilities)).to.be.true;
-    const configuredScenario = registrations.find(
-      ({ scenario }) => scenario.configuration !== undefined
-    )?.scenario;
-    expect(configuredScenario).not.to.be.undefined;
-    expect(Object.isFrozen(configuredScenario?.configuration)).to.be.true;
     expect(() => {
       (registrations[0].scenario as { id: string }).id = "mutated";
     }).to.throw();
