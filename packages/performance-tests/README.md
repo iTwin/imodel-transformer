@@ -24,15 +24,15 @@ provider lifecycles, execution diagram, timing boundaries, and report format.
 The quick suite has one generic Vitest entry point. A run is assembled from these
 parts:
 
-| Term                   | Meaning                                                                                                                                                                                                             |
-| ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Scenario**           | The performance test: the transformer behavior being measured, such as applying source changes incrementally to an existing target iModel.                                                                          |
-| **Recipe**             | The typed specification for an iModel workload: schemas and identity inputs, distribution, construction logic, and optional validation.                                                                             |
-| **Configured fixture** | A named immutable invocation of a recipe with explicit parameters, topology, seed, version, label, and scenario claims.                                                                                             |
-| **Fixture descriptor** | The serializable artifact/report manifest generated from a configured fixture. Infrastructure derives distribution, generator versions, and the recipe hash.                                                        |
+| Term                   | Meaning                                                                                                                                                                                                                |
+| ---------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Scenario**           | The performance test: the transformer behavior being measured, such as applying source changes incrementally to an existing target iModel.                                                                             |
+| **Recipe**             | The typed specification for an iModel workload: schemas and identity inputs, distribution, construction logic, and optional validation.                                                                                |
+| **Configured fixture** | A named immutable invocation of a recipe with explicit parameters, topology, seed, version, label, and scenario claims.                                                                                                |
+| **Fixture descriptor** | The serializable artifact/report manifest generated from a configured fixture. Infrastructure derives distribution, generator versions, and the recipe hash.                                                           |
 | **Provider**           | The form and lifecycle of the iModel data supplied to the scenario. A provider can supply live source and target `BriefcaseDb`s, a detached source `BriefcaseDb`, or a standalone source plus fresh standalone target. |
-| **Registration**       | One cohesive contribution containing a scenario and the configured fixtures that scenario supports.                                                                                                                 |
-| **Harness**            | The registry, runner, fixture infrastructure, validation, reporting, and their unit/integration tests. Harness tests do not measure transformer performance.                                                        |
+| **Registration**       | One cohesive contribution containing a scenario and the configured fixtures that scenario supports.                                                                                                                    |
+| **Harness**            | The registry, runner, fixture infrastructure, validation, reporting, and their unit/integration tests. Harness tests do not measure transformer performance.                                                           |
 
 The provider creates and owns the source, target, Hub, and changeset resources.
 The scenario uses those resources to construct `IModelTransformer`, choose its
@@ -104,13 +104,13 @@ pnpm test:quick
 
 ### Selecting a scenario and fixture
 
-| Environment variable  | Meaning                                                                                | Default                                 |
-| --------------------- | -------------------------------------------------------------------------------------- | --------------------------------------- |
-| `QUICK_PERF_SCENARIO` | Scenario catalog ID                                                                    | `incremental-synchronization`           |
-| `QUICK_PERF_FIXTURE`  | Fixture catalog ID; must satisfy the selected scenario's required topology and claims  | The scenario's `defaultFixtureId`       |
-| `QUICK_PERF_SAMPLES`  | Positive integer number of measured samples; the runner always adds one warm-up        | `1` locally; `8` in the workflow        |
-| `QUICK_PERF_OUTPUT`   | Report and working directory below `test/quick/.quick-output` or a temporary directory | `test/quick/.quick-output/<fixture-id>` |
-| `QUICK_PERF_STANDALONE_BIM` | Absolute path to an existing standalone `.bim` copied into the selected artifact | Generated recipe source |
+| Environment variable        | Meaning                                                                                | Default                                 |
+| --------------------------- | -------------------------------------------------------------------------------------- | --------------------------------------- |
+| `QUICK_PERF_SCENARIO`       | Scenario catalog ID                                                                    | `incremental-synchronization`           |
+| `QUICK_PERF_FIXTURE`        | Fixture catalog ID; must satisfy the selected scenario's required topology and claims  | The scenario's `defaultFixtureId`       |
+| `QUICK_PERF_SAMPLES`        | Positive integer number of measured samples; the runner always adds one warm-up        | `1` locally; `8` in the workflow        |
+| `QUICK_PERF_OUTPUT`         | Report and working directory below `test/quick/.quick-output` or a temporary directory | `test/quick/.quick-output/<fixture-id>` |
+| `QUICK_PERF_STANDALONE_BIM` | Absolute path to an existing standalone `.bim` copied into the selected artifact       | Generated recipe source                 |
 
 Example in a POSIX shell:
 
@@ -249,7 +249,7 @@ The coordinator accepts `QUICK_PERF_SCENARIO`, `QUICK_PERF_FIXTURE`,
 `QUICK_PERF_COMPARISON_THRESHOLD_PERCENT`, and
 `QUICK_PERF_STANDALONE_BIM` for the standalone topology.
 `QUICK_PERF_COMPARISON_WORKER_TIMEOUT_SECONDS` sets the positive per-process
-timeout and defaults to 600 seconds. `QUICK_PERF_RSS_SAMPLE_INTERVAL_MS` enables external peak worker RSS sampling at the specified interval; it defaults to `0` (disabled) because observation consumes CPU, especially on macOS where each sample invokes `ps`. Use a timing pass with sampling disabled and a separate memory pass with the same alternating arms. The peak covers the complete isolated worker lifetime, while `rssDeltaBytes` continues to cover only the scenario endpoints. `QUICK_PERF_BASELINE_ROOT` is required; candidate and revision paths are set by the workflow.
+timeout and defaults to 600 seconds. `QUICK_PERF_RSS_SAMPLE_INTERVAL_MS` enables external peak worker RSS sampling at the specified interval; it defaults to `0` (disabled) because observation consumes CPU. Linux reads `/proc`, macOS invokes `ps`, and Windows invokes PowerShell's `Get-Process`; slow samples are not overlapped. Use a timing pass with sampling disabled and a separate memory pass with the same alternating arms. The peak covers the complete isolated worker lifetime, while `rssDeltaBytes` continues to cover only the scenario endpoints. `QUICK_PERF_BASELINE_ROOT` is required; candidate and revision paths are set by the workflow.
 
 ## Running the manual workflow
 

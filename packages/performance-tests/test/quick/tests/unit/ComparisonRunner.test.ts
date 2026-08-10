@@ -186,44 +186,46 @@ describe("A/B comparison orchestration", () => {
     expect(sample.workerRssSamplingIntervalMilliseconds).to.equal(0);
   });
 
-  it.skipIf(process.platform === "win32")(
-    "samples peak worker RSS from outside the worker process",
-    async () => {
-      const rootDirectory = temporaryDirectory("quick-ab-memory-");
-      const workerPath = comparisonArmWorkerPath(rootDirectory);
-      fs.mkdirSync(path.dirname(workerPath), { recursive: true });
-      const expected = benchmarkSample();
-      fs.writeFileSync(
-        workerPath,
-        [
-          'const fs = require("node:fs");',
-          "const request = JSON.parse(process.env.QUICK_PERF_ARM_REQUEST);",
-          "const allocation = Buffer.alloc(16 * 1024 * 1024, 1);",
-          "setTimeout(() => {",
-          `  fs.writeFileSync(request.resultFile, ${JSON.stringify(
-            `${JSON.stringify(expected)}\n`
-          )});`,
-          "  if (allocation[0] !== 1) process.exit(9);",
-          "}, 250);",
-        ].join("\n")
-      );
-      const sample = await executeArmProcess({
-        arm: "baseline",
-        fixtureArtifactDirectory: path.join(rootDirectory, "fixture-artifact"),
-        harnessRootDirectory: path.join(rootDirectory, "harness"),
-        measured: true,
-        outputDir: path.join(rootDirectory, "output"),
-        revision: "base-sha",
-        rootDirectory,
-        sample: 1,
-        scenarioId: "changeset-scanning",
-        workerRssSamplingIntervalMilliseconds: 20,
-      });
-      expect(sample.workerPeakRssBytes).to.be.greaterThan(16 * 1024 * 1024);
-      expect(sample.workerRssSampleCount).to.be.greaterThan(1);
-      expect(sample.workerRssSamplingIntervalMilliseconds).to.equal(20);
-    }
-  );
+  it("samples peak worker RSS from outside the worker process", async () => {
+    const rootDirectory = temporaryDirectory("quick-ab-memory-");
+    const workerPath = comparisonArmWorkerPath(rootDirectory);
+    fs.mkdirSync(path.dirname(workerPath), { recursive: true });
+    const expected = benchmarkSample();
+    const workerDelayMilliseconds = process.platform === "win32" ? 1500 : 250;
+    const samplingIntervalMilliseconds =
+      process.platform === "win32" ? 100 : 20;
+    fs.writeFileSync(
+      workerPath,
+      [
+        'const fs = require("node:fs");',
+        "const request = JSON.parse(process.env.QUICK_PERF_ARM_REQUEST);",
+        "const allocation = Buffer.alloc(16 * 1024 * 1024, 1);",
+        "setTimeout(() => {",
+        `  fs.writeFileSync(request.resultFile, ${JSON.stringify(
+          `${JSON.stringify(expected)}\n`
+        )});`,
+        "  if (allocation[0] !== 1) process.exit(9);",
+        `}, ${workerDelayMilliseconds});`,
+      ].join("\n")
+    );
+    const sample = await executeArmProcess({
+      arm: "baseline",
+      fixtureArtifactDirectory: path.join(rootDirectory, "fixture-artifact"),
+      harnessRootDirectory: path.join(rootDirectory, "harness"),
+      measured: true,
+      outputDir: path.join(rootDirectory, "output"),
+      revision: "base-sha",
+      rootDirectory,
+      sample: 1,
+      scenarioId: "changeset-scanning",
+      workerRssSamplingIntervalMilliseconds: samplingIntervalMilliseconds,
+    });
+    expect(sample.workerPeakRssBytes).to.be.greaterThan(16 * 1024 * 1024);
+    expect(sample.workerRssSampleCount).to.be.greaterThan(0);
+    expect(sample.workerRssSamplingIntervalMilliseconds).to.equal(
+      samplingIntervalMilliseconds
+    );
+  });
 
   it("surfaces child-process failures with arm and sample context", async () => {
     const rootDirectory = temporaryDirectory("quick-ab-failure-");

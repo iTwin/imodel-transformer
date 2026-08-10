@@ -33,3 +33,7 @@ pnpm test:quick-harness
 
 Also run a real isolated comparison smoke when changing process orchestration,
 fixture materialization, transformer resolution, or lifecycle cleanup.
+
+Keep timing and memory comparisons separate. Leave
+`QUICK_PERF_RSS_SAMPLE_INTERVAL_MS=0` for timing runs; enable sampling only for
+memory runs, and do not use sampled runs to claim wall-clock changes.

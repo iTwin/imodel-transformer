@@ -45,6 +45,26 @@ export async function readProcessRssBytes(
     }
   }
 
+  if (process.platform === "win32") {
+    try {
+      const { stdout } = await execFileAsync(
+        "powershell.exe",
+        [
+          "-NoLogo",
+          "-NoProfile",
+          "-NonInteractive",
+          "-Command",
+          `(Get-Process -Id ${pid} -ErrorAction SilentlyContinue).WorkingSet64`,
+        ],
+        { windowsHide: true }
+      );
+      const rssBytes = Number(stdout.trim());
+      return Number.isFinite(rssBytes) && rssBytes >= 0 ? rssBytes : undefined;
+    } catch {
+      return undefined;
+    }
+  }
+
   return undefined;
 }
 
