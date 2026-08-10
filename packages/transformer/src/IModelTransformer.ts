@@ -650,6 +650,7 @@ export class IModelTransformer extends IModelExportHandler {
   /** Dispose any native resources associated with this IModelTransformer. */
   public dispose(): void {
     Logger.logTrace(loggerCategory, "dispose()");
+    this._cloneContext.existenceCache.clear();
     this._cloneContext[Symbol.dispose]();
   }
 
@@ -1094,6 +1095,7 @@ export class IModelTransformer extends IModelExportHandler {
 
   private async doAllReferencesExistInTarget(entity: ConcreteEntity) {
     let allReferencesExist = true;
+    const checkedReferences: EntityReference[] = [];
     for (const referenceId of entity.getReferenceIds()) {
       const referencedEntityId = EntityReferences.toId64(referenceId);
       if (
@@ -1118,32 +1120,46 @@ export class IModelTransformer extends IModelExportHandler {
       }
 
       if (this._options.danglingReferencesBehavior === "reject") {
-        await this.assertReferenceExistsInSource(referenceId, entity);
+        checkedReferences.push(referenceId);
       }
+    }
+    if (checkedReferences.length > 0) {
+      await this.assertReferencesExistInSource(checkedReferences, entity);
     }
     return allReferencesExist;
   }
 
-  private async assertReferenceExistsInSource(
-    referenceId: EntityReference,
+  /** Assert that all `referenceIds` exist in the source iModel, batching the existence
+   * queries by entity type and caching positive results for the rest of the run.
+   */
+  private async assertReferencesExistInSource(
+    referenceIds: EntityReference[],
     entity: ConcreteEntity
   ) {
-    const referencedExistsInSource = await EntityUnifier.exists(this.sourceDb, {
-      entityReference: referenceId,
-    });
-    if (!referencedExistsInSource) {
-      ITwinError.throwError({
-        iTwinErrorId: {
-          scope: IModelTransformerErrorScope,
-          key: IModelTransformerError.DanglingReference,
-        },
-        message: [
-          `Found a reference to an element "${referenceId}" that doesn't exist while looking for references of "${entity.id}".`,
-          "This must have been caused by an upstream application that changed the iModel.",
-          "You can set the IModelTransformOptions.danglingReferencesBehavior option to 'ignore' to ignore this,",
-          `and the referenceId found on "${entity.id}" will not be carried over to corresponding target element.`,
-        ].join("\n"),
-      });
+    const existenceCache = this._cloneContext.existenceCache;
+    const unverified = referenceIds.filter(
+      (referenceId) =>
+        !existenceCache.isKnownToExist(this.sourceDb, referenceId)
+    );
+    if (unverified.length === 0) return;
+    const found = await EntityUnifier.existsAll(this.sourceDb, unverified);
+    for (const referenceId of found)
+      existenceCache.markExists(this.sourceDb, referenceId);
+    for (const referenceId of unverified) {
+      if (!found.has(referenceId)) {
+        ITwinError.throwError({
+          iTwinErrorId: {
+            scope: IModelTransformerErrorScope,
+            key: IModelTransformerError.DanglingReference,
+          },
+          message: [
+            `Found a reference to an element "${referenceId}" that doesn't exist while looking for references of "${entity.id}".`,
+            "This must have been caused by an upstream application that changed the iModel.",
+            "You can set the IModelTransformOptions.danglingReferencesBehavior option to 'ignore' to ignore this,",
+            `and the referenceId found on "${entity.id}" will not be carried over to corresponding target element.`,
+          ].join("\n"),
+        });
+      }
     }
   }
 
@@ -1274,7 +1290,7 @@ export class IModelTransformer extends IModelExportHandler {
         id,
         ConcreteEntityTypes.Model
       );
-      return EntityUnifier.exists(db, { entityReference: maybeModelId });
+      return this._cloneContext.existenceCache.exists(db, maybeModelId);
     };
     const isSubModeled = await dbHasModel(this.sourceDb, elementId);
     const idOfElemInTarget = this.context.findTargetElementId(elementId);
@@ -1443,6 +1459,10 @@ export class IModelTransformer extends IModelExportHandler {
       );
     }
     this.context.remapElement(sourceElement.id, targetElementProps.id);
+    this._cloneContext.existenceCache.markExists(
+      this.targetDb,
+      `e${targetElementProps.id}`
+    );
 
     // the transformer does not currently 'split' or 'join' any elements, therefore, it does not
     // insert external source aspects because federation guids are sufficient for this.
@@ -1497,6 +1517,9 @@ export class IModelTransformer extends IModelExportHandler {
       // this transformation pass.
       if (!this._targetElementIdsRemappedByCode.has(targetElementId)) {
         await this.importer.deleteElement(targetElementId);
+        // element deletes cascade to descendants and their submodels, which we cannot
+        // cheaply enumerate here, so drop all cached existence results for the target
+        this._cloneContext.existenceCache.clearDb(this.targetDb);
       }
     }
   }
@@ -1527,6 +1550,10 @@ export class IModelTransformer extends IModelExportHandler {
       throw new Error("targetModelProps.id should be assigned by now");
     }
 
+    this._cloneContext.existenceCache.markExists(
+      this.targetDb,
+      `m${targetModelProps.id}`
+    );
     this._targetModelsImportedInCurrentTransform.add(targetModelProps.id);
   }
 
@@ -1582,6 +1609,10 @@ export class IModelTransformer extends IModelExportHandler {
 
     try {
       await this.importer.deleteModel(targetModelId);
+      this._cloneContext.existenceCache.invalidate(
+        this.targetDb,
+        `m${targetModelId}`
+      );
     } catch (error) {
       const isDeletionProhibitedErr =
         error instanceof IModelError &&
@@ -1711,6 +1742,7 @@ export class IModelTransformer extends IModelExportHandler {
   // FIXME<MIKE>: is this necessary when manually using low level transform APIs? (document if so)
   private async finalizeTransformation() {
     this.importer.finalize();
+    this._cloneContext.existenceCache.clear();
     await this.updateSynchronizationVersion({
       initializeReverseSyncVersion: this._isProvenanceInitTransform,
     });

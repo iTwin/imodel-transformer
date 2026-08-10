@@ -24,7 +24,7 @@ import {
   Model,
   Relationship,
 } from "@itwin/core-backend";
-import { Id64, Id64String } from "@itwin/core-bentley";
+import { Id64, Id64String, OrderedId64Iterable } from "@itwin/core-bentley";
 
 const bisCoreRootClasses: Record<ConcreteEntityTypes, typeof Entity> = {
   [ConcreteEntityTypes.Model]: Model,
@@ -65,5 +65,42 @@ export namespace EntityUnifier {
       usePrimaryConn: true,
     });
     return reader.step();
+  }
+
+  /** Batched existence check: returns the subset of `entityReferences` that exist in `db`,
+   * using one query per concrete entity type instead of one query per reference.
+   */
+  export async function existsAll(
+    db: IModelDb,
+    entityReferences: Iterable<EntityReference>
+  ): Promise<Set<EntityReference>> {
+    const idsByType = new Map<ConcreteEntityTypes, Set<Id64String>>();
+    for (const entityReference of entityReferences) {
+      const [type, id] = EntityReferences.split(entityReference);
+      if (Id64.isInvalid(id)) continue;
+      let ids = idsByType.get(type);
+      if (ids === undefined) {
+        ids = new Set();
+        idsByType.set(type, ids);
+      }
+      ids.add(id);
+    }
+
+    const found = new Set<EntityReference>();
+    for (const [type, ids] of idsByType) {
+      const classFullName = bisCoreRootClasses[type].classFullName;
+      const query = `SELECT ECInstanceId FROM ${classFullName} WHERE InVirtualSet(:ids, ECInstanceId)`;
+      const params = new QueryBinder().bindIdSet(
+        "ids",
+        OrderedId64Iterable.sortArray([...ids])
+      );
+      const reader = db.createQueryReader(query, params, {
+        usePrimaryConn: true,
+      });
+      while (await reader.step()) {
+        found.add(`${type}${reader.current[0]}` as EntityReference);
+      }
+    }
+    return found;
   }
 }
