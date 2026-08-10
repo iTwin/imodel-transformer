@@ -109,6 +109,8 @@ function walkFiles(directory, relative = "") {
 function classifyOutputFile(group, relativePath) {
   const normalizedPath = relativePath.toLowerCase();
 
+  if (normalizedPath.endsWith(".tsbuildinfo")) return "ignored";
+
   if (group.kind === "api") {
     if (normalizedPath.startsWith("temp/")) return "ignored";
     if (/^[^/]+\.api\.md$/.test(normalizedPath)) return "api";
@@ -122,7 +124,6 @@ function classifyOutputFile(group, relativePath) {
       : "declaration";
   if (/\.(?:js|cjs|mjs)$/.test(normalizedPath)) return "javascript";
   if (normalizedPath.endsWith(".map")) return "sourceMap";
-  if (normalizedPath.endsWith(".tsbuildinfo")) return "buildInfo";
   return "unexpected";
 }
 
