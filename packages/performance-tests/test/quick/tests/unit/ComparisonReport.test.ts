@@ -65,7 +65,7 @@ describe("A/B comparison reporting", () => {
     expect(summary.informationalOnly).to.equal(true);
   });
 
-  it("summarizes externally sampled peak worker RSS", () => {
+  it("summarizes worker-reported peak RSS", () => {
     const withMemory = input();
     withMemory.baseline.samples = withMemory.baseline.samples.map(
       (sample, index) => ({
@@ -140,14 +140,13 @@ describe("A/B comparison reporting", () => {
     );
   });
 
-  it("rejects asymmetric peak RSS availability", () => {
-    const asymmetric = input();
-    asymmetric.baseline.samples = asymmetric.baseline.samples.map((sample) => ({
-      ...sample,
-      ...(sample.measured ? { workerPeakRssBytes: 100 * 1048576 } : {}),
-    }));
-    expect(() => createComparisonSummary(asymmetric)).to.throw(
-      /must both be measured or both be unavailable/
+  it("rejects invalid peak RSS values", () => {
+    const invalid = input();
+    invalid.baseline.samples = invalid.baseline.samples.map((sample, index) =>
+      index === 1 ? { ...sample, workerPeakRssBytes: 0 } : sample
+    );
+    expect(() => createComparisonSummary(invalid)).to.throw(
+      /baseline peak RSS samples must be positive finite numbers/
     );
   });
 

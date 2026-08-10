@@ -5,10 +5,8 @@
 
 import * as fs from "node:fs";
 import * as path from "node:path";
-import {
-  BenchmarkRunner,
-  BenchmarkSample,
-} from "../framework/BenchmarkRunner.js";
+import { BenchmarkRunner } from "../framework/BenchmarkRunner.js";
+import type { ComparisonSample } from "../comparison/ComparisonReport.js";
 import {
   resolveBenchmarkRun,
   resolveBenchmarkRunFromEnvironment,
@@ -69,7 +67,15 @@ function parseRequest(value: string | undefined): ArmWorkerRequest {
   throw new Error("QUICK_PERF_ARM_REQUEST has an invalid operation");
 }
 
-async function main(): Promise<BenchmarkSample | FixtureArtifactManifest> {
+function readWorkerPeakRssBytes(): number {
+  // Node reports process.resourceUsage().maxRSS in kilobytes.
+  const maxRssKilobytes = process.resourceUsage().maxRSS;
+  if (!Number.isFinite(maxRssKilobytes) || maxRssKilobytes <= 0)
+    throw new Error("Worker process did not report a positive peak RSS");
+  return maxRssKilobytes * 1024;
+}
+
+async function main(): Promise<ComparisonSample | FixtureArtifactManifest> {
   const request = parseRequest(process.env.QUICK_PERF_ARM_REQUEST);
   const transformerProvenance = resolveTransformerProvenance(
     request.expectedTransformerRootDirectory
@@ -89,15 +95,23 @@ async function main(): Promise<BenchmarkSample | FixtureArtifactManifest> {
       : path.dirname(request.artifactDirectory),
     scenario
   );
-  const result =
-    request.kind === "build-fixture"
-      ? await runner.buildReusableFixtureArtifact(request.artifactDirectory)
-      : await runner.runSample(
-          request.sample,
-          request.measured,
-          request.fixtureArtifactDirectory,
-          transformerProvenance
-        );
+  let result: ComparisonSample | FixtureArtifactManifest;
+  if (request.kind === "build-fixture") {
+    result = await runner.buildReusableFixtureArtifact(
+      request.artifactDirectory
+    );
+  } else {
+    const sample = await runner.runSample(
+      request.sample,
+      request.measured,
+      request.fixtureArtifactDirectory,
+      transformerProvenance
+    );
+    result = {
+      ...sample,
+      workerPeakRssBytes: readWorkerPeakRssBytes(),
+    };
+  }
   fs.writeFileSync(
     request.resultFile,
     `${JSON.stringify(result, undefined, 2)}\n`

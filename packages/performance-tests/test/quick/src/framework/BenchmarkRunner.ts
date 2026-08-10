@@ -149,10 +149,6 @@ export interface BenchmarkSample {
   readonly transformerProvenance?: TransformerProvenance;
   readonly verificationMilliseconds: number;
   readonly wallMilliseconds: number;
-  /** Peak RSS observed externally across the complete isolated worker lifetime. Optional A/B observer metadata remains compatible with sample schema v1 so a new harness can compare older workers. */
-  readonly workerPeakRssBytes?: number;
-  readonly workerRssSampleCount?: number;
-  readonly workerRssSamplingIntervalMilliseconds?: number;
 }
 
 interface BenchmarkExecution {

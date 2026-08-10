@@ -34,6 +34,4 @@ pnpm test:quick-harness
 Also run a real isolated comparison smoke when changing process orchestration,
 fixture materialization, transformer resolution, or lifecycle cleanup.
 
-Keep timing and memory comparisons separate. Leave
-`QUICK_PERF_RSS_SAMPLE_INTERVAL_MS=0` for timing runs; enable sampling only for
-memory runs, and do not use sampled runs to claim wall-clock changes.
+Each isolated A/B worker records wall time and peak RSS. Interpret these metrics independently; the informational threshold and workflow warning apply only to wall time. Peak RSS comes from Node's `process.resourceUsage().maxRSS` and covers the complete worker lifetime.

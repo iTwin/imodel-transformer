@@ -231,10 +231,7 @@ duplicating source-to-target correctness assertions from the transformer test su
 
 Successful runs publish:
 
-- `comparison.json`: baseline median, candidate median, percentage delta, raw
-  measured values, arm transformer versions, baseline fixture-authoring revision
-  and transformer version, shared fixture content hash, execution order, and
-  informational threshold status.
+- `comparison.json`: baseline and candidate medians, percentage delta, raw measured wall times and peak worker RSS values, arm transformer versions, baseline fixture-authoring revision and transformer version, shared fixture content hash, execution order, and informational threshold status.
 - `comparison.md`: the same small result set for the Actions job summary.
 - `comparison-samples.jsonl`: all warm-up and measured sample records with arm
   and revision labels.
@@ -248,8 +245,7 @@ The coordinator accepts `QUICK_PERF_SCENARIO`, `QUICK_PERF_FIXTURE`,
 `QUICK_PERF_COMPARISON_SAMPLES`, and
 `QUICK_PERF_COMPARISON_THRESHOLD_PERCENT`, and
 `QUICK_PERF_STANDALONE_BIM` for the standalone topology.
-`QUICK_PERF_COMPARISON_WORKER_TIMEOUT_SECONDS` sets the positive per-process
-timeout and defaults to 600 seconds. `QUICK_PERF_RSS_SAMPLE_INTERVAL_MS` enables external peak worker RSS sampling at the specified interval; it defaults to `0` (disabled) because observation consumes CPU. Linux reads `/proc`, macOS invokes `ps`, and Windows invokes PowerShell's `Get-Process`; slow samples are not overlapped. Use a timing pass with sampling disabled and a separate memory pass with the same alternating arms. The peak covers the complete isolated worker lifetime, while `rssDeltaBytes` continues to cover only the scenario endpoints. `QUICK_PERF_BASELINE_ROOT` is required; candidate and revision paths are set by the workflow.
+`QUICK_PERF_COMPARISON_WORKER_TIMEOUT_SECONDS` sets the positive per-process timeout and defaults to 600 seconds. Every isolated worker reports its peak RSS through Node's `process.resourceUsage().maxRSS`, covering the complete worker lifetime including setup and teardown; `rssDeltaBytes` continues to cover only the scenario endpoints. Wall time and peak RSS are reported together but must be interpreted independently, and the informational threshold applies only to wall time. `QUICK_PERF_BASELINE_ROOT` is required; candidate and revision paths are set by the workflow.
 
 ## Running the manual workflow
 
