@@ -32,15 +32,20 @@ import { EntityClass } from "@itwin/ecschema-metadata";
 import { ECReferenceTypesCache } from "./ECReferenceTypesCache";
 import { EntityUnifier } from "./EntityUnifier";
 import { TransformerLoggerCategory } from "./TransformerLoggerCategory";
+import { BigMap } from "./BigMap";
+import type { IModelTransformContext } from "./IModelTransformContext";
 
 const loggerCategory: string = TransformerLoggerCategory.IModelCloneContext;
 
 /** The context for transforming a *source* Element to a *target* Element and remapping internal identifiers to the target iModel.
- * @beta
+ * @internal
  */
-export class IModelCloneContext extends IModelElementCloneContext {
+export class IModelCloneContext
+  extends IModelElementCloneContext
+  implements IModelTransformContext
+{
   private _refTypesCache = new ECReferenceTypesCache();
-  private _aspectRemapTable = new Map<Id64String, Id64String>();
+  private _aspectRemapTable = new BigMap<Id64String>();
 
   /** perform necessary initialization to use a clone context, namely caching the reference types in the source's schemas */
   public override async initialize() {
@@ -57,6 +62,29 @@ export class IModelCloneContext extends IModelElementCloneContext {
     const targetElementProps: ElementProps = this[
       "_nativeContext"
     ].cloneElement(sourceElement.id, cloneOptions);
+    // Native same-iModel cloning clears codes for inserts, but identity mappings are updates.
+    if (
+      !this.isBetweenIModels &&
+      this.findTargetElementId(sourceElement.id) === sourceElement.id
+    ) {
+      targetElementProps.code.value = sourceElement.code.value;
+      if (!Id64.isValidId64(targetElementProps.code.spec)) {
+        const mappedCodeSpecId = this.findTargetCodeSpecId(
+          sourceElement.code.spec
+        );
+        targetElementProps.code.spec = Id64.isValidId64(mappedCodeSpecId)
+          ? mappedCodeSpecId
+          : sourceElement.code.spec;
+      }
+      if (!Id64.isValidId64(targetElementProps.code.scope)) {
+        const mappedCodeScopeId = this.findTargetElementId(
+          sourceElement.code.scope
+        );
+        targetElementProps.code.scope = Id64.isValidId64(mappedCodeScopeId)
+          ? mappedCodeScopeId
+          : sourceElement.code.scope;
+      }
+    }
     // Ensure that all NavigationProperties in targetElementProps have a defined value so "clearing" changes will be part of the JSON used for update
     const sourceElementClass =
       sourceElement.iModel.schemaContext.getSchemaItemSync(

@@ -39,7 +39,6 @@ import {
   DefinitionElement,
   DefinitionModel,
   DefinitionPartition,
-  ECSchemaXmlContext,
   EditTxn,
   // eslint-disable-next-line @typescript-eslint/no-redeclare
   Element,
@@ -54,7 +53,6 @@ import {
   GeometricElement3d,
   IModelDb,
   IModelHost,
-  IModelJsFs,
   InformationPartitionElement,
   KnownLocations,
   Model,
@@ -100,10 +98,16 @@ import {
 import { IModelImporter, OptimizeGeometryOptions } from "./IModelImporter";
 import { TransformerLoggerCategory } from "./TransformerLoggerCategory";
 import { IModelCloneContext } from "./IModelCloneContext";
+import type { IModelTransformContext } from "./IModelTransformContext";
 import { EntityUnifier } from "./EntityUnifier";
 import { rangesFromRangeAndSkipped } from "./Algo";
 import { SyncTypeResolver } from "./SyncTypeResolver";
 import { ProvenanceManager } from "./ProvenanceManager";
+import {
+  NewerVersionSchemaImportStrategy,
+  ProcessSchemasOptions,
+} from "./schema-processing/SchemaProcessingStrategy";
+import { SchemaProcessingCoordinator } from "./schema-processing/SchemaProcessingCoordinator";
 import {
   ChangesetDeletionRecord,
   ChangesetDeletionRecordsByChangeset,
@@ -396,6 +400,7 @@ export interface RelationshipPropsForDelete {
 export class IModelTransformer extends IModelExportHandler {
   /** The IModelExporter that will export from the source iModel. */
   public readonly exporter: IModelExporter;
+  private readonly _schemaProcessingCoordinator: SchemaProcessingCoordinator;
   /** The IModelImporter that will import into the target iModel. */
   public readonly importer: IModelImporter;
   /** The normally read-only source iModel.
@@ -404,8 +409,13 @@ export class IModelTransformer extends IModelExportHandler {
   public readonly sourceDb: IModelDb;
   /** The read/write target iModel. */
   public readonly targetDb: IModelDb;
-  /** The IModelTransformContext for this IModelTransformer. */
-  public readonly context: IModelCloneContext;
+  /** The supported transformation context for this transformer. */
+  public get context(): IModelTransformContext {
+    return this._cloneContext;
+  }
+
+  /** The clone context used by the transformer implementation. */
+  private readonly _cloneContext: IModelCloneContext;
   /** The transform to be applied to the placement of spatial elements
    * This transform should be applied when:
    * - source and target db have different ECEF locations
@@ -549,12 +559,25 @@ export class IModelTransformer extends IModelExportHandler {
     this.targetDb = this.importer.targetDb;
     this._targetEditTxn = this.importer.editTxn;
     this._sourceEditTxn = options?.sourceEditTxn;
+    this._schemaProcessingCoordinator = new SchemaProcessingCoordinator({
+      exporter: this.exporter,
+      targetDb: this.targetDb,
+      getSchemaExportDirectory: () => this._schemaExportDir,
+      shouldExportSchema: async (schemaKey) =>
+        this.shouldExportSchema(schemaKey),
+      serializeSourceSchema: async (schema) => this.onExportSchema(schema),
+    });
+    this.exporter.elementAspectExportCoordinator.setPreparation(
+      async (excludedClasses, elementIds) =>
+        this.prepareElementAspects(excludedClasses, elementIds)
+    );
     // create the IModelCloneContext, it must be initialized later
-    this.context = new IModelCloneContext(this.sourceDb, this.targetDb);
+    this._cloneContext = new IModelCloneContext(this.sourceDb, this.targetDb);
 
     this.setCodeValueBehavior("exact");
     this._syncTypeResolver = new SyncTypeResolver(
-      this.context,
+      this.sourceDb,
+      this.targetDb,
       this._options.targetScopeElementId,
       !!this._isProvenanceInitTransform,
       !!this._options.argsForProcessChanges
@@ -562,6 +585,7 @@ export class IModelTransformer extends IModelExportHandler {
     this._provenanceManager = new ProvenanceManager(
       this._options.targetScopeElementId,
       this._options,
+      this._cloneContext,
       this._syncTypeResolver,
       this._targetEditTxn,
       this._sourceEditTxn
@@ -626,7 +650,7 @@ export class IModelTransformer extends IModelExportHandler {
   /** Dispose any native resources associated with this IModelTransformer. */
   public dispose(): void {
     Logger.logTrace(loggerCategory, "dispose()");
-    this.context[Symbol.dispose]();
+    this._cloneContext[Symbol.dispose]();
   }
 
   /** Log current settings that affect IModelTransformer's behavior. */
@@ -790,10 +814,10 @@ export class IModelTransformer extends IModelExportHandler {
         sourceElement.id
       }) "${sourceElement.getDisplayLabel()}"`
     );
-    const targetElementProps: ElementProps = await this.context.cloneElement(
-      sourceElement,
-      { binaryGeometry: this._options.cloneUsingBinaryGeometry }
-    );
+    const targetElementProps: ElementProps =
+      await this._cloneContext.cloneElement(sourceElement, {
+        binaryGeometry: this._options.cloneUsingBinaryGeometry,
+      });
     // Special case: source element is the root subject
     if (sourceElement.id === IModel.rootSubjectId) {
       const targetElementId: string = this.context.findTargetElementId(
@@ -1138,7 +1162,9 @@ export class IModelTransformer extends IModelExportHandler {
         message: "The root Subject should not be directly imported",
       });
     }
-    return this.exporter.exportElement(sourceElementId);
+    return this.processScopedElementExport(async () =>
+      this.exporter.exportElement(sourceElementId)
+    );
   }
 
   /** Import child elements into the target IModelDb
@@ -1149,7 +1175,15 @@ export class IModelTransformer extends IModelExportHandler {
     sourceElementId: Id64String
   ): Promise<void> {
     await this.initialize();
-    return this.exporter.exportChildElements(sourceElementId);
+    return this.processScopedElementExport(async () =>
+      this.exporter.exportChildElements(sourceElementId)
+    );
+  }
+
+  private async processScopedElementExport(
+    exportElements: () => Promise<void>
+  ): Promise<void> {
+    await this.exporter.elementAspectExportCoordinator.run(exportElements);
   }
 
   /** Override of [IModelExportHandler.shouldExportElement]($transformer) that is called to determine if an element should be exported from the source iModel.
@@ -1577,7 +1611,9 @@ export class IModelTransformer extends IModelExportHandler {
    */
   public async processModel(sourceModeledElementId: Id64String): Promise<void> {
     await this.initialize();
-    return this.exporter.exportModel(sourceModeledElementId);
+    return this.processScopedElementExport(async () =>
+      this.exporter.exportModel(sourceModeledElementId)
+    );
   }
 
   /** Cause the model contents to be exported from the source iModel and imported into the target iModel.
@@ -1594,9 +1630,8 @@ export class IModelTransformer extends IModelExportHandler {
     await this.initialize();
     this.targetDb.models.getModel(targetModelId); // throws if Model does not exist
     this.context.remapElement(sourceModelId, targetModelId); // set remapping in case importModelContents is called directly
-    return this.exporter.exportModelContents(
-      sourceModelId,
-      elementClassFullName
+    return this.processScopedElementExport(async () =>
+      this.exporter.exportModelContents(sourceModelId, elementClassFullName)
     );
   }
 
@@ -1855,9 +1890,32 @@ export class IModelTransformer extends IModelExportHandler {
   public override async shouldExportElementAspect(
     aspect: ElementAspect
   ): Promise<boolean> {
-    // This override is needed to ensure that aspects are not exported if their element is not exported.
-    // This is needed in case DetachedExportElementAspectsStrategy is used.
+    // An aspect cannot be exported when its owner has no source-to-target
+    // mapping.
     return this.context.findTargetElementId(aspect.element.id) !== Id64.invalid;
+  }
+
+  private async prepareElementAspects(
+    excludedElementAspectClassFullNames: ReadonlySet<string>,
+    elementIds?: ReadonlySet<Id64String>
+  ): Promise<void> {
+    if (!this.exporter.visitElements) return;
+
+    if (elementIds === undefined) return;
+
+    const targetElementIds = new Set<Id64String>();
+    for (const sourceElementId of elementIds) {
+      const targetElementId = this.context.findTargetElementId(sourceElementId);
+      if (Id64.isValid(targetElementId)) {
+        targetElementIds.add(targetElementId);
+      }
+    }
+
+    await this.importer.elementAspectCleanup.delete(
+      targetElementIds,
+      excludedElementAspectClassFullNames,
+      this.targetScopeElementId
+    );
   }
 
   /** Override of [IModelExportHandler.onExportElementUniqueAspect]($transformer) that imports an ElementUniqueAspect into the target iModel when it is exported from the source iModel.
@@ -1918,7 +1976,7 @@ export class IModelTransformer extends IModelExportHandler {
     sourceElementAspect: ElementAspect
   ): Promise<ElementAspectProps> {
     const targetElementAspectProps =
-      await this.context.cloneElementAspect(sourceElementAspect);
+      await this._cloneContext.cloneElementAspect(sourceElementAspect);
     return targetElementAspectProps;
   }
 
@@ -1942,88 +2000,26 @@ export class IModelTransformer extends IModelExportHandler {
     );
   }
 
-  private _longNamedSchemasMap = new Map<string, string>();
-
-  /** Override of [IModelExportHandler.onExportSchema]($transformer) that serializes a schema to disk for [[processSchemas]] to import into
-   * the target iModel when it is exported from the source iModel.
-   * @returns {Promise<ExportSchemaResult>} Although the type is possibly void for backwards compatibility of subclasses,
-   *                                        `IModelTransformer.onExportSchema` always returns an[[IModelExportHandler.ExportSchemaResult]]
-   *                                        with a defined `schemaPath` property, for subclasses to know where the schema was written.
-   *                                        Schemas are *not* guaranteed to be written to [[IModelTransformer._schemaExportDir]] by a
-   *                                        known pattern derivable from the schema's name, so you must use this to find it.
+  /** Serialize a source schema to the temporary directory used by [[processSchemas]].
+   * @returns A path to the serialized schema file.
+   * @note The file name is not derived reliably from the schema name. Use the returned path when a subclass calls `super`.
    */
   public override async onExportSchema(
     schema: ECSchemaMetaData.Schema
   ): Promise<void | ExportSchemaResult> {
-    const ext = ".ecschema.xml";
-    let schemaFileName = schema.name + ext;
-    // many file systems have a max file-name/path-segment size of 255, so we workaround that on all systems
-    const systemMaxPathSegmentSize = 255;
-    // windows usually has a limit for the total path length of 260
-    const windowsMaxPathLimit = 260;
-    if (
-      schemaFileName.length > systemMaxPathSegmentSize ||
-      path.join(this._schemaExportDir, schemaFileName).length >=
-        windowsMaxPathLimit
-    ) {
-      // this name should be well under 255 bytes
-      // ( 100 + (Number.MAX_SAFE_INTEGER.toString().length = 16) + (ext.length = 13) ) = 129 which is less than 255
-      // You'd have to be past 2**53-1 (Number.MAX_SAFE_INTEGER) long named schemas in order to hit decimal formatting,
-      // and that's on the scale of at least petabytes. `Map.prototype.size` shouldn't return floating points, and even
-      // if they do they're in scientific notation, size bound and contain no invalid windows path chars
-      schemaFileName = `${schema.name.slice(0, 100)}${
-        this._longNamedSchemasMap.size
-      }${ext}`;
-      nodeAssert(
-        schemaFileName.length <= systemMaxPathSegmentSize,
-        "Schema name was still long. This is a bug."
-      );
-      this._longNamedSchemasMap.set(schema.name, schemaFileName);
-    }
-    this.sourceDb.exportSchema({
-      schemaName: schema.name,
-      outputDirectory: this._schemaExportDir,
-      outputFileName: schemaFileName,
-    });
-    return { schemaPath: path.join(this._schemaExportDir, schemaFileName) };
+    return this._schemaProcessingCoordinator.serializeSourceSchema(schema);
   }
 
-  private _makeLongNameResolvingSchemaCtx(): ECSchemaXmlContext {
-    const result = new ECSchemaXmlContext();
-    result.setSchemaLocater((key) => {
-      const match = this._longNamedSchemasMap.get(key.name);
-      if (match !== undefined) return path.join(this._schemaExportDir, match);
-      return undefined;
-    });
-    return result;
-  }
-
-  /** Cause all schemas to be exported from the source iModel and imported into the target iModel.
+  /** Process source schemas and import selected or generated definitions into the target iModel.
+   * @param options Selects the schema processing strategy.
+   * @note When no strategy is supplied, [[NewerVersionSchemaImportStrategy]] is used.
    * @note For performance reasons, it is recommended that [IModelDb.saveChanges]($backend) be called after `processSchemas` is complete.
    * It is more efficient to process *data* changes after the schema changes have been saved.
    */
-  public async processSchemas(): Promise<void> {
-    // we do not need to initialize for this since no entities are exported
-    try {
-      IModelJsFs.mkdirSync(this._schemaExportDir);
-      this._longNamedSchemasMap.clear();
-      await this.exporter.exportSchemas();
-      const exportedSchemaFiles = IModelJsFs.readdirSync(this._schemaExportDir);
-      if (exportedSchemaFiles.length === 0) return;
-      const schemaFullPaths = exportedSchemaFiles.map((s) =>
-        path.join(this._schemaExportDir, s)
-      );
-      const maybeLongNameResolvingSchemaCtx =
-        this._longNamedSchemasMap.size > 0
-          ? this._makeLongNameResolvingSchemaCtx()
-          : undefined;
-      return await this.targetDb.importSchemas(schemaFullPaths, {
-        ecSchemaXmlContext: maybeLongNameResolvingSchemaCtx,
-      });
-    } finally {
-      IModelJsFs.removeSync(this._schemaExportDir);
-      this._longNamedSchemasMap.clear();
-    }
+  public async processSchemas(options?: ProcessSchemasOptions): Promise<void> {
+    return this._schemaProcessingCoordinator.process(
+      options?.strategy ?? new NewerVersionSchemaImportStrategy()
+    );
   }
 
   /** Cause all fonts to be exported from the source iModel and imported into the target iModel.
@@ -2040,7 +2036,7 @@ export class IModelTransformer extends IModelExportHandler {
     font: FontProps,
     _isUpdate: boolean | undefined
   ): Promise<void> {
-    this.context.importFont(font.id);
+    this._cloneContext.importFont(font.id);
   }
 
   /** Cause all CodeSpecs to be exported from the source iModel and imported into the target iModel.
@@ -2072,7 +2068,7 @@ export class IModelTransformer extends IModelExportHandler {
   public override async onExportCodeSpec(
     sourceCodeSpec: CodeSpec
   ): Promise<void> {
-    this.context.importCodeSpec(sourceCodeSpec.id);
+    this._cloneContext.importCodeSpec(sourceCodeSpec.id);
   }
 
   /** Recursively import all Elements and sub-Models that descend from the specified Subject */
@@ -2084,8 +2080,10 @@ export class IModelTransformer extends IModelExportHandler {
     this.sourceDb.elements.getElement(sourceSubjectId, Subject); // throws if sourceSubjectId is not a Subject
     this.targetDb.elements.getElement(targetSubjectId, Subject); // throws if targetSubjectId is not a Subject
     this.context.remapElement(sourceSubjectId, targetSubjectId);
-    await this.processChildElements(sourceSubjectId);
-    await this.processSubjectSubModels(sourceSubjectId);
+    await this.processScopedElementExport(async () => {
+      await this.processChildElements(sourceSubjectId);
+      await this.processSubjectSubModels(sourceSubjectId);
+    });
     await this.completePartiallyCommittedElements();
     await this.completePartiallyCommittedAspects();
   }
@@ -2110,7 +2108,7 @@ export class IModelTransformer extends IModelExportHandler {
     await this.initScopeProvenance();
 
     await this._tryInitChangesetData(this._options.argsForProcessChanges);
-    await this.context.initialize();
+    await this._cloneContext.initialize();
 
     const exporterInitOptions = await this.getExportInitOpts(
       this._options.argsForProcessChanges ?? {}
@@ -2588,20 +2586,21 @@ export class IModelTransformer extends IModelExportHandler {
     await this.exporter.exportCodeSpecs();
     await this.exporter.exportFonts();
 
-    if (this._options.skipPropagateChangesToRootElements) {
-      // The RepositoryModel and root Subject of the target iModel should not be transformed.
-      await this.exporter.exportChildElements(IModel.rootSubjectId); // start below the root Subject
-      await this.exporter.exportModelContents(
-        IModel.repositoryModelId,
-        Element.classFullName,
-        true
-      ); // after the Subject hierarchy, process the other elements of the RepositoryModel
-      await this.exporter.exportSubModels(IModel.repositoryModelId); // start below the RepositoryModel
-    } else {
-      await this.exporter.exportModel(IModel.repositoryModelId);
-    }
-    await this.completePartiallyCommittedElements();
-    await this.exporter["exportAllAspects"](); // eslint-disable-line @typescript-eslint/dot-notation
+    await this.exporter.elementAspectExportCoordinator.run(async () => {
+      if (this._options.skipPropagateChangesToRootElements) {
+        // The RepositoryModel and root Subject of the target iModel should not be transformed.
+        await this.exporter.exportChildElements(IModel.rootSubjectId); // start below the root Subject
+        await this.exporter.exportModelContents(
+          IModel.repositoryModelId,
+          Element.classFullName,
+          true
+        ); // after the Subject hierarchy, process the other elements of the RepositoryModel
+        await this.exporter.exportSubModels(IModel.repositoryModelId); // start below the RepositoryModel
+      } else {
+        await this.exporter.exportModel(IModel.repositoryModelId);
+      }
+      await this.completePartiallyCommittedElements();
+    });
     await this.completePartiallyCommittedAspects();
     await this.exporter.exportRelationships(
       ElementRefersToElements.classFullName

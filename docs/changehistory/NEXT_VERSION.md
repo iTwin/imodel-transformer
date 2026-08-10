@@ -1,5 +1,30 @@
 # Next release notes
 
+## Schema-processing strategies
+
+`IModelTransformer.processSchemas()` now accepts a `SchemaProcessingStrategy`. Calls without options use `NewerVersionSchemaImportStrategy`, which preserves the existing newer-version selection and schema hooks. `DynamicSchemaUnionStrategy`, imported from `@itwin/imodel-transformer/schema-processing`, is available for iModels that may contain different compatible additions to the same schema marked with `CoreCustomAttributes.DynamicSchema`. See [Schema processing in a transformation](../learning/transformer/schema-processing.md) for strategy selection, compatibility rules, extension points, and failure handling.
+
+Package-owned schema conflicts and dependency cycles use `IModelTransformerErrorScope` with the `SchemaConflict` and `SchemaDependencyCycle` keys. Upstream and custom failures retain their original error contract.
+
+`IModelExporter.enumerateSchemas()` is now the schema-discovery extension point used by both `exportSchemas()` and transformer schema processing. Overrides of `exportSchemas()` continue to affect direct exporter calls but no longer control transformer schema discovery.
+
+Applications using the optional schema-processing subpath must provide compatible `@itwin/ecschema-editing` and `@itwin/ecschema-locaters` peer dependencies. The new package `exports` map exposes the root package, `schema-processing`, and `package.json`; undocumented deep imports are no longer supported.
+
+## Breaking change: `IModelTransformer.context` exposes a supported transformation contract
+
+`IModelTransformer.context` is now typed as `IModelTransformContext`. The interface supports target lookup, explicit mappings for elements, element aspects, element classes, and CodeSpecs, and SubCategory filtering. Cloning operations, source and target database access, native resource management, context persistence, and other `IModelCloneContext` implementation details are no longer accessible through the public property.
+
+Continue to obtain the context from an `IModelTransformer`:
+
+```ts
+import type { IModelTransformContext } from "@itwin/imodel-transformer";
+
+const context: IModelTransformContext = transformer.context;
+const targetElementId = context.findTargetElementId(sourceElementId);
+```
+
+Tests should mock `IModelTransformContext` instead of constructing or stubbing `IModelCloneContext` directly.
+
 ## Breaking change: transformer errors now have stable identifiers
 
 Errors detected and owned by `@itwin/imodel-transformer` now use `ITwinError` with scope `@itwin/imodel-transformer` and a key from `IModelTransformerError`. These errors previously used a mix of `IModelError` and plain `Error`.
@@ -286,6 +311,7 @@ Affected classes and methods:
 - `onExportModel`
 - `onExportRelationship`
 - `onTransformElement`
+
 - `onTransformElementAspect`
 - `shouldDetectDeletes`
 - `shouldExportCodeSpec`
@@ -350,3 +376,21 @@ if (transformer.isForwardSynchronization) { ... }
 // After (v2)
 if (await transformer.getIsForwardSynchronization()) { ... }
 ```
+
+## Breaking changes: ElementAspect processing
+
+In 2.x, ElementAspects are exported separately from element callbacks using bounded, owner-scoped groups. The constructor no longer accepts an aspect-processing selector, and the previous implementation that exported aspects beside their owning elements is removed.
+
+Existing `IModelExportHandler` callbacks and `shouldExportElementAspect` remain available. `IModelExporter` also continues to support `excludeElementAspectClass`. These callbacks retain their filtering and export roles, but aspect callbacks are no longer guaranteed to run next to the callback for their owning element.
+
+During change processing, the transformer clears replaceable target aspects for accepted changed owners and rebuilds them from the source. Excluded aspect classes and transformer provenance aspects are preserved. Custom inserted or updated aspect changes infer the owner while the source aspect exists. Custom deleted or missing aspects require the owning element ID and throw when it is omitted:
+
+```ts
+changedInstanceIds.addCustomAspectChange(
+  "Deleted",
+  deletedAspectId,
+  owningElementId
+);
+```
+
+For the processing entry points, Exporter/Transformer/Importer boundaries, workflow diagram, filtering, batching, and custom-change examples, see the [Processing ElementAspects learning guide](../learning/transformer/element-aspect-processing.md).

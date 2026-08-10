@@ -13,6 +13,8 @@ export const IModelTransformerErrorScope = "@itwin/imodel-transformer";
  * @beta
  */
 export enum IModelTransformerError {
+  /** An ElementAspect change requires its owning element identifier. */
+  AspectOwnerRequired = "aspect-owner-required",
   /** Required changed-instance metadata is missing. */
   ChangedInstanceMetadataMissing = "changed-instance-metadata-missing",
   /** A required changeset index is unavailable. */
@@ -65,6 +67,10 @@ export enum IModelTransformerError {
   RelationshipProvenanceNotFound = "relationship-provenance-not-found",
   /** The root subject cannot be processed directly. */
   RootSubjectNotProcessable = "root-subject-not-processable",
+  /** A schema conflict or incompatible schema version prevented processing. */
+  SchemaConflict = "schema-conflict",
+  /** The source schema dependency graph contains a cycle. */
+  SchemaDependencyCycle = "schema-dependency-cycle",
   /** A required schema could not be loaded. */
   SchemaLoadFailed = "schema-load-failed",
   /** Reverse synchronization requires a source edit transaction. */

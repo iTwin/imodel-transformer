@@ -6,20 +6,31 @@
 import {
   // eslint-disable-next-line @typescript-eslint/no-redeclare
   Element,
+  ElementAspect,
+  ElementMultiAspect,
+  ElementOwnsExternalSourceAspects,
+  ElementOwnsUniqueAspect,
   ElementRefersToElements,
+  ElementUniqueAspect,
+  ExternalSourceAspect,
   GeometryPart,
   GraphicalElement3dRepresentsElement,
   IModelDb,
   IModelJsFs,
   PhysicalModel,
   PhysicalObject,
+  PhysicalPartition,
   SnapshotDb,
   SpatialCategory,
+  Subject,
+  SubjectOwnsPartitionElements,
   withEditTxn,
 } from "@itwin/core-backend";
-import { Id64, ITwinError } from "@itwin/core-bentley";
+import { Id64, Id64String, ITwinError } from "@itwin/core-bentley";
 import {
   Code,
+  ElementAspectProps,
+  ExternalSourceAspectProps,
   GeometryPartProps,
   GeometryStreamBuilder,
   IModel,
@@ -28,7 +39,7 @@ import {
   SubCategoryAppearance,
 } from "@itwin/core-common";
 import { Point3d, YawPitchRollAngles } from "@itwin/core-geometry";
-import { assert, expect } from "vitest";
+import { assert, expect, vi } from "vitest";
 import * as path from "node:path";
 import {
   ChangedInstanceIds,
@@ -37,13 +48,62 @@ import {
   IModelExporter,
   IModelExportHandler,
 } from "../../IModelExporter";
+import { ElementAspectExportCoordinator } from "../../ElementAspectExportCoordinator";
 import {
   IModelTransformerError,
   IModelTransformerErrorScope,
 } from "../../IModelTransformerError";
 import { IModelTransformerTestUtils } from "../IModelTransformerUtils";
+import { importElementAspectTestSchema } from "../TestUtils/ElementAspectTestUtils";
 import { createBRepDataProps } from "../TestUtils/GeometryTestUtil";
 import { KnownTestLocations } from "../TestUtils/KnownTestLocations";
+
+export async function elementAspectExportExample(
+  sourceDb: IModelDb,
+  handler: IModelExportHandler
+): Promise<void> {
+  // __PUBLISH_EXTRACT_START__ ElementAspectProcessingExamples_exportAll.code
+  const exporter = new IModelExporter(sourceDb);
+  exporter.registerHandler(handler);
+  await exporter.exportAll();
+  // __PUBLISH_EXTRACT_END__
+}
+
+export function elementAspectHandlerExample(): IModelExportHandler {
+  // __PUBLISH_EXTRACT_START__ ElementAspectProcessingExamples_handler.code
+  class MyExportHandler extends IModelExportHandler {
+    public override async shouldExportElementAspect(
+      aspect: ElementAspect
+    ): Promise<boolean> {
+      return aspect.classFullName !== "Example:InternalAspect";
+    }
+
+    public override async onExportElementUniqueAspect(
+      _aspect: ElementUniqueAspect,
+      _isUpdate: boolean | undefined
+    ): Promise<void> {
+      // Transform or import the unique aspect.
+    }
+
+    public override async onExportElementMultiAspects(
+      _aspects: ElementMultiAspect[]
+    ): Promise<void> {
+      // Process all multi-aspects in this owner group.
+    }
+  }
+  return new MyExportHandler();
+  // __PUBLISH_EXTRACT_END__
+}
+
+export function deletedElementAspectChangeExample(
+  changes: ChangedInstanceIds,
+  deletedAspectId: Id64String,
+  owningElementId: Id64String
+): void {
+  // __PUBLISH_EXTRACT_START__ ElementAspectProcessingExamples_deletedChange.code
+  changes.addCustomAspectChange("Deleted", deletedAspectId, owningElementId);
+  // __PUBLISH_EXTRACT_END__
+}
 
 describe("IModelExporter", () => {
   const outputDir = path.join(KnownTestLocations.outputDir, "IModelExporter");
@@ -57,15 +117,427 @@ describe("IModelExporter", () => {
     }
   });
 
+  it("exports aspects from exportAll and honors owner filtering", async () => {
+    const sourceDbPath = IModelTransformerTestUtils.prepareOutputFile(
+      "IModelExporter",
+      "ElementAspectExportAll.bim"
+    );
+    const sourceDb = SnapshotDb.createEmpty(sourceDbPath, {
+      rootSubject: { name: "ElementAspectExportAll" },
+    });
+    try {
+      const { includedElementId, excludedElementId } = withEditTxn(
+        sourceDb,
+        "insert aspect test data",
+        (txn) => {
+          const includedId = Subject.insert(
+            txn,
+            IModel.rootSubjectId,
+            "Included"
+          );
+          const excludedId = Subject.insert(
+            txn,
+            IModel.rootSubjectId,
+            "Excluded"
+          );
+          txn.insertAspect({
+            classFullName: ExternalSourceAspect.classFullName,
+            element: new ElementOwnsExternalSourceAspects(includedId),
+            scope: { id: IModel.rootSubjectId },
+            identifier: "included",
+            kind: ExternalSourceAspect.Kind.Element,
+          } as ExternalSourceAspectProps);
+          txn.insertAspect({
+            classFullName: ExternalSourceAspect.classFullName,
+            element: new ElementOwnsExternalSourceAspects(excludedId),
+            scope: { id: IModel.rootSubjectId },
+            identifier: "excluded",
+            kind: ExternalSourceAspect.Kind.Element,
+          } as ExternalSourceAspectProps);
+          return {
+            includedElementId: includedId,
+            excludedElementId: excludedId,
+          };
+        }
+      );
+      const exportedIdentifiers: string[] = [];
+      const preparedOwnerBatchSizes: number[] = [];
+      class Handler extends IModelExportHandler {
+        public override async shouldExportElement(element: Element) {
+          return element.id !== excludedElementId;
+        }
+
+        public override async onExportElementMultiAspects(
+          aspects: ElementMultiAspect[]
+        ) {
+          exportedIdentifiers.push(
+            ...aspects.map(
+              (aspect) => (aspect as ExternalSourceAspect).identifier
+            )
+          );
+        }
+      }
+
+      const exporter = new IModelExporter(sourceDb);
+      exporter.registerHandler(new Handler());
+      const coordinator = exporter.elementAspectExportCoordinator;
+      coordinator.setPreparation(async (_excludedClasses, elementIds) => {
+        preparedOwnerBatchSizes.push(elementIds.size);
+      });
+      await exporter.exportElement(includedElementId);
+      expect(exportedIdentifiers).to.deep.equal(["included"]);
+      exportedIdentifiers.length = 0;
+      await exporter.exportModelContents(IModel.repositoryModelId);
+      expect(exportedIdentifiers).to.deep.equal(["included"]);
+      exportedIdentifiers.length = 0;
+      await exporter.exportModel(IModel.repositoryModelId);
+      expect(exportedIdentifiers).to.deep.equal(["included"]);
+      exportedIdentifiers.length = 0;
+      await exporter.exportAll();
+
+      expect(includedElementId).to.not.equal(excludedElementId);
+      expect(exportedIdentifiers).to.deep.equal(["included"]);
+      preparedOwnerBatchSizes.length = 0;
+      exportedIdentifiers.length = 0;
+      coordinator.begin(1);
+      await exporter.exportChildElements(IModel.rootSubjectId);
+      await coordinator.end();
+      expect(preparedOwnerBatchSizes.length).to.be.greaterThan(0);
+      expect(preparedOwnerBatchSizes.every((size) => size === 1)).to.be.true;
+      expect(exportedIdentifiers).to.deep.equal(["included"]);
+    } finally {
+      vi.restoreAllMocks();
+      sourceDb.close();
+    }
+  });
+
+  it("processes explicit aspect owner sets in bounded groups", async () => {
+    const preparedOwnerBatchSizes: number[] = [];
+    const exportedOwnerBatchSizes: number[] = [];
+    const coordinator = new ElementAspectExportCoordinator(
+      1_000,
+      () => new Set<string>(),
+      async (ownerBatch) => {
+        exportedOwnerBatchSizes.push(ownerBatch.size);
+      }
+    );
+    coordinator.setPreparation(async (_excludedClasses, ownerBatch) => {
+      preparedOwnerBatchSizes.push(ownerBatch.size);
+    });
+    const ownerIds = new Set<Id64String>();
+    for (let index = 0; index < 2_001; index++) {
+      ownerIds.add(Id64.fromLocalAndBriefcaseIds(index + 1, 0));
+    }
+
+    await coordinator.exportOwners(ownerIds);
+
+    expect(preparedOwnerBatchSizes).to.deep.equal([1_000, 1_000, 1]);
+    expect(exportedOwnerBatchSizes).to.deep.equal([1_000, 1_000, 1]);
+  });
+
+  it("deduplicates owners across scope batches and resets at outer scope boundaries", async () => {
+    const ownerA = Id64.fromLocalAndBriefcaseIds(1, 0);
+    const ownerB = Id64.fromLocalAndBriefcaseIds(2, 0);
+    const exportedOwners: Id64String[] = [];
+    let cacheResetCount = 0;
+    const coordinator = new ElementAspectExportCoordinator(
+      1,
+      () => new Set<string>(),
+      async (ownerBatch) => {
+        exportedOwners.push(...ownerBatch);
+      },
+      () => cacheResetCount++
+    );
+
+    coordinator.begin(1);
+    await coordinator.addAcceptedOwner(ownerA);
+    coordinator.begin();
+    await coordinator.addAcceptedOwner(ownerB);
+    await coordinator.addAcceptedOwner(ownerA);
+    await coordinator.end();
+    await coordinator.end();
+    expect(exportedOwners).to.deep.equal([ownerA, ownerB]);
+    expect(cacheResetCount).to.equal(1);
+
+    coordinator.begin(1);
+    await coordinator.addAcceptedOwner(ownerA);
+    await coordinator.end();
+    expect(exportedOwners).to.deep.equal([ownerA, ownerB, ownerA]);
+    expect(cacheResetCount).to.equal(2);
+
+    await coordinator.exportOwners(new Set([ownerA]));
+    await coordinator.exportOwners(new Set([ownerA]));
+    expect(exportedOwners).to.deep.equal([
+      ownerA,
+      ownerB,
+      ownerA,
+      ownerA,
+      ownerA,
+    ]);
+  });
+
+  it("rebuilds unchanged unique aspects for changed owners", async () => {
+    const sourceDbPath = IModelTransformerTestUtils.prepareOutputFile(
+      "IModelExporter",
+      "ElementAspectUniqueRebuild.bim"
+    );
+    const sourceDb = SnapshotDb.createEmpty(sourceDbPath, {
+      rootSubject: { name: "ElementAspectUniqueRebuild" },
+    });
+    try {
+      await importElementAspectTestSchema(sourceDb);
+      const ownerId = withEditTxn(sourceDb, "insert unique aspect", (txn) => {
+        const id = Subject.insert(txn, IModel.rootSubjectId, "Owner");
+        txn.insertAspect({
+          classFullName: "ExporterAspectTest:UniqueAspect",
+          element: new ElementOwnsUniqueAspect(id),
+        } as ElementAspectProps);
+        return id;
+      });
+      const exporter = new IModelExporter(sourceDb);
+      const changes = new ChangedInstanceIds(sourceDb);
+      changes.element.updateIds.add(ownerId);
+      changes.model.updateIds.add(IModel.repositoryModelId);
+      exporter["_sourceDbChanges"] = changes;
+      exporter["_elementAspectExportProcessor"].setAspectChanges(
+        changes.aspect
+      );
+      let exportedUniqueAspectCount = 0;
+      let exportedUniqueAspectChange: boolean | undefined = false;
+      class Handler extends IModelExportHandler {
+        public override async onExportElementUniqueAspect(
+          aspect: ElementUniqueAspect,
+          isUpdate: boolean | undefined
+        ) {
+          if (aspect.classFullName === "ExporterAspectTest:UniqueAspect") {
+            exportedUniqueAspectCount++;
+            exportedUniqueAspectChange = isUpdate;
+          }
+        }
+      }
+      exporter.registerHandler(new Handler());
+
+      await exporter.exportAll();
+
+      expect(exportedUniqueAspectCount).to.equal(1);
+      expect(exportedUniqueAspectChange).to.be.undefined;
+    } finally {
+      sourceDb.close();
+    }
+  });
+
+  it("does not select root owners when root propagation is disabled", async () => {
+    const sourceDbPath = IModelTransformerTestUtils.prepareOutputFile(
+      "IModelExporter",
+      "RootAspectOwnerFiltering.bim"
+    );
+    const sourceDb = SnapshotDb.createEmpty(sourceDbPath, {
+      rootSubject: { name: "RootAspectOwnerFiltering" },
+    });
+    try {
+      const exporter = new IModelExporter(sourceDb);
+      exporter["_skipPropagateChangesToRootElements"] = true;
+
+      const elementIds = await exporter["filterOwnerElementIdsForAspectExport"](
+        new Set([IModel.rootSubjectId])
+      );
+
+      expect(elementIds).to.be.instanceOf(Set);
+      expect(elementIds.size).to.equal(0);
+    } finally {
+      sourceDb.close();
+    }
+  });
+
+  it("does not select owners in rejected or template models", async () => {
+    const sourceDbPath = IModelTransformerTestUtils.prepareOutputFile(
+      "IModelExporter",
+      "ModelAspectOwnerFiltering.bim"
+    );
+    const sourceDb = SnapshotDb.createEmpty(sourceDbPath, {
+      rootSubject: { name: "ModelAspectOwnerFiltering" },
+    });
+    try {
+      const ids = withEditTxn(sourceDb, "insert model aspect owners", (txn) => {
+        const categoryId = SpatialCategory.insert(
+          txn,
+          IModel.dictionaryId,
+          "Category",
+          new SubCategoryAppearance()
+        );
+        const insertPartition = (name: string) =>
+          txn.insertElement({
+            classFullName: PhysicalPartition.classFullName,
+            model: IModel.repositoryModelId,
+            code: PhysicalPartition.createCode(
+              sourceDb,
+              IModel.rootSubjectId,
+              name
+            ),
+            parent: new SubjectOwnsPartitionElements(IModel.rootSubjectId),
+          });
+        const rejectedPartitionId = insertPartition("RejectedPartition");
+        const rejectedModelId = txn.insertModel({
+          classFullName: PhysicalModel.classFullName,
+          modeledElement: { id: rejectedPartitionId },
+        });
+        const templatePartitionId = insertPartition("TemplatePartition");
+        const templateModelId = txn.insertModel({
+          classFullName: PhysicalModel.classFullName,
+          modeledElement: { id: templatePartitionId },
+          isTemplate: true,
+        });
+        const insertOwner = (modelId: Id64String, name: string) => {
+          const ownerId = txn.insertElement({
+            classFullName: PhysicalObject.classFullName,
+            model: modelId,
+            category: categoryId,
+            code: Code.createEmpty(),
+            userLabel: name,
+          } as PhysicalElementProps);
+          txn.insertAspect({
+            classFullName: ExternalSourceAspect.classFullName,
+            element: new ElementOwnsExternalSourceAspects(ownerId),
+            scope: { id: IModel.rootSubjectId },
+            identifier: name,
+            kind: ExternalSourceAspect.Kind.Element,
+          } as ExternalSourceAspectProps);
+          return ownerId;
+        };
+        return {
+          rejectedPartitionId,
+          rejectedModelId,
+          rejectedOwnerId: insertOwner(rejectedModelId, "RejectedOwner"),
+          templateOwnerId: insertOwner(templateModelId, "TemplateOwner"),
+        };
+      });
+      const exporter = new IModelExporter(sourceDb);
+      class Handler extends IModelExportHandler {
+        public override async shouldExportElement(element: Element) {
+          return element.id !== ids.rejectedPartitionId;
+        }
+      }
+      exporter.registerHandler(new Handler());
+      exporter.wantTemplateModels = false;
+      const elementIds = await exporter["filterOwnerElementIdsForAspectExport"](
+        new Set([ids.rejectedOwnerId, ids.templateOwnerId])
+      );
+
+      expect(elementIds).to.be.instanceOf(Set);
+      expect(elementIds.size).to.equal(0);
+    } finally {
+      sourceDb.close();
+    }
+  });
+
+  it("prefilters changed aspect owners with shared structural queries", async () => {
+    const sourceDbPath = IModelTransformerTestUtils.prepareOutputFile(
+      "IModelExporter",
+      "AspectOwnerStructuralPrefilter.bim"
+    );
+    const sourceDb = SnapshotDb.createEmpty(sourceDbPath, {
+      rootSubject: { name: "AspectOwnerStructuralPrefilter" },
+    });
+    try {
+      const { ownerIds } = withEditTxn(
+        sourceDb,
+        "insert aspect owner hierarchy",
+        (txn) => {
+          const parentId = Subject.insert(
+            txn,
+            IModel.rootSubjectId,
+            "SharedParent"
+          );
+          return {
+            ownerIds: [
+              Subject.insert(txn, parentId, "OwnerA"),
+              Subject.insert(txn, parentId, "OwnerB"),
+            ],
+          };
+        }
+      );
+      const exporter = new IModelExporter(sourceDb);
+      for (const ownerId of ownerIds) {
+        exporter.excludeElement(ownerId);
+      }
+      const getElement = vi.spyOn(sourceDb.elements, "getElement");
+      const getModel = vi.spyOn(sourceDb.models, "getModel");
+      const createQueryReader = vi.spyOn(sourceDb, "createQueryReader");
+
+      const acceptedOwnerIds = await exporter[
+        "filterOwnerElementIdsForAspectExport"
+      ](new Set(ownerIds));
+
+      expect(acceptedOwnerIds).to.deep.equal(new Set<Id64String>());
+      expect(getElement.mock.calls.length).to.equal(0);
+      expect(getModel.mock.calls.length).to.equal(0);
+      const queries = createQueryReader.mock.calls.map((call) =>
+        String(call[0])
+      );
+      expect(
+        queries.filter((query) => query.includes("FROM bis.Element e"))
+      ).to.have.lengthOf(3);
+      expect(
+        queries.filter((query) => query.includes("FROM bis.Model"))
+      ).to.have.lengthOf(1);
+    } finally {
+      vi.restoreAllMocks();
+      sourceDb.close();
+    }
+  });
+
+  it("preserves custom exporter element-filter overrides for aspect owners", async () => {
+    const sourceDbPath = IModelTransformerTestUtils.prepareOutputFile(
+      "IModelExporter",
+      "AspectOwnerCustomFilter.bim"
+    );
+    const sourceDb = SnapshotDb.createEmpty(sourceDbPath, {
+      rootSubject: { name: "AspectOwnerCustomFilter" },
+    });
+    try {
+      const ownerId = withEditTxn(sourceDb, "insert aspect owner", (txn) =>
+        Subject.insert(txn, IModel.rootSubjectId, "Owner")
+      );
+      let ownerFilterCalls = 0;
+      class CustomExporter extends IModelExporter {
+        public override async shouldExportElement(
+          element: Element
+        ): Promise<boolean> {
+          if (element.id === ownerId) ownerFilterCalls++;
+          return true;
+        }
+      }
+      const exporter = new CustomExporter(sourceDb);
+      exporter.excludeElement(ownerId);
+
+      const acceptedOwnerIds = await exporter[
+        "filterOwnerElementIdsForAspectExport"
+      ](new Set([ownerId]));
+
+      expect(acceptedOwnerIds).to.deep.equal(new Set([ownerId]));
+      expect(ownerFilterCalls).to.equal(1);
+    } finally {
+      sourceDb.close();
+    }
+  });
+
   it("forwards change-source options and preserves the default start changeset", async () => {
     const sourceDb = {
       changeset: { id: "current-changeset" },
       isBriefcaseDb: () => true,
+      createQueryReader: () => ({
+        async *[Symbol.asyncIterator]() {},
+      }),
     } as unknown as IModelDb;
     const changedInstanceIds = new ChangedInstanceIds(sourceDb);
 
     class TestExporter extends IModelExporter {
       public initializedWith?: ExporterInitOptions;
+
+      public constructor(db: IModelDb) {
+        super(db);
+        this.registerHandler(new (class extends IModelExportHandler {})());
+      }
 
       public override async initialize(
         options: ExporterInitOptions
@@ -113,6 +585,46 @@ describe("IModelExporter", () => {
     });
   });
 
+  it("exports schemas discovered by the canonical enumerator", async () => {
+    const sourceDb = SnapshotDb.createEmpty(
+      IModelTransformerTestUtils.prepareOutputFile(
+        "IModelExporter",
+        "SchemaEnumeration.bim"
+      ),
+      { rootSubject: { name: "SchemaEnumeration" } }
+    );
+    try {
+      class Handler extends IModelExportHandler {
+        public shouldExportCount = 0;
+        public onExportCount = 0;
+
+        public override async shouldExportSchema(): Promise<boolean> {
+          ++this.shouldExportCount;
+          return true;
+        }
+
+        public override async onExportSchema(): Promise<void> {
+          ++this.onExportCount;
+        }
+      }
+
+      const handler = new Handler();
+      const exporter = new IModelExporter(sourceDb);
+      exporter.registerHandler(handler);
+      const enumeratedSchemas: string[] = [];
+      for await (const schema of exporter.enumerateSchemas()) {
+        enumeratedSchemas.push(schema.name);
+      }
+
+      await exporter.exportSchemas();
+      expect(enumeratedSchemas.length).to.be.greaterThan(0);
+      expect(handler.shouldExportCount).to.equal(enumeratedSchemas.length);
+      expect(handler.onExportCount).to.equal(enumeratedSchemas.length);
+    } finally {
+      sourceDb.close();
+    }
+  });
+
   it("throws typed errors for sources that cannot export changes", async () => {
     class TestExporter extends IModelExporter {
       public exportAllCalled = false;
@@ -146,6 +658,7 @@ describe("IModelExporter", () => {
       changeset: { id: "" },
       isBriefcaseDb: () => true,
     } as unknown as IModelDb;
+
     const exporter = new TestExporter(sourceDb);
     try {
       await exporter.exportChanges();

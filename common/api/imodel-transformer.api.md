@@ -19,7 +19,7 @@ import { ElementProps } from '@itwin/core-common';
 import { ElementUniqueAspect } from '@itwin/core-backend';
 import { Entity } from '@itwin/core-backend';
 import { EntityProps } from '@itwin/core-common';
-import { EntityReference } from '@itwin/core-common';
+import type { EntityReference } from '@itwin/core-common';
 import { ExternalSourceAspect } from '@itwin/core-backend';
 import { ExternalSourceAspectProps } from '@itwin/core-common';
 import { FontFamilyDescriptor } from '@itwin/core-common';
@@ -30,7 +30,6 @@ import { Id64Array } from '@itwin/core-bentley';
 import { Id64Set } from '@itwin/core-bentley';
 import { Id64String } from '@itwin/core-bentley';
 import { IModelDb } from '@itwin/core-backend';
-import { IModelElementCloneContext } from '@itwin/core-backend';
 import { IModelJsNative } from '@itwin/core-backend';
 import { Model } from '@itwin/core-backend';
 import { ModelProps } from '@itwin/core-common';
@@ -48,13 +47,15 @@ export class ChangedInstanceIds {
     constructor(db: IModelDb);
     addChange(change: ChangeInstance): Promise<void>;
     // @beta
-    addCustomAspectChange(changeType: SqliteChangeOp, ids: Id64Arg): void;
+    addCustomAspectChange(changeType: SqliteChangeOp, ids: Id64Arg, elementIds?: Id64Arg): void;
     // @beta
     addCustomElementChange(changeType: SqliteChangeOp, ids: Id64Arg): Promise<void>;
     // @beta
     addCustomModelChange(changeType: SqliteChangeOp, ids: Id64Arg): Promise<void>;
     // (undocumented)
     aspect: ChangedInstanceOps;
+    // @internal
+    get aspectOwnerElementIds(): ReadonlySet<Id64String>;
     // (undocumented)
     codeSpec: ChangedInstanceOps;
     // (undocumented)
@@ -137,7 +138,10 @@ export function hasEntityChanged(entity: Entity, entityProps: EntityProps, names
 
 // @beta
 export class IModelExporter {
-    constructor(sourceDb: IModelDb, elementAspectsStrategy?: new (source: IModelDb, handler: ElementAspectsHandler) => ExportElementAspectsStrategy);
+    constructor(sourceDb: IModelDb);
+    // @internal
+    get elementAspectExportCoordinator(): ElementAspectExportCoordinator;
+    enumerateSchemas(): AsyncIterable<Schema>;
     excludeCodeSpec(codeSpecName: string): void;
     excludeElement(elementId: Id64String): void;
     excludeElementAspectClass(classFullName: string): void;
@@ -210,6 +214,8 @@ export class IModelImporter {
     readonly doNotUpdateElementIds: Set<string>;
     get editTxn(): EditTxn;
     protected readonly _editTxn: EditTxn;
+    // @internal
+    get elementAspectCleanup(): ElementAspectCleanup;
     finalize(): void;
     importElement(elementProps: ElementProps): Promise<Id64String>;
     importElementMultiAspects(aspectPropsArray: ElementAspectProps[],
@@ -254,6 +260,24 @@ export interface IModelTransformArgs {
 }
 
 // @beta
+export interface IModelTransformContext {
+    filterSubCategory(sourceSubCategoryId: Id64String): void;
+    findTargetAspectId(sourceAspectId: Id64String): Id64String;
+    findTargetCodeSpecId(sourceCodeSpecId: Id64String): Id64String;
+    findTargetElementId(sourceElementId: Id64String): Id64String;
+    findTargetEntityId(sourceEntityId: EntityReference): Promise<EntityReference>;
+    readonly hasSubCategoryFilter: boolean;
+    readonly isBetweenIModels: boolean;
+    isSubCategoryFiltered(sourceSubCategoryId: Id64String): boolean;
+    remapCodeSpec(sourceCodeSpecName: string, targetCodeSpecName: string): void;
+    remapElement(sourceElementId: Id64String, targetElementId: Id64String): void;
+    remapElementAspect(sourceAspectId: Id64String, targetAspectId: Id64String): void;
+    remapElementClass(sourceClassFullName: string, targetClassFullName: string): void;
+    removeElement(sourceElementId: Id64String): void;
+    removeElementAspect(sourceAspectId: Id64String): void;
+}
+
+// @beta
 export class IModelTransformer extends IModelExportHandler {
     constructor(args: IModelTransformArgs, options?: IModelTransformOptions);
     protected addCustomChanges(_sourceDbChanges: ChangedInstanceIds): Promise<void>;
@@ -265,7 +289,7 @@ export class IModelTransformer extends IModelExportHandler {
     protected completePartiallyCommittedAspects(): Promise<void>;
     // (undocumented)
     protected completePartiallyCommittedElements(): Promise<void>;
-    readonly context: IModelCloneContext;
+    get context(): IModelTransformContext;
     // (undocumented)
     static convertHelmertToTransform(helmert: Helmert2DWithZOffset | undefined): Transform;
     dispose(): void;
@@ -310,7 +334,7 @@ export class IModelTransformer extends IModelExportHandler {
     processModel(sourceModeledElementId: Id64String): Promise<void>;
     processModelContents(sourceModelId: Id64String, targetModelId: Id64String, elementClassFullName?: string): Promise<void>;
     processRelationships(baseRelClassFullName: string): Promise<void>;
-    processSchemas(): Promise<void>;
+    processSchemas(options?: ProcessSchemasOptions): Promise<void>;
     processSubject(sourceSubjectId: Id64String, targetSubjectId: Id64String): Promise<void>;
     static get provenanceElementAspectClasses(): (typeof Entity)[];
     static get provenanceElementClasses(): (typeof Entity)[];
@@ -338,6 +362,7 @@ export class IModelTransformer extends IModelExportHandler {
 
 // @beta
 export enum IModelTransformerError {
+    AspectOwnerRequired = "aspect-owner-required",
     ChangedInstanceMetadataMissing = "changed-instance-metadata-missing",
     ChangesetIndexUnavailable = "changeset-index-unavailable",
     DanglingReference = "dangling-reference",
@@ -364,6 +389,8 @@ export enum IModelTransformerError {
     RelationshipIdRequired = "relationship-id-required",
     RelationshipProvenanceNotFound = "relationship-provenance-not-found",
     RootSubjectNotProcessable = "root-subject-not-processable",
+    SchemaConflict = "schema-conflict",
+    SchemaDependencyCycle = "schema-dependency-cycle",
     SchemaLoadFailed = "schema-load-failed",
     SourceEditTxnRequired = "source-edit-txn-required",
     SynchronizationRangeInvalid = "synchronization-range-invalid",
@@ -407,6 +434,11 @@ export interface InitOptions {
 }
 
 // @beta
+export class NewerVersionSchemaImportStrategy implements SchemaProcessingStrategy {
+    processSchemas(context: SchemaProcessingContext): Promise<SchemaProcessingResult[]>;
+}
+
+// @beta
 export interface OptimizeGeometryOptions {
     inlineUniqueGeometryParts?: boolean;
 }
@@ -418,6 +450,11 @@ export type ProcessChangesOptions = ExportChangesOptions & {
     unsafeFallbackReverseSyncVersion?: string;
     ignoreMissingChangesetsInSynchronizations?: boolean;
 };
+
+// @beta
+export interface ProcessSchemasOptions {
+    strategy?: SchemaProcessingStrategy;
+}
 
 // @alpha (undocumented)
 export interface ProvenanceInitArgs {
@@ -439,12 +476,38 @@ export interface ProvenanceInitResult {
     targetScopeElementId: Id64String;
 }
 
+// @beta
+export interface ReadonlySchemaAccessor {
+    getSchema(schemaName: string): Promise<Schema | undefined>;
+}
+
 // @beta (undocumented)
 export interface RelationshipPropsForDelete {
     // (undocumented)
     classFullName: string;
     // (undocumented)
     id: Id64String;
+}
+
+// @beta
+export interface SchemaProcessingContext {
+    readonly shouldExportSchema: (schemaKey: SchemaKey) => Promise<boolean>;
+    readonly sourceSchemas: readonly Schema[];
+    readonly targetSchemas: ReadonlySchemaAccessor;
+}
+
+// @beta
+export type SchemaProcessingResult = {
+    kind: "source";
+    schema: Schema;
+} | {
+    kind: "generated";
+    schema: Schema;
+};
+
+// @beta
+export interface SchemaProcessingStrategy {
+    processSchemas(context: SchemaProcessingContext): Promise<SchemaProcessingResult[]>;
 }
 
 // @beta
