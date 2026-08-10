@@ -11,6 +11,7 @@ on:
         options:
           - incremental-synchronization
           - changeset-scanning
+          - schema-processing
       scenario_override:
         description: Optional scenario id override for feature branches
         required: false
