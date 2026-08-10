@@ -24,6 +24,7 @@ import { ExternalSourceAspect } from '@itwin/core-backend';
 import { ExternalSourceAspectProps } from '@itwin/core-common';
 import { FontFamilyDescriptor } from '@itwin/core-common';
 import { FontProps } from '@itwin/core-common';
+import { GuidString } from '@itwin/core-bentley';
 import { Helmert2DWithZOffset } from '@itwin/core-common';
 import { Id64Arg } from '@itwin/core-bentley';
 import { Id64Array } from '@itwin/core-bentley';
@@ -166,6 +167,11 @@ export class IModelExporter {
     exportRelationships(baseRelClassFullName: string): Promise<void>;
     exportSchemas(): Promise<void>;
     exportSubModels(parentModelId: Id64String): Promise<void>;
+    // @internal
+    getCachedRelationshipEndpointFederationGuids(relInstanceId: Id64String): {
+        sourceFedGuid?: GuidString;
+        targetFedGuid?: GuidString;
+    } | undefined;
     protected get handler(): IModelExportHandler;
     initialize(options: ExporterInitOptions): Promise<void>;
     progressInterval: number;

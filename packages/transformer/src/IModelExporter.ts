@@ -27,24 +27,29 @@ import {
 } from "@itwin/core-backend";
 import {
   assert,
+  GuidString,
   Id64,
   Id64Arg,
   Id64Set,
   Id64String,
   IModelStatus,
   ITwinError,
+  JsonUtils,
   Logger,
   YieldManager,
 } from "@itwin/core-bentley";
 import {
+  Base64EncodedString,
   ChangesetFileProps,
   CodeSpec,
+  ECJsNames,
   FontFamilyDescriptor,
   FontId,
   FontProps,
   IModel,
   IModelError,
   QueryBinder,
+  RelationshipProps,
 } from "@itwin/core-common";
 import { ECVersion, Schema, SchemaKey } from "@itwin/ecschema-metadata";
 import { TransformerLoggerCategory } from "./TransformerLoggerCategory";
@@ -355,6 +360,15 @@ export class IModelExporter {
   private _excludedElementClasses = new Set<typeof Element>();
   /** The set of classes of Relationships that will be excluded (polymorphically) from transformation to the target iModel. */
   private _excludedRelationshipClasses = new Set<typeof Relationship>();
+
+  /** Endpoint FederationGuids of the relationship currently being exported by the bulk
+   * [[exportRelationships]] path, captured from the same query that hydrates the relationship.
+   */
+  private _cachedRelationshipEndpointFederationGuids?: {
+    relInstanceId: Id64String;
+    sourceFedGuid?: GuidString;
+    targetFedGuid?: GuidString;
+  };
 
   /** Exports ElementAspects for accepted owner groups. */
   private _elementAspectExportProcessor: ElementAspectExportProcessor;
@@ -1424,18 +1438,99 @@ export class IModelExporter {
       loggerCategory,
       `exportRelationships(${baseRelClassFullName})`
     );
-    const sql = `SELECT r.ECInstanceId, ec_className(r.ECClassId, 's.c') as className FROM ${baseRelClassFullName} r
+    const sql = `SELECT r.$, r.ECInstanceId, s.FederationGuid, t.FederationGuid FROM ${baseRelClassFullName} r
                   JOIN bis.Element s ON s.ECInstanceId = r.SourceECInstanceId
                   JOIN bis.Element t ON t.ECInstanceId = r.TargetECInstanceId
-                  WHERE s.ECInstanceId IS NOT NULL AND t.ECInstanceId IS NOT NULL`;
-    for await (const row of this.sourceDb.createQueryReader(sql, undefined, {
-      usePrimaryConn: true,
-    })) {
-      const relationshipId = row.id;
-      const relationshipClass = row.className;
-      await this.exportRelationship(relationshipClass, relationshipId); // must call exportRelationship using the actual classFullName, not baseRelClassFullName
-      await this._yieldManager.allowYield();
+                  WHERE s.ECInstanceId IS NOT NULL AND t.ECInstanceId IS NOT NULL
+                  OPTIONS USE_JS_PROP_NAMES DO_NOT_TRUNCATE_BLOB`;
+    try {
+      for await (const row of this.sourceDb.createQueryReader(sql, undefined, {
+        usePrimaryConn: true,
+      })) {
+        const relInstanceId: Id64String = row[1];
+        const changesetFilter =
+          this.checkRelationshipChangesetFilter(relInstanceId);
+        if (changesetFilter.skip) {
+          await this._yieldManager.allowYield();
+          continue;
+        }
+        const relationship = this.sourceDb.constructEntity<Relationship>(
+          this.getRelationshipProps(row[0])
+        );
+        this._cachedRelationshipEndpointFederationGuids = {
+          relInstanceId,
+          sourceFedGuid: row[2] ?? undefined,
+          targetFedGuid: row[3] ?? undefined,
+        };
+        await this.exportRelationshipInstance(
+          relationship,
+          changesetFilter.isUpdate
+        );
+        await this._yieldManager.allowYield();
+      }
+    } finally {
+      this._cachedRelationshipEndpointFederationGuids = undefined;
     }
+  }
+
+  /** Returns the endpoint FederationGuids of the relationship currently being exported by
+   * [[exportRelationships]], or `undefined` when the relationship was not hydrated by the bulk
+   * export query (e.g. a direct [[exportRelationship]] call).
+   * @note A returned entry may hold `undefined` guids when an endpoint element has no FederationGuid.
+   * @internal
+   */
+  public getCachedRelationshipEndpointFederationGuids(
+    relInstanceId: Id64String
+  ): { sourceFedGuid?: GuidString; targetFedGuid?: GuidString } | undefined {
+    const cached = this._cachedRelationshipEndpointFederationGuids;
+    return cached?.relInstanceId === relInstanceId ? cached : undefined;
+  }
+
+  /** Applies the changeset filter (when exporting changes) to a relationship instance id.
+   * @returns whether to skip the relationship, and whether the export is an update.
+   */
+  private checkRelationshipChangesetFilter(relInstanceId: Id64String): {
+    skip: boolean;
+    isUpdate: boolean | undefined;
+  } {
+    if (undefined === this._sourceDbChanges)
+      return { skip: false, isUpdate: undefined };
+    if (this._sourceDbChanges.relationship.insertIds.has(relInstanceId))
+      return { skip: false, isUpdate: false };
+    if (this._sourceDbChanges.relationship.updateIds.has(relInstanceId))
+      return { skip: false, isUpdate: true };
+    return { skip: true, isUpdate: undefined }; // not in changeset, don't export
+  }
+
+  /** Converts a raw `$` instance-access row into [RelationshipProps]($common). */
+  private getRelationshipProps(rawInstance: unknown): RelationshipProps {
+    const parsedRow: unknown =
+      typeof rawInstance === "string"
+        ? JSON.parse(rawInstance, Base64EncodedString.reviver)
+        : rawInstance;
+    if (!JsonUtils.isObject(parsedRow))
+      throw new Error(
+        "Expected a Relationship instance query to return an object"
+      );
+
+    const row: Record<string, unknown> = {};
+    for (const [key, value] of Object.entries(parsedRow)) {
+      const ecPropertyName =
+        key.length === 0 ? key : key[0].toUpperCase() + key.substring(1);
+      row[ECJsNames.toJsName(ecPropertyName)] = value;
+    }
+
+    const className = row.className;
+    if (typeof className !== "string")
+      throw new Error(
+        "Expected a Relationship instance query to return a className"
+      );
+
+    row.classFullName = className.replace(".", ":");
+    delete row.className;
+    delete row.sourceClassName;
+    delete row.targetClassName;
+    return row as unknown as RelationshipProps;
   }
 
   /** Export a relationship from the source iModel. */
@@ -1450,27 +1545,28 @@ export class IModelExporter {
       );
       return;
     }
-    let isUpdate: boolean | undefined;
-    if (undefined !== this._sourceDbChanges) {
-      // is changeset information available?
-      if (this._sourceDbChanges.relationship.insertIds.has(relInstanceId)) {
-        isUpdate = false;
-      } else if (
-        this._sourceDbChanges.relationship.updateIds.has(relInstanceId)
-      ) {
-        isUpdate = true;
-      } else {
-        return; // not in changeset, don't export
-      }
-    }
-    // passed changeset test, now apply standard exclusion rules
-    Logger.logTrace(
-      loggerCategory,
-      `exportRelationship(${relClassFullName}, ${relInstanceId})`
-    );
+    const changesetFilter =
+      this.checkRelationshipChangesetFilter(relInstanceId);
+    if (changesetFilter.skip) return;
     const relationship: Relationship = this.sourceDb.relationships.getInstance(
       relClassFullName,
       relInstanceId
+    );
+    return this.exportRelationshipInstance(
+      relationship,
+      changesetFilter.isUpdate
+    );
+  }
+
+  /** Applies exclusion rules and handler callbacks to an already-hydrated relationship instance. */
+  private async exportRelationshipInstance(
+    relationship: Relationship,
+    isUpdate: boolean | undefined
+  ): Promise<void> {
+    // passed changeset test, now apply standard exclusion rules
+    Logger.logTrace(
+      loggerCategory,
+      `exportRelationship(${relationship.classFullName}, ${relationship.id})`
     );
     for (const excludedRelationshipClass of this._excludedRelationshipClasses) {
       if (relationship instanceof excludedRelationshipClass) {

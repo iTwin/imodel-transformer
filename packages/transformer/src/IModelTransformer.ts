@@ -1755,12 +1755,21 @@ export class IModelTransformer extends IModelExportHandler {
   public override async onExportRelationship(
     sourceRelationship: Relationship
   ): Promise<void> {
-    const sourceFedGuid = this.sourceDb.elements.getFederationGuidFromId(
-      sourceRelationship.sourceId
-    );
-    const targetFedGuid = this.sourceDb.elements.getFederationGuidFromId(
-      sourceRelationship.targetId
-    );
+    // prefer endpoint FederationGuids captured by the exporter's bulk query over per-relationship lookups
+    const cachedFedGuids =
+      this.exporter.getCachedRelationshipEndpointFederationGuids(
+        sourceRelationship.id
+      );
+    const sourceFedGuid = cachedFedGuids
+      ? cachedFedGuids.sourceFedGuid
+      : this.sourceDb.elements.getFederationGuidFromId(
+          sourceRelationship.sourceId
+        );
+    const targetFedGuid = cachedFedGuids
+      ? cachedFedGuids.targetFedGuid
+      : this.sourceDb.elements.getFederationGuidFromId(
+          sourceRelationship.targetId
+        );
 
     const targetRelationshipProps =
       this.onTransformRelationship(sourceRelationship);
@@ -1784,7 +1793,11 @@ export class IModelTransformer extends IModelExportHandler {
           await this._provenanceManager.initRelationshipProvenance(
             sourceRelationship.id,
             targetRelationshipInstanceId,
-            this._forceOldRelationshipProvenanceMethod
+            this._forceOldRelationshipProvenanceMethod,
+            {
+              sourceRelSourceElementId: sourceRelationship.sourceId,
+              targetRelSourceElementId: targetRelationshipProps.sourceId,
+            }
           );
         const foundEsaProps =
           await ProvenanceManager.queryScopeExternalSourceAspect(
