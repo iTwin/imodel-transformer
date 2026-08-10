@@ -6,9 +6,8 @@
     "outDir": "lib",
     "rootDir": "src",
     "esModuleInterop": true,
-    "module": "Node16",
-    "moduleResolution": "Node16",
-    "resolvePackageJsonExports": false,
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
     "types": ["node"]
   },
   "include": ["./src/**/*.ts"]
