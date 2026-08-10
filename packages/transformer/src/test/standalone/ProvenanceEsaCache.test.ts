@@ -16,7 +16,12 @@ import {
   withEditTxn,
 } from "@itwin/core-backend";
 import { Id64String } from "@itwin/core-bentley";
-import { Code, ExternalSourceAspectProps, IModel } from "@itwin/core-common";
+import {
+  Code,
+  ExternalSourceAspectProps,
+  IModel,
+  PhysicalElementProps,
+} from "@itwin/core-common";
 import { IModelTransformer } from "../../imodel-transformer";
 import { ProvenanceManager } from "../../ProvenanceManager";
 import type { SyncType, SyncTypeResolver } from "../../SyncTypeResolver";
@@ -47,8 +52,8 @@ describe("ProvenanceManager scope ESA cache", () => {
     identifier: string,
     version?: string
   ): Id64String {
-    return withEditTxn(db, "insert test esa", (txn) =>
-      txn.insertAspect({
+    return withEditTxn(db, "insert test esa", (txn) => {
+      const aspectProps: ExternalSourceAspectProps = {
         classFullName: ExternalSourceAspect.classFullName,
         element: {
           id: IModel.rootSubjectId,
@@ -58,8 +63,9 @@ describe("ProvenanceManager scope ESA cache", () => {
         identifier,
         kind: ExternalSourceAspect.Kind.Element,
         version,
-      })
-    );
+      };
+      return txn.insertAspect(aspectProps);
+    });
   }
 
   function makeManager(args: {
@@ -97,15 +103,16 @@ describe("ProvenanceManager scope ESA cache", () => {
         IModel.rootSubjectId,
         "EsaCachePhysical"
       );
-      const objIds = [1, 2, 3].map((x) =>
-        txn.insertElement({
+      const objIds = [1, 2, 3].map((x) => {
+        const physicalObjectProps: PhysicalElementProps = {
           classFullName: PhysicalObject.classFullName,
           model: modelId,
           category: categoryId,
           code: Code.createEmpty(),
           userLabel: `PhysicalObject(${x})`,
-        })
-      );
+        };
+        return txn.insertElement(physicalObjectProps);
+      });
       txn.insertRelationship({
         classFullName: ElementGroupsMembers.classFullName,
         sourceId: objIds[0],
