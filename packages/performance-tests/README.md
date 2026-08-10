@@ -66,6 +66,10 @@ The `standalone-full-transformation` scenario uses
 source copy and a newly-created empty target. Untimed `prepare()` imports
 schemas, `measure()` contains only `IModelTransformer.process()`, and
 `finish()` computes the target output-shape digest used for A/B comparability.
+Two configured fixtures support it: `standalone-full-transform` (element-heavy,
+no relationships) and `relationship-heavy-transform` (5,000 elements with
+30,000 `ElementGroupsMembers` relationships, exercising the relationship export
+path including federation-guid lookups).
 
 ## Running the quick suite
 
