@@ -65,7 +65,7 @@ jobs:
       - name: Install pnpm
         uses: pnpm/action-setup@0e279bb959325dab635dd2c09392533439d90093
         with:
-          version: 11.9.0
+          package_json_file: candidate/package.json
 
       - name: Use Node.js 24
         uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e
