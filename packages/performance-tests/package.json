@@ -7,7 +7,6 @@
     "build": "tsc --noEmit --incremental false 1>&2",
     "build:quick-cli": "rimraf test/quick/runtime/.compiled && tsc -p tsconfig.quick-cli.json 1>&2",
     "clean": "rimraf lib test/quick/runtime/.compiled",
-    "prelint": "pnpm --dir ../transformer build:cjs",
     "lint": "eslint \"./test/**/*.ts\" 1>&2",
     "test": "vitest run",
     "format": "prettier \"./test/**/*.ts\" --write",
