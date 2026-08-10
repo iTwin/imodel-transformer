@@ -29,8 +29,6 @@
     "@itwin/imodels-client-management": "^6.0.2",
     "@itwin/node-cli-authorization": "^3.0.1",
     "@itwin/object-storage-azure": "^3.0.4",
-    "dotenv": "^10.0.0",
-    "dotenv-expand": "^5.1.0",
     "fs-extra": "^8.1.0",
     "yargs": "^17.7.2"
   },

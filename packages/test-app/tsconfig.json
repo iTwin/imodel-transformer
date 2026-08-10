@@ -5,9 +5,9 @@
     "outDir": "./lib",
     "rootDir": "./src",
     "esModuleInterop": true,
-    "module": "CommonJS",
-    "moduleResolution": "Bundler",
-    "resolvePackageJsonExports": false,
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "resolvePackageJsonExports": true,
     "types": ["node", "mocha"]
   },
   "include": ["./src/**/*.ts"]
