@@ -5,9 +5,8 @@
     "resolveJsonModule": true,
     "rootDir": ".",
     "esModuleInterop": true,
-    "module": "Node16",
-    "moduleResolution": "Node16",
-    "resolvePackageJsonExports": false,
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
     "types": ["node"]
   },
   "include": ["**/*.ts"]
