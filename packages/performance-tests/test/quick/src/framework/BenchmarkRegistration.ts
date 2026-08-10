@@ -30,6 +30,10 @@ export function defineBenchmark(
               ...registration.scenario.capabilities.requiredClaims,
             ]),
     }),
+    configuration:
+      registration.scenario.configuration === undefined
+        ? undefined
+        : Object.freeze({ ...registration.scenario.configuration }),
   });
   return Object.freeze({
     ...registration,

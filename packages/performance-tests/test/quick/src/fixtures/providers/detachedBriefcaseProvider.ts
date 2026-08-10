@@ -30,6 +30,7 @@ import {
   requireFixtureArtifact,
 } from "../FixtureProvider.js";
 import { ConfiguredFixture } from "../FixtureRecipe.js";
+import { deriveIModelInventory } from "../IModelInventory.js";
 import {
   ReconstructedSourceHub,
   reconstructSourceHub,
@@ -118,6 +119,7 @@ export const detachedBriefcaseFixtureProvider: FixtureProvider = {
         recipeState
       );
       await fixture.validate?.(hub.sourceDb);
+      const semanticInventory = await deriveIModelInventory(hub.sourceDb);
 
       fs.mkdirSync(scratchDir, { recursive: true });
       const downloaded = await BriefcaseManager.downloadChangesets({
@@ -168,10 +170,12 @@ export const detachedBriefcaseFixtureProvider: FixtureProvider = {
       const buildMilliseconds =
         Number(process.hrtime.bigint() - start) / 1_000_000;
       const indices = downloaded.map((changeset) => changeset.index);
+      const byteLength = fs.statSync(destination).size;
       const manifest: FixtureArtifactManifest = {
         artifactVersion: fixtureArtifactVersion,
         contentHash: fixtureArtifactContentHash(artifactDir),
         descriptor,
+        iModelInventory: { ...semanticInventory, byteLength },
         briefcase: {
           fileName: artifactBriefcaseFileName,
           briefcaseId,
@@ -179,7 +183,7 @@ export const detachedBriefcaseFixtureProvider: FixtureProvider = {
             id: briefcaseChangeset.id,
             index: briefcaseChangeset.index,
           },
-          byteLength: fs.statSync(destination).size,
+          byteLength,
         },
         changesets: {
           directory: artifactChangesetDirectoryName,

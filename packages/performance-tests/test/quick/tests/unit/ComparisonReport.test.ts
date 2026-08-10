@@ -56,8 +56,18 @@ describe("A/B comparison reporting", () => {
   it("calculates the candidate percentage delta from arm medians", () => {
     expect(percentageDelta(100, 110)).to.equal(10);
     const summary = createComparisonSummary(input());
-    expect(summary.baseline.medianMilliseconds).to.equal(100);
-    expect(summary.candidate.medianMilliseconds).to.equal(110);
+    expect(summary.baseline).to.include({
+      medianMilliseconds: 100,
+      p90Milliseconds: 108,
+      minimumMilliseconds: 90,
+      maximumMilliseconds: 110,
+    });
+    expect(summary.candidate).to.include({
+      medianMilliseconds: 110,
+      p90Milliseconds: 118.8,
+      minimumMilliseconds: 99,
+      maximumMilliseconds: 121,
+    });
     expect(summary.percentageDelta).to.be.closeTo(10, 0.000_001);
     expect(summary.informationalStatus).to.equal(
       "candidate-slower-than-threshold"
@@ -116,10 +126,45 @@ describe("A/B comparison reporting", () => {
     });
     expect(markdown).to.contain("Informational only");
     expect(markdown).to.contain("does not establish statistical confidence");
+    expect(markdown).to.contain("## Run configuration");
     expect(markdown).to.contain(
-      "Prepared target: baseline `base-sha` with transformer `0.6.0`"
+      "| Scenario | Mode | Fixture | Source iModel scale | Samples |"
     );
+    expect(markdown).to.contain("1.00 MiB · 10 schemas · 100 classes");
+    expect(markdown).to.contain("3 + 1 warm-up/arm");
+    expect(markdown).to.contain(
+      "Prepared target: baseline <code>base-sha</code> with transformer <code>0.6.0</code>."
+    );
+    expect(markdown).to.contain("## Result");
+    expect(markdown).to.contain(
+      "How to interpret <code>candidate-slower-than-threshold</code>"
+    );
+    expect(markdown).to.contain("Where are the individual measurements?");
+    expect(markdown).not.to.contain("90.00 ms, 100.00 ms, 110.00 ms");
     expect(records).to.have.length(8);
+  });
+
+  it("escapes scenario configuration in Markdown tables", () => {
+    const outputDir = fs.mkdtempSync(
+      path.join(os.tmpdir(), "quick-ab-report-escaped-")
+    );
+    temporaryDirectories.push(outputDir);
+    const escaped = input();
+    escaped.baseline.samples = escaped.baseline.samples.map((sample) => ({
+      ...sample,
+      scenarioConfiguration: { mode: "scan|next\nline" },
+    }));
+    escaped.candidate.samples = escaped.candidate.samples.map((sample) => ({
+      ...sample,
+      scenarioConfiguration: { mode: "scan|next\nline" },
+    }));
+
+    ComparisonReporter.write(outputDir, escaped);
+    const markdown = fs.readFileSync(
+      path.join(outputDir, "comparison.md"),
+      "utf8"
+    );
+    expect(markdown).to.contain("<code>scan&#124;next line</code>");
   });
 
   it("rejects configuration and semantic mismatches", () => {
@@ -128,6 +173,17 @@ describe("A/B comparison reporting", () => {
       (sample) => ({ ...sample, fixtureRecipeHash: "different-recipe" })
     );
     expect(() => createComparisonSummary(mismatchedFixture)).to.throw(
+      /identical scenario and configured fixture/
+    );
+
+    const mismatchedConfiguration = input();
+    mismatchedConfiguration.candidate.samples = armSamples([99, 110, 121]).map(
+      (sample) => ({
+        ...sample,
+        scenarioConfiguration: { mode: "different" },
+      })
+    );
+    expect(() => createComparisonSummary(mismatchedConfiguration)).to.throw(
       /identical scenario and configured fixture/
     );
 

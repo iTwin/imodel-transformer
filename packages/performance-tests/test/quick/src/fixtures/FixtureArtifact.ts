@@ -12,6 +12,7 @@ import {
   FixtureDescriptor,
   validateFixtureDescriptor,
 } from "./FixtureDescriptor.js";
+import { IModelInventory, isIModelInventory } from "./IModelInventory.js";
 
 /**
  * Version of the on-disk artifact layout. Bump when the directory contract changes in a way that
@@ -73,6 +74,8 @@ export interface FixtureArtifactManifest {
   /** SHA-256 identity of every immutable workload file in the artifact. */
   readonly contentHash: string;
   readonly descriptor: FixtureDescriptor;
+  /** Scale derived from the captured source iModel, outside the measured region. */
+  readonly iModelInventory?: IModelInventory;
   readonly briefcase: FixtureArtifactBriefcaseManifest;
   readonly changesets: FixtureArtifactChangesetManifest;
   /** Present when the artifact restores a live source and target hub for incremental sync. */
@@ -364,6 +367,8 @@ export function validateFixtureArtifactManifest(
   if (
     typeof manifest.contentHash !== "string" ||
     !/^[a-f0-9]{64}$/.test(manifest.contentHash) ||
+    (manifest.iModelInventory !== undefined &&
+      !isIModelInventory(manifest.iModelInventory)) ||
     !validateBriefcaseManifest(manifest.briefcase) ||
     !validateChangesetManifest(manifest.changesets) ||
     typeof manifest.buildMilliseconds !== "number" ||
@@ -433,6 +438,7 @@ export function readFixtureArtifact(directory: string): FixtureArtifact {
       throw new Error(
         `Fixture artifact ${label} is ${byteLength} bytes but its manifest declares ${briefcaseManifest.byteLength}`
       );
+    return byteLength;
   };
   const validateChangesets = (
     changesetManifest: FixtureArtifactChangesetManifest,
@@ -447,7 +453,17 @@ export function readFixtureArtifact(directory: string): FixtureArtifact {
         `Fixture artifact has ${changesets.length} ${label} but its manifest declares ${changesetManifest.count}`
       );
   };
-  validateBriefcase(manifest.briefcase, "source briefcase");
+  const sourceByteLength = validateBriefcase(
+    manifest.briefcase,
+    "source briefcase"
+  );
+  if (
+    manifest.iModelInventory !== undefined &&
+    sourceByteLength !== manifest.iModelInventory.byteLength
+  )
+    throw new Error(
+      `Fixture artifact source briefcase is ${sourceByteLength} bytes but its inventory declares ${manifest.iModelInventory.byteLength}`
+    );
   validateChangesets(manifest.changesets, "source changesets");
   if (manifest.liveHub) {
     validateBriefcase(manifest.liveHub.target.briefcase, "target briefcase");

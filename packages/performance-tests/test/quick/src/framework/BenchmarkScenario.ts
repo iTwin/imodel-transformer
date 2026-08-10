@@ -14,6 +14,8 @@ export interface BenchmarkScenario {
   prepare?(): Promise<void>;
 }
 
+export type ScenarioConfiguration = Readonly<Record<string, string>>;
+
 export type BenchmarkScenarioFactory = (
   dataset: PreparedDataset
 ) => BenchmarkScenario;
@@ -33,6 +35,8 @@ export interface BenchmarkScenarioDefinition {
   readonly id: string;
   readonly defaultFixtureId: string;
   readonly capabilities: BenchmarkScenarioCapabilities;
+  /** Opaque, scenario-owned configuration recorded with every sample. */
+  readonly configuration?: ScenarioConfiguration;
   readonly factory: BenchmarkScenarioFactory;
   /** Wall-clock budget for the whole run, in milliseconds. */
   readonly budgetMilliseconds?: number;
