@@ -10,6 +10,14 @@ import {
   PreparedDataset,
   requireStandaloneDataset,
 } from "../fixtures/FixtureProvider.js";
+import {
+  largeMixedHierarchyFullTransformFixture,
+  mixedHierarchyFullTransformFixture,
+} from "../fixtures/recipes/mixedHierarchyFullTransform.js";
+import {
+  largeMixedHierarchyFullTransformFixture,
+  mixedHierarchyFullTransformFixture,
+} from "../fixtures/recipes/mixedHierarchyFullTransform.js";
 import { standaloneFullTransformFixture } from "../fixtures/recipes/standaloneFullTransform.js";
 import { relationshipHeavyTransformFixture } from "../fixtures/recipes/relationshipHeavyTransform.js";
 import { defineBenchmark } from "../framework/BenchmarkRegistration.js";
@@ -114,5 +122,10 @@ export const standaloneFullTransformationScenario: BenchmarkScenarioDefinition =
 
 export const standaloneFullTransformationBenchmark = defineBenchmark({
   scenario: standaloneFullTransformationScenario,
-  fixtures: [standaloneFullTransformFixture, relationshipHeavyTransformFixture],
+  fixtures: [
+    standaloneFullTransformFixture,
+    relationshipHeavyTransformFixture,
+    mixedHierarchyFullTransformFixture,
+    largeMixedHierarchyFullTransformFixture,
+  ],
 });
