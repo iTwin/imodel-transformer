@@ -32,7 +32,7 @@ describe("quick performance scenario catalog", () => {
 
   it("rejects unknown scenarios", () => {
     expect(() => getScenarioDefinition("not-a-scenario")).to.throw(
-      'Unknown quick performance scenario "not-a-scenario". Available scenarios: incremental-synchronization, changeset-scanning, schema-processing, standalone-full-transformation'
+      'Unknown quick performance scenario "not-a-scenario". Available scenarios: incremental-synchronization, changeset-scanning, schema-processing, standalone-full-transformation, export-only-hierarchy-traversal, export-only-linear-traversal'
     );
   });
 
