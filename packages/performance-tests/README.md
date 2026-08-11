@@ -53,6 +53,13 @@ That provider supplies source and target `BriefcaseDb`s backed by a running
 `HubMock`. The timed operation is `IModelTransformer.process()` configured to
 process source changes into the existing target.
 
+The `large-base-incremental-synchronization` scenario measures the same
+operation against the `large-base-incremental` fixture: 50,000 unchanged base
+elements in one flat model with a 50-element delta (25 inserts, 25 updates)
+across 2 changesets. Incremental synchronization should scale with changeset
+size, so the extreme base/delta ratio exposes any cost proportional to the
+unchanged base that `balanced-incremental`'s proportional churn dilutes.
+
 The package also contains a `source-only` fixture backed by
 `detachedBriefcaseProvider`. It supplies a read-only source `BriefcaseDb` and
 local changeset files without a running Hub during scenario execution. No

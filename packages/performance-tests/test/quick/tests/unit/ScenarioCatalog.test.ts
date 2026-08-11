@@ -32,7 +32,7 @@ describe("quick performance scenario catalog", () => {
 
   it("rejects unknown scenarios", () => {
     expect(() => getScenarioDefinition("not-a-scenario")).to.throw(
-      'Unknown quick performance scenario "not-a-scenario". Available scenarios: incremental-synchronization, changeset-scanning, schema-processing, standalone-full-transformation'
+      'Unknown quick performance scenario "not-a-scenario". Available scenarios: incremental-synchronization, large-base-incremental-synchronization, changeset-scanning, schema-processing, standalone-full-transformation'
     );
   });
 
@@ -43,6 +43,26 @@ describe("quick performance scenario catalog", () => {
     );
     expect(resolved.descriptor.layout.topology).to.equal("source-only");
     expect(resolved.descriptor.scenarioClaims).to.include("schema processing");
+  });
+
+  it("registers the large-base incremental scenario and its fixture", () => {
+    const resolved = resolveBenchmarkRun(
+      "large-base-incremental-synchronization"
+    );
+    expect(resolved.scenario.defaultFixtureId).to.equal(
+      "large-base-incremental"
+    );
+    expect(resolved.descriptor.layout.topology).to.equal(
+      "source-and-empty-target"
+    );
+    expect(resolved.descriptor.scenarioClaims).to.include(
+      "large-base incremental synchronization"
+    );
+    // the point of the fixture is the base/delta ratio; pin it against dilution
+    const { base, operations } = resolved.descriptor.distribution;
+    const changed = operations.elements.inserts + operations.elements.updates;
+    expect(changed).to.be.greaterThan(0);
+    expect(base.elements / changed).to.be.greaterThanOrEqual(500);
   });
 
   it("validates every registered benchmark and configured fixture", () => {
