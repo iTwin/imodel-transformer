@@ -299,7 +299,7 @@ export async function applyBalancedChangesets(
                 }
               : props.placement,
             userLabel: `updated-${index}`,
-          } as PhysicalElementProps);
+          });
           const aspect = db.elements.getAspects(ownerId, multiAspectClass)[0];
           txn.updateAspect({
             ...aspect.toJSON(),
