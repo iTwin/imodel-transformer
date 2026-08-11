@@ -1,5 +1,18 @@
 # Next release notes
 
+## Experimental: overlap source reads with target writes
+
+A new opt-in `@alpha` transform option, `experimentalSourceElementPrefetch`, prefetches source element props in a background child process during full transformations (`process()` without `argsForProcessChanges`), so synchronous source-db reads overlap target-db writes instead of alternating with them ([#9](https://github.com/iTwin/imodel-transformer/issues/9)).
+
+```ts
+const transformer = new IModelTransformer(
+  { source: sourceDb, target: editTxn },
+  { experimentalSourceElementPrefetch: true } // or SourceElementPrefetchOptions
+);
+```
+
+Memory use is bounded by credit-based flow control regardless of iModel size. The prefetch cache is speculative: a miss falls back to the ordinary synchronous read, so results are identical with the option on or off. The option is ignored (with an info log) when the source iModel is not a local snapshot/standalone file, and during change processing. Pass a `SourceElementPrefetchOptions` object instead of `true` to tune `batchSize`, `maxPendingBatches`, or `maxCacheEntries`.
+
 ## Schema-processing strategies
 
 `IModelTransformer.processSchemas()` now accepts a `SchemaProcessingStrategy`. Calls without options use `NewerVersionSchemaImportStrategy`, which preserves the existing newer-version selection and schema hooks. `DynamicSchemaUnionStrategy`, imported from `@itwin/imodel-transformer/schema-processing`, is available for iModels that may contain different compatible additions to the same schema marked with `CoreCustomAttributes.DynamicSchema`. See [Schema processing in a transformation](../learning/transformer/schema-processing.md) for strategy selection, compatibility rules, extension points, and failure handling.
