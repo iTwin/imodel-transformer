@@ -338,6 +338,19 @@ schemas, and unsupported encrypted/native formats are rejected. Absolute paths
 are intentionally excluded from identity and reports, so a completed artifact
 is relocatable. Inputs inside benchmark-managed output or artifact directories
 are rejected before cleanup so the harness can never delete the user's original.
+
+The `prefetch-full-transformation` registration reuses this whole lifecycle
+through the shared `createStandaloneFullTransformation` factory, adding only
+`experimentalSourceElementPrefetch: true` to the transformer options. Its
+default fixture is `standalone-full-transform-50k`: the same recipe configured
+for 50,000 elements, so the prefetch child process's fixed boot cost (which is
+inside the timed `measure()`, since the transformer starts the child within
+`process()`) amortizes enough for overlap gains to be visible. The transformer
+stops the child when `process()` settles and again on `dispose()`, which the
+scenario's `abort()` invokes, so the harness does not leak or hang on the child
+process. Running the baseline scenario with
+`QUICK_PERF_FIXTURE=standalone-full-transform-50k` yields the matching arm; the
+two scenarios produce identical output-shape digests.
 `QUICK_PERF_STANDALONE_BIM` itself must be absolute so the coordinator and
 isolated A/B workers cannot resolve it against different checkout directories.
 

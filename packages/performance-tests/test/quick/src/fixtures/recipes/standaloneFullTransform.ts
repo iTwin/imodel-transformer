@@ -166,3 +166,21 @@ export const standaloneFullTransformFixture = configureFixture(
 
 export const standaloneFullTransformDescriptor =
   standaloneFullTransformFixture.descriptor;
+
+/**
+ * A 50,000-element variant of the same recipe. Large enough to amortize per-run fixed costs such
+ * as the experimental source-element prefetcher's child-process boot (~4s), so overlap gains show
+ * a clear signal; the default 10,000-element fixture mostly measures that fixed cost instead.
+ */
+export const standaloneFullTransform50kFixture = configureFixture(
+  standaloneFullTransformRecipe,
+  {
+    id: "standalone-full-transform-50k",
+    version: 1,
+    label: "standalone full transformation (50k elements)",
+    scenarioClaims: ["full transformation"],
+    topology: "standalone-source-and-empty-target",
+    seed: 104729,
+    parameters: { elementCount: 50000 },
+  }
+);
