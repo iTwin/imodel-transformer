@@ -27,6 +27,7 @@ import {
 } from "@itwin/core-backend";
 import {
   assert,
+  DbResult,
   Id64,
   Id64Arg,
   Id64Set,
@@ -59,12 +60,18 @@ import { ChangesetScanner } from "./ChangesetScanner";
 
 const loggerCategory = TransformerLoggerCategory.IModelExporter;
 
-interface AspectElementFact {
+/** The minimal facts needed to evaluate the exporter's built-in element exclusion rules
+ * without loading the full element.
+ */
+interface ElementFilterFact {
   id: Id64String;
-  parentId?: Id64String;
-  modelId: Id64String;
   classFullName: string;
   categoryId?: Id64String;
+}
+
+interface AspectElementFact extends ElementFilterFact {
+  parentId?: Id64String;
+  modelId: Id64String;
 }
 
 interface AspectModelFact {
@@ -1023,6 +1030,19 @@ export class IModelExporter {
       return this.exportChildElements(elementId);
     }
 
+    // Cheaply reject elements excluded by class or category rules before paying for a full
+    // element load (which includes geometry when wantGeometry=true).
+    if (this.canPreFilterElementLoad()) {
+      const filterFact = this.queryElementFilterFact(elementId);
+      if (
+        filterFact !== undefined &&
+        !this.shouldExportElementFact(filterFact)
+      ) {
+        await this.handler.onSkipElement(elementId);
+        return;
+      }
+    }
+
     const element = this.sourceDb.elements.getElement({
       id: elementId,
       wantGeometry: this.wantGeometry,
@@ -1216,7 +1236,56 @@ export class IModelExporter {
     return this.shouldExportElement(element);
   }
 
-  private shouldExportElementFact(elementFact: AspectElementFact): boolean {
+  /** Returns true when built-in class or category element exclusion rules are active. */
+  private get _hasBuiltInElementExclusions(): boolean {
+    return (
+      this._excludedElementCategoryIds.size > 0 ||
+      this._excludedElementClasses.size > 0 ||
+      !this.wantTemplateModels
+    );
+  }
+
+  /** Returns true when [[exportElementImpl]] may evaluate built-in exclusion rules from a
+   * lightweight query before paying for a full element load. Subclasses that override
+   * [[shouldExportElement]] may replace built-in rule semantics, so the pre-filter is
+   * skipped for them.
+   */
+  private canPreFilterElementLoad(): boolean {
+    return (
+      this.shouldExportElement ===
+        IModelExporter.prototype.shouldExportElement &&
+      this._hasBuiltInElementExclusions
+    );
+  }
+
+  /** Query the facts needed by [[shouldExportElementFact]] for one element. Returns undefined
+   * when the element does not exist so the subsequent full load produces the standard error.
+   */
+  private queryElementFilterFact(
+    elementId: Id64String
+  ): ElementFilterFact | undefined {
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
+    return this.sourceDb.withPreparedStatement(
+      `SELECT ec_classname(e.ECClassId) classFullName,
+              COALESCE(g3.Category.Id, g2.Category.Id) categoryId
+       FROM bis.Element e
+       LEFT JOIN bis.GeometricElement3d g3 ON g3.ECInstanceId = e.ECInstanceId
+       LEFT JOIN bis.GeometricElement2d g2 ON g2.ECInstanceId = e.ECInstanceId
+       WHERE e.ECInstanceId = ?`,
+      (statement) => {
+        statement.bindId(1, elementId);
+        if (statement.step() !== DbResult.BE_SQLITE_ROW) return undefined;
+        const categoryValue = statement.getValue(1);
+        return {
+          id: elementId,
+          classFullName: statement.getValue(0).getString(),
+          categoryId: categoryValue.isNull ? undefined : categoryValue.getId(),
+        };
+      }
+    );
+  }
+
+  private shouldExportElementFact(elementFact: ElementFilterFact): boolean {
     if (this._excludedElementIds.has(elementFact.id)) {
       Logger.logInfo(
         loggerCategory,

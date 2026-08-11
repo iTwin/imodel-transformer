@@ -67,6 +67,12 @@ source copy and a newly-created empty target. Untimed `prepare()` imports
 schemas, `measure()` contains only `IModelTransformer.process()`, and
 `finish()` computes the target output-shape digest used for A/B comparability.
 
+The `filter-heavy-full-transformation` scenario shares that topology and
+lifecycle but configures exporter exclusions in untimed `prepare()` so that
+about half of the source elements are rejected: a quarter by
+`excludeElementsInCategory` and a quarter by `excludeElementClass`. It measures
+the exporter's cost of loading and filtering rejected elements (issue #8).
+
 ## Running the quick suite
 
 Install the workspace dependencies from the repository root:

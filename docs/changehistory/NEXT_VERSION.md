@@ -1,5 +1,9 @@
 # Next release notes
 
+## Faster filter-heavy exports
+
+When built-in element exclusions (`excludeElementsInCategory`, `excludeElementClass`, or `wantTemplateModels = false`) are configured and `IModelExporter.shouldExportElement` is not overridden, the exporter now evaluates class and category exclusion rules from a lightweight query before loading each element. Excluded elements skip the full element load (including geometry when `wantGeometry` is set), which measured 6–24% faster on filter-heavy full transforms depending on geometry size. Handler-observable behavior is unchanged: `shouldExportElement` overrides and `IModelExportHandler.shouldExportElement` still receive fully loaded elements, and `onSkipElement` still fires for every excluded element.
+
 ## Schema-processing strategies
 
 `IModelTransformer.processSchemas()` now accepts a `SchemaProcessingStrategy`. Calls without options use `NewerVersionSchemaImportStrategy`, which preserves the existing newer-version selection and schema hooks. `DynamicSchemaUnionStrategy`, imported from `@itwin/imodel-transformer/schema-processing`, is available for iModels that may contain different compatible additions to the same schema marked with `CoreCustomAttributes.DynamicSchema`. See [Schema processing in a transformation](../learning/transformer/schema-processing.md) for strategy selection, compatibility rules, extension points, and failure handling.

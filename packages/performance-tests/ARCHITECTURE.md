@@ -48,6 +48,10 @@ summarizes target entity counts by class so A/B comparison proceeds only when bo
 arms produced the same structural workload. It does not assert source-to-target
 correctness; detailed transformation correctness remains the responsibility of the
 transformer test suite.
+The `filter-heavy-full-transformation` scenario reuses that standalone lifecycle
+with the `filter-heavy-full-transform` fixture, registering category and class
+exclusions on the exporter during untimed `prepare()` so roughly half the source
+elements are rejected during the measured `process()`.
 
 #### Recipe
 
