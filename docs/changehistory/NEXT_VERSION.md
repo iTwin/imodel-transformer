@@ -2,7 +2,7 @@
 
 ## Set-based element hierarchy traversal in full exports
 
-`IModelExporter` now discovers element hierarchies during full exports (`exportAll()`, `exportModelContents()`, `exportChildElements()`) with a single streamed recursive ECSQL query per traversal root instead of one `queryChildren()` round trip per visited element. Observable behavior is unchanged: root order, sibling order (ECInstanceId ascending), depth-first pre-order, element filtering, subtree suppression, yielding, and every exporter callback fire exactly as before.
+`IModelExporter` now discovers element hierarchies during full exports (`exportAll()`, `exportModelContents()`, `exportChildElements()`) with a single streamed recursive ECSQL query per traversal root instead of one `queryChildren()` round trip per visited element. Observable behavior is unchanged: root order, sibling order (ECInstanceId ascending), depth-first pre-order, element filtering, subtree suppression, yielding, and every exporter callback fires exactly as before.
 
 The per-element traversal path is still used when exporting changes (`exportChanges()`) and when a subclass overrides `exportElement` or `exportChildElements`, so subclass dispatch semantics are preserved.
 
