@@ -1,5 +1,13 @@
 # Next release notes
 
+## Set-based element hierarchy traversal in full exports
+
+`IModelExporter` now discovers element hierarchies during full exports (`exportAll()`, `exportModelContents()`, `exportChildElements()`) with a single streamed recursive ECSQL query per traversal root instead of one `queryChildren()` round trip per visited element. Observable behavior is unchanged: root order, sibling order (ECInstanceId ascending), depth-first pre-order, element filtering, subtree suppression, yielding, and every exporter callback fire exactly as before.
+
+The per-element traversal path is still used when exporting changes (`exportChanges()`) and when a subclass overrides `exportElement` or `exportChildElements`, so subclass dispatch semantics are preserved.
+
+The streamed traversal relies on SQLite's documented recursive-CTE queue behavior — an `ORDER BY` inside the recursive member turns the queue into a priority queue, yielding depth-first pre-order — via ECSQL `WITH RECURSIVE`, which is supported across the package's supported `@itwin/core-backend` range. A regression test pins this dependency.
+
 ## Schema-processing strategies
 
 `IModelTransformer.processSchemas()` now accepts a `SchemaProcessingStrategy`. Calls without options use `NewerVersionSchemaImportStrategy`, which preserves the existing newer-version selection and schema hooks. `DynamicSchemaUnionStrategy`, imported from `@itwin/imodel-transformer/schema-processing`, is available for iModels that may contain different compatible additions to the same schema marked with `CoreCustomAttributes.DynamicSchema`. See [Schema processing in a transformation](../learning/transformer/schema-processing.md) for strategy selection, compatibility rules, extension points, and failure handling.
