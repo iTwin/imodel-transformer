@@ -251,10 +251,7 @@ hash of the complete compiled output. That execution provenance is excluded from
 different transformer builds are the intended independent variable. Before
 reporting, the coordinator requires one baseline-authored artifact content hash,
 identical scenario and fixture identity fields, and one semantic digest across
-both arms. It reports the fixture-authoring baseline revision and transformer
-version, arm medians, measured samples, candidate percentage delta, and an
-explicitly informational threshold status. The threshold is not a confidence
-interval, significance test, or merge gate.
+both arms. It reports the fixture-authoring baseline revision and transformer version, arm medians, measured wall times and peak worker RSS values, candidate percentage delta, and an explicitly informational threshold status. Peak worker RSS comes from each worker's `process.resourceUsage().maxRSS` after the normal sample lifecycle and covers the complete isolated worker lifetime. The threshold applies only to wall time; peak RSS is reported for independent interpretation. The threshold is not a confidence interval, significance test, or merge gate.
 
 ## Current incremental-synchronization run
 
@@ -388,6 +385,7 @@ excluded from aggregate performance statistics.
 | ---------------------------- | ------------------------------------------------------ |
 | `wallMilliseconds`           | Only `BenchmarkScenario.measure()`                     |
 | CPU and RSS delta            | The same measured region                               |
+| `workerPeakRssBytes`         | Complete isolated A/B worker lifetime                 |
 | `fixtureBuildMilliseconds`   | Stage-one provider build, once per job                 |
 | `reconstructionMilliseconds` | Creation or copying of one prepared sample             |
 | `verificationMilliseconds`   | `BenchmarkScenario.finish()`                           |
@@ -419,7 +417,7 @@ Compare reports only when these identity fields match:
 - `fixtureSource` when an external standalone BIM is selected
 - Every `fixtureGenerator` version
 
-The reporter rejects mixed scenario or fixture identities within one report.
+The reporter rejects mixed scenario or fixture identities within one report. A comparison sample also carries the worker-reported `workerPeakRssBytes`; the summary includes its measured values and median for each arm. This metric is independent of the scenario-endpoint `rssDeltaBytes` and the wall-time informational threshold.
 
 | Field                    | Meaning                                                                  |
 | ------------------------ | ------------------------------------------------------------------------ |

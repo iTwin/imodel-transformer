@@ -182,7 +182,47 @@ describe("A/B comparison orchestration", () => {
       sample: 1,
       scenarioId: "changeset-scanning",
     });
-    expect(sample).to.deep.equal(expected);
+    expect(sample).toMatchObject(expected);
+    expect(sample.workerPeakRssBytes).to.be.greaterThan(0);
+  });
+
+  it("reads peak worker RSS reported by the worker process", async () => {
+    const rootDirectory = temporaryDirectory("quick-ab-memory-");
+    const workerPath = comparisonArmWorkerPath(rootDirectory);
+    const beforeFile = path.join(rootDirectory, "output", "rss-before");
+    fs.mkdirSync(path.dirname(workerPath), { recursive: true });
+    const expected = benchmarkSample();
+    fs.writeFileSync(
+      workerPath,
+      [
+        'const fs = require("node:fs");',
+        'const path = require("node:path");',
+        "const request = JSON.parse(process.env.QUICK_PERF_ARM_REQUEST);",
+        "const before = process.resourceUsage().maxRSS * 1024;",
+        'fs.writeFileSync(path.join(request.outputDir, "rss-before"), String(before));',
+        "const allocation = Buffer.alloc(128 * 1024 * 1024, 1);",
+        "const workerPeakRssBytes = process.resourceUsage().maxRSS * 1024;",
+        `fs.writeFileSync(request.resultFile, JSON.stringify({ ...${JSON.stringify(
+          expected
+        )}, workerPeakRssBytes }) + ${JSON.stringify("\n")});`,
+        "if (allocation[0] !== 1) process.exit(9);",
+      ].join("\n")
+    );
+    const sample = await executeArmProcess({
+      arm: "baseline",
+      fixtureArtifactDirectory: path.join(rootDirectory, "fixture-artifact"),
+      harnessRootDirectory: path.join(rootDirectory, "harness"),
+      measured: true,
+      outputDir: path.join(rootDirectory, "output"),
+      revision: "base-sha",
+      rootDirectory,
+      sample: 1,
+      scenarioId: "changeset-scanning",
+    });
+    const before = Number(fs.readFileSync(beforeFile, "utf8"));
+    expect(sample.workerPeakRssBytes - before).to.be.greaterThan(
+      64 * 1024 * 1024
+    );
   });
 
   it("surfaces child-process failures with arm and sample context", async () => {
@@ -328,6 +368,36 @@ describe("A/B comparison orchestration", () => {
       )
     ).rejects.toThrow(/worker timeout must be an integer between 1 and/);
     expect(buildStarted).to.equal(false);
+  });
+
+  it("rejects a worker result without peak RSS", async () => {
+    const rootDirectory = temporaryDirectory("quick-ab-invalid-result-");
+    const workerPath = comparisonArmWorkerPath(rootDirectory);
+    fs.mkdirSync(path.dirname(workerPath), { recursive: true });
+    const invalid = { ...benchmarkSample() } as Record<string, unknown>;
+    delete invalid.workerPeakRssBytes;
+    fs.writeFileSync(
+      workerPath,
+      [
+        'const fs = require("node:fs");',
+        "const request = JSON.parse(process.env.QUICK_PERF_ARM_REQUEST);",
+        `fs.writeFileSync(request.resultFile, ${JSON.stringify(
+          `${JSON.stringify(invalid)}\n`
+        )});`,
+      ].join("\n")
+    );
+    await expect(
+      executeArmProcess({
+        arm: "baseline",
+        fixtureArtifactDirectory: path.join(rootDirectory, "fixture-artifact"),
+        harnessRootDirectory: path.join(rootDirectory, "harness"),
+        measured: true,
+        outputDir: path.join(rootDirectory, "output"),
+        revision: "base-sha",
+        rootDirectory,
+        sample: 1,
+      })
+    ).rejects.toThrow(/wrote an invalid result/);
   });
 
   it("removes stale reports before a failed rerun", async () => {

@@ -1,6 +1,11 @@
-import dotenv from "dotenv";
+/*---------------------------------------------------------------------------------------------
+ * Copyright (c) Bentley Systems, Incorporated. All rights reserved.
+ * See LICENSE.md in the project root for license terms and full copyright notice.
+ *--------------------------------------------------------------------------------------------*/
+import { loadEnvFile } from "node:process";
 
-const { error } = dotenv.config();
-
-if (error && !process.env.CI)
-  throw new Error("no env file found, and not ran as a CI job");
+try {
+  loadEnvFile();
+} catch (error) {
+  if (!process.env.CI) throw error;
+}

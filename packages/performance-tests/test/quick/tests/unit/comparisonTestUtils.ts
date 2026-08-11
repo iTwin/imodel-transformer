@@ -3,15 +3,15 @@
  * See LICENSE.md in the project root for license terms and full copyright notice.
  *--------------------------------------------------------------------------------------------*/
 
-import { BenchmarkSample } from "../../src/framework/BenchmarkRunner.js";
+import type { ComparisonSample } from "../../src/comparison/ComparisonReport.js";
 import {
   FixtureArtifactManifest,
   fixtureArtifactVersion,
 } from "../../src/fixtures/FixtureArtifact.js";
 
 export function benchmarkSample(
-  overrides: Partial<BenchmarkSample> = {}
-): BenchmarkSample {
+  overrides: Partial<ComparisonSample> = {}
+): ComparisonSample {
   return {
     cpuSystemMilliseconds: 1,
     cpuUserMilliseconds: 2,
@@ -57,13 +57,14 @@ export function benchmarkSample(
     },
     verificationMilliseconds: 6,
     wallMilliseconds: 100,
+    workerPeakRssBytes: 50 * 1048576,
     ...overrides,
   };
 }
 
 export function armSamples(
   measuredMilliseconds: readonly number[]
-): BenchmarkSample[] {
+): ComparisonSample[] {
   return [
     benchmarkSample({ measured: false, sample: 0, wallMilliseconds: 90 }),
     ...measuredMilliseconds.map((wallMilliseconds, index) =>
