@@ -4,6 +4,7 @@
  *--------------------------------------------------------------------------------------------*/
 
 import {
+  DefinitionModel,
   // eslint-disable-next-line @typescript-eslint/no-redeclare
   Element,
   ElementAspect,
@@ -17,6 +18,7 @@ import {
   GraphicalElement3dRepresentsElement,
   IModelDb,
   IModelJsFs,
+  Model,
   PhysicalModel,
   PhysicalObject,
   PhysicalPartition,
@@ -24,6 +26,8 @@ import {
   SpatialCategory,
   Subject,
   SubjectOwnsPartitionElements,
+  SubjectOwnsSubjects,
+  TemplateRecipe3d,
   withEditTxn,
 } from "@itwin/core-backend";
 import { Id64, Id64String, ITwinError } from "@itwin/core-bentley";
@@ -886,6 +890,361 @@ describe("IModelExporter", () => {
       ).to.be.equal(0);
 
       sourceDb.close();
+    });
+  });
+
+  describe("exportAll traversal modes", () => {
+    /** records the order of handler callbacks as "kind:id" strings */
+    class RecordingHandler extends IModelExportHandler {
+      public events: string[] = [];
+      public constructor(private _rejectedIds: Set<Id64String> = new Set()) {
+        super();
+      }
+      public override async shouldExportElement(
+        element: Element
+      ): Promise<boolean> {
+        this.events.push(`should:${element.id}`);
+        return !this._rejectedIds.has(element.id);
+      }
+      public override async onExportElement(element: Element): Promise<void> {
+        this.events.push(`elem:${element.id}`);
+      }
+      public override async onSkipElement(
+        elementId: Id64String
+      ): Promise<void> {
+        this.events.push(`skip:${elementId}`);
+      }
+      public override async onExportModel(model: Model): Promise<void> {
+        this.events.push(`model:${model.id}`);
+      }
+    }
+
+    const eventsOfKind = (events: string[], kind: string): string[] =>
+      events.filter((e) => e.startsWith(`${kind}:`));
+
+    const filterToIds = (events: string[], ids: Set<Id64String>): string[] =>
+      events.filter((e) => ids.has(e.split(":")[1]));
+
+    interface Fixture {
+      db: SnapshotDb;
+      physModelId: Id64String; // == its PhysicalPartition id
+      defModelId: Id64String; // == its DefinitionPartition id
+      categoryId: Id64String;
+      physObjId: Id64String;
+      trackedIds: Set<Id64String>;
+    }
+
+    function createFixture(name: string): Fixture {
+      const dbPath = IModelTransformerTestUtils.prepareOutputFile(
+        "IModelExporter",
+        `${name}.bim`
+      );
+      const db = SnapshotDb.createEmpty(dbPath, { rootSubject: { name } });
+      const [physModelId, defModelId, categoryId, physObjId] = withEditTxn(
+        db,
+        "populate traversal fixture",
+        (txn) => {
+          const physModel = PhysicalModel.insert(
+            txn,
+            IModel.rootSubjectId,
+            "PhysModel"
+          );
+          const defModel = DefinitionModel.insert(
+            txn,
+            IModel.rootSubjectId,
+            "DefModel"
+          );
+          const category = SpatialCategory.insert(
+            txn,
+            defModel,
+            "Category",
+            new SubCategoryAppearance()
+          );
+          const physObj = txn.insertElement({
+            classFullName: PhysicalObject.classFullName,
+            model: physModel,
+            category,
+            code: Code.createEmpty(),
+          } as PhysicalElementProps);
+          return [physModel, defModel, category, physObj];
+        }
+      );
+      return {
+        db,
+        physModelId,
+        defModelId,
+        categoryId,
+        physObjId,
+        trackedIds: new Set([
+          IModel.rootSubjectId,
+          physModelId,
+          defModelId,
+          categoryId,
+          physObjId,
+        ]),
+      };
+    }
+
+    async function runExportAll(
+      db: SnapshotDb,
+      traversal: "hierarchy" | "linear",
+      setup?: (exporter: IModelExporter) => void,
+      rejectedIds?: Set<Id64String>
+    ): Promise<string[]> {
+      const handler = new RecordingHandler(rejectedIds);
+      const exporter = new IModelExporter(db);
+      exporter.registerHandler(handler);
+      setup?.(exporter);
+      await exporter.exportAll({ traversal });
+      return handler.events;
+    }
+
+    it("pins the hierarchy-mode callback order and exports the same entity sets in linear mode", async () => {
+      const fixture = createFixture("TraversalOrder");
+      const { physModelId, defModelId, categoryId, physObjId } = fixture;
+      const rootId = IModel.rootSubjectId;
+      try {
+        const hierarchyEvents = await runExportAll(fixture.db, "hierarchy");
+        const linearEvents = await runExportAll(fixture.db, "linear");
+
+        // characterization: the current (default) definition-hierarchy order, filtered to
+        // the fixture's elements to stay robust against unrelated built-in elements
+        expect(filterToIds(hierarchyEvents, fixture.trackedIds)).to.eql([
+          // exportModel(repositoryModel): container, then contents, then sub-models
+          `should:${rootId}`,
+          `model:${rootId}`,
+          `should:${rootId}`,
+          `elem:${rootId}`,
+          // child elements of the root subject in id order
+          `should:${physModelId}`,
+          `elem:${physModelId}`,
+          `should:${defModelId}`,
+          `elem:${defModelId}`,
+          // sub-models: DefinitionModels first (modeled element consulted a second time)
+          `should:${defModelId}`,
+          `model:${defModelId}`,
+          `should:${categoryId}`,
+          `elem:${categoryId}`,
+          `should:${physModelId}`,
+          `model:${physModelId}`,
+          `should:${physObjId}`,
+          `elem:${physObjId}`,
+        ]);
+
+        // linear mode: ascending id order, model container immediately after its modeled
+        // element, each element consulted exactly once
+        expect(filterToIds(linearEvents, fixture.trackedIds)).to.eql([
+          `should:${rootId}`,
+          `elem:${rootId}`,
+          `model:${rootId}`,
+          `should:${physModelId}`,
+          `elem:${physModelId}`,
+          `model:${physModelId}`,
+          `should:${defModelId}`,
+          `elem:${defModelId}`,
+          `model:${defModelId}`,
+          `should:${categoryId}`,
+          `elem:${categoryId}`,
+          `should:${physObjId}`,
+          `elem:${physObjId}`,
+        ]);
+
+        // both traversals export exactly the same entity sets (over the whole iModel)
+        expect(new Set(eventsOfKind(linearEvents, "elem"))).to.eql(
+          new Set(eventsOfKind(hierarchyEvents, "elem"))
+        );
+        expect(new Set(eventsOfKind(linearEvents, "model"))).to.eql(
+          new Set(eventsOfKind(hierarchyEvents, "model"))
+        );
+        expect(eventsOfKind(linearEvents, "skip")).to.eql([]);
+        expect(eventsOfKind(hierarchyEvents, "skip")).to.eql([]);
+      } finally {
+        fixture.db.close();
+      }
+    });
+
+    it("prunes the subtree of a rejected element in both traversal modes", async () => {
+      const fixture = createFixture("TraversalPruning");
+      try {
+        for (const traversal of ["hierarchy", "linear"] as const) {
+          const events = await runExportAll(
+            fixture.db,
+            traversal,
+            undefined,
+            new Set([fixture.physModelId])
+          );
+          const touchedIds = new Set(events.map((e) => e.split(":")[1]));
+          expect(
+            touchedIds.has(fixture.physObjId),
+            `${traversal}: contents of a model whose modeled element was rejected must get no callbacks`
+          ).to.be.false;
+          expect(events).to.include(`skip:${fixture.physModelId}`);
+          expect(events).not.to.include(`model:${fixture.physModelId}`);
+          expect(events).to.include(`elem:${fixture.categoryId}`);
+        }
+      } finally {
+        fixture.db.close();
+      }
+    });
+
+    it("prunes elements excluded by id in both traversal modes", async () => {
+      const fixture = createFixture("TraversalExcludedIds");
+      try {
+        for (const traversal of ["hierarchy", "linear"] as const) {
+          const events = await runExportAll(fixture.db, traversal, (exporter) =>
+            exporter.excludeElement(fixture.physModelId)
+          );
+          const touchedIds = new Set(events.map((e) => e.split(":")[1]));
+          expect(touchedIds.has(fixture.physObjId)).to.be.false;
+          expect(events).to.include(`skip:${fixture.physModelId}`);
+          expect(events).not.to.include(`should:${fixture.physModelId}`);
+          expect(events).not.to.include(`model:${fixture.physModelId}`);
+          expect(events).to.include(`elem:${fixture.categoryId}`);
+        }
+      } finally {
+        fixture.db.close();
+      }
+    });
+
+    it("handles a child element with a lower id than its parent", async () => {
+      const dbPath = IModelTransformerTestUtils.prepareOutputFile(
+        "IModelExporter",
+        "TraversalOutOfOrderParent.bim"
+      );
+      const db = SnapshotDb.createEmpty(dbPath, {
+        rootSubject: { name: "TraversalOutOfOrderParent" },
+      });
+      try {
+        // insert child before parent, then reparent so that childId < parentId
+        const [childId, parentId] = withEditTxn(db, "reparent", (txn) => {
+          const child = Subject.insert(txn, IModel.rootSubjectId, "Child");
+          const parent = Subject.insert(txn, IModel.rootSubjectId, "Parent");
+          txn.updateElement({
+            id: child,
+            parent: new SubjectOwnsSubjects(parent),
+          } as any);
+          return [child, parent];
+        });
+        assert(Id64.getLocalId(childId) < Id64.getLocalId(parentId));
+
+        // accept-all: the child is exported exactly once, after its parent
+        const linearEvents = await runExportAll(db, "linear");
+        const elemEvents = eventsOfKind(linearEvents, "elem");
+        expect(
+          elemEvents.filter((e) => e === `elem:${childId}`)
+        ).to.have.length(1);
+        expect(elemEvents.indexOf(`elem:${childId}`)).to.be.greaterThan(
+          elemEvents.indexOf(`elem:${parentId}`)
+        );
+        const hierarchyEvents = await runExportAll(db, "hierarchy");
+        expect(new Set(eventsOfKind(linearEvents, "elem"))).to.eql(
+          new Set(eventsOfKind(hierarchyEvents, "elem"))
+        );
+
+        // rejecting the parent must prune the (earlier-id) child in both modes
+        for (const traversal of ["hierarchy", "linear"] as const) {
+          const events = await runExportAll(
+            db,
+            traversal,
+            undefined,
+            new Set([parentId])
+          );
+          const touchedIds = new Set(events.map((e) => e.split(":")[1]));
+          expect(
+            touchedIds.has(childId),
+            `${traversal}: child with lower id than its rejected parent must get no callbacks`
+          ).to.be.false;
+          expect(events).to.include(`skip:${parentId}`);
+        }
+      } finally {
+        db.close();
+      }
+    });
+
+    it("skips template models in both traversal modes when wantTemplateModels=false", async () => {
+      const dbPath = IModelTransformerTestUtils.prepareOutputFile(
+        "IModelExporter",
+        "TraversalTemplateModels.bim"
+      );
+      const db = SnapshotDb.createEmpty(dbPath, {
+        rootSubject: { name: "TraversalTemplateModels" },
+      });
+      try {
+        const [recipeId, templateObjId] = withEditTxn(
+          db,
+          "insert template recipe",
+          (txn) => {
+            const categoryId = SpatialCategory.insert(
+              txn,
+              IModel.dictionaryId,
+              "Category",
+              new SubCategoryAppearance()
+            );
+            const recipe = TemplateRecipe3d.insert(
+              txn,
+              IModel.dictionaryId,
+              "Recipe"
+            );
+            const templateObj = txn.insertElement({
+              classFullName: PhysicalObject.classFullName,
+              model: recipe,
+              category: categoryId,
+              code: Code.createEmpty(),
+            } as PhysicalElementProps);
+            return [recipe, templateObj];
+          }
+        );
+        for (const traversal of ["hierarchy", "linear"] as const) {
+          const events = await runExportAll(db, traversal, (exporter) => {
+            exporter.wantTemplateModels = false;
+          });
+          const touchedIds = new Set(events.map((e) => e.split(":")[1]));
+          expect(
+            touchedIds.has(templateObjId),
+            `${traversal}: template model contents must get no callbacks`
+          ).to.be.false;
+          expect(events).not.to.include(`model:${recipeId}`);
+          expect(events).not.to.include(`elem:${recipeId}`);
+        }
+        // and with the default (wantTemplateModels=true) both modes export them
+        for (const traversal of ["hierarchy", "linear"] as const) {
+          const events = await runExportAll(db, traversal);
+          expect(events).to.include(`model:${recipeId}`);
+          expect(events).to.include(`elem:${templateObjId}`);
+        }
+      } finally {
+        db.close();
+      }
+    });
+
+    it("exports the same model containers in both traversal modes when visitElements=false", async () => {
+      const fixture = createFixture("TraversalNoElements");
+      try {
+        const hierarchyEvents = await runExportAll(
+          fixture.db,
+          "hierarchy",
+          (exporter) => {
+            exporter.visitElements = false;
+          }
+        );
+        const linearEvents = await runExportAll(
+          fixture.db,
+          "linear",
+          (exporter) => {
+            exporter.visitElements = false;
+          }
+        );
+        expect(new Set(eventsOfKind(linearEvents, "model"))).to.eql(
+          new Set(eventsOfKind(hierarchyEvents, "model"))
+        );
+        expect(eventsOfKind(linearEvents, "model")).to.include(
+          `model:${fixture.physModelId}`
+        );
+        expect(eventsOfKind(linearEvents, "elem")).to.eql([]);
+        expect(eventsOfKind(hierarchyEvents, "elem")).to.eql([]);
+      } finally {
+        fixture.db.close();
+      }
     });
   });
 });

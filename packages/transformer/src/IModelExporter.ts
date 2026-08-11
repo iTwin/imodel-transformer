@@ -73,6 +73,27 @@ interface AspectModelFact {
   isTemplate: boolean;
 }
 
+/** A row of the single `bis.Element` scan used by the linear full-export traversal. */
+interface LinearExportRow {
+  id: Id64String;
+  parentId?: Id64String;
+  modelId: Id64String;
+  isModeled: boolean;
+}
+
+/** Compare two normalized Id64Strings numerically (normalized ids have no leading zeros, so a
+ * longer id is always the greater one and same-length ids compare lexically). */
+function compareId64(a: Id64String, b: Id64String): number {
+  if (a.length !== b.length) return a.length - b.length;
+  return a < b ? -1 : a > b ? 1 : 0;
+}
+
+function addToArrayMap<K, V>(map: Map<K, V[]>, key: K, value: V): void {
+  const existing = map.get(key);
+  if (existing !== undefined) existing.push(value);
+  else map.set(key, [value]);
+}
+
 /**
  * @beta
  * The (optional) result of [[IModelExportHandler.onExportSchema]]
@@ -88,6 +109,41 @@ export interface ExportSchemaResult {
  * @beta
  */
 export type ExporterInitOptions = ExportChangesOptions;
+
+/**
+ * Arguments for [[IModelExporter.exportAll]]
+ * @beta
+ */
+export interface ExportAllOptions {
+  /** The strategy used to visit the elements and models of the source iModel.
+   * - `"hierarchy"` (default): traverse the definition hierarchy recursively, starting at the
+   *   RepositoryModel, exporting each model's contents and each element's children depth-first,
+   *   with DefinitionModels exported before other sub-models.
+   * - `"linear"`: scan the `bis.Element` table once in ECInstanceId order, exporting each element
+   *   exactly once and each model container immediately after its modeled element. This avoids
+   *   the per-model and per-parent child queries of the hierarchy traversal and is usually faster
+   *   for full exports, but visits entities in a different order. Handlers observe the same set of
+   *   entity callbacks, but their order (and, for handlers like the IModelTransformer that resolve
+   *   references, the number of deferred reference resolutions) may differ.
+   * @default "hierarchy"
+   */
+  traversal?: "hierarchy" | "linear";
+}
+
+/**
+ * Arguments for [[IModelExporter.exportAllElementsAndModels]]
+ * @beta
+ */
+export interface ExportAllElementsAndModelsOptions {
+  /** When true, no element callback is emitted for the root Subject and no model callback is
+   * emitted for the RepositoryModel, while all other elements and models (including other
+   * elements of the RepositoryModel and the root Subject's descendants) are still exported.
+   * This mirrors how [[IModelTransformer]] full transformations behave when its
+   * `skipPropagateChangesToRootElements` option is set.
+   * @default false
+   */
+  skipRootSubjectAndRepositoryModel?: boolean;
+}
 
 /**
  * Arguments for [[IModelExporter.exportChanges]]
@@ -466,14 +522,17 @@ export class IModelExporter {
 
   /** Export all entity instance types from the source iModel.
    * @note [[exportSchemas]] must be called separately.
+   * @param options optionally selects the element/model traversal strategy, see [[ExportAllOptions]].
    */
-  public async exportAll(): Promise<void> {
+  public async exportAll(options?: ExportAllOptions): Promise<void> {
     await this.initialize({});
 
     await this.exportCodeSpecs();
     await this.exportFonts();
     await this._elementAspectExportCoordinator.run(async () =>
-      this.exportModel(IModel.repositoryModelId)
+      options?.traversal === "linear"
+        ? this.exportAllElementsAndModelsImpl({})
+        : this.exportModel(IModel.repositoryModelId)
     );
     await this.exportRelationships(ElementRefersToElements.classFullName);
   }
@@ -1023,6 +1082,19 @@ export class IModelExporter {
       return this.exportChildElements(elementId);
     }
 
+    if (await this.visitElement(elementId, isUpdate)) {
+      return this.exportChildElements(elementId);
+    }
+  }
+
+  /** Load the specified element and run the standard element visit callbacks
+   * (shouldExport/preExport/onExport or onSkip plus progress and aspect-owner tracking).
+   * @returns true if the element was accepted for export.
+   */
+  private async visitElement(
+    elementId: Id64String,
+    isUpdate: boolean | undefined
+  ): Promise<boolean> {
     const element = this.sourceDb.elements.getElement({
       id: elementId,
       wantGeometry: this.wantGeometry,
@@ -1040,9 +1112,10 @@ export class IModelExporter {
       await this.handler.onExportElement(element, isUpdate);
       await this.trackProgress();
       await this._elementAspectExportCoordinator.addAcceptedOwner(elementId);
-      return this.exportChildElements(elementId);
+      return true;
     } else {
       await this.handler.onSkipElement(element.id);
+      return false;
     }
   }
 
@@ -1070,6 +1143,206 @@ export class IModelExporter {
       for (const childElementId of childElementIds) {
         await this.exportElement(childElementId);
       }
+    }
+  }
+
+  /** Export every element and model of the source iModel by scanning the `bis.Element` table
+   * once in ECInstanceId order, instead of recursively traversing the model/parent hierarchy.
+   * Each element is visited exactly once and each model container is exported immediately after
+   * its modeled element.
+   *
+   * This is the implementation of `exportAll({ traversal: "linear" })` and is only exposed so
+   * that full-export drivers such as the IModelTransformer can combine it with their own
+   * export steps. It exports the same set of entities as the hierarchy traversal (including
+   * honoring exclusion rules, whose subtree-pruning semantics are preserved), but in a
+   * different order, so handlers that are sensitive to visit order should not opt in without
+   * verifying their assumptions.
+   * @note Relationships, CodeSpecs, and Fonts are not exported by this method.
+   * @beta
+   */
+  public async exportAllElementsAndModels(
+    options?: ExportAllElementsAndModelsOptions
+  ): Promise<void> {
+    return this.runScopedElementExport(async () =>
+      this.exportAllElementsAndModelsImpl(options ?? {})
+    );
+  }
+
+  private async exportAllElementsAndModelsImpl(
+    options: ExportAllElementsAndModelsOptions
+  ): Promise<void> {
+    const skipRoots = options.skipRootSubjectAndRepositoryModel ?? false;
+    // ids of elements rejected for export; hierarchy-mode traversal never visits the
+    // descendants of a rejected element, so rows gated by these ids are pruned silently
+    const skippedElementIds = new Set<Id64String>();
+    // ids of models (== ids of their modeled elements) whose contents must be pruned
+    const skippedModelIds = new Set<Id64String>();
+    // rare out-of-order rows: a row whose parent or containing model's modeled element has a
+    // higher ECInstanceId (or is itself waiting) is buffered until that gating row is decided,
+    // preserving the hierarchy-mode guarantee that pruning decisions precede descendants
+    const waitingRows = new Map<Id64String, LinearExportRow[]>();
+    const waitingRowIds = new Set<Id64String>();
+    let lastScannedId: Id64String = "0";
+
+    // returns the id of the not-yet-decided row gating this row, if any
+    const undecidedGateId = (row: LinearExportRow): Id64String | undefined => {
+      if (
+        row.parentId !== undefined &&
+        (compareId64(row.parentId, lastScannedId) > 0 ||
+          waitingRowIds.has(row.parentId))
+      ) {
+        return row.parentId;
+      }
+      if (
+        row.modelId !== row.id &&
+        (compareId64(row.modelId, lastScannedId) > 0 ||
+          waitingRowIds.has(row.modelId))
+      ) {
+        return row.modelId;
+      }
+      return undefined;
+    };
+
+    const markSkipped = (row: LinearExportRow): void => {
+      skippedElementIds.add(row.id);
+      if (row.isModeled) skippedModelIds.add(row.id);
+    };
+
+    const processRow = async (row: LinearExportRow): Promise<void> => {
+      // replicate hierarchy-mode subtree pruning: descendants of a skipped element and
+      // contents of a skipped model get no callbacks at all
+      if (
+        (row.parentId !== undefined && skippedElementIds.has(row.parentId)) ||
+        skippedModelIds.has(row.modelId)
+      ) {
+        markSkipped(row);
+        return;
+      }
+
+      const isRootSubjectRow = row.id === IModel.rootSubjectId;
+      const model = row.isModeled
+        ? this.sourceDb.models.getModel(row.id)
+        : undefined;
+      const modelIsTemplateExcluded =
+        model !== undefined && model.isTemplate && !this.wantTemplateModels;
+
+      if (!this.visitElements) {
+        // hierarchy-mode parity: with visitElements=false only model containers are exported;
+        // shouldExportElement still gates each model via its modeled element, but template
+        // models are skipped before the handler is consulted
+        if (model === undefined) return;
+        if (modelIsTemplateExcluded) {
+          skippedModelIds.add(row.id);
+          return;
+        }
+        if (!(isRootSubjectRow && skipRoots)) {
+          const modeledElement = this.sourceDb.elements.getElement({
+            id: row.id,
+            wantGeometry: this.wantGeometry,
+            wantBRepData: this.wantGeometry,
+          });
+          if (!(await this.shouldExportElement(modeledElement))) {
+            markSkipped(row);
+            return;
+          }
+          await this.exportModelContainer(model);
+        }
+        return;
+      }
+
+      let elementAccepted: boolean;
+      if (isRootSubjectRow && skipRoots) {
+        // visited without callbacks so that its descendants are still exported
+        elementAccepted = true;
+      } else if (this._excludedElementIds.has(row.id)) {
+        Logger.logInfo(loggerCategory, `Excluded element ${row.id} by Id`);
+        await this.handler.onSkipElement(row.id);
+        elementAccepted = false;
+      } else {
+        // mirror exportElementImpl's change-processing short-circuit: an element absent from
+        // the changeset is not exported itself but does not prune its descendants
+        const isUpdate = this._sourceDbChanges?.element.insertIds.has(row.id)
+          ? false
+          : this._sourceDbChanges?.element.updateIds.has(row.id)
+            ? true
+            : undefined;
+        elementAccepted =
+          undefined !== this._sourceDbChanges && undefined === isUpdate
+            ? true
+            : await this.visitElement(row.id, isUpdate);
+      }
+
+      if (!elementAccepted) {
+        markSkipped(row);
+        return;
+      }
+      if (model !== undefined) {
+        if (modelIsTemplateExcluded) {
+          skippedModelIds.add(row.id);
+        } else if (!(isRootSubjectRow && skipRoots)) {
+          await this.exportModelContainer(model);
+        }
+      }
+    };
+
+    const processRowAndDependents = async (
+      row: LinearExportRow
+    ): Promise<void> => {
+      const readyRows: LinearExportRow[] = [row];
+      let readyRow: LinearExportRow | undefined;
+      while ((readyRow = readyRows.pop()) !== undefined) {
+        await processRow(readyRow);
+        waitingRowIds.delete(readyRow.id);
+        await this._yieldManager.allowYield();
+        const dependents = waitingRows.get(readyRow.id);
+        if (dependents !== undefined) {
+          waitingRows.delete(readyRow.id);
+          for (const dependent of dependents) {
+            // a dependent may have a second undecided gate (e.g. both parent and model)
+            const gateId = undecidedGateId(dependent);
+            if (gateId !== undefined) {
+              addToArrayMap(waitingRows, gateId, dependent);
+            } else {
+              readyRows.push(dependent);
+            }
+          }
+        }
+      }
+    };
+
+    Logger.logTrace(loggerCategory, "exportAllElementsAndModels()");
+    const sql = `
+      SELECT e.ECInstanceId id, e.Parent.Id parentId, e.Model.Id modelId,
+             IIF(m.ECInstanceId IS NULL, 0, 1) isModeled
+      FROM bis.Element e
+      LEFT JOIN bis.Model m ON m.ECInstanceId = e.ECInstanceId
+      ORDER BY e.ECInstanceId`;
+    for await (const row of this.sourceDb.createQueryReader(sql, undefined, {
+      usePrimaryConn: true,
+    })) {
+      const exportRow: LinearExportRow = {
+        id: row.id,
+        parentId: row.parentId ?? undefined,
+        modelId: row.modelId,
+        isModeled: row.isModeled === 1,
+      };
+      lastScannedId = exportRow.id;
+      const gateId = undecidedGateId(exportRow);
+      if (gateId !== undefined) {
+        waitingRowIds.add(exportRow.id);
+        addToArrayMap(waitingRows, gateId, exportRow);
+        continue;
+      }
+      await processRowAndDependents(exportRow);
+    }
+
+    if (waitingRows.size > 0) {
+      // only reachable if a parent or model reference points at a nonexistent element, which
+      // the hierarchy traversal would also never visit
+      Logger.logWarning(
+        loggerCategory,
+        `exportAllElementsAndModels: ${[...waitingRows.values()].flat().length} element(s) were not exported because their parent or model references could not be resolved`
+      );
     }
   }
 

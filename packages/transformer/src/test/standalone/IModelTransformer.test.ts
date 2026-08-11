@@ -57,6 +57,7 @@ import {
   StandaloneDb,
   SubCategory,
   Subject,
+  SubjectOwnsSubjects,
   Texture,
   withEditTxn,
 } from "@itwin/core-backend";
@@ -4133,6 +4134,150 @@ describe("IModelTransformer", () => {
 
     await assertIdentityTransformation(sourceDb, targetDb, transformer);
 
+    sourceDb.close();
+    targetDb.close();
+  });
+
+  it("process() with exportAllTraversal=linear produces an identity transformation with out-of-order references", async () => {
+    const sourceDbFile = IModelTransformerTestUtils.prepareOutputFile(
+      "IModelTransformer",
+      "LinearTraversalSource.bim"
+    );
+    const sourceDb = SnapshotDb.createEmpty(sourceDbFile, {
+      rootSubject: { name: "LinearTraversalSource" },
+    });
+    const fixture = withEditTxn(sourceDb, "populate source", (txn) => {
+      const categoryId = SpatialCategory.insert(
+        txn,
+        IModel.dictionaryId,
+        "Category",
+        { color: ColorDef.green.toJSON() }
+      );
+      const physModelId = PhysicalModel.insert(
+        txn,
+        IModel.rootSubjectId,
+        "PhysModel"
+      );
+      const physObjId = txn.insertElement({
+        classFullName: PhysicalObject.classFullName,
+        model: physModelId,
+        category: categoryId,
+        code: Code.createEmpty(),
+        userLabel: "PhysicalObject",
+        geom: IModelTransformerTestUtils.createBox(
+          Point3d.create(1, 1, 1),
+          categoryId
+        ),
+        placement: {
+          origin: Point3d.create(1, 1, 1),
+          angles: YawPitchRollAngles.createDegrees(0, 0, 0),
+        },
+      } as PhysicalElementProps);
+      const modelSelector1Id = ModelSelector.insert(
+        txn,
+        IModel.dictionaryId,
+        "Selector1",
+        [physModelId]
+      );
+      const categorySelectorId = CategorySelector.insert(
+        txn,
+        IModel.dictionaryId,
+        "CategorySelector",
+        [categoryId]
+      );
+      const displayStyleId = DisplayStyle3d.insert(
+        txn,
+        IModel.dictionaryId,
+        "DisplayStyle"
+      );
+      const viewId = OrthographicViewDefinition.insert(
+        txn,
+        IModel.dictionaryId,
+        "View",
+        modelSelector1Id,
+        categorySelectorId,
+        displayStyleId,
+        new Range3d(0, 0, 0, 2, 2, 2),
+        StandardViewIndex.Iso
+      );
+      // create a forward reference: the view's model selector has a higher id than the view
+      const modelSelector2Id = ModelSelector.insert(
+        txn,
+        IModel.dictionaryId,
+        "Selector2",
+        [physModelId]
+      );
+      txn.updateElement({
+        id: viewId,
+        modelSelectorId: modelSelector2Id,
+      } as any);
+      // create an out-of-order parent: the child has a lower id than its parent
+      const childSubjectId = Subject.insert(
+        txn,
+        IModel.rootSubjectId,
+        "ChildSubject"
+      );
+      const parentSubjectId = Subject.insert(
+        txn,
+        IModel.rootSubjectId,
+        "ParentSubject"
+      );
+      txn.updateElement({
+        id: childSubjectId,
+        parent: new SubjectOwnsSubjects(parentSubjectId),
+      } as any);
+      return {
+        physObjId,
+        viewId,
+        modelSelector2Id,
+        childSubjectId,
+        parentSubjectId,
+      };
+    });
+    assert(
+      Id64.getLocalId(fixture.viewId) <
+        Id64.getLocalId(fixture.modelSelector2Id)
+    );
+
+    const targetDbFile = IModelTransformerTestUtils.prepareOutputFile(
+      "IModelTransformer",
+      "LinearTraversalTarget.bim"
+    );
+    const targetDb = SnapshotDb.createEmpty(targetDbFile, {
+      rootSubject: sourceDb.rootSubject,
+    });
+    const editTxn = new EditTxn(targetDb, "IModelTransformer");
+    editTxn.start();
+    const transformer = new IModelTransformer(
+      { source: sourceDb, target: editTxn },
+      { exportAllTraversal: "linear" }
+    );
+    await transformer.process();
+    editTxn.saveChanges();
+
+    await assertIdentityTransformation(sourceDb, targetDb, transformer);
+
+    // the forward reference must be resolved to the remapped later-id selector
+    const targetViewId = transformer.context.findTargetElementId(
+      fixture.viewId
+    );
+    const targetView = targetDb.elements.getElement<OrthographicViewDefinition>(
+      targetViewId,
+      OrthographicViewDefinition
+    );
+    expect(targetView.modelSelectorId).to.equal(
+      transformer.context.findTargetElementId(fixture.modelSelector2Id)
+    );
+    // the out-of-order parent must be preserved
+    const targetChildSubject = targetDb.elements.getElement<Subject>(
+      transformer.context.findTargetElementId(fixture.childSubjectId),
+      Subject
+    );
+    expect(targetChildSubject.parent?.id).to.equal(
+      transformer.context.findTargetElementId(fixture.parentSubjectId)
+    );
+
+    transformer.dispose();
     sourceDb.close();
     targetDb.close();
   });

@@ -1,0 +1,7 @@
+{
+  "type": "minor",
+  "comment": "Add opt-in linear traversal for full exports: IModelExporter.exportAll({ traversal: \"linear\" }) and IModelTransformOptions.exportAllTraversal scan bis.Element once in id order instead of recursively traversing the model/parent hierarchy",
+  "packageName": "@itwin/imodel-transformer",
+  "email": "223556219+Copilot@users.noreply.github.com",
+  "dependentChangeType": "patch"
+}

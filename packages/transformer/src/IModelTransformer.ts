@@ -248,6 +248,21 @@ export interface IModelTransformOptions {
   skipPropagateChangesToRootElements?: boolean;
 
   /**
+   * The traversal strategy the exporter uses when this transformer performs a full transformation
+   * (i.e. [[IModelTransformOptions.argsForProcessChanges]] is undefined).
+   * - `"hierarchy"` (default): recursively traverse the model/parent hierarchy, definition models first.
+   * - `"linear"`: scan the `bis.Element` table once in ECInstanceId order; usually faster for full
+   *   transformations since it eliminates the per-model and per-parent child queries, at the cost
+   *   of visiting elements in a different order. References to not-yet-exported elements are
+   *   resolved by the transformer's usual deferred (partially-committed) reference handling.
+   * This option has no effect when processing changes.
+   * @see [[ExportAllOptions.traversal]]
+   * @default "hierarchy"
+   * @beta
+   */
+  exportAllTraversal?: "hierarchy" | "linear";
+
+  /**
    * Arguments to use for the processing of changes. The args being defined or not defined will influence the behavior of @see [[IModelTransformer.process]].
    * @default undefined
    */
@@ -2587,7 +2602,12 @@ export class IModelTransformer extends IModelExportHandler {
     await this.exporter.exportFonts();
 
     await this.exporter.elementAspectExportCoordinator.run(async () => {
-      if (this._options.skipPropagateChangesToRootElements) {
+      if (this._options.exportAllTraversal === "linear") {
+        await this.exporter.exportAllElementsAndModels({
+          skipRootSubjectAndRepositoryModel:
+            this._options.skipPropagateChangesToRootElements,
+        });
+      } else if (this._options.skipPropagateChangesToRootElements) {
         // The RepositoryModel and root Subject of the target iModel should not be transformed.
         await this.exporter.exportChildElements(IModel.rootSubjectId); // start below the root Subject
         await this.exporter.exportModelContents(
