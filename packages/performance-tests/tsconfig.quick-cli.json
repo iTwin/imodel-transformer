@@ -6,6 +6,7 @@
     "declarationMap": false,
     "module": "ESNext",
     "moduleResolution": "Bundler",
+    "resolvePackageJsonExports": true,
     "noEmit": false,
     "outDir": "./test/quick/runtime/.compiled",
     "rootDir": "./test"
