@@ -1,5 +1,11 @@
 # Next release notes
 
+## Change processing no longer traverses the element hierarchy
+
+During `IModelExporter.exportChanges()` (and therefore `IModelTransformer.process()` with `argsForProcessChanges`), changed elements are now exported directly from the changeset's inserted and updated element ids instead of recursively walking every element of each changed model. Incremental synchronization cost now scales with the size of the changeset rather than the size of the iModel.
+
+All export-handler callbacks (`shouldExportElement`, `preExportElement`, `onExportElement`, `onSkipElement`) fire for the same elements, with the same arguments, in the same depth-first parent-before-child order as before; unchanged elements continue to receive no callbacks. Subclasses of `IModelExporter` that override `exportElement` or `exportChildElements` automatically fall back to the previous per-element traversal so overridden dispatch continues to see every element.
+
 ## Breaking change: batched incremental element deletion
 
 Incremental synchronization now processes element deletions as one batch. `IModelExporter.exportChanges()` passes the deleted source IDs to `IModelExportHandler.onDeleteElements()`. `IModelTransformer` maps the IDs once, and `IModelImporter.deleteElements()` submits the target roots through the native bulk-delete API. Bulk deletion preserves the previous behavior for child elements, modeled contents, and elements whose codes are scoped by a deleted tree.

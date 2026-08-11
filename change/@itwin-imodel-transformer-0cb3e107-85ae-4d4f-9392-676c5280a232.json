@@ -1,0 +1,7 @@
+{
+  "type": "minor",
+  "comment": "exportChanges no longer traverses the element hierarchy of changed models; changed elements are exported directly from the changeset, so incremental synchronization cost scales with changeset size instead of iModel size",
+  "packageName": "@itwin/imodel-transformer",
+  "email": "DanRod1999@users.noreply.github.com",
+  "dependentChangeType": "patch"
+}
