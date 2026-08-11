@@ -1,0 +1,7 @@
+{
+  "type": "none",
+  "comment": "Upgrade lint tooling and make the repository Node 22/24 support policy explicit",
+  "packageName": "@itwin/imodel-transformer",
+  "email": "50554904+hl662@users.noreply.github.com",
+  "dependentChangeType": "none"
+}

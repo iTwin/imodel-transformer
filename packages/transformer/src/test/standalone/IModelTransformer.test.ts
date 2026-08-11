@@ -81,7 +81,6 @@ import {
   CodeSpec,
   ColorDef,
   CreateIModelProps,
-  DefinitionElementProps,
   ElementAspectProps,
   ElementProps,
   ExternalSourceAspectProps,
@@ -92,9 +91,7 @@ import {
   GeometryStreamBuilder,
   ImageSourceFormat,
   IModel,
-  InformationPartitionElementProps,
   LineStyle,
-  ModelProps,
   PhysicalElementProps,
   Placement3d,
   ProfileOptions,
@@ -2354,7 +2351,7 @@ describe("IModelTransformer", () => {
           scope: drawingId,
           value: "physical material",
         }),
-      } as DefinitionElementProps);
+      });
     });
     expect(Id64.isValidId64(drawingId)).to.be.true;
 
@@ -2729,11 +2726,11 @@ describe("IModelTransformer", () => {
             IModelDb.rootSubjectId,
             `physical-partition-${index}`
           ),
-        } as InformationPartitionElementProps);
+        });
         const modelId = txn.insertModel({
           classFullName: PhysicalModel.classFullName,
           modeledElement: { id: partitionId },
-        } as ModelProps);
+        });
         return { modelId, partitionId }; // these are the same id because of submodeling
       });
 
@@ -4089,7 +4086,7 @@ describe("IModelTransformer", () => {
         // anotherA: { id: a3Id, relClassName: "TestSchema:AtoA", },
         model: IModelDb.dictionaryId,
         code: Code.createEmpty(),
-      } as ElementProps);
+      });
       const a2Id = txn.insertElement({
         classFullName: "TestSchema:A",
         anotherA: { id: a1Id, relClassName: "TestSchema:AtoA" },
@@ -4106,7 +4103,7 @@ describe("IModelTransformer", () => {
         // anotherA: { id: a4Id, relClassName: "TestSchema:AtoA", },
         model: IModelDb.dictionaryId,
         code: Code.createEmpty(),
-      } as ElementProps);
+      });
       txn.updateElement({
         id: a4Id,
         anotherA: { id: a4Id, relClassName: "TestSchema:AtoA" },
