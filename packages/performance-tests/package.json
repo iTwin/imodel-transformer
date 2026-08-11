@@ -36,14 +36,12 @@
     "@itwin/node-cli-authorization": "^3.0.1",
     "@itwin/object-storage-azure": "^3.0.4",
     "@itwin/perf-tools": "^4.10.12",
-    "dotenv": "^10.0.0",
-    "dotenv-expand": "^5.1.0",
     "fs-extra": "^8.1.0",
     "yargs": "^16.0.0"
   },
   "devDependencies": {
     "@itwin/build-tools": "^5.10.3",
-    "@itwin/eslint-plugin": "^5.2.1",
+    "@itwin/eslint-plugin": "^6.1.0",
     "@itwin/itwins-client": "^1.6.1",
     "@itwin/oidc-signin-tool": "^6.0.0",
     "@types/fs-extra": "^4.0.7",
@@ -53,7 +51,8 @@
     "eslint-config-prettier": "^9.1.0",
     "prettier": "^3.1.1",
     "rimraf": "^3.0.2",
-    "typescript": "~5.6.2",
+    "@typescript/native": "npm:typescript@~7.0.2",
+    "typescript": "npm:@typescript/typescript6@~6.0.2",
     "vitest": "4.1.10"
   },
   "eslintConfig": {

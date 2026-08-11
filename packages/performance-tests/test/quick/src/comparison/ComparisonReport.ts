@@ -5,7 +5,7 @@
 
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { BenchmarkSample } from "../framework/BenchmarkRunner.js";
+import type { BenchmarkSample } from "../framework/BenchmarkRunner.js";
 import { ScenarioConfiguration } from "../framework/BenchmarkScenario.js";
 import { IModelInventory } from "../fixtures/IModelInventory.js";
 import { median, percentile } from "../reporting/statistics.js";
@@ -14,9 +14,14 @@ import { ExternalFixtureSourceIdentity } from "../fixtures/FixtureDescriptor.js"
 
 export type ComparisonArm = "baseline" | "candidate";
 
+export type ComparisonSample = BenchmarkSample & {
+  /** Peak RSS reported by the isolated worker's process resource usage. */
+  readonly workerPeakRssBytes: number;
+};
+
 export interface ComparisonArmResult {
   readonly revision: string;
-  readonly samples: readonly BenchmarkSample[];
+  readonly samples: readonly ComparisonSample[];
 }
 
 export interface ComparisonReportInput {
@@ -38,7 +43,7 @@ export type InformationalComparisonStatus =
   | "within-informational-threshold";
 
 export interface ComparisonSummary {
-  readonly reportSchemaVersion: 1;
+  readonly reportSchemaVersion: 2;
   readonly scenarioId: string;
   readonly fixtureId: string;
   readonly fixtureVersion: number;
@@ -63,6 +68,8 @@ export interface ComparisonSummary {
     readonly minimumMilliseconds: number;
     readonly maximumMilliseconds: number;
     readonly measuredMilliseconds: readonly number[];
+    readonly medianPeakRssBytes: number;
+    readonly measuredPeakRssBytes: readonly number[];
   };
   readonly candidate: {
     readonly revision: string;
@@ -72,6 +79,8 @@ export interface ComparisonSummary {
     readonly minimumMilliseconds: number;
     readonly maximumMilliseconds: number;
     readonly measuredMilliseconds: readonly number[];
+    readonly medianPeakRssBytes: number;
+    readonly measuredPeakRssBytes: readonly number[];
   };
   readonly percentageDelta: number;
   readonly informationalStatus: InformationalComparisonStatus;
@@ -79,7 +88,7 @@ export interface ComparisonSummary {
   readonly executionOrder: readonly ComparisonArm[];
 }
 
-function configurationIdentity(sample: BenchmarkSample): string {
+function configurationIdentity(sample: ComparisonSample): string {
   return JSON.stringify([
     sample.reportSchemaVersion,
     sample.scenarioId,
@@ -146,6 +155,28 @@ export function percentageDelta(
   );
 }
 
+function validatePeakRss(
+  arm: ComparisonArm,
+  samples: readonly ComparisonSample[]
+): void {
+  if (
+    samples.some(
+      (sample) =>
+        !Number.isFinite(sample.workerPeakRssBytes) ||
+        sample.workerPeakRssBytes <= 0
+    )
+  )
+    throw new Error(`${arm} peak RSS samples must be positive finite numbers`);
+}
+
+function measuredPeakRss(
+  samples: readonly ComparisonSample[]
+): readonly number[] {
+  return samples
+    .filter((sample) => sample.measured)
+    .map((sample) => sample.workerPeakRssBytes);
+}
+
 function timingStatistics(measuredMilliseconds: readonly number[]) {
   return {
     medianMilliseconds: median(measuredMilliseconds),
@@ -184,6 +215,8 @@ export function createComparisonSummary(
     input.candidate,
     input.measuredSamplesPerArm
   );
+  validatePeakRss("baseline", input.baseline.samples);
+  validatePeakRss("candidate", input.candidate.samples);
   const allSamples = [...input.baseline.samples, ...input.candidate.samples];
   const fixtureContentHashes = new Set(
     allSamples.map((sample) => sample.fixtureContentHash)
@@ -213,6 +246,8 @@ export function createComparisonSummary(
     .map((sample) => sample.wallMilliseconds);
   const baselineTiming = timingStatistics(baselineMeasured);
   const candidateTiming = timingStatistics(candidateMeasured);
+  const baselinePeakRss = measuredPeakRss(input.baseline.samples);
+  const candidatePeakRss = measuredPeakRss(input.candidate.samples);
   const delta = percentageDelta(
     baselineTiming.medianMilliseconds,
     candidateTiming.medianMilliseconds
@@ -226,7 +261,7 @@ export function createComparisonSummary(
   const identity = allSamples[0];
 
   return {
-    reportSchemaVersion: 1,
+    reportSchemaVersion: 2,
     scenarioId: identity.scenarioId,
     fixtureId: identity.fixtureId,
     fixtureVersion: identity.fixtureVersion,
@@ -249,11 +284,15 @@ export function createComparisonSummary(
       revision: input.baseline.revision,
       transformerProvenance: baselineTransformer,
       ...baselineTiming,
+      medianPeakRssBytes: median(baselinePeakRss),
+      measuredPeakRssBytes: baselinePeakRss,
     },
     candidate: {
       revision: input.candidate.revision,
       transformerProvenance: candidateTransformer,
       ...candidateTiming,
+      medianPeakRssBytes: median(candidatePeakRss),
+      measuredPeakRssBytes: candidatePeakRss,
     },
     percentageDelta: delta,
     informationalStatus,
@@ -349,10 +388,12 @@ function markdown(summary: ComparisonSummary): string {
     "",
     "## Result",
     "",
-    "| Arm | Revision | Transformer | Median | P90 | Range |",
-    "| --- | --- | --- | ---: | ---: | ---: |",
-    `| Baseline | ${markdownCode(formatRevision(summary.baseline.revision))} | ${markdownCode(summary.baseline.transformerProvenance.version)} | ${formatMilliseconds(summary.baseline.medianMilliseconds)} | ${formatMilliseconds(summary.baseline.p90Milliseconds)} | ${formatMilliseconds(summary.baseline.minimumMilliseconds)}–${formatMilliseconds(summary.baseline.maximumMilliseconds)} |`,
-    `| Candidate | ${markdownCode(formatRevision(summary.candidate.revision))} | ${markdownCode(summary.candidate.transformerProvenance.version)} | ${formatMilliseconds(summary.candidate.medianMilliseconds)} | ${formatMilliseconds(summary.candidate.p90Milliseconds)} | ${formatMilliseconds(summary.candidate.minimumMilliseconds)}–${formatMilliseconds(summary.candidate.maximumMilliseconds)} |`,
+    "| Arm | Revision | Transformer | Median | P90 | Range | Peak worker RSS |",
+    "| --- | --- | --- | ---: | ---: | ---: | ---: |",
+    `| Baseline | ${markdownCode(formatRevision(summary.baseline.revision))} | ${markdownCode(summary.baseline.transformerProvenance.version)} | ${formatMilliseconds(summary.baseline.medianMilliseconds)} | ${formatMilliseconds(summary.baseline.p90Milliseconds)} | ${formatMilliseconds(summary.baseline.minimumMilliseconds)}–${formatMilliseconds(summary.baseline.maximumMilliseconds)} | ${formatBytes(summary.baseline.medianPeakRssBytes)} |`,
+    `| Candidate | ${markdownCode(formatRevision(summary.candidate.revision))} | ${markdownCode(summary.candidate.transformerProvenance.version)} | ${formatMilliseconds(summary.candidate.medianMilliseconds)} | ${formatMilliseconds(summary.candidate.p90Milliseconds)} | ${formatMilliseconds(summary.candidate.minimumMilliseconds)}–${formatMilliseconds(summary.candidate.maximumMilliseconds)} | ${formatBytes(summary.candidate.medianPeakRssBytes)} |`,
+    "",
+    "Peak worker RSS is reported by the isolated worker's process resource usage across its complete lifetime, including setup and teardown.",
     "",
     `**Candidate delta:** ${signedDelta}  `,
     `**Status:** \`${summary.informationalStatus}\``,

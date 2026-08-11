@@ -19,6 +19,7 @@ import { resolveBenchmarkRunFromEnvironment } from "../framework/BenchmarkResolu
 import {
   ComparisonArm,
   ComparisonReporter,
+  ComparisonSample,
   ComparisonSummary,
 } from "./ComparisonReport.js";
 import { isIModelInventory } from "../fixtures/IModelInventory.js";
@@ -62,7 +63,7 @@ export interface ArmExecutionRequest {
 
 export type ArmExecutor = (
   request: ArmExecutionRequest
-) => Promise<BenchmarkSample>;
+) => Promise<ComparisonSample>;
 
 export interface FixtureArtifactBuildRequest {
   readonly artifactDirectory: string;
@@ -161,6 +162,12 @@ function isBenchmarkSample(value: unknown): value is BenchmarkSample {
   );
 }
 
+function isComparisonSample(value: unknown): value is ComparisonSample {
+  if (!isBenchmarkSample(value)) return false;
+  const peakRssBytes = (value as ComparisonSample).workerPeakRssBytes;
+  return Number.isFinite(peakRssBytes) && peakRssBytes > 0;
+}
+
 interface WorkerProcessResult {
   readonly exitCode: number | null;
   readonly stderr: string;
@@ -217,7 +224,7 @@ async function runWorkerProcess(
         }${output.length === 0 ? "" : `: ${output}`}`
       );
     };
-    const settle = (action: () => void) => {
+    const settle = (action: () => void): void => {
       if (settled) return;
       settled = true;
       clearTimeout(timeout);
@@ -277,7 +284,7 @@ export async function executeArmProcess(
   request: ArmExecutionRequest,
   terminationGraceMilliseconds = defaultWorkerTerminationGraceMilliseconds,
   forcedTerminationConfirmationMilliseconds = defaultForcedTerminationConfirmationMilliseconds
-): Promise<BenchmarkSample> {
+): Promise<ComparisonSample> {
   const resultFile = path.join(request.outputDir, "sample-result.json");
   fs.mkdirSync(request.outputDir, { recursive: true });
   const processResult = await runWorkerProcess(
@@ -304,7 +311,7 @@ export async function executeArmProcess(
       `${request.arm} sample ${request.sample} process did not write a result`
     );
   const parsed: unknown = JSON.parse(fs.readFileSync(resultFile, "utf8"));
-  if (!isBenchmarkSample(parsed))
+  if (!isComparisonSample(parsed))
     throw new Error(
       `${request.arm} sample ${request.sample} process wrote an invalid result`
     );
@@ -412,7 +419,7 @@ export async function runComparison(
     scenarioId: options.scenarioId,
     workerTimeoutMilliseconds,
   });
-  const samples: Record<ComparisonArm, BenchmarkSample[]> = {
+  const samples: Record<ComparisonArm, ComparisonSample[]> = {
     baseline: [],
     candidate: [],
   };

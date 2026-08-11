@@ -134,7 +134,7 @@ jobs:
             process.exit(0);
 
           const delta = `${summary.percentageDelta >= 0 ? "+" : ""}${summary.percentageDelta.toFixed(2)}%`;
-          const message = `Candidate median is ${delta} relative to baseline, beyond the ${summary.policy.informationalThresholdPercent}% informational threshold. This warning is not a statistical-confidence or merge-blocking result.`;
+          const message = `Candidate wall-time median is ${delta} relative to baseline, beyond the ${summary.policy.informationalThresholdPercent}% informational threshold. Peak worker RSS is reported separately and does not affect this warning. This warning is not a statistical-confidence or merge-blocking result.`;
           console.log(`::warning title=Quick performance informational threshold::${message}`);
           fs.appendFileSync(
             process.env.GITHUB_STEP_SUMMARY,
