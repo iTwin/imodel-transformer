@@ -1438,7 +1438,7 @@ export class IModelExporter {
       loggerCategory,
       `exportRelationships(${baseRelClassFullName})`
     );
-    const sql = `SELECT r.$, r.ECInstanceId, s.FederationGuid, t.FederationGuid FROM ${baseRelClassFullName} r
+    const sql = `SELECT r.$ AS rawInstance, r.ECInstanceId AS relInstanceId, s.FederationGuid AS sourceFedGuid, t.FederationGuid AS targetFedGuid FROM ${baseRelClassFullName} r
                   JOIN bis.Element s ON s.ECInstanceId = r.SourceECInstanceId
                   JOIN bis.Element t ON t.ECInstanceId = r.TargetECInstanceId
                   WHERE s.ECInstanceId IS NOT NULL AND t.ECInstanceId IS NOT NULL
@@ -1447,7 +1447,7 @@ export class IModelExporter {
       for await (const row of this.sourceDb.createQueryReader(sql, undefined, {
         usePrimaryConn: true,
       })) {
-        const relInstanceId: Id64String = row[1];
+        const relInstanceId: Id64String = row.relInstanceId;
         const changesetFilter =
           this.checkRelationshipChangesetFilter(relInstanceId);
         if (changesetFilter.skip) {
@@ -1455,12 +1455,12 @@ export class IModelExporter {
           continue;
         }
         const relationship = this.sourceDb.constructEntity<Relationship>(
-          this.getRelationshipProps(row[0])
+          this.getRelationshipProps(row.rawInstance)
         );
         this._cachedRelationshipEndpointFederationGuids = {
           relInstanceId,
-          sourceFedGuid: row[2] ?? undefined,
-          targetFedGuid: row[3] ?? undefined,
+          sourceFedGuid: row.sourceFedGuid ?? undefined,
+          targetFedGuid: row.targetFedGuid ?? undefined,
         };
         await this.exportRelationshipInstance(
           relationship,
