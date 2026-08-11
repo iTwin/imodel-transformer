@@ -887,20 +887,83 @@ export class IModelExporter {
       }
     }
     Logger.logTrace(loggerCategory, `exportModelContents(${modelId})`);
-    let sql: string;
-    if (skipRootSubject) {
-      sql = `SELECT ECInstanceId FROM ${elementClassFullName} WHERE Parent.Id IS NULL AND Model.Id=:modelId AND ECInstanceId!=:rootSubjectId ORDER BY ECInstanceId`;
-    } else {
-      sql = `SELECT ECInstanceId FROM ${elementClassFullName} WHERE Parent.Id IS NULL AND Model.Id=:modelId ORDER BY ECInstanceId`;
-    }
+    const rootFilter = skipRootSubject
+      ? "e.Parent.Id IS NULL AND e.Model.Id=:modelId AND e.ECInstanceId!=:rootSubjectId"
+      : "e.Parent.Id IS NULL AND e.Model.Id=:modelId";
     const params = new QueryBinder().bindId("modelId", modelId);
     if (skipRootSubject) {
       params.bindId("rootSubjectId", IModel.rootSubjectId);
     }
+    if (this.canUseSetBasedTraversal()) {
+      return this.exportElementTreesStreamed(
+        `SELECT e.ECInstanceId, 0 FROM ${elementClassFullName} e WHERE ${rootFilter}`,
+        params
+      );
+    }
+    const sql = `SELECT e.ECInstanceId FROM ${elementClassFullName} e WHERE ${rootFilter} ORDER BY e.ECInstanceId`;
     for await (const row of this.sourceDb.createQueryReader(sql, params, {
       usePrimaryConn: true,
     })) {
       await this.exportElement(row.id);
+      await this._yieldManager.allowYield();
+    }
+  }
+
+  /** Whether hierarchy traversal may use the streamed set-based query instead of
+   * per-element `queryChildren` recursion.
+   *
+   * The streamed traversal only replaces the exporter's own recursion, so it must not
+   * be used when a subclass overrides [[exportElement]] or [[exportChildElements]]
+   * (those overrides rely on per-element dispatch), nor in changes mode, where
+   * unchanged elements are traversed-but-not-exported by the legacy path.
+   */
+  private canUseSetBasedTraversal(): boolean {
+    return (
+      this._sourceDbChanges === undefined &&
+      this.exportElement === IModelExporter.prototype.exportElement &&
+      this.exportChildElements === IModelExporter.prototype.exportChildElements
+    );
+  }
+
+  /** Stream one or more element trees in depth-first pre-order using a single recursive
+   * ECSQL query instead of one `queryChildren` round trip per visited element.
+   *
+   * The `ORDER BY Depth DESC, ECInstanceId ASC` inside the recursive select turns
+   * SQLite's recursive-CTE queue into a priority queue that always continues down the
+   * current branch before moving to the next sibling, yielding exactly the traversal
+   * order of the legacy recursion (roots and siblings in ECInstanceId order, parents
+   * before descendants) without materializing the hierarchy in memory.
+   *
+   * Subtrees are pruned dynamically: when an element is rejected, every subsequent row
+   * deeper than it belongs to its subtree (pre-order contiguity) and is skipped.
+   *
+   * @param anchorSelect a SELECT producing `(ECInstanceId, 0)` rows for the tree roots
+   */
+  private async exportElementTreesStreamed(
+    anchorSelect: string,
+    params: QueryBinder
+  ): Promise<void> {
+    const sql = `
+      WITH RECURSIVE ElementTree (ECInstanceId, Depth) AS (
+        ${anchorSelect}
+        UNION ALL
+        SELECT c.ECInstanceId, t.Depth + 1 FROM ${Element.classFullName} c
+          JOIN ElementTree t ON c.Parent.Id = t.ECInstanceId
+        ORDER BY 2 DESC, 1 ASC
+      )
+      SELECT ECInstanceId, Depth FROM ElementTree`;
+    let pruneDepth: number | undefined;
+    for await (const row of this.sourceDb.createQueryReader(sql, params, {
+      usePrimaryConn: true,
+    })) {
+      const elementId: Id64String = row[0];
+      const depth: number = row[1];
+      if (pruneDepth !== undefined) {
+        if (depth > pruneDepth) continue; // still inside a pruned subtree
+        pruneDepth = undefined;
+      }
+      const visitChildren = await this.exportElementShallow(elementId);
+      if (!visitChildren) pruneDepth = depth;
       await this._yieldManager.allowYield();
     }
   }
@@ -1004,11 +1067,21 @@ export class IModelExporter {
       return;
     }
 
+    const visitChildren = await this.exportElementShallow(elementId);
+    if (visitChildren) {
+      return this.exportChildElements(elementId);
+    }
+  }
+
+  /** Runs the export callbacks for a single element without visiting its children.
+   * @returns `true` if the element's children should be visited afterwards.
+   */
+  private async exportElementShallow(elementId: Id64String): Promise<boolean> {
     // Return early if the elementId is already in the excludedElementIds, that way we don't need to load the element from the db.
     if (this._excludedElementIds.has(elementId)) {
       Logger.logInfo(loggerCategory, `Excluded element ${elementId} by Id`);
       await this.handler.onSkipElement(elementId);
-      return;
+      return false;
     }
 
     // are we processing changes?
@@ -1020,7 +1093,7 @@ export class IModelExporter {
 
     // Short-circuit: element is not in the changeset, skip its own export but still visit children
     if (undefined !== this._sourceDbChanges && undefined === isUpdate) {
-      return this.exportChildElements(elementId);
+      return true;
     }
 
     const element = this.sourceDb.elements.getElement({
@@ -1040,9 +1113,10 @@ export class IModelExporter {
       await this.handler.onExportElement(element, isUpdate);
       await this.trackProgress();
       await this._elementAspectExportCoordinator.addAcceptedOwner(elementId);
-      return this.exportChildElements(elementId);
+      return true;
     } else {
       await this.handler.onSkipElement(element.id);
+      return false;
     }
   }
 
@@ -1062,6 +1136,13 @@ export class IModelExporter {
         `visitElements=false, skipping exportChildElements(${elementId})`
       );
       return;
+    }
+    if (this.canUseSetBasedTraversal()) {
+      Logger.logTrace(loggerCategory, `exportChildElements(${elementId})`);
+      return this.exportElementTreesStreamed(
+        `SELECT e.ECInstanceId, 0 FROM ${Element.classFullName} e WHERE e.Parent.Id=:parentId`,
+        new QueryBinder().bindId("parentId", elementId)
+      );
     }
     const childElementIds: Id64String[] =
       this.sourceDb.elements.queryChildren(elementId);
