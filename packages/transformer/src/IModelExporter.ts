@@ -885,6 +885,16 @@ export class IModelExporter {
       ) {
         return; // this optimization assumes that the Model changes (LastMod) any time an Element in the Model changes
       }
+      if (
+        this.canUseDirectChangedElementExport() &&
+        elementClassFullName === Element.classFullName
+      ) {
+        Logger.logTrace(
+          loggerCategory,
+          `exportModelContents(${modelId}) via changed-element trees`
+        );
+        return this.exportChangedElementTrees({ modelId, skipRootSubject });
+      }
     }
     Logger.logTrace(loggerCategory, `exportModelContents(${modelId})`);
     let sql: string;
@@ -1004,11 +1014,21 @@ export class IModelExporter {
       return;
     }
 
+    const visitChildren = await this.exportElementShallow(elementId);
+    if (visitChildren) {
+      return this.exportChildElements(elementId);
+    }
+  }
+
+  /** Runs the export callbacks for a single element without visiting its children.
+   * @returns `true` if the element's children should be visited afterwards.
+   */
+  private async exportElementShallow(elementId: Id64String): Promise<boolean> {
     // Return early if the elementId is already in the excludedElementIds, that way we don't need to load the element from the db.
     if (this._excludedElementIds.has(elementId)) {
       Logger.logInfo(loggerCategory, `Excluded element ${elementId} by Id`);
       await this.handler.onSkipElement(elementId);
-      return;
+      return false;
     }
 
     // are we processing changes?
@@ -1020,7 +1040,7 @@ export class IModelExporter {
 
     // Short-circuit: element is not in the changeset, skip its own export but still visit children
     if (undefined !== this._sourceDbChanges && undefined === isUpdate) {
-      return this.exportChildElements(elementId);
+      return true;
     }
 
     const element = this.sourceDb.elements.getElement({
@@ -1040,9 +1060,10 @@ export class IModelExporter {
       await this.handler.onExportElement(element, isUpdate);
       await this.trackProgress();
       await this._elementAspectExportCoordinator.addAcceptedOwner(elementId);
-      return this.exportChildElements(elementId);
+      return true;
     } else {
       await this.handler.onSkipElement(element.id);
+      return false;
     }
   }
 
@@ -1063,6 +1084,13 @@ export class IModelExporter {
       );
       return;
     }
+    if (this.canUseDirectChangedElementExport()) {
+      Logger.logTrace(
+        loggerCategory,
+        `exportChildElements(${elementId}) via changed-element trees`
+      );
+      return this.exportChangedElementTrees({ rootElementId: elementId });
+    }
     const childElementIds: Id64String[] =
       this.sourceDb.elements.queryChildren(elementId);
     if (childElementIds.length > 0) {
@@ -1071,6 +1099,107 @@ export class IModelExporter {
         await this.exportElement(childElementId);
       }
     }
+  }
+
+  /** Whether changes-mode traversal may export the changed-element set directly
+   * instead of recursing through every element of each changed model.
+   *
+   * The direct export only replaces the exporter's own recursion, so it must not be
+   * used when a subclass overrides [[exportElement]] or [[exportChildElements]]
+   * (those overrides rely on per-element dispatch).
+   */
+  private canUseDirectChangedElementExport(): boolean {
+    return (
+      this._sourceDbChanges !== undefined &&
+      this.exportElement === IModelExporter.prototype.exportElement &&
+      this.exportChildElements === IModelExporter.prototype.exportChildElements
+    );
+  }
+
+  /** Exports the changed elements of one scope directly, without traversing the
+   * hierarchy of unchanged elements.
+   *
+   * Candidates are the changed element ids plus the configured excluded element ids
+   * (exclusion fires [[IModelExportHandler.onSkipElement]] and prunes the subtree even
+   * for unchanged elements, so excluded ids must stay part of the walk). One upward
+   * recursive ECSQL query computes the candidates' ancestor closure, which induces the
+   * forest the legacy per-element recursion would have effectively visited; walking it
+   * depth-first with siblings in ECInstanceId order fires exactly the callbacks of the
+   * legacy traversal, in the same order, at a cost proportional to the changeset
+   * instead of the size of each changed model.
+   *
+   * The scope is either a model's contents (optionally without the root Subject tree,
+   * mirroring [[exportModelContents]]) or the descendants of one element (mirroring
+   * [[exportChildElements]]; parents and children always share a model in BIS, so the
+   * candidate query is bounded by the root's model in both cases).
+   */
+  private async exportChangedElementTrees(
+    scope:
+      | { modelId: Id64String; skipRootSubject?: boolean }
+      | { rootElementId: Id64String }
+  ): Promise<void> {
+    nodeAssert(
+      this._sourceDbChanges !== undefined,
+      "direct changed-element export requires sourceDbChanges"
+    );
+    const candidateIds = new Set<Id64String>([
+      ...this._sourceDbChanges.element.insertIds,
+      ...this._sourceDbChanges.element.updateIds,
+      ...this._excludedElementIds,
+    ]);
+    if (candidateIds.size === 0) return;
+
+    const isModelScope = "modelId" in scope;
+    const params = new QueryBinder().bindIdSet("candidateIds", candidateIds);
+    if (isModelScope) params.bindId("modelId", scope.modelId);
+    else params.bindId("rootElementId", scope.rootElementId);
+    const sql = `
+      WITH RECURSIVE ChangedElementTree (ECInstanceId, ParentId) AS (
+        SELECT e.ECInstanceId, e.Parent.Id
+        FROM ${Element.classFullName} e
+        INNER JOIN IdSet(:candidateIds) ids ON ids.id = e.ECInstanceId
+        WHERE e.Model.Id = ${
+          isModelScope
+            ? ":modelId"
+            : `(SELECT re.Model.Id FROM ${Element.classFullName} re WHERE re.ECInstanceId = :rootElementId)`
+        }
+        UNION
+        SELECT p.ECInstanceId, p.Parent.Id
+        FROM ${Element.classFullName} p
+        INNER JOIN ChangedElementTree c ON p.ECInstanceId = c.ParentId
+      )
+      SELECT ECInstanceId, ParentId FROM ChangedElementTree
+      OPTIONS ENABLE_EXPERIMENTAL_FEATURES
+    `;
+    const noParent = "";
+    const childrenOf = new Map<Id64String, Id64String[]>();
+    for await (const row of this.sourceDb.createQueryReader(sql, params, {
+      usePrimaryConn: true,
+    })) {
+      const parentId: Id64String = row[1] ?? noParent;
+      const siblings = childrenOf.get(parentId);
+      if (siblings === undefined) childrenOf.set(parentId, [row[0]]);
+      else siblings.push(row[0]);
+    }
+
+    // normalized Id64 strings compare numerically by length, then lexically
+    const compareIds = (a: Id64String, b: Id64String) =>
+      a.length - b.length || (a < b ? -1 : a > b ? 1 : 0);
+    const visit = async (elementId: Id64String): Promise<void> => {
+      const visitChildren = await this.exportElementShallow(elementId);
+      await this._yieldManager.allowYield();
+      if (!visitChildren) return;
+      const childIds = childrenOf.get(elementId);
+      if (childIds === undefined) return;
+      for (const childId of childIds.sort(compareIds)) await visit(childId);
+    };
+    let rootIds = isModelScope
+      ? (childrenOf.get(noParent) ?? [])
+      : (childrenOf.get(scope.rootElementId) ?? []);
+    if (isModelScope && scope.skipRootSubject) {
+      rootIds = rootIds.filter((id) => id !== IModel.rootSubjectId);
+    }
+    for (const rootId of rootIds.sort(compareIds)) await visit(rootId);
   }
 
   /** Exports all aspects owned by the supplied elements. */
