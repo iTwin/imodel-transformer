@@ -1,0 +1,7 @@
+{
+  "type": "minor",
+  "comment": "Improve performance of filter-heavy exports: when built-in class or category element exclusions are configured and shouldExportElement is not overridden, IModelExporter now rejects excluded elements from a lightweight query before paying for a full element load (including geometry)",
+  "packageName": "@itwin/imodel-transformer",
+  "email": "223556219+Copilot@users.noreply.github.com",
+  "dependentChangeType": "patch"
+}

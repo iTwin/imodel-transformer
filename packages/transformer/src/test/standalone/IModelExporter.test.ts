@@ -22,6 +22,7 @@ import {
   PhysicalPartition,
   SnapshotDb,
   SpatialCategory,
+  SpatialLocation,
   Subject,
   SubjectOwnsPartitionElements,
   withEditTxn,
@@ -885,6 +886,190 @@ describe("IModelExporter", () => {
       ).to.be.equal(0);
 
       sourceDb.close();
+    });
+  });
+
+  describe("element load pre-filtering", () => {
+    interface PreFilterTestIds {
+      includedObjectId: Id64String;
+      excludedByCategoryId: Id64String;
+      excludedByClassId: Id64String;
+      excludedCategoryId: Id64String;
+    }
+
+    function createPreFilterSourceDb(name: string): {
+      sourceDb: SnapshotDb;
+      ids: PreFilterTestIds;
+    } {
+      const sourceDbPath = IModelTransformerTestUtils.prepareOutputFile(
+        "IModelExporter",
+        `${name}.bim`
+      );
+      const sourceDb = SnapshotDb.createEmpty(sourceDbPath, {
+        rootSubject: { name },
+      });
+      const ids = withEditTxn(
+        sourceDb,
+        "insert pre-filter test data",
+        (txn) => {
+          const includedCategoryId = SpatialCategory.insert(
+            txn,
+            IModel.dictionaryId,
+            "IncludedCategory",
+            new SubCategoryAppearance()
+          );
+          const excludedCategoryId = SpatialCategory.insert(
+            txn,
+            IModel.dictionaryId,
+            "ExcludedCategory",
+            new SubCategoryAppearance()
+          );
+          const modelId = PhysicalModel.insert(
+            txn,
+            IModel.rootSubjectId,
+            "PreFilterModel"
+          );
+          const insertObject = (categoryId: Id64String, label: string) =>
+            txn.insertElement({
+              classFullName: PhysicalObject.classFullName,
+              model: modelId,
+              category: categoryId,
+              code: Code.createEmpty(),
+              userLabel: label,
+            } as PhysicalElementProps);
+          return {
+            includedObjectId: insertObject(includedCategoryId, "Included"),
+            excludedByCategoryId: insertObject(
+              excludedCategoryId,
+              "ExcludedByCategory"
+            ),
+            excludedByClassId: txn.insertElement({
+              classFullName: SpatialLocation.classFullName,
+              model: modelId,
+              category: includedCategoryId,
+              code: Code.createEmpty(),
+              userLabel: "ExcludedByClass",
+            } as PhysicalElementProps),
+            excludedCategoryId,
+          };
+        }
+      );
+      return { sourceDb, ids };
+    }
+
+    class RecordingHandler extends IModelExportHandler {
+      public exportedElementIds: Id64String[] = [];
+      public skippedElementIds: Id64String[] = [];
+
+      public override async onExportElement(element: Element): Promise<void> {
+        this.exportedElementIds.push(element.id);
+      }
+
+      public override async onSkipElement(
+        elementId: Id64String
+      ): Promise<void> {
+        this.skippedElementIds.push(elementId);
+      }
+    }
+
+    function loadedElementIds(getElement: {
+      mock: { calls: unknown[][] };
+    }): Id64String[] {
+      return getElement.mock.calls.map((call) => {
+        const request = call[0] as string | { id?: Id64String };
+        return typeof request === "string" ? request : (request.id ?? "");
+      });
+    }
+
+    it("rejects built-in class and category exclusions without full element loads", async () => {
+      const { sourceDb, ids } = createPreFilterSourceDb("PreFilterBuiltIns");
+      try {
+        const exporter = new IModelExporter(sourceDb);
+        const handler = new RecordingHandler();
+        exporter.registerHandler(handler);
+        exporter.excludeElementsInCategory(ids.excludedCategoryId);
+        exporter.excludeElementClass(SpatialLocation.classFullName);
+        const getElement = vi.spyOn(sourceDb.elements, "getElement");
+
+        await exporter.exportAll();
+
+        expect(handler.exportedElementIds).to.include(ids.includedObjectId);
+        expect(handler.skippedElementIds).to.include(ids.excludedByCategoryId);
+        expect(handler.skippedElementIds).to.include(ids.excludedByClassId);
+        expect(handler.exportedElementIds).to.not.include(
+          ids.excludedByCategoryId
+        );
+        expect(handler.exportedElementIds).to.not.include(
+          ids.excludedByClassId
+        );
+        const loadedIds = loadedElementIds(getElement);
+        expect(loadedIds).to.include(ids.includedObjectId);
+        expect(loadedIds).to.not.include(ids.excludedByCategoryId);
+        expect(loadedIds).to.not.include(ids.excludedByClassId);
+      } finally {
+        vi.restoreAllMocks();
+        sourceDb.close();
+      }
+    });
+
+    it("falls back to full loads when shouldExportElement is overridden", async () => {
+      const { sourceDb, ids } = createPreFilterSourceDb("PreFilterOverride");
+      try {
+        let overrideCalls = 0;
+        class CustomExporter extends IModelExporter {
+          public override async shouldExportElement(
+            element: Element
+          ): Promise<boolean> {
+            overrideCalls++;
+            return super.shouldExportElement(element);
+          }
+        }
+        const exporter = new CustomExporter(sourceDb);
+        const handler = new RecordingHandler();
+        exporter.registerHandler(handler);
+        exporter.excludeElementsInCategory(ids.excludedCategoryId);
+        const queryFilterFact = vi.spyOn(
+          exporter as any,
+          "queryElementFilterFact"
+        );
+        const getElement = vi.spyOn(sourceDb.elements, "getElement");
+
+        await exporter.exportAll();
+
+        expect(queryFilterFact.mock.calls.length).to.equal(0);
+        expect(overrideCalls).to.be.greaterThan(0);
+        expect(loadedElementIds(getElement)).to.include(
+          ids.excludedByCategoryId
+        );
+        expect(handler.skippedElementIds).to.include(ids.excludedByCategoryId);
+        expect(handler.exportedElementIds).to.include(ids.includedObjectId);
+      } finally {
+        vi.restoreAllMocks();
+        sourceDb.close();
+      }
+    });
+
+    it("skips the pre-filter probe when no built-in exclusions are configured", async () => {
+      const { sourceDb, ids } = createPreFilterSourceDb("PreFilterInactive");
+      try {
+        const exporter = new IModelExporter(sourceDb);
+        const handler = new RecordingHandler();
+        exporter.registerHandler(handler);
+        const queryFilterFact = vi.spyOn(
+          exporter as any,
+          "queryElementFilterFact"
+        );
+
+        await exporter.exportAll();
+
+        expect(queryFilterFact.mock.calls.length).to.equal(0);
+        expect(handler.exportedElementIds).to.include(ids.includedObjectId);
+        expect(handler.exportedElementIds).to.include(ids.excludedByCategoryId);
+        expect(handler.exportedElementIds).to.include(ids.excludedByClassId);
+      } finally {
+        vi.restoreAllMocks();
+        sourceDb.close();
+      }
     });
   });
 });

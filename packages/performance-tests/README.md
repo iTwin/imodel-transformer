@@ -71,6 +71,12 @@ no relationships) and `relationship-heavy-transform` (5,000 elements with
 30,000 `ElementGroupsMembers` relationships, exercising the relationship export
 path including federation-guid lookups).
 
+The `filter-heavy-full-transformation` scenario shares that topology and
+lifecycle but configures exporter exclusions in untimed `prepare()` so that
+about half of the source elements are rejected: a quarter by
+`excludeElementsInCategory` and a quarter by `excludeElementClass`. It measures
+the exporter's cost of loading and filtering rejected elements (issue #8).
+
 ## Running the quick suite
 
 Install the workspace dependencies from the repository root:
