@@ -1015,7 +1015,108 @@ describe("IModelExporter", () => {
         exporter.getCachedRelationshipEndpointFederationGuids(relId)
       ).to.equal(undefined);
 
+      const directExporter = new IModelExporter(sourceDb);
+      let directRelationship: Relationship | undefined;
+      let directCachedFedGuids: ReturnType<
+        IModelExporter["getCachedRelationshipEndpointFederationGuids"]
+      >;
+      directExporter.registerHandler(
+        new (class extends IModelExportHandler {
+          public override async onExportRelationship(
+            exportedRelationship: Relationship
+          ): Promise<void> {
+            directRelationship = exportedRelationship;
+            directCachedFedGuids =
+              directExporter.getCachedRelationshipEndpointFederationGuids(
+                exportedRelationship.id
+              );
+          }
+        })()
+      );
+      const getInstance = vi.spyOn(sourceDb.relationships, "getInstance");
+      await directExporter.exportRelationship(relClassFullName, relId);
+      expect(getInstance).not.toHaveBeenCalled();
+      getInstance.mockRestore();
+
+      expect(directRelationship?.toJSON()).to.deep.equal(
+        viaGetInstance.toJSON()
+      );
+      expect(directCachedFedGuids?.sourceFedGuid).to.equal(
+        sourceDb.elements.getFederationGuidFromId(sourceElemId)
+      );
+      expect(directCachedFedGuids?.targetFedGuid).to.equal(
+        sourceDb.elements.getFederationGuidFromId(targetElemId)
+      );
+      expect(
+        directExporter.getCachedRelationshipEndpointFederationGuids(relId)
+      ).to.equal(undefined);
+
+      const changedExporter = new IModelExporter(sourceDb);
+      const changed = new ChangedInstanceIds(sourceDb);
+      changed.relationship.insertIds.add(relId);
+      changedExporter["_sourceDbChanges"] = changed;
+      changedExporter.registerHandler(
+        new (class extends IModelExportHandler {})()
+      );
+      const changedQueryReader = vi.spyOn(sourceDb, "createQueryReader");
+      await changedExporter.exportRelationships(
+        ElementRefersToElements.classFullName
+      );
+      expect(changedQueryReader.mock.calls[0][0]).toContain(
+        "INNER JOIN IdSet(:changedRelationshipIds)"
+      );
+      changedQueryReader.mockRestore();
+
+      class HookExporter extends IModelExporter {
+        public hookCalls = 0;
+
+        protected override async exportRelationshipInstance(
+          exportedRelationship: Relationship,
+          exportedIsUpdate: boolean | undefined
+        ): Promise<void> {
+          this.hookCalls++;
+          await super.exportRelationshipInstance(
+            exportedRelationship,
+            exportedIsUpdate
+          );
+        }
+      }
+      const hookExporter = new HookExporter(sourceDb);
+      hookExporter.registerHandler(
+        new (class extends IModelExportHandler {})()
+      );
+      await hookExporter.exportRelationships(
+        ElementRefersToElements.classFullName
+      );
+      await hookExporter.exportRelationship(relClassFullName, relId);
+      expect(hookExporter.hookCalls).to.equal(2);
+
       sourceDb.close();
+    });
+
+    it("skips the relationship query when changes contain only deletes", async () => {
+      const sourceDbPath = IModelTransformerTestUtils.prepareOutputFile(
+        "IModelExporter",
+        "DeletedRelationshipsOnly.bim"
+      );
+      const sourceDb = SnapshotDb.createEmpty(sourceDbPath, {
+        rootSubject: { name: "deleted-relationships-only" },
+      });
+      try {
+        const exporter = new IModelExporter(sourceDb);
+        const changes = new ChangedInstanceIds(sourceDb);
+        changes.relationship.deleteIds.add("0x123");
+        exporter["_sourceDbChanges"] = changes;
+        const createQueryReader = vi.spyOn(sourceDb, "createQueryReader");
+
+        await exporter.exportRelationships(
+          ElementRefersToElements.classFullName
+        );
+
+        expect(createQueryReader).not.toHaveBeenCalled();
+      } finally {
+        sourceDb.close();
+      }
     });
 
     it("still excludes relationship classes on the bulk export path", async () => {
