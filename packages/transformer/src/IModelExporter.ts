@@ -1475,27 +1475,30 @@ export class IModelExporter {
       changedRelationshipJoin
     );
     try {
-      for await (const row of this.sourceDb.createQueryReader(
+      await this.sourceDb.withQueryReader(
         sql,
-        queryParams,
-        { usePrimaryConn: true }
-      )) {
-        const relInstanceId: Id64String = row.relInstanceId;
-        const changesetFilter =
-          this.checkRelationshipChangesetFilter(relInstanceId);
-        if (changesetFilter.skip) {
-          await this._yieldManager.allowYield();
-          continue;
-        }
-        await this.exportHydratedRelationship(
-          row.rawInstance,
-          relInstanceId,
-          row.sourceFedGuid,
-          row.targetFedGuid,
-          changesetFilter.isUpdate
-        );
-        await this._yieldManager.allowYield();
-      }
+        async (reader) => {
+          while (reader.step()) {
+            const row = reader.current;
+            const relInstanceId: Id64String = row.relInstanceId;
+            const changesetFilter =
+              this.checkRelationshipChangesetFilter(relInstanceId);
+            if (changesetFilter.skip) {
+              await this._yieldManager.allowYield();
+              continue;
+            }
+            await this.exportHydratedRelationship(
+              row.rawInstance,
+              relInstanceId,
+              row.sourceFedGuid,
+              row.targetFedGuid,
+              changesetFilter.isUpdate
+            );
+            await this._yieldManager.allowYield();
+          }
+        },
+        queryParams
+      );
     } finally {
       this._cachedRelationshipEndpointFederationGuids = undefined;
     }
