@@ -1058,7 +1058,7 @@ describe("IModelExporter", () => {
       changedExporter.registerHandler(
         new (class extends IModelExportHandler {})()
       );
-      const changedQueryReader = vi.spyOn(sourceDb, "withQueryReader");
+      const changedQueryReader = vi.spyOn(sourceDb, "createQueryReader");
       await changedExporter.exportRelationships(
         ElementRefersToElements.classFullName
       );

@@ -1475,30 +1475,39 @@ export class IModelExporter {
       changedRelationshipJoin
     );
     try {
-      await this.sourceDb.withQueryReader(
-        sql,
-        async (reader) => {
-          while (reader.step()) {
-            const row = reader.current;
-            const relInstanceId: Id64String = row.relInstanceId;
-            const changesetFilter =
-              this.checkRelationshipChangesetFilter(relInstanceId);
-            if (changesetFilter.skip) {
-              await this._yieldManager.allowYield();
-              continue;
-            }
-            await this.exportHydratedRelationship(
-              row.rawInstance,
-              relInstanceId,
-              row.sourceFedGuid,
-              row.targetFedGuid,
-              changesetFilter.isUpdate
-            );
+      // Bound the async reader's retained raw rows while preserving batched query throughput.
+      const relationshipQueryBatchSize = 1000;
+      let relationshipQueryOffset = 0;
+      while (true) {
+        let rowsRead = 0;
+        const reader = this.sourceDb.createQueryReader(sql, queryParams, {
+          usePrimaryConn: true,
+          limit: {
+            offset: relationshipQueryOffset,
+            count: relationshipQueryBatchSize,
+          },
+        });
+        for await (const row of reader) {
+          rowsRead++;
+          const relInstanceId: Id64String = row.relInstanceId;
+          const changesetFilter =
+            this.checkRelationshipChangesetFilter(relInstanceId);
+          if (changesetFilter.skip) {
             await this._yieldManager.allowYield();
+            continue;
           }
-        },
-        queryParams
-      );
+          await this.exportHydratedRelationship(
+            row.rawInstance,
+            relInstanceId,
+            row.sourceFedGuid,
+            row.targetFedGuid,
+            changesetFilter.isUpdate
+          );
+          await this._yieldManager.allowYield();
+        }
+        if (rowsRead < relationshipQueryBatchSize) break;
+        relationshipQueryOffset += rowsRead;
+      }
     } finally {
       this._cachedRelationshipEndpointFederationGuids = undefined;
     }
@@ -1528,6 +1537,7 @@ export class IModelExporter {
                   ${endpointJoin} bis.Element s ON s.ECInstanceId = r.SourceECInstanceId
                   ${endpointJoin} bis.Element t ON t.ECInstanceId = r.TargetECInstanceId
                   WHERE ${whereClause}
+                  ORDER BY r.ECInstanceId
                   OPTIONS USE_JS_PROP_NAMES DO_NOT_TRUNCATE_BLOB`;
   }
 
