@@ -10,7 +10,7 @@ import { EntityReference } from "@itwin/core-common";
 import { IModelDb } from "@itwin/core-backend";
 import { EntityUnifier } from "./EntityUnifier";
 
-/** A positive-only cache of entity existence checks, scoped to a single transformation run.
+/** A positive-only read-through cache of entity existence checks, scoped to a single transformation run.
  *
  * Entities are created continuously as a transformation progresses, so a negative
  * ("does not exist") result may become stale at any moment — therefore only positive
@@ -52,12 +52,34 @@ export class EntityExistenceCache {
     return found;
   }
 
-  /** Check whether an entity is already known to exist, without querying. */
-  public isKnownToExist(
+  /** Read through the cache to check which of the supplied entities exist in `db`, populating it on a miss. */
+  public async existsAll(
     db: IModelDb,
-    entityReference: EntityReference
-  ): boolean {
-    return this._existsByDb.get(db)?.has(entityReference) ?? false;
+    entityReferences: Iterable<EntityReference>
+  ): Promise<ReadonlySet<EntityReference>> {
+    const dbSet = this._existsByDb.get(db);
+    const found = new Set<EntityReference>();
+    const unverified: EntityReference[] = [];
+
+    for (const entityReference of entityReferences) {
+      if (dbSet?.has(entityReference)) found.add(entityReference);
+      else unverified.push(entityReference);
+    }
+
+    if (unverified.length === 0) return found;
+
+    const queried = await EntityUnifier.existsAll(db, unverified);
+    if (dbSet === undefined || dbSet.size === 0) {
+      // Reuse the query result as the cache when there is nothing to merge.
+      this._existsByDb.set(db, queried);
+      return queried;
+    }
+
+    for (const entityReference of queried) {
+      dbSet.add(entityReference);
+      found.add(entityReference);
+    }
+    return found;
   }
 
   /** Record that an entity is known to exist in `db` (e.g. it was just imported). */

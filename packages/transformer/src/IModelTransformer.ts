@@ -99,7 +99,6 @@ import { IModelImporter, OptimizeGeometryOptions } from "./IModelImporter";
 import { TransformerLoggerCategory } from "./TransformerLoggerCategory";
 import { IModelCloneContext } from "./IModelCloneContext";
 import type { IModelTransformContext } from "./IModelTransformContext";
-import { EntityUnifier } from "./EntityUnifier";
 import { rangesFromRangeAndSkipped } from "./Algo";
 import { SyncTypeResolver } from "./SyncTypeResolver";
 import { ProvenanceManager } from "./ProvenanceManager";
@@ -1136,16 +1135,11 @@ export class IModelTransformer extends IModelExportHandler {
     referenceIds: EntityReference[],
     entity: ConcreteEntity
   ) {
-    const existenceCache = this._cloneContext.existenceCache;
-    const unverified = referenceIds.filter(
-      (referenceId) =>
-        !existenceCache.isKnownToExist(this.sourceDb, referenceId)
+    const found = await this._cloneContext.existenceCache.existsAll(
+      this.sourceDb,
+      referenceIds
     );
-    if (unverified.length === 0) return;
-    const found = await EntityUnifier.existsAll(this.sourceDb, unverified);
-    for (const referenceId of found)
-      existenceCache.markExists(this.sourceDb, referenceId);
-    for (const referenceId of unverified) {
+    for (const referenceId of referenceIds) {
       if (!found.has(referenceId)) {
         ITwinError.throwError({
           iTwinErrorId: {

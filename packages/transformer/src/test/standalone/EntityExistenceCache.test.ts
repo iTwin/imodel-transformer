@@ -97,6 +97,35 @@ describe("EntityExistenceCache", () => {
     db.close();
   });
 
+  it("batches checks, caches positives, and retries negatives", async () => {
+    const { db, objIds, modelId } = createDbWithPhysicalObjects(
+      "CacheExistsAll.bim",
+      2
+    );
+    const cache = new EntityExistenceCache();
+    const existingReferences: EntityReference[] = [
+      `e${objIds[0]}`,
+      `e${objIds[1]}`,
+      `m${modelId}`,
+    ];
+    const missingReference: EntityReference = "e0xffffff";
+    const references = [...existingReferences, missingReference];
+    const createQueryReader = vi.spyOn(db, "createQueryReader");
+
+    try {
+      const found = await cache.existsAll(db, references);
+      expect(found).to.deep.equal(new Set(existingReferences));
+      expect(createQueryReader).toHaveBeenCalledTimes(2);
+
+      const cachedFound = await cache.existsAll(db, references);
+      expect(cachedFound).to.deep.equal(new Set(existingReferences));
+      expect(createQueryReader).toHaveBeenCalledTimes(3);
+    } finally {
+      createQueryReader.mockRestore();
+      db.close();
+    }
+  });
+
   it("does not cache negative results and finds the entity once it is inserted", async () => {
     const { db } = createDbWithPhysicalObjects("NegativeNotCached.bim");
     const cache = new EntityExistenceCache();
