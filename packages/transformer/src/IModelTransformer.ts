@@ -11,6 +11,7 @@ import { strict as nodeAssert } from "node:assert";
 import {
   assert,
   Guid,
+  GuidString,
   Id64,
   Id64Array,
   Id64Set,
@@ -1753,24 +1754,11 @@ export class IModelTransformer extends IModelExportHandler {
    * This override calls [[onTransformRelationship]] and then [IModelImporter.importRelationship]($transformer) to update the target iModel.
    */
   public override async onExportRelationship(
-    sourceRelationship: Relationship
+    sourceRelationship: Relationship,
+    _isUpdate?: boolean,
+    sourceFedGuid?: GuidString,
+    targetFedGuid?: GuidString
   ): Promise<void> {
-    // prefer endpoint FederationGuids captured by the exporter's bulk query over per-relationship lookups
-    const cachedFedGuids =
-      this.exporter.getCachedRelationshipEndpointFederationGuids(
-        sourceRelationship.id
-      );
-    const sourceFedGuid = cachedFedGuids
-      ? cachedFedGuids.sourceFedGuid
-      : this.sourceDb.elements.getFederationGuidFromId(
-          sourceRelationship.sourceId
-        );
-    const targetFedGuid = cachedFedGuids
-      ? cachedFedGuids.targetFedGuid
-      : this.sourceDb.elements.getFederationGuidFromId(
-          sourceRelationship.targetId
-        );
-
     const targetRelationshipProps =
       this.onTransformRelationship(sourceRelationship);
     const targetRelationshipInstanceId = await this.importer.importRelationship(
