@@ -1153,8 +1153,8 @@ describe("IModelExporter", () => {
             };
           }
         );
-        withEditTxn(sourceDb, "insert 1001 relationships", (txn) => {
-          for (let index = 0; index < 1001; index++) {
+        withEditTxn(sourceDb, "insert 2001 relationships", (txn) => {
+          for (let index = 0; index < 2001; index++) {
             txn.insertRelationship({
               classFullName: GraphicalElement3dRepresentsElement.classFullName,
               sourceId,
@@ -1180,8 +1180,8 @@ describe("IModelExporter", () => {
           GraphicalElement3dRepresentsElement.classFullName
         );
 
-        expect(exportedRelationshipIds).to.have.lengthOf(1001);
-        expect(createQueryReader).toHaveBeenCalledTimes(2);
+        expect(exportedRelationshipIds).to.have.lengthOf(2001);
+        expect(createQueryReader).toHaveBeenCalledTimes(3);
         expect(createQueryReader.mock.calls[0][0]).not.toContain(
           ":lastRelationshipId"
         );
@@ -1192,6 +1192,12 @@ describe("IModelExporter", () => {
           count: 1000,
         });
         expect(createQueryReader.mock.calls[1][2]?.limit).to.deep.equal({
+          count: 1000,
+        });
+        expect(createQueryReader.mock.calls[2][0]).toContain(
+          "r.ECInstanceId > :lastRelationshipId"
+        );
+        expect(createQueryReader.mock.calls[2][2]?.limit).to.deep.equal({
           count: 1000,
         });
       } finally {

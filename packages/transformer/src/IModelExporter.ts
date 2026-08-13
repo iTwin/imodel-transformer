@@ -1452,13 +1452,6 @@ export class IModelExporter {
       return;
     }
 
-    let queryParams =
-      changedRelationshipIds === undefined
-        ? undefined
-        : new QueryBinder().bindIdSet(
-            "changedRelationshipIds",
-            changedRelationshipIds
-          );
     const changedRelationshipJoin =
       changedRelationshipIds === undefined
         ? undefined
@@ -1475,11 +1468,22 @@ export class IModelExporter {
         lastRelationshipId === undefined
           ? relationshipWhereClause
           : `${relationshipWhereClause} AND r.ECInstanceId > :lastRelationshipId`;
-      if (lastRelationshipId !== undefined) {
-        (queryParams ??= new QueryBinder()).bindId(
-          "lastRelationshipId",
-          lastRelationshipId
-        );
+      // QueryBinder parameters are immutable after binding a name. Recreate the binder for each
+      // keyset page so the changing boundary can be bound without redefining a property.
+      const queryParams =
+        changedRelationshipIds === undefined && lastRelationshipId === undefined
+          ? undefined
+          : new QueryBinder();
+      if (queryParams !== undefined) {
+        if (changedRelationshipIds !== undefined) {
+          queryParams.bindIdSet(
+            "changedRelationshipIds",
+            changedRelationshipIds
+          );
+        }
+        if (lastRelationshipId !== undefined) {
+          queryParams.bindId("lastRelationshipId", lastRelationshipId);
+        }
       }
       const reader = this.sourceDb.createQueryReader(
         this.getRelationshipQuery(
