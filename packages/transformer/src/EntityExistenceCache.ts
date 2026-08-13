@@ -22,8 +22,9 @@ import { EntityUnifier } from "./EntityUnifier";
  *
  * @note Deletes performed out-of-band (e.g. by an [IModelImporter]($transformer) or exporter
  * handler subclass that deletes entities without going through the transformer's onDelete*
- * overrides) are not observed by this cache. The cache is scoped to a single `process()` run
- * and cleared when the transformation finalizes or the transformer is disposed.
+ * overrides) are not observed by this cache. A successful high-level `process()` clears the
+ * cache when the transformation finalizes; low-level or failed transformations clear it when
+ * the transformer is disposed.
  * @internal
  */
 export class EntityExistenceCache {
@@ -57,24 +58,18 @@ export class EntityExistenceCache {
     db: IModelDb,
     entityReferences: Iterable<EntityReference>
   ): Promise<ReadonlySet<EntityReference>> {
-    const dbSet = this._existsByDb.get(db);
+    const dbSet = this.getDbSet(db);
     const found = new Set<EntityReference>();
     const unverified: EntityReference[] = [];
 
     for (const entityReference of entityReferences) {
-      if (dbSet?.has(entityReference)) found.add(entityReference);
+      if (dbSet.has(entityReference)) found.add(entityReference);
       else unverified.push(entityReference);
     }
 
     if (unverified.length === 0) return found;
 
     const queried = await EntityUnifier.existsAll(db, unverified);
-    if (dbSet === undefined || dbSet.size === 0) {
-      // Reuse the query result as the cache when there is nothing to merge.
-      this._existsByDb.set(db, queried);
-      return queried;
-    }
-
     for (const entityReference of queried) {
       dbSet.add(entityReference);
       found.add(entityReference);

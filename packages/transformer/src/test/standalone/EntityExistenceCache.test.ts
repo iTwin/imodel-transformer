@@ -126,6 +126,34 @@ describe("EntityExistenceCache", () => {
     }
   });
 
+  it("retains positives discovered by concurrent batch checks", async () => {
+    const { db, objIds } = createDbWithPhysicalObjects(
+      "ConcurrentBatchChecks.bim",
+      2
+    );
+    const cache = new EntityExistenceCache();
+    const references: EntityReference[] = objIds.map(
+      (id): EntityReference => `e${id}`
+    );
+    const createQueryReader = vi.spyOn(db, "createQueryReader");
+
+    try {
+      await Promise.all(
+        references.map(async (reference) => cache.existsAll(db, [reference]))
+      );
+      const queryCountAfterConcurrentChecks =
+        createQueryReader.mock.calls.length;
+
+      await cache.existsAll(db, references);
+      expect(createQueryReader).toHaveBeenCalledTimes(
+        queryCountAfterConcurrentChecks
+      );
+    } finally {
+      createQueryReader.mockRestore();
+      db.close();
+    }
+  });
+
   it("does not cache negative results and finds the entity once it is inserted", async () => {
     const { db } = createDbWithPhysicalObjects("NegativeNotCached.bim");
     const cache = new EntityExistenceCache();
@@ -219,7 +247,7 @@ describe("EntityExistenceCache", () => {
     db.close();
   });
 
-  it("transforming many elements in the same model issues at most one target model existence query per unique model", async () => {
+  it("batches repeated source model existence checks", async () => {
     const elementCount = 20;
     const { db: sourceDb } = createDbWithPhysicalObjects(
       "ManyElementsSource.bim",
@@ -233,25 +261,47 @@ describe("EntityExistenceCache", () => {
       rootSubject: { name: "ManyElementsTarget" },
     });
 
-    const createQueryReader = vi.spyOn(targetDb, "createQueryReader");
+    const createQueryReader = vi.spyOn(sourceDb, "createQueryReader");
     const targetEditTxn = createStartedEditTxn(targetDb);
     const transformer = new IModelTransformer({
       source: sourceDb,
       target: targetEditTxn,
     });
-    await transformer.process();
-    targetEditTxn.end();
+    let processSucceeded = false;
+    try {
+      await transformer.process();
 
-    const modelExistenceQueries = createQueryReader.mock.calls.filter(
-      ([query]) => query.includes("SELECT 1 FROM BisCore:Model")
-    );
-    // every one of the 20 physical objects references the same model; without the
-    // cache this would be one existence query per reference
-    expect(modelExistenceQueries.length).to.be.lessThanOrEqual(3);
+      const normalizeQuery = (query: string) =>
+        query.replace(/\s+/g, " ").trim().toLowerCase();
+      const modelExistenceQueries = createQueryReader.mock.calls.filter(
+        ([query]) => {
+          const normalizedQuery = normalizeQuery(query);
+          return (
+            normalizedQuery.includes("from biscore:model") &&
+            normalizedQuery.includes("invirtualset(:ids, ecinstanceid)")
+          );
+        }
+      );
+      const individualModelExistenceQueries =
+        createQueryReader.mock.calls.filter(([query]) => {
+          const normalizedQuery = normalizeQuery(query);
+          return (
+            normalizedQuery.includes("from biscore:model") &&
+            /where ecinstanceid\s*=\s*:id\b/.test(normalizedQuery)
+          );
+        });
 
-    createQueryReader.mockRestore();
-    transformer.dispose();
-    sourceDb.close();
-    targetDb.close();
+      // Every one of the 20 physical objects references the same model. The
+      // source batch check should query that model type once, not once per object.
+      expect(modelExistenceQueries).toHaveLength(1);
+      expect(individualModelExistenceQueries).toHaveLength(0);
+      processSucceeded = true;
+    } finally {
+      createQueryReader.mockRestore();
+      transformer.dispose();
+      targetEditTxn.end(processSucceeded ? "save" : "abandon");
+      sourceDb.close();
+      targetDb.close();
+    }
   });
 });
