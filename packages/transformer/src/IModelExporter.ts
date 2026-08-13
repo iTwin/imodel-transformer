@@ -1457,7 +1457,7 @@ export class IModelExporter {
       return;
     }
 
-    const queryParams =
+    let queryParams =
       changedRelationshipIds === undefined
         ? undefined
         : new QueryBinder().bindIdSet(
@@ -1468,28 +1468,42 @@ export class IModelExporter {
       changedRelationshipIds === undefined
         ? undefined
         : "INNER JOIN IdSet(:changedRelationshipIds) changed ON changed.id = r.ECInstanceId";
-    const sql = this.getRelationshipQuery(
-      baseRelClassFullName,
-      "JOIN",
-      "s.ECInstanceId IS NOT NULL AND t.ECInstanceId IS NOT NULL",
-      changedRelationshipJoin
-    );
+    const relationshipWhereClause =
+      "s.ECInstanceId IS NOT NULL AND t.ECInstanceId IS NOT NULL";
     try {
       // Bound the async reader's retained raw rows while preserving batched query throughput.
+      // Keyset pagination avoids rescanning rows returned by earlier batches.
       const relationshipQueryBatchSize = 1000;
-      let relationshipQueryOffset = 0;
+      let lastRelationshipId: Id64String | undefined;
       while (true) {
         let rowsRead = 0;
-        const reader = this.sourceDb.createQueryReader(sql, queryParams, {
-          usePrimaryConn: true,
-          limit: {
-            offset: relationshipQueryOffset,
-            count: relationshipQueryBatchSize,
-          },
-        });
+        const whereClause =
+          lastRelationshipId === undefined
+            ? relationshipWhereClause
+            : `${relationshipWhereClause} AND r.ECInstanceId > :lastRelationshipId`;
+        if (lastRelationshipId !== undefined) {
+          (queryParams ??= new QueryBinder()).bindId(
+            "lastRelationshipId",
+            lastRelationshipId
+          );
+        }
+        const reader = this.sourceDb.createQueryReader(
+          this.getRelationshipQuery(
+            baseRelClassFullName,
+            "JOIN",
+            whereClause,
+            changedRelationshipJoin
+          ),
+          queryParams,
+          {
+            usePrimaryConn: true,
+            limit: { count: relationshipQueryBatchSize },
+          }
+        );
         for await (const row of reader) {
           rowsRead++;
           const relInstanceId: Id64String = row.relInstanceId;
+          lastRelationshipId = relInstanceId;
           const changesetFilter =
             this.checkRelationshipChangesetFilter(relInstanceId);
           if (changesetFilter.skip) {
@@ -1506,7 +1520,6 @@ export class IModelExporter {
           await this._yieldManager.allowYield();
         }
         if (rowsRead < relationshipQueryBatchSize) break;
-        relationshipQueryOffset += rowsRead;
       }
     } finally {
       this._cachedRelationshipEndpointFederationGuids = undefined;

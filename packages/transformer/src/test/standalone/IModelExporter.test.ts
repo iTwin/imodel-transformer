@@ -1094,6 +1094,88 @@ describe("IModelExporter", () => {
       sourceDb.close();
     });
 
+    it("uses keyset pagination for large relationship exports", async () => {
+      const sourceDbPath = IModelTransformerTestUtils.prepareOutputFile(
+        "IModelExporter",
+        "KeysetRelationshipPagination.bim"
+      );
+      const sourceDb = SnapshotDb.createEmpty(sourceDbPath, {
+        rootSubject: { name: "keyset-relationship-pagination" },
+      });
+      try {
+        const { sourceId, targetId } = withEditTxn(
+          sourceDb,
+          "insert relationships for keyset pagination",
+          (txn) => {
+            const categoryId = SpatialCategory.insert(
+              txn,
+              IModel.dictionaryId,
+              "KeysetCategory",
+              new SubCategoryAppearance()
+            );
+            const modelId = PhysicalModel.insert(
+              txn,
+              IModel.rootSubjectId,
+              "KeysetModel"
+            );
+            const physicalObjectProps: PhysicalElementProps = {
+              classFullName: PhysicalObject.classFullName,
+              model: modelId,
+              category: categoryId,
+              code: Code.createEmpty(),
+            };
+            return {
+              sourceId: txn.insertElement(physicalObjectProps),
+              targetId: txn.insertElement(physicalObjectProps),
+            };
+          }
+        );
+        withEditTxn(sourceDb, "insert 1001 relationships", (txn) => {
+          for (let index = 0; index < 1001; index++) {
+            txn.insertRelationship({
+              classFullName: GraphicalElement3dRepresentsElement.classFullName,
+              sourceId,
+              targetId,
+            });
+          }
+        });
+
+        const createQueryReader = vi.spyOn(sourceDb, "createQueryReader");
+        const exportedRelationshipIds = new Set<Id64String>();
+        const exporter = new IModelExporter(sourceDb);
+        exporter.registerHandler(
+          new (class extends IModelExportHandler {
+            public override async onExportRelationship(
+              relationship: Relationship
+            ): Promise<void> {
+              exportedRelationshipIds.add(relationship.id);
+            }
+          })()
+        );
+
+        await exporter.exportRelationships(
+          GraphicalElement3dRepresentsElement.classFullName
+        );
+
+        expect(exportedRelationshipIds).to.have.lengthOf(1001);
+        expect(createQueryReader).toHaveBeenCalledTimes(2);
+        expect(createQueryReader.mock.calls[0][0]).not.toContain(
+          ":lastRelationshipId"
+        );
+        expect(createQueryReader.mock.calls[1][0]).toContain(
+          "r.ECInstanceId > :lastRelationshipId"
+        );
+        expect(createQueryReader.mock.calls[0][2]?.limit).to.deep.equal({
+          count: 1000,
+        });
+        expect(createQueryReader.mock.calls[1][2]?.limit).to.deep.equal({
+          count: 1000,
+        });
+      } finally {
+        sourceDb.close();
+      }
+    });
+
     it("skips the relationship query when changes contain only deletes", async () => {
       const sourceDbPath = IModelTransformerTestUtils.prepareOutputFile(
         "IModelExporter",
