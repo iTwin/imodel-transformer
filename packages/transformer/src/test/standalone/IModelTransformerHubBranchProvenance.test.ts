@@ -31,6 +31,7 @@ import {
   createStartedEditTxn,
   HubWrappers,
   IModelTransformerTestUtils,
+  withTransformerLifecycle,
 } from "../IModelTransformerUtils";
 
 import { IModelTestUtils } from "../TestUtils/IModelTestUtils";
@@ -142,14 +143,9 @@ describe("IModelTransformerHub - branch provenance", () => {
         { source: masterDb, target: branchInitEditTxn },
         { wasSourceIModelCopiedToTarget: true }
       );
-      let branchInitSucceeded = false;
-      try {
-        await provenanceInitializer.process();
-        branchInitSucceeded = true;
-      } finally {
-        provenanceInitializer.dispose();
-        branchInitEditTxn.end(branchInitSucceeded ? "save" : "abandon");
-      }
+      await withTransformerLifecycle(provenanceInitializer, [
+        branchInitEditTxn,
+      ]);
       await branchDb.pushChanges({
         accessToken,
         description: "initialized branch provenance",
@@ -197,16 +193,14 @@ describe("IModelTransformerHub - branch provenance", () => {
           },
         }
       );
-      let reverseSyncSucceeded = false;
-      try {
-        await reverseSyncer.process();
-        validateCsFileProps(reverseSyncer);
-        reverseSyncSucceeded = true;
-      } finally {
-        reverseSyncer.dispose();
-        reverseSyncEditTxn.end(reverseSyncSucceeded ? "save" : "abandon");
-        reverseSyncSourceEditTxn.end(reverseSyncSucceeded ? "save" : "abandon");
-      }
+      await withTransformerLifecycle(
+        reverseSyncer,
+        [reverseSyncEditTxn, reverseSyncSourceEditTxn],
+        async () => {
+          await reverseSyncer.process();
+          validateCsFileProps(reverseSyncer);
+        }
+      );
       await branchDb.pushChanges({
         accessToken,
         description: "reverse sync",

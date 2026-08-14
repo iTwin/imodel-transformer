@@ -204,16 +204,9 @@ describe("IModelTransformerHub - relationship provenance", () => {
           { source: masterDb, target: branchProvenanceEditTxn },
           { wasSourceIModelCopiedToTarget: true }
         );
-        let branchProvenanceSucceeded = false;
-        try {
-          await branchProvenanceTransformer.process();
-          branchProvenanceSucceeded = true;
-        } finally {
-          branchProvenanceTransformer.dispose();
-          branchProvenanceEditTxn.end(
-            branchProvenanceSucceeded ? "save" : "abandon"
-          );
-        }
+        await withTransformerLifecycle(branchProvenanceTransformer, [
+          branchProvenanceEditTxn,
+        ]);
         await branchDb.pushChanges({
           accessToken,
           description: "initialized branch provenance",
@@ -245,19 +238,15 @@ describe("IModelTransformerHub - relationship provenance", () => {
             },
           }
         );
-        let reverseSyncSucceeded = false;
-        try {
-          if (testCase.provenanceMode === "old")
-            reverseSyncer["_forceOldRelationshipProvenanceMethod"] = true;
-          await reverseSyncer.process();
-          reverseSyncSucceeded = true;
-        } finally {
-          reverseSyncer.dispose();
-          reverseSyncEditTxn.end(reverseSyncSucceeded ? "save" : "abandon");
-          reverseSyncSourceEditTxn.end(
-            reverseSyncSucceeded ? "save" : "abandon"
-          );
-        }
+        await withTransformerLifecycle(
+          reverseSyncer,
+          [reverseSyncEditTxn, reverseSyncSourceEditTxn],
+          async () => {
+            if (testCase.provenanceMode === "old")
+              reverseSyncer["_forceOldRelationshipProvenanceMethod"] = true;
+            await reverseSyncer.process();
+          }
+        );
         await branchDb.pushChanges({
           accessToken,
           description: "reverse sync relationship",
@@ -326,16 +315,15 @@ describe("IModelTransformerHub - relationship provenance", () => {
             },
           }
         );
-        let forwardSyncSucceeded = false;
-        try {
-          if (testCase.provenanceMode === "old")
-            forwardSyncer["_forceOldRelationshipProvenanceMethod"] = true;
-          await forwardSyncer.process();
-          forwardSyncSucceeded = true;
-        } finally {
-          forwardSyncer.dispose();
-          forwardSyncEditTxn.end(forwardSyncSucceeded ? "save" : "abandon");
-        }
+        await withTransformerLifecycle(
+          forwardSyncer,
+          [forwardSyncEditTxn],
+          async () => {
+            if (testCase.provenanceMode === "old")
+              forwardSyncer["_forceOldRelationshipProvenanceMethod"] = true;
+            await forwardSyncer.process();
+          }
+        );
         await branchDb.pushChanges({
           accessToken,
           description: "forward sync relationship deletion",
@@ -542,15 +530,10 @@ describe("IModelTransformerHub - relationship provenance", () => {
           sourceEditTxn: reverseSyncSourceEditTxn,
         }
       );
-      let reverseSyncSucceeded = false;
-      try {
-        await reverseSyncer.process();
-        reverseSyncSucceeded = true;
-      } finally {
-        reverseSyncer.dispose();
-        reverseSyncEditTxn.end(reverseSyncSucceeded ? "save" : "abandon");
-        reverseSyncSourceEditTxn.end(reverseSyncSucceeded ? "save" : "abandon");
-      }
+      await withTransformerLifecycle(reverseSyncer, [
+        reverseSyncEditTxn,
+        reverseSyncSourceEditTxn,
+      ]);
       await branchDb.pushChanges({
         accessToken,
         description: "reverse sync",
@@ -611,14 +594,7 @@ describe("IModelTransformerHub - relationship provenance", () => {
         { source: masterDb, target: forwardSyncEditTxn },
         { argsForProcessChanges: { startChangeset: { index: undefined } } }
       );
-      let forwardSyncSucceeded = false;
-      try {
-        await forwardSyncer.process();
-        forwardSyncSucceeded = true;
-      } finally {
-        forwardSyncer.dispose();
-        forwardSyncEditTxn.end(forwardSyncSucceeded ? "save" : "abandon");
-      }
+      await withTransformerLifecycle(forwardSyncer, [forwardSyncEditTxn]);
       await branchDb.pushChanges({
         accessToken,
         description: "forward sync deleted relationships and elements",

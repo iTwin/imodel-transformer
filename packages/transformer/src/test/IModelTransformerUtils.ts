@@ -115,15 +115,19 @@ export function createStartedEditTxn(db: IModelDb): EditTxn {
 // __PUBLISH_EXTRACT_END__
 
 /** Run a transformer operation and always dispose the transformer and finish its edit transactions. */
-export async function withTransformerLifecycle(
+export async function withTransformerLifecycle<T = void>(
   transformer: IModelTransformer,
   editTxns: readonly EditTxn[],
-  operation: () => Promise<void> = async () => transformer.process()
-): Promise<void> {
+  operation: () => Promise<T> = async () => {
+    await transformer.process();
+    return undefined as T;
+  }
+): Promise<T> {
   let succeeded = false;
   try {
-    await operation();
+    const result = await operation();
     succeeded = true;
+    return result;
   } finally {
     try {
       transformer.dispose();

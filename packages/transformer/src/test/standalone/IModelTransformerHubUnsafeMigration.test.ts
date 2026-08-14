@@ -233,13 +233,12 @@ describe("IModelTransformerHub - unsafe migration", () => {
       );
       let syncError: unknown;
       try {
-        await failingSyncer.process();
+        await withTransformerLifecycle(failingSyncer, [
+          failingTargetEditTxn,
+          failingSourceEditTxn,
+        ]);
       } catch (error) {
         syncError = error;
-      } finally {
-        failingSyncer.dispose();
-        failingTargetEditTxn.end(syncError ? "abandon" : "save");
-        failingSourceEditTxn.end(syncError ? "abandon" : "save");
       }
       expect(syncError).to.not.be.undefined;
 
@@ -262,16 +261,14 @@ describe("IModelTransformerHub - unsafe migration", () => {
           sourceEditTxn,
         }
       );
-      let syncSucceeded = false;
-      try {
-        setBranchRelationshipDataBehaviorToUnsafeMigrate(syncer);
-        await syncer.process();
-        syncSucceeded = true;
-      } finally {
-        syncer.dispose();
-        targetEditTxn.end(syncSucceeded ? "save" : "abandon");
-        sourceEditTxn.end(syncSucceeded ? "save" : "abandon");
-      }
+      await withTransformerLifecycle(
+        syncer,
+        [targetEditTxn, sourceEditTxn],
+        async () => {
+          setBranchRelationshipDataBehaviorToUnsafeMigrate(syncer);
+          await syncer.process();
+        }
+      );
       await branchDb.pushChanges({
         accessToken,
         description: "migrate target scope provenance",
@@ -514,16 +511,14 @@ describe("IModelTransformerHub - unsafe migration", () => {
           sourceEditTxn: reverseSourceEditTxn,
         }
       );
-      let reverseSyncSucceeded = false;
-      try {
-        setBranchRelationshipDataBehaviorToUnsafeMigrate(reverseSyncer);
-        await reverseSyncer.process();
-        reverseSyncSucceeded = true;
-      } finally {
-        reverseSyncer.dispose();
-        reverseTargetEditTxn.end(reverseSyncSucceeded ? "save" : "abandon");
-        reverseSourceEditTxn.end(reverseSyncSucceeded ? "save" : "abandon");
-      }
+      await withTransformerLifecycle(
+        reverseSyncer,
+        [reverseTargetEditTxn, reverseSourceEditTxn],
+        async () => {
+          setBranchRelationshipDataBehaviorToUnsafeMigrate(reverseSyncer);
+          await reverseSyncer.process();
+        }
+      );
       await branchDb.pushChanges({
         accessToken,
         description: "unsafe reverse sync",
@@ -623,15 +618,14 @@ describe("IModelTransformerHub - unsafe migration", () => {
           },
         }
       );
-      let forwardSyncSucceeded = false;
-      try {
-        setBranchRelationshipDataBehaviorToUnsafeMigrate(forwardSyncer);
-        await forwardSyncer.process();
-        forwardSyncSucceeded = true;
-      } finally {
-        forwardSyncer.dispose();
-        forwardTargetEditTxn.end(forwardSyncSucceeded ? "save" : "abandon");
-      }
+      await withTransformerLifecycle(
+        forwardSyncer,
+        [forwardTargetEditTxn],
+        async () => {
+          setBranchRelationshipDataBehaviorToUnsafeMigrate(forwardSyncer);
+          await forwardSyncer.process();
+        }
+      );
       await branchDb.pushChanges({
         accessToken,
         description: "unsafe forward sync",

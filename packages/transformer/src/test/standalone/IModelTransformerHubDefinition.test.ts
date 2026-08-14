@@ -172,8 +172,7 @@ describe("IModelTransformerHub - definitions", () => {
         { source: sourceDb, target: changeTargetEditTxn },
         { argsForProcessChanges: { startChangeset: sourceDb.changeset } }
       );
-      await transformer.process();
-      changeTargetEditTxn.end();
+      await withTransformerLifecycle(transformer, [changeTargetEditTxn]);
       await targetDb.pushChanges({
         description: "change processing transformation",
       });
@@ -276,8 +275,7 @@ describe("IModelTransformerHub - definitions", () => {
       );
 
       // run first transformation
-      await transformer.process();
-      firstTransformEditTxn.end();
+      await withTransformerLifecycle(transformer, [firstTransformEditTxn]);
       await saveAndPushChanges(targetDb, "First transformation");
 
       const addedAspectProps: ExternalSourceAspectProps = {
@@ -309,8 +307,7 @@ describe("IModelTransformerHub - definitions", () => {
           },
         }
       );
-      await transformer2.process();
-      secondTransformEditTxn.end();
+      await withTransformerLifecycle(transformer2, [secondTransformEditTxn]);
       await saveAndPushChanges(targetDb, "Second transformation");
 
       const targetElementIds = targetDb.queryEntityIds({
