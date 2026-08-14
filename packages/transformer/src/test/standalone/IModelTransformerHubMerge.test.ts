@@ -12,7 +12,6 @@ import {
   BriefcaseManager,
   EditTxn,
   // eslint-disable-next-line @typescript-eslint/no-redeclare
-  // eslint-disable-next-line @typescript-eslint/no-redeclare
   Element,
   ElementGroupsMembers,
   ExternalSourceAspect,
@@ -713,9 +712,9 @@ describe("IModelTransformerHub - merge", () => {
 
         // NOTE: this test knows that there were no schema changes, so does not call `processSchemas`
         const replayInitTransformer = makeReplayTransformer();
-        await replayInitTransformer.transformer.process(); // process any elements that were part of the "seed"
-        replayInitTransformer.transformer.dispose();
-        replayInitTransformer.editTxn.end();
+        await withTransformerLifecycle(replayInitTransformer.transformer, [
+          replayInitTransformer.editTxn,
+        ]); // process any elements that were part of the "seed"
 
         await saveAndPushChanges(replayedDb, "changes from source seed");
         for (const masterDbChangeset of masterDbChangesets) {
@@ -726,13 +725,13 @@ describe("IModelTransformerHub - merge", () => {
           const replayTransformer = makeReplayTransformer({
             startChangeset: sourceDb.changeset,
           });
-          await replayTransformer.transformer.process();
-          replayTransformer.editTxn.end();
+          await withTransformerLifecycle(replayTransformer.transformer, [
+            replayTransformer.editTxn,
+          ]);
           await saveAndPushChanges(
             replayedDb,
             masterDbChangeset.description ?? ""
           );
-          replayTransformer.transformer.dispose();
         }
         sourceDb?.close();
         sourceDb = undefined;
