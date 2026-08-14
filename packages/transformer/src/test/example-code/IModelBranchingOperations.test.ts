@@ -5,15 +5,15 @@
 
 import * as fs from "fs";
 import * as path from "path";
+import { installCheckpointDownload } from "@itwin/imodel-transformer-test-utils";
 import * as TestUtils from "../TestUtils";
 import {
   BriefcaseDb,
   BriefcaseManager,
+  EditTxn,
   ExternalSource,
   ExternalSourceIsInRepository,
-  HubMock,
   IModelDb,
-  IModelHost,
   PhysicalModel,
   PhysicalObject,
   PhysicalPartition,
@@ -25,6 +25,7 @@ import {
   HubWrappers,
   IModelTransformerTestUtils,
 } from "../IModelTransformerUtils";
+import { transformerTestHub } from "../TestUtils/TransformerTestHub";
 import { AccessToken } from "@itwin/core-bentley";
 import {
   Code,
@@ -57,7 +58,8 @@ async function initializeBranch(
   const masterDb = await BriefcaseDb.open({ fileName: masterDbProps.fileName });
 
   // create a duplicate of master as a good starting point for our branch
-  const branchIModelId = await IModelHost.hubAccess.createNewIModel({
+  const branchIModelId = await transformerTestHub.createNewIModel({
+    accessToken: myAccessToken,
     iTwinId: myITwinId,
     iModelName: "my-branch-imodel",
     version0: masterDb.pathName,
@@ -71,6 +73,8 @@ async function initializeBranch(
     iModelId: branchIModelId,
   });
   const branchDb = await BriefcaseDb.open({ fileName: branchDbProps.fileName });
+  const branchEditTxn = new EditTxn(branchDb, "initialize branch iModel");
+  branchEditTxn.start();
 
   // create an external source and owning repository link to use as our *Target Scope Element* for future synchronizations
   const masterLinkRepoId = branchDb
@@ -87,7 +91,7 @@ async function initializeBranch(
       repositoryGuid: masterDb.iModelId,
       description: "master iModel repository",
     })
-    .insert();
+    .insert(branchEditTxn);
 
   const masterExternalSourceId = branchDb
     .constructEntity<ExternalSource, ExternalSourceProps>({
@@ -100,22 +104,25 @@ async function initializeBranch(
       connectorVersion: require("@itwin/imodel-transformer/package.json")
         .version,
     })
-    .insert();
+    .insert(branchEditTxn);
 
   // initialize the branch provenance
-  const branchInitializer = new IModelTransformer(masterDb, branchDb, {
-    // tells the transformer that we have a raw copy of a source and the target should receive
-    // provenance from the source that is necessary for performing synchronizations in the future
-    wasSourceIModelCopiedToTarget: true,
-    // store the synchronization provenance in the scope of our representation of the external source, master
-    targetScopeElementId: masterExternalSourceId,
-  });
+  const branchInitializer = new IModelTransformer(
+    { source: masterDb, target: branchEditTxn },
+    {
+      // tells the transformer that we have a raw copy of a source and the target should receive
+      // provenance from the source that is necessary for performing synchronizations in the future
+      wasSourceIModelCopiedToTarget: true,
+      // store the synchronization provenance in the scope of our representation of the external source, master
+      targetScopeElementId: masterExternalSourceId,
+    }
+  );
   await branchInitializer.process();
   branchInitializer.dispose();
+  branchEditTxn.end("save");
 
-  // save+push our changes to whatever hub we're using
+  // push our changes to whatever hub we're using
   const description = "initialized branch iModel";
-  branchDb.saveChanges(description);
   await branchDb.pushChanges({
     accessToken: myAccessToken,
     description,
@@ -146,18 +153,23 @@ async function forwardSyncMasterToBranch(
   )) {
     masterExternalSourceId = row.ECInstanceId;
   }
-  const synchronizer = new IModelTransformer(masterDb, branchDb, {
-    // read the synchronization provenance in the scope of our representation of the external source, master
-    targetScopeElementId: masterExternalSourceId,
-    // Presence of argsForProcessChanges even if empty is required to have process run 'processChanges' internally.
-    argsForProcessChanges: {},
-  });
+  const branchEditTxn = new EditTxn(branchDb, "synchronize master changes");
+  branchEditTxn.start();
+  const synchronizer = new IModelTransformer(
+    { source: masterDb, target: branchEditTxn },
+    {
+      // read the synchronization provenance in the scope of our representation of the external source, master
+      targetScopeElementId: masterExternalSourceId,
+      // An empty argsForProcessChanges object processes the next unsynchronized changes.
+      argsForProcessChanges: {},
+    }
+  );
 
   await synchronizer.process();
   synchronizer.dispose();
+  branchEditTxn.end("save");
   // save and push
   const description = "updated branch with recent master changes";
-  branchDb.saveChanges(description);
   await branchDb.pushChanges({
     accessToken: myAccessToken,
     description,
@@ -186,20 +198,31 @@ async function reverseSyncBranchToMaster(
   )) {
     masterExternalSourceId = row.ECInstanceId;
   }
-  const reverseSynchronizer = new IModelTransformer(branchDb, masterDb, {
-    // read the synchronization provenance in the scope of our representation of the external source, master
-    // "isReverseSynchronization" actually causes the provenance (and therefore the targetScopeElementId) to
-    // be searched for from the source
-    targetScopeElementId: masterExternalSourceId,
-    // Presence of argsForProcessChanges even if empty is required to have process run 'processChanges' internally.
-    argsForProcessChanges: {},
-  });
+  const masterEditTxn = new EditTxn(masterDb, "synchronize branch changes");
+  masterEditTxn.start();
+  const branchEditTxn = new EditTxn(
+    branchDb,
+    "record synchronization provenance"
+  );
+  branchEditTxn.start();
+  const reverseSynchronizer = new IModelTransformer(
+    { source: branchDb, target: masterEditTxn },
+    {
+      // The transformer detects reverse synchronization from the provenance direction. The
+      // targetScopeElementId identifies the master's ExternalSource in the branch source.
+      targetScopeElementId: masterExternalSourceId,
+      // An empty argsForProcessChanges object processes the next unsynchronized changes.
+      argsForProcessChanges: {},
+      sourceEditTxn: branchEditTxn,
+    }
+  );
 
   await reverseSynchronizer.process();
   reverseSynchronizer.dispose();
+  masterEditTxn.end("save");
+  branchEditTxn.end("save");
   // save and push
   const description = "merged changes from branch into master";
-  masterDb.saveChanges(description);
   await masterDb.pushChanges({
     accessToken: myAccessToken,
     description,
@@ -207,97 +230,103 @@ async function reverseSyncBranchToMaster(
   // __PUBLISH_EXTRACT_END__
 }
 
+let arbitraryEditCounter = 0;
+
 async function arbitraryEdit(
   db: BriefcaseDb,
   myAccessToken: AccessToken,
   description: string
 ) {
-  const spatialCategoryCode = SpatialCategory.createCode(
-    db,
-    IModel.dictionaryId,
-    "SpatialCategory1"
-  );
-  const physicalModelCode = PhysicalPartition.createCode(
-    db,
-    IModel.rootSubjectId,
-    "PhysicalModel1"
-  );
-  let spatialCategoryId = db.elements.queryElementIdByCode(spatialCategoryCode);
-  let physicalModelId = db.elements.queryElementIdByCode(physicalModelCode);
-  if (physicalModelId === undefined || spatialCategoryId === undefined) {
-    spatialCategoryId = SpatialCategory.insert(
+  const editTxn = new EditTxn(db, description);
+  editTxn.start();
+  let editSucceeded = false;
+  try {
+    const spatialCategoryCode = SpatialCategory.createCode(
       db,
       IModel.dictionaryId,
-      "SpatialCategory1",
-      new SubCategoryAppearance()
+      "SpatialCategory1"
     );
-    physicalModelId = PhysicalModel.insert(
+    const physicalModelCode = PhysicalPartition.createCode(
       db,
       IModel.rootSubjectId,
       "PhysicalModel1"
     );
+    let spatialCategoryId =
+      db.elements.queryElementIdByCode(spatialCategoryCode);
+    let physicalModelId = db.elements.queryElementIdByCode(physicalModelCode);
+    if (physicalModelId === undefined || spatialCategoryId === undefined) {
+      spatialCategoryId = SpatialCategory.insert(
+        editTxn,
+        IModel.dictionaryId,
+        "SpatialCategory1",
+        new SubCategoryAppearance()
+      );
+      physicalModelId = PhysicalModel.insert(
+        editTxn,
+        IModel.rootSubjectId,
+        "PhysicalModel1"
+      );
+    }
+    const physicalObjectProps: PhysicalElementProps = {
+      classFullName: PhysicalObject.classFullName,
+      model: physicalModelId,
+      category: spatialCategoryId,
+      code: new Code({
+        spec: IModelDb.rootSubjectId,
+        scope: IModelDb.rootSubjectId,
+        value: `${arbitraryEditCounter}`,
+      }),
+      userLabel: `${arbitraryEditCounter}`,
+      geom: IModelTransformerTestUtils.createBox(Point3d.create(1, 1, 1)),
+      placement: {
+        origin: Point3d.create(arbitraryEditCounter, arbitraryEditCounter, 0),
+        angles: YawPitchRollAngles.createDegrees(0, 0, 0),
+      },
+    };
+    arbitraryEditCounter++;
+    editTxn.insertElement(physicalObjectProps);
+    editSucceeded = true;
+  } finally {
+    editTxn.end(editSucceeded ? "save" : "abandon");
   }
-  const physicalObjectProps: PhysicalElementProps = {
-    classFullName: PhysicalObject.classFullName,
-    model: physicalModelId,
-    category: spatialCategoryId,
-    code: new Code({
-      spec: IModelDb.rootSubjectId,
-      scope: IModelDb.rootSubjectId,
-      value: `${arbitraryEdit.editCounter}`,
-    }),
-    userLabel: `${arbitraryEdit.editCounter}`,
-    geom: IModelTransformerTestUtils.createBox(Point3d.create(1, 1, 1)),
-    placement: {
-      origin: Point3d.create(
-        arbitraryEdit.editCounter,
-        arbitraryEdit.editCounter,
-        0
-      ),
-      angles: YawPitchRollAngles.createDegrees(0, 0, 0),
-    },
-  };
-  arbitraryEdit.editCounter++;
-  db.elements.insertElement(physicalObjectProps);
-  db.saveChanges();
   await db.pushChanges({
     accessToken: myAccessToken,
     description,
   });
 }
 
-namespace arbitraryEdit {
-  // eslint-disable-next-line prefer-const
-  export let editCounter = 0;
-}
-
-describe.only("IModelBranchingOperations", () => {
+describe("IModelBranchingOperations", () => {
   const version0Path = path.join(
     TestUtils.KnownTestLocations.outputDir,
     "branching-ops.bim"
   );
 
-  before(async () => {
-    HubMock.startup(
+  let restoreCheckpointDownload: (() => void) | undefined;
+
+  beforeAll(() => {
+    transformerTestHub.start(
       "IModelBranchingOperations",
       TestUtils.KnownTestLocations.outputDir
     );
+    restoreCheckpointDownload = installCheckpointDownload(transformerTestHub);
     if (fs.existsSync(version0Path)) fs.unlinkSync(version0Path);
     SnapshotDb.createEmpty(version0Path, {
       rootSubject: { name: "branching-ops" },
     }).close();
   });
 
-  after(() => {
-    HubMock.shutdown();
+  afterAll(() => {
+    restoreCheckpointDownload?.();
+    transformerTestHub.stop();
   });
 
   it("run branching operations", async () => {
     const myAccessToken = await HubWrappers.getAccessToken(
       TestUtils.TestUserType.Regular
     );
-    const myITwinId = HubMock.iTwinId;
-    const masterIModelId = await IModelHost.hubAccess.createNewIModel({
+    const myITwinId = transformerTestHub.iTwinId;
+    const masterIModelId = await transformerTestHub.createNewIModel({
+      accessToken: myAccessToken,
       iTwinId: myITwinId,
       iModelName: "my-branch-imodel",
       version0: version0Path,
