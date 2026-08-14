@@ -227,6 +227,11 @@ async function reverseSyncBranchToMaster(
     accessToken: myAccessToken,
     description,
   });
+  // sourceEditTxn records updated provenance in the branch, which must also be pushed.
+  await branchDb.pushChanges({
+    accessToken: myAccessToken,
+    description: `${description} provenance`,
+  });
   // __PUBLISH_EXTRACT_END__
 }
 
