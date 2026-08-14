@@ -102,66 +102,7 @@ describe("IModelTransformerHub - relationship provenance", () => {
       if (IModelJsFs.existsSync(masterSeedFileName))
         IModelJsFs.removeSync(masterSeedFileName);
 
-      const masterSeedDb = SnapshotDb.createEmpty(masterSeedFileName, {
-        rootSubject: { name: testCase.masterIModelName },
-      });
-      const { modelId, categoryId } = withEditTxn(
-        masterSeedDb,
-        "insert master seed model and category",
-        (txn) => ({
-          modelId: PhysicalModel.insert(
-            txn,
-            IModel.rootSubjectId,
-            "PhysicalModel"
-          ),
-          categoryId: SpatialCategory.insert(
-            txn,
-            IModel.dictionaryId,
-            "SpatialCategory",
-            new SubCategoryAppearance()
-          ),
-        })
-      );
-      withEditTxn(masterSeedDb, "insert master seed elements", (txn) => {
-        for (const name of ["1", "2"]) {
-          const elementProps: PhysicalElementProps = {
-            classFullName: PhysicalObject.classFullName,
-            model: modelId,
-            category: categoryId,
-            code: new Code({
-              spec: IModelDb.rootSubjectId,
-              scope: IModelDb.rootSubjectId,
-              value: name,
-            }),
-            userLabel: name,
-            geom: IModelTransformerTestUtils.createBox(Point3d.create(1, 1, 1)),
-            placement: {
-              origin: Point3d.create(0, 0, 0),
-              angles: YawPitchRollAngles.createDegrees(0, 0, 0),
-            },
-            jsonProperties: { updateState: 1 },
-          };
-          txn.insertElement(elementProps);
-        }
-      });
-
-      if (testCase.federationGuidMode === "null") {
-        const noFedGuidElemIds = masterSeedDb.queryEntityIds({
-          from: "Bis.Element",
-          where: "UserLabel IN ('1','2')",
-        });
-        withEditTxn(masterSeedDb, "null out fedguids", () => {
-          for (const elemId of noFedGuidElemIds)
-            masterSeedDb.withSqliteStatement(
-              `UPDATE bis_Element SET FederationGuid=NULL WHERE Id=${elemId}`,
-              (s) => {
-                expect(s.step()).to.equal(DbResult.BE_SQLITE_DONE);
-              }
-            );
-        });
-      }
-      masterSeedDb.performCheckpoint();
-
+      let masterSeedDb: SnapshotDb | undefined;
       let masterIModelId: GuidString | undefined;
       let branchIModelId: GuidString | undefined;
       let masterDb: BriefcaseDb | undefined;
@@ -169,6 +110,69 @@ describe("IModelTransformerHub - relationship provenance", () => {
       let relIdInBranch: Id64String | undefined;
 
       try {
+        const seedDb = SnapshotDb.createEmpty(masterSeedFileName, {
+          rootSubject: { name: testCase.masterIModelName },
+        });
+        masterSeedDb = seedDb;
+        const { modelId, categoryId } = withEditTxn(
+          seedDb,
+          "insert master seed model and category",
+          (txn) => ({
+            modelId: PhysicalModel.insert(
+              txn,
+              IModel.rootSubjectId,
+              "PhysicalModel"
+            ),
+            categoryId: SpatialCategory.insert(
+              txn,
+              IModel.dictionaryId,
+              "SpatialCategory",
+              new SubCategoryAppearance()
+            ),
+          })
+        );
+        withEditTxn(seedDb, "insert master seed elements", (txn) => {
+          for (const name of ["1", "2"]) {
+            const elementProps: PhysicalElementProps = {
+              classFullName: PhysicalObject.classFullName,
+              model: modelId,
+              category: categoryId,
+              code: new Code({
+                spec: IModelDb.rootSubjectId,
+                scope: IModelDb.rootSubjectId,
+                value: name,
+              }),
+              userLabel: name,
+              geom: IModelTransformerTestUtils.createBox(
+                Point3d.create(1, 1, 1)
+              ),
+              placement: {
+                origin: Point3d.create(0, 0, 0),
+                angles: YawPitchRollAngles.createDegrees(0, 0, 0),
+              },
+              jsonProperties: { updateState: 1 },
+            };
+            txn.insertElement(elementProps);
+          }
+        });
+
+        if (testCase.federationGuidMode === "null") {
+          const noFedGuidElemIds = seedDb.queryEntityIds({
+            from: "Bis.Element",
+            where: "UserLabel IN ('1','2')",
+          });
+          withEditTxn(seedDb, "null out fedguids", () => {
+            for (const elemId of noFedGuidElemIds)
+              seedDb.withSqliteStatement(
+                `UPDATE bis_Element SET FederationGuid=NULL WHERE Id=${elemId}`,
+                (s) => {
+                  expect(s.step()).to.equal(DbResult.BE_SQLITE_DONE);
+                }
+              );
+          });
+        }
+        seedDb.performCheckpoint();
+
         masterIModelId = await HubWrappers.recreateIModel({
           accessToken,
           iTwinId,
@@ -350,21 +354,42 @@ describe("IModelTransformerHub - relationship provenance", () => {
           )
         ).to.throw(IModelError);
       } finally {
+        const cleanup = async (
+          description: string,
+          action: () => void | Promise<void>
+        ) => {
+          try {
+            await action();
+          } catch (error) {
+            // eslint-disable-next-line no-console
+            console.error(`Failed to clean up ${description}`, error);
+          }
+        };
+
         if (masterDb)
-          await HubWrappers.closeAndDeleteBriefcaseDb(accessToken, masterDb);
+          await cleanup("master briefcase", async () => {
+            await HubWrappers.closeAndDeleteBriefcaseDb(accessToken, masterDb!);
+          });
         if (branchDb)
-          await HubWrappers.closeAndDeleteBriefcaseDb(accessToken, branchDb);
+          await cleanup("branch briefcase", async () => {
+            await HubWrappers.closeAndDeleteBriefcaseDb(accessToken, branchDb!);
+          });
         if (masterIModelId)
-          await transformerTestHub.deleteIModel({
-            iTwinId,
-            iModelId: masterIModelId,
+          await cleanup("master iModel", async () => {
+            await transformerTestHub.deleteIModel({
+              iTwinId,
+              iModelId: masterIModelId!,
+            });
           });
         if (branchIModelId)
-          await transformerTestHub.deleteIModel({
-            iTwinId,
-            iModelId: branchIModelId,
+          await cleanup("branch iModel", async () => {
+            await transformerTestHub.deleteIModel({
+              iTwinId,
+              iModelId: branchIModelId!,
+            });
           });
-        masterSeedDb.close();
+        if (masterSeedDb)
+          await cleanup("master seed", () => masterSeedDb!.close());
       }
     });
   }
