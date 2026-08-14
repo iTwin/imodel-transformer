@@ -1,0 +1,7 @@
+{
+  "type": "patch",
+  "comment": "Fix for change operations when data is inserted into overflow table",
+  "packageName": "@itwin/imodel-transformer",
+  "email": "28706674+JulijaRamoskiene@users.noreply.github.com",
+  "dependentChangeType": "patch"
+}

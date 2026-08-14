@@ -8,24 +8,30 @@
  * for entity-generic operations in the transformer
  */
 
-import * as assert from "assert";
 import {
   ConcreteEntityTypes,
-  DbResult,
   EntityReference,
-  IModelError,
+  QueryBinder,
 } from "@itwin/core-common";
 import {
   ConcreteEntity,
-  ConcreteEntityProps,
   // eslint-disable-next-line @typescript-eslint/no-redeclare
   Element,
   ElementAspect,
+  Entity,
   EntityReferences,
   IModelDb,
+  Model,
   Relationship,
 } from "@itwin/core-backend";
-import { Id64 } from "@itwin/core-bentley";
+import { Id64, Id64String } from "@itwin/core-bentley";
+
+const bisCoreRootClasses: Record<ConcreteEntityTypes, typeof Entity> = {
+  [ConcreteEntityTypes.Model]: Model,
+  [ConcreteEntityTypes.Element]: Element,
+  [ConcreteEntityTypes.ElementAspect]: ElementAspect,
+  [ConcreteEntityTypes.Relationship]: Relationship,
+};
 
 /** @internal */
 export namespace EntityUnifier {
@@ -36,50 +42,28 @@ export namespace EntityUnifier {
     else return "unknown entity type";
   }
 
-  type EntityUpdater = (entityProps: ConcreteEntityProps) => void;
-
-  /** needs to return a widened type otherwise typescript complains when result is used with a narrow type */
-  export function updaterFor(db: IModelDb, entity: ConcreteEntity) {
-    if (entity instanceof Element)
-      return db.elements.updateElement.bind(db.elements) as EntityUpdater;
-    else if (entity instanceof Relationship)
-      return db.relationships.updateInstance.bind(
-        db.relationships
-      ) as EntityUpdater;
-    else if (entity instanceof ElementAspect)
-      return db.elements.updateAspect.bind(db.elements) as EntityUpdater;
-    else
-      assert(
-        false,
-        `unreachable; entity was '${entity.constructor.name}' not an Element, Relationship, or ElementAspect`
-      );
-  }
-
-  export function exists(
+  export async function exists(
     db: IModelDb,
     arg: { entity: ConcreteEntity } | { entityReference: EntityReference }
   ) {
-    const [type, id] =
-      "entityReference" in arg
-        ? EntityReferences.split(arg.entityReference)
-        : [undefined, arg.entity.id];
-    const classFullName =
-      "entityReference" in arg
-        ? ConcreteEntityTypes.toBisCoreRootClassFullName(type!)
-        : `[${arg.entity.schemaName}].[${arg.entity.className}]`;
+    let classFullName: string;
+    let id: Id64String;
+    if ("entityReference" in arg) {
+      const [type, entityId] = EntityReferences.split(arg.entityReference);
+      classFullName = bisCoreRootClasses[type].classFullName;
+      id = entityId;
+    } else {
+      classFullName = `[${arg.entity.schemaName}].[${arg.entity.className}]`;
+      id = arg.entity.id;
+    }
 
-    if (id === undefined || Id64.isInvalid(id)) return false;
+    if (Id64.isInvalid(id)) return false;
 
-    // eslint-disable-next-line @itwin/no-internal, deprecation/deprecation
-    return db.withPreparedStatement(
-      `SELECT 1 FROM ${classFullName} WHERE ECInstanceId=?`,
-      (stmt) => {
-        stmt.bindId(1, id);
-        const matchesResult = stmt.step();
-        if (matchesResult === DbResult.BE_SQLITE_ROW) return true;
-        if (matchesResult === DbResult.BE_SQLITE_DONE) return false;
-        else throw new IModelError(matchesResult, "query failed");
-      }
-    );
+    const query = `SELECT 1 FROM ${classFullName} WHERE ECInstanceId=:id`;
+    const params = new QueryBinder().bindId("id", id);
+    const reader = db.createQueryReader(query, params, {
+      usePrimaryConn: true,
+    });
+    return reader.step();
   }
 }

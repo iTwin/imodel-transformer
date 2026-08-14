@@ -3,10 +3,11 @@
  * See LICENSE.md in the project root for license terms and full copyright notice.
  *--------------------------------------------------------------------------------------------*/
 
-import * as path from "path";
-import * as fs from "fs";
-import * as Yargs from "yargs";
-import { assert, Guid, Logger, LogLevel, OpenMode } from "@itwin/core-bentley";
+import * as path from "node:path";
+import * as fs from "node:fs";
+import { loadEnvFile } from "node:process";
+import Yargs from "yargs";
+import { assert, Guid, Logger, LogLevel } from "@itwin/core-bentley";
 import { ProjectsAccessClient } from "@itwin/projects-client";
 import {
   BriefcaseDb,
@@ -23,27 +24,25 @@ import {
   IModelVersion,
 } from "@itwin/core-common";
 import { TransformerLoggerCategory } from "@itwin/imodel-transformer";
-import { NamedVersion } from "@itwin/imodels-client-authoring";
+import { NamedVersion } from "@itwin/imodels-client-management";
 import { ElementUtils } from "./ElementUtils";
 import { IModelHubUtils, IModelTransformerTestAppHost } from "./IModelHubUtils";
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 import { loggerCategory, Transformer, TransformerOptions } from "./Transformer";
-import * as dotenv from "dotenv";
-import * as dotenvExpand from "dotenv-expand";
-
 import "source-map-support/register";
 
 const acquireAccessToken = async () =>
   IModelTransformerTestAppHost.acquireAccessToken();
 
 void (async () => {
-  let targetDb: IModelDb, sourceDb: IModelDb;
+  let targetDb: IModelDb | undefined;
+  let sourceDb: IModelDb | undefined;
   try {
-    const envResult = dotenv.config({
-      path: path.resolve(__dirname, "../.env"),
-    });
-    if (!envResult.error) {
-      dotenvExpand(envResult);
+    try {
+      loadEnvFile(path.resolve(__dirname, "../.env"));
+    } catch (error) {
+      // The .env file is optional for offline/local runs.
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
     }
 
     const args = Yargs(process.argv.slice(2))
@@ -411,9 +410,9 @@ void (async () => {
 
     if (args.validation) {
       // validate that there are no issues with the sourceDb to ensure that IModelTransformer is starting from a consistent state
-      ElementUtils.validateCategorySelectors(sourceDb);
-      ElementUtils.validateModelSelectors(sourceDb);
-      ElementUtils.validateDisplayStyles(sourceDb);
+      await ElementUtils.validateCategorySelectors(sourceDb);
+      await ElementUtils.validateModelSelectors(sourceDb);
+      await ElementUtils.validateDisplayStyles(sourceDb);
     }
 
     if (args.targetITwinId) {
@@ -438,7 +437,7 @@ void (async () => {
           args.targetIModelName
         );
         if (args.clean && undefined !== targetIModelId) {
-          await IModelHost.hubAccess.deleteIModel({
+          await IModelTransformerTestAppHost.hubAccess.deleteIModel({
             accessToken: await acquireAccessToken(),
             iTwinId: targetITwinId,
             iModelId: targetIModelId,
@@ -447,11 +446,12 @@ void (async () => {
         }
         if (undefined === targetIModelId) {
           // create target iModel if it doesn't yet exist or was just cleaned/deleted above
-          targetIModelId = await IModelHost.hubAccess.createNewIModel({
-            accessToken: await acquireAccessToken(),
-            iTwinId: targetITwinId,
-            iModelName: args.targetIModelName,
-          });
+          targetIModelId =
+            await IModelTransformerTestAppHost.hubAccess.createNewIModel({
+              accessToken: await acquireAccessToken(),
+              iTwinId: targetITwinId,
+              iModelName: args.targetIModelName,
+            });
         }
       }
       assert(
@@ -496,24 +496,8 @@ void (async () => {
 
       if (args.targetStandaloneDestination) {
         fs.copyFileSync(fileName, args.targetStandaloneDestination);
-        function setToStandalone(iModelPath: string) {
-          /* eslint-disable deprecation/deprecation */
-          const nativeDb = new IModelHost.platform.DgnDb();
-          nativeDb.openIModel(iModelPath, OpenMode.ReadWrite);
-          nativeDb.setITwinId(Guid.empty); // empty iTwinId means "standalone"
-          nativeDb.saveChanges(); // save change to iTwinId
-          nativeDb.deleteAllTxns(); // necessary before resetting briefcaseId
-          nativeDb.resetBriefcaseId(BriefcaseIdValue.Unassigned); // standalone iModels should always have BriefcaseId unassigned
-          nativeDb.saveLocalValue(
-            "StandaloneEdit",
-            JSON.stringify({ txns: true })
-          );
-          nativeDb.saveChanges(); // save change to briefcaseId
-          nativeDb.closeFile();
-        }
-        /* eslint-enable deprecation/deprecation */
         targetDb.close();
-        setToStandalone(args.targetStandaloneDestination);
+        StandaloneDb.convertToStandalone(args.targetStandaloneDestination);
         await StandaloneDb.upgradeSchemas({ fileName });
         targetDb = StandaloneDb.openFile(args.targetStandaloneDestination);
       }
@@ -539,28 +523,36 @@ void (async () => {
       assert(false, "bad target argument");
     }
 
+    if (sourceDb === undefined || targetDb === undefined) {
+      throw new Error("sourceDb and targetDb must be defined at this point");
+    }
+
     if (args.logProvenanceScopes) {
-      const sourceScopeIds = ElementUtils.queryProvenanceScopeIds(sourceDb);
+      const sourceScopeIds =
+        await ElementUtils.queryProvenanceScopeIds(sourceDb);
       if (sourceScopeIds.size === 0) {
         Logger.logInfo(loggerCategory, "Source Provenance Scope: Not Found");
       } else {
         sourceScopeIds.forEach((scopeId) =>
           Logger.logInfo(
             loggerCategory,
-            `Source Provenance Scope: ${scopeId} ${sourceDb.elements
+            // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+            `Source Provenance Scope: ${scopeId} ${sourceDb!.elements
               .getElement(scopeId)
               .getDisplayLabel()}`
           )
         );
       }
-      const targetScopeIds = ElementUtils.queryProvenanceScopeIds(targetDb);
+      const targetScopeIds =
+        await ElementUtils.queryProvenanceScopeIds(targetDb);
       if (targetScopeIds.size === 0) {
         Logger.logInfo(loggerCategory, "Target Provenance Scope: Not Found");
       } else {
         targetScopeIds.forEach((scopeId) =>
           Logger.logInfo(
             loggerCategory,
-            `Target Provenance Scope: ${scopeId} ${targetDb.elements
+            // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+            `Target Provenance Scope: ${scopeId} ${targetDb!.elements
               .getElement(scopeId)
               .getDisplayLabel()}`
           )
@@ -615,22 +607,22 @@ void (async () => {
     }
 
     if (args.exportViewDefinition) {
-      ElementUtils.insertViewDefinition(targetDb, "Default", true);
+      await ElementUtils.insertViewDefinition(targetDb, "Default");
     }
 
     if (args.validation) {
       // validate that there are no issues with the targetDb after transformation
-      ElementUtils.validateCategorySelectors(targetDb);
-      ElementUtils.validateModelSelectors(targetDb);
-      ElementUtils.validateDisplayStyles(targetDb);
+      await ElementUtils.validateCategorySelectors(targetDb);
+      await ElementUtils.validateModelSelectors(targetDb);
+      await ElementUtils.validateDisplayStyles(targetDb);
     }
   } catch (error: any) {
     process.stdout.write(`${error.message}\n${error.stack}`);
   } finally {
-    if (targetDb! instanceof BriefcaseDb)
+    if (targetDb && targetDb instanceof BriefcaseDb)
       await targetDb.locks.releaseAllLocks();
-    targetDb!.close();
-    sourceDb!.close();
+    targetDb?.close();
+    sourceDb?.close();
     await IModelHost.shutdown();
     process.exit();
   }

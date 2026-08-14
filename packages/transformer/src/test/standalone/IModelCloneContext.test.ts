@@ -4,7 +4,6 @@
  *--------------------------------------------------------------------------------------------*/
 
 import {
-  ECSqlStatement,
   ElementRefersToElements,
   EntityReferences,
   GraphicalElement3dRepresentsElement,
@@ -13,8 +12,9 @@ import {
   PhysicalObject,
   SnapshotDb,
   SpatialCategory,
+  withEditTxn,
 } from "@itwin/core-backend";
-import { DbResult, Id64, Id64String } from "@itwin/core-bentley";
+import { Id64, Id64String } from "@itwin/core-bentley";
 import {
   Code,
   ConcreteEntityTypes,
@@ -23,13 +23,15 @@ import {
   RelationshipProps,
   SubCategoryAppearance,
 } from "@itwin/core-common";
-import { expect } from "chai";
-import * as path from "path";
-import { IModelTransformerTestUtils } from "../IModelTransformerUtils";
+import { expect } from "vitest";
+import * as path from "node:path";
+import {
+  createStartedEditTxn,
+  IModelTransformerTestUtils,
+} from "../IModelTransformerUtils";
 import { KnownTestLocations } from "../TestUtils/KnownTestLocations";
 
 import { IModelTransformer } from "../../IModelTransformer";
-import "./TransformerTestStartup"; // calls startup/shutdown IModelHost before/after all tests
 
 describe("IModelCloneContext", () => {
   const outputDir = path.join(
@@ -37,7 +39,7 @@ describe("IModelCloneContext", () => {
     "IModelTransformer"
   );
 
-  before(async () => {
+  beforeAll(async () => {
     if (!IModelJsFs.existsSync(KnownTestLocations.outputDir)) {
       IModelJsFs.mkdirSync(KnownTestLocations.outputDir);
     }
@@ -58,56 +60,58 @@ describe("IModelCloneContext", () => {
         rootSubject: { name: "invalid-relationships" },
       });
 
-      const categoryId = SpatialCategory.insert(
+      withEditTxn(
         sourceDb,
-        IModel.dictionaryId,
-        "SpatialCategory",
-        new SubCategoryAppearance()
-      );
-      const sourceModelId = PhysicalModel.insert(
-        sourceDb,
-        IModel.rootSubjectId,
-        "PhysicalModel"
-      );
-      const physicalObjectProps: PhysicalElementProps = {
-        classFullName: PhysicalObject.classFullName,
-        model: sourceModelId,
-        category: categoryId,
-        code: Code.createEmpty(),
-      };
-      const physicalObject1 =
-        sourceDb.elements.insertElement(physicalObjectProps);
-      const physicalObject2 =
-        sourceDb.elements.insertElement(physicalObjectProps);
-      const physicalObject3 =
-        sourceDb.elements.insertElement(physicalObjectProps);
+        "setup source elements and relationships",
+        (txn) => {
+          const categoryId = SpatialCategory.insert(
+            txn,
+            IModel.dictionaryId,
+            "SpatialCategory",
+            new SubCategoryAppearance()
+          );
+          const sourceModelId = PhysicalModel.insert(
+            txn,
+            IModel.rootSubjectId,
+            "PhysicalModel"
+          );
+          const physicalObjectProps: PhysicalElementProps = {
+            classFullName: PhysicalObject.classFullName,
+            model: sourceModelId,
+            category: categoryId,
+            code: Code.createEmpty(),
+          };
+          const obj1 = txn.insertElement(physicalObjectProps);
+          const obj2 = txn.insertElement(physicalObjectProps);
+          const obj3 = txn.insertElement(physicalObjectProps);
 
-      const relationshipsProps: RelationshipProps[] = [
-        {
-          classFullName: GraphicalElement3dRepresentsElement.classFullName,
-          targetId: physicalObject1,
-          sourceId: physicalObject2,
-        },
-        {
-          classFullName: GraphicalElement3dRepresentsElement.classFullName,
-          targetId: physicalObject2,
-          sourceId: physicalObject1,
-        },
-        {
-          classFullName: GraphicalElement3dRepresentsElement.classFullName,
-          targetId: physicalObject2,
-          sourceId: physicalObject3,
-        },
-        {
-          classFullName: GraphicalElement3dRepresentsElement.classFullName,
-          targetId: physicalObject3,
-          sourceId: physicalObject2,
-        },
-      ];
+          const relationshipsProps: RelationshipProps[] = [
+            {
+              classFullName: GraphicalElement3dRepresentsElement.classFullName,
+              targetId: obj1,
+              sourceId: obj2,
+            },
+            {
+              classFullName: GraphicalElement3dRepresentsElement.classFullName,
+              targetId: obj2,
+              sourceId: obj1,
+            },
+            {
+              classFullName: GraphicalElement3dRepresentsElement.classFullName,
+              targetId: obj2,
+              sourceId: obj3,
+            },
+            {
+              classFullName: GraphicalElement3dRepresentsElement.classFullName,
+              targetId: obj3,
+              sourceId: obj2,
+            },
+          ];
 
-      relationshipsProps.forEach((props) =>
-        sourceDb.relationships.insertInstance(props)
+          relationshipsProps.forEach((props) => txn.insertRelationship(props));
+        }
       );
+
       // Target IModelDb
       const targetDbFile = IModelTransformerTestUtils.prepareOutputFile(
         "IModelTransformer",
@@ -116,10 +120,15 @@ describe("IModelCloneContext", () => {
       const targetDb = SnapshotDb.createEmpty(targetDbFile, {
         rootSubject: { name: "relationships-Target" },
       });
+
+      const targetEditTxn = createStartedEditTxn(targetDb);
       // Import from beneath source Subject into target Subject
-      const transformer = new IModelTransformer(sourceDb, targetDb);
+      const transformer = new IModelTransformer({
+        source: sourceDb,
+        target: targetEditTxn,
+      });
       await transformer.process();
-      targetDb.saveChanges();
+      targetEditTxn.end();
 
       // Assertion
       const sql = `SELECT r.ECInstanceId FROM ${ElementRefersToElements.classFullName} r
@@ -127,16 +136,13 @@ describe("IModelCloneContext", () => {
                     JOIN bis.Element t ON t.ECInstanceId = r.TargetECInstanceId
                     WHERE s.ECInstanceId IS NOT NULL AND t.ECInstanceId IS NOT NULL`;
       const sourceRelationshipIds: Id64String[] = [];
-      // eslint-disable-next-line @itwin/no-internal, deprecation/deprecation
-      sourceDb.withPreparedStatement(sql, (statement: ECSqlStatement) => {
-        while (DbResult.BE_SQLITE_ROW === statement.step()) {
-          sourceRelationshipIds.push(statement.getValue(0).getId());
-        }
-      });
+      for await (const row of sourceDb.createQueryReader(sql)) {
+        sourceRelationshipIds.push(row.id);
+      }
       let atLeastOneRelIdMissMatches = false;
-      sourceRelationshipIds.forEach((sourceRelId) => {
+      for (const sourceRelId of sourceRelationshipIds) {
         const targetRelId = EntityReferences.toId64(
-          transformer.context.findTargetEntityId(
+          await transformer.context.findTargetEntityId(
             EntityReferences.fromEntityType(
               sourceRelId,
               ConcreteEntityTypes.Relationship
@@ -152,7 +158,7 @@ describe("IModelCloneContext", () => {
 
         if (!atLeastOneRelIdMissMatches)
           atLeastOneRelIdMissMatches = targetRelId !== sourceRelId;
-      });
+      }
       /**
        * If this fails, then relationship ids match, and we don't really know if sourceDb and targetDb relationship ids differ.
        * It doesn't mean that functionality fails by itself.

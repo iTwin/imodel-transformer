@@ -4,10 +4,9 @@
  *--------------------------------------------------------------------------------------------*/
 
 import { assert } from "chai";
-import * as path from "path";
+import * as path from "node:path";
 import {
   Category,
-  ECSqlStatement,
   // eslint-disable-next-line @typescript-eslint/no-redeclare
   Element,
   GeometricElement2d,
@@ -20,9 +19,15 @@ import {
   SnapshotDb,
   SpatialCategory,
   SpatialElement,
+  withEditTxn,
 } from "@itwin/core-backend";
-import { DbResult, Logger, LogLevel } from "@itwin/core-bentley";
-import { Code, PhysicalElementProps, QueryBinder } from "@itwin/core-common";
+import { Logger, LogLevel } from "@itwin/core-bentley";
+import {
+  Code,
+  PhysicalElementProps,
+  QueryBinder,
+  QueryRowFormat,
+} from "@itwin/core-common";
 import { TransformerLoggerCategory } from "@itwin/imodel-transformer";
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 import { loggerCategory, Transformer } from "../Transformer";
@@ -70,17 +75,16 @@ describe("imodel-transformer", () => {
     return outputFileName;
   }
 
-  function count(iModelDb: IModelDb, classFullName: string): number {
-    // eslint-disable-next-line deprecation/deprecation
-    return iModelDb.withPreparedStatement(
-      `SELECT COUNT(*) FROM ${classFullName}`,
-      // eslint-disable-next-line deprecation/deprecation
-      (statement: ECSqlStatement): number => {
-        return DbResult.BE_SQLITE_ROW === statement.step()
-          ? statement.getValue(0).getInteger()
-          : 0;
-      }
-    );
+  async function count(
+    iModelDb: IModelDb,
+    classFullName: string
+  ): Promise<number> {
+    const result = await iModelDb
+      .createQueryReader(`SELECT COUNT(*) FROM ${classFullName}`, undefined, {
+        usePrimaryConn: true,
+      })
+      .next();
+    return result.done ? 0 : (result.value[0] as number);
   }
 
   it("should should simplify Element geometry in the target iModel", async () => {
@@ -95,9 +99,12 @@ describe("imodel-transformer", () => {
     await Transformer.transformAll(sourceDb, targetDb, {
       simplifyElementGeometry: true,
     });
-    const numSourceElements = count(sourceDb, Element.classFullName);
+    const numSourceElements = await count(sourceDb, Element.classFullName);
     assert.isAtLeast(numSourceElements, 50);
-    assert.equal(count(targetDb, Element.classFullName), numSourceElements);
+    assert.equal(
+      await count(targetDb, Element.classFullName),
+      numSourceElements
+    );
     targetDb.close();
   });
 
@@ -113,17 +120,17 @@ describe("imodel-transformer", () => {
     await Transformer.transformAll(sourceDb, targetDb, {
       combinePhysicalModels: true,
     });
-    const numSourceSpatialElements = count(
+    const numSourceSpatialElements = await count(
       sourceDb,
       SpatialElement.classFullName
     );
     assert.isAtLeast(numSourceSpatialElements, 6);
     assert.equal(
-      count(targetDb, SpatialElement.classFullName),
+      await count(targetDb, SpatialElement.classFullName),
       numSourceSpatialElements
     );
-    assert.equal(count(targetDb, PhysicalPartition.classFullName), 1);
-    assert.isAtLeast(count(sourceDb, PhysicalPartition.classFullName), 2);
+    assert.equal(await count(targetDb, PhysicalPartition.classFullName), 1);
+    assert.isAtLeast(await count(sourceDb, PhysicalPartition.classFullName), 2);
     targetDb.close();
   });
 
@@ -152,10 +159,10 @@ describe("imodel-transformer", () => {
             GeometricElement3d.classFullName,
           ].map(async (className) => {
             const queryResult = await db
-              // eslint-disable-next-line deprecation/deprecation
-              .query(
+              .createQueryReader(
                 `SELECT COUNT(*) FROM ${className} e JOIN bis.Category c ON e.category.id=c.ECInstanceId WHERE c.CodeValue=:category`,
-                QueryBinder.from({ category: testCategory })
+                QueryBinder.from({ category: testCategory }),
+                { usePrimaryConn: true }
               )
               .next();
             const value = queryResult.value[0];
@@ -205,8 +212,7 @@ describe("imodel-transformer", () => {
             <ECProperty propertyName="SomeNumber" typeName="string" />
             ${
               version === "01.01"
-                ? // eslint-disable-next-line @typescript-eslint/quotes
-                  `<ECProperty propertyName="NewProperty" typeName="string" />`
+                ? '<ECProperty propertyName="NewProperty" typeName="string" />'
                 : ""
             }
           </ECStructClass >
@@ -215,8 +221,7 @@ describe("imodel-transformer", () => {
             <ECProperty propertyName="MyProp" typeName="string"/>
             ${
               version === "01.01"
-                ? // eslint-disable-next-line @typescript-eslint/quotes
-                  `<ECProperty propertyName="MyProp2" typeName="string" />`
+                ? '<ECProperty propertyName="MyProp2" typeName="string" />'
                 : ""
             }
             <ECStructArrayProperty propertyName="MyArray" typeName="TestStruct" minOccurs="0" maxOccurs="unbounded" />
@@ -257,13 +262,15 @@ describe("imodel-transformer", () => {
 
     const transformedElemProps = elementProps;
 
-    const _newElemId = newSchemaSourceDb.elements.insertElement({
-      classFullName: "Test:TestElement",
-      model: firstModelId,
-      code: Code.createEmpty(),
-      category: firstSpatialCategId,
-      ...elementProps,
-    } as PhysicalElementProps);
+    withEditTxn(newSchemaSourceDb, "insert test element", (txn) => {
+      txn.insertElement({
+        classFullName: "Test:TestElement",
+        model: firstModelId,
+        code: Code.createEmpty(),
+        category: firstSpatialCategId,
+        ...elementProps,
+      } as PhysicalElementProps);
+    });
 
     const targetDbFileName = initOutputFile("EditSchemas.bim");
     const targetDb = SnapshotDb.createEmpty(targetDbFileName, {
@@ -283,14 +290,14 @@ describe("imodel-transformer", () => {
 
     async function getStructInstances(
       db: IModelDb
-    ): Promise<typeof elementProps | {}> {
-      let result: any = [{}];
-      // eslint-disable-next-line deprecation/deprecation
-      db.withPreparedStatement(
+    ): Promise<typeof elementProps | object> {
+      const result = db.createQueryReader(
         "SELECT MyProp, MyArray FROM test.TestElement LIMIT 1",
-        (stmtResult) => (result = stmtResult)
+        undefined,
+        // eslint-disable-next-line @typescript-eslint/no-deprecated
+        { usePrimaryConn: true, rowFormat: QueryRowFormat.UseJsPropertyNames }
       );
-      return [...result][0];
+      return (await result.step()) ? result.current.toRow() : {};
     }
 
     assert.deepEqual(await getStructInstances(newSchemaSourceDb), elementProps);
@@ -343,13 +350,15 @@ describe("imodel-transformer", () => {
       myProp: "10",
     };
 
-    const _newElemId = newSchemaSourceDb.elements.insertElement({
-      classFullName: "Test:TestElement",
-      model: firstModelId,
-      code: Code.createEmpty(),
-      category: firstSpatialCategId,
-      ...elementProps,
-    } as PhysicalElementProps);
+    withEditTxn(newSchemaSourceDb, "insert test element", (txn) => {
+      txn.insertElement({
+        classFullName: "Test:TestElement",
+        model: firstModelId,
+        code: Code.createEmpty(),
+        category: firstSpatialCategId,
+        ...elementProps,
+      } as PhysicalElementProps);
+    });
 
     const targetDbFileName = initOutputFile("targetDb-Struct.bim");
     const targetDb = SnapshotDb.createEmpty(targetDbFileName, {
@@ -363,14 +372,14 @@ describe("imodel-transformer", () => {
 
     async function getStructValue(
       db: IModelDb
-    ): Promise<typeof elementProps | {}> {
-      let result: any = [{}];
-      // eslint-disable-next-line deprecation/deprecation
-      db.withPreparedStatement(
+    ): Promise<typeof elementProps | object> {
+      const result = db.createQueryReader(
         "SELECT MyProp, MyStruct FROM test.TestElement LIMIT 1",
-        (stmtResult) => (result = stmtResult)
+        undefined,
+        // eslint-disable-next-line @typescript-eslint/no-deprecated
+        { usePrimaryConn: true, rowFormat: QueryRowFormat.UseJsPropertyNames }
       );
-      return [...result][0];
+      return (await result.step()) ? result.current.toRow() : {};
     }
 
     assert.deepEqual(await getStructValue(newSchemaSourceDb), elementProps);

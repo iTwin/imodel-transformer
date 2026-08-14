@@ -5,12 +5,11 @@
 // cspell:words buddi urlps
 
 import { AccessToken, GuidString, Logger } from "@itwin/core-bentley";
-import * as assert from "assert";
+import assert from "node:assert";
 import { NodeCliAuthorizationClient } from "@itwin/node-cli-authorization";
-import {
-  AccessTokenAdapter,
-  BackendIModelsAccess,
-} from "@itwin/imodels-access-backend";
+import { BackendIModelsAccess } from "@itwin/imodels-access-backend";
+import { AccessTokenAdapter } from "@itwin/imodels-access-common";
+import type { NamedVersion } from "@itwin/imodels-client-management";
 import {
   BriefcaseDb,
   BriefcaseManager,
@@ -23,11 +22,24 @@ import {
   ChangesetIndex,
   ChangesetProps,
 } from "@itwin/core-common";
-import { IModelsClient, NamedVersion } from "@itwin/imodels-client-authoring";
+import { IModelsClient } from "@itwin/imodels-client-authoring";
+import {
+  AzureClientStorage,
+  BlockBlobClientWrapperFactory,
+} from "@itwin/object-storage-azure";
 import { loggerCategory } from "./Transformer";
 
 export class IModelTransformerTestAppHost {
   public static iModelClient?: IModelsClient;
+  private static _backend?: BackendIModelsAccess;
+
+  public static get hubAccess(): BackendIModelsAccess {
+    if (!this._backend)
+      throw new Error(
+        "IModelTransformerTestAppHost.startup has not been called."
+      );
+    return this._backend;
+  }
 
   public static async startup(): Promise<void> {
     IModelTransformerTestAppHost.iModelClient = new IModelsClient({
@@ -36,11 +48,12 @@ export class IModelTransformerTestAppHost {
           process.env.IMJS_URL_PREFIX ?? ""
         }api.bentley.com/imodels`,
       },
+      cloudStorage: new AzureClientStorage(new BlockBlobClientWrapperFactory()),
     });
-    const hubAccess = new BackendIModelsAccess(
+    this._backend = new BackendIModelsAccess(
       IModelTransformerTestAppHost.iModelClient
     );
-    await IModelHost.startup({ hubAccess });
+    await IModelHost.startup({ hubAccess: this._backend });
   }
 
   private static _authClient: NodeCliAuthorizationClient | undefined;
@@ -79,8 +92,7 @@ export namespace IModelHubUtils {
     iTwinId: GuidString,
     iModelName: string
   ): Promise<GuidString | undefined> {
-    // eslint-disable-next-line @itwin/no-internal
-    return IModelHost.hubAccess.queryIModelByName({
+    return IModelTransformerTestAppHost.hubAccess.queryIModelByName({
       accessToken,
       iTwinId,
       iModelName,
@@ -96,15 +108,12 @@ export namespace IModelHubUtils {
     changesetIndex: ChangesetIndex
   ): Promise<ChangesetId> {
     return (
-      // eslint-disable-next-line @itwin/no-internal
-      (
-        await IModelHost.hubAccess.queryChangeset({
-          accessToken,
-          iModelId,
-          changeset: { index: changesetIndex },
-        })
-      ).id
-    );
+      await IModelTransformerTestAppHost.hubAccess.queryChangeset({
+        accessToken,
+        iModelId,
+        changeset: { index: changesetIndex },
+      })
+    ).id;
   }
 
   /** Temporarily needed to convert from the legacy ChangesetId to the now preferred ChangeSetIndex.
@@ -116,7 +125,7 @@ export namespace IModelHubUtils {
     changesetId: ChangesetId
   ): Promise<ChangesetIndex> {
     return (
-      await IModelHost.hubAccess.queryChangeset({
+      await IModelTransformerTestAppHost.hubAccess.queryChangeset({
         accessToken,
         iModelId,
         changeset: { id: changesetId },
@@ -130,10 +139,11 @@ export namespace IModelHubUtils {
     iModelId: GuidString,
     func: (c: ChangesetProps) => void
   ): Promise<void> {
-    const changesets = await IModelHost.hubAccess.queryChangesets({
-      accessToken,
-      iModelId,
-    });
+    const changesets =
+      await IModelTransformerTestAppHost.hubAccess.queryChangesets({
+        accessToken,
+        iModelId,
+      });
     for (const changeset of changesets) {
       func(changeset);
     }
@@ -153,6 +163,7 @@ export namespace IModelHubUtils {
     for await (const namedVersion of IModelTransformerTestAppHost.iModelClient.namedVersions.getRepresentationList(
       {
         iModelId,
+        // eslint-disable-next-line @typescript-eslint/no-deprecated
         authorization: AccessTokenAdapter.toAuthorizationCallback(accessToken),
       }
     )) {

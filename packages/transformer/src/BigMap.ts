@@ -86,7 +86,7 @@ export class BigMap<V> implements Map<Id64String, V> {
     return this;
   }
 
-  public [Symbol.iterator](): IterableIterator<[Id64String, V]> {
+  public [Symbol.iterator](): MapIterator<[Id64String, V]> {
     return this.entries();
   }
 
@@ -94,21 +94,21 @@ export class BigMap<V> implements Map<Id64String, V> {
     return "BigMap";
   }
 
-  public *entries(): IterableIterator<[Id64String, V]> {
+  public *entries(): MapIterator<[Id64String, V]> {
     const maps = Object.values(this._maps);
     for (const map of maps) {
       for (const [key, value] of map.entries()) yield [key, value];
     }
   }
 
-  public *keys(): IterableIterator<Id64String> {
+  public *keys(): MapIterator<Id64String> {
     const maps = Object.values(this._maps);
     for (const map of maps) {
       for (const key of map.keys()) yield key;
     }
   }
 
-  public *values(): IterableIterator<V> {
+  public *values(): MapIterator<V> {
     const maps = Object.values(this._maps);
     for (const map of maps) {
       for (const value of map.values()) yield value;

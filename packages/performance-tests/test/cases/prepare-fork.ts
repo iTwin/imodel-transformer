@@ -2,9 +2,9 @@
  * Copyright (c) Bentley Systems, Incorporated. All rights reserved.
  * See LICENSE.md in the project root for license terms and full copyright notice.
  *--------------------------------------------------------------------------------------------*/
-import * as fs from "fs";
-import * as os from "os";
-import * as path from "path";
+import * as fs from "node:fs";
+import * as os from "node:os";
+import * as path from "node:path";
 import { Logger, StopWatch } from "@itwin/core-bentley";
 import { StandaloneDb } from "@itwin/core-backend";
 import { TestCaseContext } from "./TestCaseContext";
@@ -51,8 +51,7 @@ export default async function prepareFork(context: TestCaseContext) {
     const schemaDumpDir = fs.mkdtempSync(
       path.join(os.tmpdir(), "fork-test-schemas-dump-")
     );
-    // eslint-disable-next-line @itwin/no-internal, deprecation/deprecation
-    sourceDb.nativeDb.exportSchemas(schemaDumpDir);
+    sourceDb.exportSchemas(schemaDumpDir);
     Logger.logInfo(loggerCategory, `dumped schemas to: ${schemaDumpDir}`);
     throw err;
   } finally {

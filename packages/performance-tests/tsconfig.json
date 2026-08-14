@@ -2,8 +2,11 @@
   "extends": "./node_modules/@itwin/build-tools/tsconfig-base.json",
   "compilerOptions": {
     "skipLibCheck": true,
-    "outDir": "./lib",
-    "esModuleInterop": true
+    "esModuleInterop": true,
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "resolvePackageJsonExports": true,
+    "types": ["node", "vitest/globals"]
   },
   "include": ["./test/**/*.ts"]
 }

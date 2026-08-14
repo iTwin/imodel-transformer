@@ -6,24 +6,25 @@
  * @module iModels
  */
 
-import { DbResult, TupleKeyedMap } from "@itwin/core-bentley";
-import {
-  ConcreteEntityTypes,
-  IModelError,
-  RelTypeInfo,
-} from "@itwin/core-common";
+import { ITwinError, Logger, TupleKeyedMap } from "@itwin/core-bentley";
+import { ConcreteEntityTypes, RelTypeInfo } from "@itwin/core-common";
 import {
   ECClass,
   Mixin,
+  Property,
   RelationshipClass,
   RelationshipConstraint,
   Schema,
   SchemaKey,
-  SchemaLoader,
   StrengthDirection,
 } from "@itwin/ecschema-metadata";
-import * as assert from "assert";
+import { strict as assert } from "node:assert";
 import { IModelDb } from "@itwin/core-backend";
+import { TransformerLoggerCategory } from "./TransformerLoggerCategory";
+import {
+  IModelTransformerError,
+  IModelTransformerErrorScope,
+} from "./IModelTransformerError";
 
 /** The context for transforming a *source* Element to a *target* Element and remapping internal identifiers to the target iModel.
  * @internal
@@ -111,37 +112,36 @@ export class ECReferenceTypesCache {
 
   /** initialize from an imodel with metadata */
   public async initAllSchemasInIModel(imodel: IModelDb): Promise<void> {
-    const schemaLoader = new SchemaLoader((name: string) =>
-      imodel.getSchemaProps(name)
-    );
-    // Issue for `createQueryReader` reported: https://github.com/iTwin/itwinjs-core/issues/7984
-    // eslint-disable-next-line @itwin/no-internal, deprecation/deprecation
-    await imodel.withPreparedStatement(
-      `
+    const query = `
       WITH RECURSIVE refs(SchemaId) AS (
         SELECT ECInstanceId FROM ECDbMeta.ECSchemaDef WHERE Name='BisCore'
-        UNION ALL
+        UNION
         SELECT sr.SourceECInstanceId
         FROM ECDbMeta.SchemaHasSchemaReferences sr
         JOIN refs ON sr.TargetECInstanceId = refs.SchemaId
       )
-      SELECT s.Name
+      SELECT s.Name as name
       FROM refs
       JOIN ECDbMeta.ECSchemaDef s ON refs.SchemaId=s.ECInstanceId
-      -- ensure schema dependency order
-      ORDER BY ECInstanceId
-    `,
-      async (stmt) => {
-        let status: DbResult;
-        while ((status = stmt.step()) === DbResult.BE_SQLITE_ROW) {
-          const schemaName = stmt.getValue(0).getString();
-          const schema = schemaLoader.getSchema(schemaName);
-          await this.considerInitSchema(schema);
-        }
-        if (status !== DbResult.BE_SQLITE_DONE)
-          throw new IModelError(status, "unexpected query failure");
+    `;
+
+    for await (const row of imodel.createQueryReader(query, undefined, {
+      usePrimaryConn: true,
+    })) {
+      const schemaName = row.name;
+      const schemaItemKey = new SchemaKey(schemaName);
+      const schema = await imodel.schemaContext.getSchema(schemaItemKey);
+      if (!schema) {
+        ITwinError.throwError({
+          iTwinErrorId: {
+            scope: IModelTransformerErrorScope,
+            key: IModelTransformerError.SchemaLoadFailed,
+          },
+          message: `Failed to load schema: ${schemaName}`,
+        });
       }
-    );
+      await this.considerInitSchema(schema);
+    }
   }
 
   private async considerInitSchema(schema: Schema): Promise<void> {
@@ -158,37 +158,71 @@ export class ECReferenceTypesCache {
   }
 
   private async initSchema(schema: Schema): Promise<void> {
-    for (const ecclass of schema.getClasses()) {
-      for (const prop of await ecclass.getProperties()) {
-        if (!prop.isNavigation()) continue;
-        const relClass = await prop.relationshipClass;
-        const relInfo = await this.relInfoFromRelClass(relClass);
-        if (relInfo === undefined) continue;
-        const navPropRefType =
-          prop.direction === StrengthDirection.Forward
-            ? relInfo.target
-            : relInfo.source;
-        this._propQualifierToRefType.set(
-          [
-            schema.name.toLowerCase(),
-            ecclass.name.toLowerCase(),
-            prop.name.toLowerCase(),
-          ],
-          navPropRefType
-        );
-      }
+    Logger.logTrace(
+      TransformerLoggerCategory.ECReferenceTypesCache,
+      `initSchema started for ${schema.name}`
+    );
+    const schemaNameLower = schema.name.toLowerCase();
 
-      if (ecclass instanceof RelationshipClass) {
-        const relInfo = await this.relInfoFromRelClass(ecclass);
-        if (relInfo)
-          this._relClassNameEndToRefTypes.set(
-            [schema.name.toLowerCase(), ecclass.name.toLowerCase()],
-            relInfo
-          );
-      }
-    }
+    // Local dedup map — scoped to this single initSchema call, not persisted
+    const localRelInfoMap = new Map<string, Promise<RelTypeInfo | undefined>>();
 
+    const getRelInfo = async (relClass: RelationshipClass) => {
+      let promise = localRelInfoMap.get(relClass.fullName);
+      if (!promise) {
+        promise = this.relInfoFromRelClass(relClass);
+        localRelInfoMap.set(relClass.fullName, promise);
+      }
+      return promise;
+    };
+
+    // Process all classes concurrently
+    const classPromises = Array.from(schema.getItems())
+      .filter((item): item is ECClass => ECClass.isECClass(item))
+      .map(async (ecclass) => {
+        // Handle relationship end types
+        if (ecclass instanceof RelationshipClass) {
+          const relInfo = await getRelInfo(ecclass);
+          if (relInfo) {
+            this._relClassNameEndToRefTypes.set(
+              [schemaNameLower, ecclass.name.toLowerCase()],
+              relInfo
+            );
+          }
+        }
+
+        // Handle nav props
+        const properties = await ecclass.getProperties();
+        const classNameLower = ecclass.name.toLowerCase();
+
+        const navPropPromises = Array.from(properties)
+          .filter((prop: Property) => prop.isNavigation())
+          .map(async (prop: Property) => {
+            if (!prop.isNavigation()) return;
+            const relClass = await prop.relationshipClass;
+            const relInfo = await getRelInfo(relClass);
+            if (relInfo === undefined) return;
+
+            const navPropRefType =
+              prop.direction === StrengthDirection.Forward
+                ? relInfo.target
+                : relInfo.source;
+
+            this._propQualifierToRefType.set(
+              [schemaNameLower, classNameLower, prop.name.toLowerCase()],
+              navPropRefType
+            );
+          });
+
+        await Promise.all(navPropPromises);
+      });
+
+    await Promise.all(classPromises);
     this._initedSchemas.set(schema.name, schema.schemaKey);
+    Logger.logTrace(
+      TransformerLoggerCategory.ECReferenceTypesCache,
+      `initSchema completed for ${schema.name}`
+    );
   }
 
   private async relInfoFromRelClass(
@@ -278,5 +312,6 @@ export class ECReferenceTypesCache {
   public clear() {
     this._initedSchemas.clear();
     this._propQualifierToRefType.clear();
+    this._relClassNameEndToRefTypes.clear();
   }
 }

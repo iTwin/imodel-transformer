@@ -4,6 +4,7 @@
  *--------------------------------------------------------------------------------------------*/
 import {
   BriefcaseDb,
+  EditTxn,
   ExternalSource,
   ExternalSourceIsInRepository,
   IModelDb,
@@ -16,9 +17,11 @@ import {
   ExternalSourceProps,
   RepositoryLinkProps,
 } from "@itwin/core-common";
-import * as assert from "assert";
-import { IModelTransformer } from "./IModelTransformer";
-import { pathToFileURL } from "url";
+import { strict as assert } from "node:assert";
+import { ProvenanceManager } from "./ProvenanceManager";
+import { pathToFileURL } from "node:url";
+import { transformerPackageMetadata } from "./TransformerPackageMetadata";
+
 /**
  * @alpha
  */
@@ -60,34 +63,28 @@ export interface ProvenanceInitResult {
 export async function initializeBranchProvenance(
   args: ProvenanceInitArgs
 ): Promise<ProvenanceInitResult> {
+  let editTxn = new EditTxn(args.branch, "initializeBranchProvenance");
+  editTxn.start();
+
   if (args.createFedGuidsForMaster) {
     // FIXME<LOW>: Consider enforcing that the master and branch dbs passed as part of ProvenanceInitArgs to this function
     // are identical. https://github.com/iTwin/imodel-transformer/issues/138
-    /* eslint-disable deprecation/deprecation */
     args.master.withSqliteStatement(
       `
         UPDATE bis_Element
         SET FederationGuid=randomblob(16)
         WHERE FederationGuid IS NULL
       `,
-      // eslint-disable-next-line @itwin/no-internal
       (s) =>
-        assert(
-          s.step() === DbResult.BE_SQLITE_DONE,
-          args.branch.nativeDb.getLastError()
-        )
+        assert(s.step() === DbResult.BE_SQLITE_DONE, args.master.getLastError())
     );
     const masterPath = args.master.pathName;
     const reopenMaster = makeDbReopener(args.master);
     args.master.close(); // prevent busy
     args.branch.withSqliteStatement(
       `ATTACH DATABASE '${pathToFileURL(`${masterPath}`)}?mode=ro' AS master`,
-      // eslint-disable-next-line @itwin/no-internal
       (s) =>
-        assert(
-          s.step() === DbResult.BE_SQLITE_DONE,
-          args.branch.nativeDb.getLastError()
-        )
+        assert(s.step() === DbResult.BE_SQLITE_DONE, args.branch.getLastError())
     );
     args.branch.withSqliteStatement(
       `
@@ -98,30 +95,22 @@ export async function initializeBranchProvenance(
         WHERE m.Id=main.bis_Element.Id
       )`,
 
-      // eslint-disable-next-line @itwin/no-internal
       (s) =>
-        assert(
-          s.step() === DbResult.BE_SQLITE_DONE,
-          args.branch.nativeDb.getLastError()
-        )
+        assert(s.step() === DbResult.BE_SQLITE_DONE, args.branch.getLastError())
     );
     args.branch.clearCaches(); // statements write lock attached db (clearing statement cache does not fix this)
-    args.branch.saveChanges();
+    editTxn.saveChanges();
+    editTxn.end();
     args.branch.withSqliteStatement("DETACH DATABASE master", (s) => {
       const res = s.step();
       if (res !== DbResult.BE_SQLITE_DONE)
         Logger.logTrace(
           "initializeBranchProvenance",
-          `Error detaching db (we will close anyway): ${args.branch.nativeDb.getLastError()}`
+          `Error detaching db (we will close anyway): ${args.branch.getLastError()}`
         );
       // this is the case until native side changes
-      // eslint-disable-next-line @itwin/no-internal
-      assert(
-        res === DbResult.BE_SQLITE_ERROR,
-        args.branch.nativeDb.getLastError()
-      );
+      assert(res === DbResult.BE_SQLITE_ERROR, args.branch.getLastError());
     });
-    /* eslint-enable deprecation/deprecation */
     args.branch.performCheckpoint();
 
     const reopenBranch = makeDbReopener(args.branch);
@@ -131,10 +120,13 @@ export async function initializeBranchProvenance(
       reopenMaster(),
       reopenBranch(),
     ]);
+    // Recreate editTxn on the reopened branch db
+    editTxn = new EditTxn(args.branch, "initializeBranchProvenance");
+    editTxn.start();
   }
 
   // create an external source and owning repository link to use as our *Target Scope Element* for future synchronizations
-  const masterRepoLinkId = args.branch.elements.insertElement({
+  const masterRepoLinkId = editTxn.insertElement({
     classFullName: RepositoryLink.classFullName,
     code: RepositoryLink.createCode(
       args.branch,
@@ -148,40 +140,38 @@ export async function initializeBranchProvenance(
     description: args.masterDescription,
   } as RepositoryLinkProps);
 
-  const masterExternalSourceId = args.branch.elements.insertElement({
+  const masterExternalSourceId = editTxn.insertElement({
     classFullName: ExternalSource.classFullName,
     model: IModelDb.rootSubjectId,
     code: Code.createEmpty(),
     repository: new ExternalSourceIsInRepository(masterRepoLinkId),
-    /* eslint-disable @typescript-eslint/no-var-requires */
-    connectorName: require("../../package.json").name,
-    connectorVersion: require("../../package.json").version,
-    /* eslint-enable @typescript-eslint/no-var-requires */
+    connectorName: transformerPackageMetadata.name,
+    connectorVersion: transformerPackageMetadata.version,
   } as ExternalSourceProps);
 
-  const fedGuidLessElemsSql = `
+  const fedGuidlessElemsSql = `
     SELECT ECInstanceId AS id
     FROM Bis.Element
     WHERE FederationGuid IS NULL
       AND ECInstanceId NOT IN (0x1, 0xe, 0x10) /* ignore special elems */
   `;
   const elemReader = args.branch.createQueryReader(
-    fedGuidLessElemsSql,
+    fedGuidlessElemsSql,
     undefined,
     { usePrimaryConn: true }
   );
-  while (await elemReader.step()) {
-    const id: string = elemReader.current.toRow().id;
-    const aspectProps = IModelTransformer.initElementProvenanceOptions(id, id, {
+  for await (const row of elemReader) {
+    const id: string = row.id;
+    const aspectProps = ProvenanceManager.initElementProvenanceOptions(id, id, {
       isReverseSynchronization: false,
       targetScopeElementId: masterExternalSourceId,
       sourceDb: args.master,
       targetDb: args.branch,
     });
-    args.branch.elements.insertAspect(aspectProps);
+    editTxn.insertAspect(aspectProps);
   }
 
-  const fedGuidLessRelsSql = `
+  const fedGuidlessRelsSql = `
     SELECT erte.ECInstanceId as id
     FROM Bis.ElementRefersToElements erte
     JOIN bis.Element se
@@ -191,25 +181,25 @@ export async function initializeBranchProvenance(
       WHERE se.FederationGuid IS NULL
       OR te.FederationGuid IS NULL`;
   const relReader = args.branch.createQueryReader(
-    fedGuidLessRelsSql,
+    fedGuidlessRelsSql,
     undefined,
     { usePrimaryConn: true }
   );
-  while (await relReader.step()) {
-    const id: string = relReader.current.toRow().id;
-    const aspectProps = IModelTransformer.initRelationshipProvenanceOptions(
-      id,
-      id,
-      {
+  for await (const row of relReader) {
+    const id: string = row.id;
+    const aspectProps =
+      await ProvenanceManager.initRelationshipProvenanceOptions(id, id, {
         isReverseSynchronization: false,
         targetScopeElementId: masterExternalSourceId,
         sourceDb: args.master,
         targetDb: args.branch,
         forceOldRelationshipProvenanceMethod: false,
-      }
-    );
-    args.branch.elements.insertAspect(aspectProps);
+      });
+    editTxn.insertAspect(aspectProps);
   }
+
+  editTxn.saveChanges();
+  editTxn.end();
 
   if (args.createFedGuidsForMaster === true) {
     args.master.close();

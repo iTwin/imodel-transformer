@@ -2,7 +2,7 @@
  * Copyright (c) Bentley Systems, Incorporated. All rights reserved.
  * See LICENSE.md in the project root for license terms and full copyright notice.
  *--------------------------------------------------------------------------------------------*/
-import * as path from "path";
+import * as path from "node:path";
 import {
   DefinitionModel,
   GeometricElement3d,
@@ -13,6 +13,7 @@ import {
   SnapshotDb,
   SpatialCategory,
   Subject,
+  withEditTxn,
 } from "@itwin/core-backend";
 import {
   AdditionalTransform,
@@ -33,15 +34,20 @@ import {
   Transform,
   YawPitchRollAngles,
 } from "@itwin/core-geometry";
-import { assert } from "console";
+import { assert } from "node:console";
 import {
   IModelTransformer,
   IModelTransformOptions,
 } from "../../IModelTransformer";
-import { expect } from "chai";
-import sinon = require("sinon");
+import { expect } from "vitest";
 import { Logger } from "@itwin/core-bentley";
 import { TransformerLoggerCategory } from "../../TransformerLoggerCategory";
+import {
+  createStartedEditTxn,
+  expectTransformerError,
+} from "../IModelTransformerUtils";
+import { IModelTransformerError } from "../../IModelTransformerError";
+import { KnownTestLocations } from "../TestUtils/KnownTestLocations";
 
 interface GeolocationData {
   ecefLocation: EcefLocation | undefined;
@@ -69,48 +75,49 @@ function createTestSnapshotDb(
   if (geolocData.geographicCRS !== undefined)
     imodelDb.setGeographicCoordinateSystem(geolocData.geographicCRS);
 
-  const subjectId = Subject.insert(
-    imodelDb,
-    IModelDb.rootSubjectId,
-    "Test Subject"
-  );
-  const defintionModelId = DefinitionModel.insert(
-    imodelDb,
-    subjectId,
-    "DefinitionModel"
-  );
+  withEditTxn(imodelDb, "Created test elements", (txn) => {
+    const subjectId = Subject.insert(
+      txn,
+      IModelDb.rootSubjectId,
+      "Test Subject"
+    );
+    const defintionModelId = DefinitionModel.insert(
+      txn,
+      subjectId,
+      "DefinitionModel"
+    );
 
-  const categoryId = SpatialCategory.insert(
-    imodelDb,
-    defintionModelId,
-    `${color} Category`,
-    { color: ColorDef.fromString(color).toJSON() }
-  );
+    const categoryId = SpatialCategory.insert(
+      txn,
+      defintionModelId,
+      `${color} Category`,
+      { color: ColorDef.fromString(color).toJSON() }
+    );
 
-  const modelId = PhysicalModel.insert(imodelDb, subjectId, "Test Model");
+    const modelId = PhysicalModel.insert(txn, subjectId, "Test Model");
 
-  const builder = new GeometryStreamBuilder();
-  builder.appendGeometry(Sphere.createCenterRadius(Point3d.createZero(), 1));
-  for (let i = 0; i < numElements; i++) {
-    // Arrange elements in a 2x2 grid, incrementing z every 4 elements
-    const x = (i % 2) * 5;
-    const y = (Math.floor(i / 2) % 2) * 5;
-    const z = Math.floor(i / 4) * 5;
+    const builder = new GeometryStreamBuilder();
+    builder.appendGeometry(Sphere.createCenterRadius(Point3d.createZero(), 1));
+    for (let i = 0; i < numElements; i++) {
+      // Arrange elements in a 2x2 grid, incrementing z every 4 elements
+      const x = (i % 2) * 5;
+      const y = (Math.floor(i / 2) % 2) * 5;
+      const z = Math.floor(i / 4) * 5;
 
-    const elementProps: PhysicalElementProps = {
-      classFullName: PhysicalObject.classFullName,
-      model: modelId,
-      category: categoryId,
-      code: Code.createEmpty(),
-      geom: builder.geometryStream,
-      placement: {
-        origin: Point3d.create(x, y, z),
-        angles: YawPitchRollAngles.createDegrees(0, 0, 0),
-      },
-    };
-    imodelDb.elements.insertElement(elementProps);
-  }
-  imodelDb.saveChanges("Created test elements");
+      const elementProps: PhysicalElementProps = {
+        classFullName: PhysicalObject.classFullName,
+        model: modelId,
+        category: categoryId,
+        code: Code.createEmpty(),
+        geom: builder.geometryStream,
+        placement: {
+          origin: Point3d.create(x, y, z),
+          angles: YawPitchRollAngles.createDegrees(0, 0, 0),
+        },
+      };
+      txn.insertElement(elementProps);
+    }
+  });
 
   return imodelDb;
 }
@@ -130,7 +137,10 @@ async function getGeometric3dElements(
 }
 
 function initOutputFile(fileBaseName: string) {
-  const outputDirName = path.join(__dirname, "output");
+  const outputDirName = path.join(
+    KnownTestLocations.outputDir,
+    "GeoLocationTransform"
+  );
   if (!IModelJsFs.existsSync(outputDirName)) {
     IModelJsFs.mkdirSync(outputDirName);
   }
@@ -194,17 +204,17 @@ describe("Linear Geolocation Transformations", () => {
     const srcElements = await getGeometric3dElements(sourceDb);
     const srcElemFedGuid = srcElements[0].federationGuid;
 
+    const editTxn = createStartedEditTxn(targetDb);
     const transformerOptions: IModelTransformOptions = {
       tryAlignGeolocation: true,
     };
     const transfrom = new IModelTransformer(
-      sourceDb,
-      targetDb,
+      { source: sourceDb, target: editTxn },
       transformerOptions
     );
 
     await transfrom.process();
-    targetDb.saveChanges("clone contents from source");
+    editTxn.end("save", "clone contents from source");
 
     const srcElemPositionPostTransform =
       targetDb.elements.getElement<GeometricElement3d>(
@@ -245,28 +255,30 @@ describe("Linear Geolocation Transformations", () => {
       "blue"
     );
 
-    const loggerSpy = sinon.spy(Logger, "logTrace");
+    const loggerSpy = vi.spyOn(Logger, "logTrace");
 
+    const editTxn = createStartedEditTxn(targetDb);
     const transformerOptions: IModelTransformOptions = {
       tryAlignGeolocation: true,
     };
 
     const transformer = new IModelTransformer(
-      sourceDb,
-      targetDb,
+      { source: sourceDb, target: editTxn },
       transformerOptions
     );
 
     await transformer.process();
 
     expect(
-      loggerSpy.calledWithMatch(
-        TransformerLoggerCategory.IModelTransformer,
-        "No Geolcation data to align, both GCS and ECEF are undefined"
+      loggerSpy.mock.calls.some(
+        (call) =>
+          call[0] === TransformerLoggerCategory.IModelTransformer &&
+          call[1] ===
+            "No Geolcation data to align, both GCS and ECEF are undefined"
       )
     ).to.be.true;
 
-    loggerSpy.restore();
+    loggerSpy.mockRestore();
     targetDb.close();
     sourceDb.close();
     transformer.dispose();
@@ -301,20 +313,20 @@ describe("Linear Geolocation Transformations", () => {
     const srcElems = await getGeometric3dElements(sourceDb);
     const srcElem = srcElems[0];
 
-    const loggerSpy = sinon.spy(Logger, "logTrace");
+    const loggerSpy = vi.spyOn(Logger, "logTrace");
 
+    const editTxn = createStartedEditTxn(targetDb);
     const transformerOptions: IModelTransformOptions = {
       tryAlignGeolocation: true,
     };
 
     const transform = new IModelTransformer(
-      sourceDb,
-      targetDb,
+      { source: sourceDb, target: editTxn },
       transformerOptions
     );
 
     await transform.process();
-    targetDb.saveChanges("clone contents from source");
+    editTxn.end("save", "clone contents from source");
 
     const srcElemPostTransform =
       targetDb.elements.getElement<GeometricElement3d>(srcElem.federationGuid!);
@@ -327,13 +339,15 @@ describe("Linear Geolocation Transformations", () => {
     ).to.be.true;
 
     expect(
-      loggerSpy.calledWithMatch(
-        TransformerLoggerCategory.IModelTransformer,
-        "ECEF data is already aligned. No spatial transforms needed."
+      loggerSpy.mock.calls.some(
+        (call) =>
+          call[0] === TransformerLoggerCategory.IModelTransformer &&
+          call[1] ===
+            "ECEF data is already aligned. No spatial transforms needed."
       )
     ).to.be.true;
 
-    loggerSpy.restore();
+    loggerSpy.mockRestore();
 
     targetDb.close();
     sourceDb.close();
@@ -347,7 +361,7 @@ describe("Non Linear Geolocation Transformations", () => {
   let srcHelmertTransform: Helmert2DWithZOffset;
   let targetHelmertTransform: Helmert2DWithZOffset;
 
-  before(async () => {
+  beforeAll(async () => {
     horizontalCRS = new HorizontalCRS({
       id: "10TM115-27",
       description: "",
@@ -433,13 +447,13 @@ describe("Non Linear Geolocation Transformations", () => {
       "Target iModel should have a geographic coordinate system"
     );
 
+    const editTxn = createStartedEditTxn(targetDb);
     const transformerOptions: IModelTransformOptions = {
       tryAlignGeolocation: true,
     };
 
     const transform = new IModelTransformer(
-      sourceDb,
-      targetDb,
+      { source: sourceDb, target: editTxn },
       transformerOptions
     );
 
@@ -466,11 +480,12 @@ describe("Non Linear Geolocation Transformations", () => {
     const targetElem = targetElems[0];
 
     srcElem.placement.multiplyTransform(srcSpatialTransform);
-    srcElem.update();
-    sourceDb.saveChanges("update placement of source element");
+    withEditTxn(sourceDb, "update placement of source element", (txn) => {
+      txn.updateElement(srcElem.toJSON());
+    });
 
     await transform.process();
-    targetDb.saveChanges("clone contents from source");
+    editTxn.end("save", "clone contents from source");
 
     const srcElemPostTransform =
       targetDb.elements.getElement<GeometricElement3d>(srcElem.federationGuid!);
@@ -544,21 +559,22 @@ describe("Non Linear Geolocation Transformations", () => {
       .multiplyTransformTransform(targetHelmert);
 
     srcElem.placement.multiplyTransform(srcSpatialTransform);
-    srcElem.update();
-    sourceDb.saveChanges("update placement of source element");
+    withEditTxn(sourceDb, "update placement of source element", (txn) => {
+      txn.updateElement(srcElem.toJSON());
+    });
 
+    const editTxn = createStartedEditTxn(targetDb);
     const transformerOptions: IModelTransformOptions = {
       tryAlignGeolocation: true,
     };
 
     const transform = new IModelTransformer(
-      sourceDb,
-      targetDb,
+      { source: sourceDb, target: editTxn },
       transformerOptions
     );
 
     await transform.process();
-    targetDb.saveChanges("clone contents from source");
+    editTxn.end("save", "clone contents from source");
 
     const srcElemPostTransform =
       targetDb.elements.getElement<GeometricElement3d>(srcElem.federationGuid!);
@@ -632,21 +648,22 @@ describe("Non Linear Geolocation Transformations", () => {
       .multiplyTransformTransform(targetHelmert);
 
     srcElem.placement.multiplyTransform(srcSpatialTransform);
-    srcElem.update();
-    sourceDb.saveChanges("update placement of source element");
+    withEditTxn(sourceDb, "update placement of source element", (txn) => {
+      txn.updateElement(srcElem.toJSON());
+    });
 
+    const editTxn = createStartedEditTxn(targetDb);
     const transformerOptions: IModelTransformOptions = {
       tryAlignGeolocation: true,
     };
 
     const transform = new IModelTransformer(
-      sourceDb,
-      targetDb,
+      { source: sourceDb, target: editTxn },
       transformerOptions
     );
 
     await transform.process();
-    targetDb.saveChanges("clone contents from source");
+    editTxn.end("save", "clone contents from souce");
 
     const srcElemPostTransform =
       targetDb.elements.getElement<GeometricElement3d>(srcElem.federationGuid!);
@@ -702,20 +719,20 @@ describe("Non Linear Geolocation Transformations", () => {
     const srcElems = await getGeometric3dElements(sourceDb);
     const srcElem = srcElems[0];
 
-    const loggerSpy = sinon.spy(Logger, "logTrace");
+    const loggerSpy = vi.spyOn(Logger, "logTrace");
 
+    const editTxn = createStartedEditTxn(targetDb);
     const transformerOptions: IModelTransformOptions = {
       tryAlignGeolocation: true,
     };
 
     const transform = new IModelTransformer(
-      sourceDb,
-      targetDb,
+      { source: sourceDb, target: editTxn },
       transformerOptions
     );
 
     await transform.process();
-    targetDb.saveChanges("clone contents from source");
+    editTxn.end("save", "clone contents from source");
 
     const srcElemPostTransform =
       targetDb.elements.getElement<GeometricElement3d>(srcElem.federationGuid!);
@@ -728,13 +745,15 @@ describe("Non Linear Geolocation Transformations", () => {
     ).to.be.true;
 
     expect(
-      loggerSpy.calledWithMatch(
-        TransformerLoggerCategory.IModelTransformer,
-        "Geolocation data is already aligned. No spatial transforms needed."
+      loggerSpy.mock.calls.some(
+        (call) =>
+          call[0] === TransformerLoggerCategory.IModelTransformer &&
+          call[1] ===
+            "Geolocation data is already aligned. No spatial transforms needed."
       )
     ).to.be.true;
 
-    loggerSpy.restore();
+    loggerSpy.mockRestore();
 
     targetDb.close();
     sourceDb.close();
@@ -761,13 +780,18 @@ describe("Non Linear Geolocation Transformations", () => {
       "blue"
     );
 
+    const editTxn = createStartedEditTxn(targetDb);
     const transformerOptions: IModelTransformOptions = {
       tryAlignGeolocation: true,
     };
 
-    expect(
-      () => new IModelTransformer(sourceDb, targetDb, transformerOptions)
-    ).to.throw(
+    await expectTransformerError(
+      () =>
+        new IModelTransformer(
+          { source: sourceDb, target: editTxn },
+          transformerOptions
+        ),
+      IModelTransformerError.GeographicCoordinateSystemUnavailable,
       "Target iModel does not have a geographic coordinate system defined."
     );
 
@@ -821,13 +845,18 @@ describe("Non Linear Geolocation Transformations", () => {
       "blue"
     );
 
+    const editTxn = createStartedEditTxn(targetDb);
     const transformerOptions: IModelTransformOptions = {
       tryAlignGeolocation: true,
     };
 
-    expect(
-      () => new IModelTransformer(sourceDb, targetDb, transformerOptions)
-    ).to.throw(
+    await expectTransformerError(
+      () =>
+        new IModelTransformer(
+          { source: sourceDb, target: editTxn },
+          transformerOptions
+        ),
+      IModelTransformerError.GeographicCoordinateSystemMismatch,
       "Source and target geographic coordinate systems must match to calculate the spatial transform."
     );
 

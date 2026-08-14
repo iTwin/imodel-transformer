@@ -1,0 +1,7 @@
+{
+  "type": "major",
+  "comment": "Process ElementAspects separately from element callbacks in bounded owner groups and move change-time coordination into imodel-transformer. Existing aspect callbacks remain, but their adjacency to element callbacks is no longer guaranteed. Custom deleted aspect changes now require the source owner element ID.",
+  "packageName": "@itwin/imodel-transformer",
+  "email": "50554904+hl662@users.noreply.github.com",
+  "dependentChangeType": "major"
+}

@@ -6,9 +6,9 @@
  * Tests where we perform "identity" transforms, that is just rebuilding an entire identical iModel (minus IDs)
  * through the transformation process.
  */
-import * as fs from "fs";
-import * as os from "os";
-import * as path from "path";
+import * as fs from "node:fs";
+import * as os from "node:os";
+import * as path from "node:path";
 import { Logger, StopWatch } from "@itwin/core-bentley";
 import { SnapshotDb } from "@itwin/core-backend";
 import { TestCaseContext } from "./TestCaseContext";
@@ -49,8 +49,7 @@ export default async function identityTransformer(context: TestCaseContext) {
     const schemaDumpDir = fs.mkdtempSync(
       path.join(os.tmpdir(), "identity-test-schemas-dump-")
     );
-    // eslint-disable-next-line @itwin/no-internal, deprecation/deprecation
-    sourceDb.nativeDb.exportSchemas(schemaDumpDir);
+    sourceDb.exportSchemas(schemaDumpDir);
     Logger.logInfo(loggerCategory, `dumped schemas to: ${schemaDumpDir}`);
     throw err;
   } finally {

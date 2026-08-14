@@ -6,6 +6,7 @@ package-lock.json
 .nyc_output
 lib
 build
+**/*.tsbuildinfo
 /**/test/output
 /generated-docs
 /staging-docs

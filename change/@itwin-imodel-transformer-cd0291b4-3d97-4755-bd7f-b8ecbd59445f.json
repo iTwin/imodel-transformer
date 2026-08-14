@@ -1,0 +1,7 @@
+{
+  "email": "DanRod1999@users.noreply.github.com",
+  "dependentChangeType": "patch",
+  "comment": "Optimize initSchema in ECReferenceTypesCache to process classes concurrently",
+  "type": "patch",
+  "packageName": "@itwin/imodel-transformer"
+}

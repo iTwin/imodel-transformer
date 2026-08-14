@@ -1,0 +1,7 @@
+{
+  "type": "patch",
+  "comment": "Preserve input order when returning IDs after deleting surplus element multi-aspects",
+  "packageName": "@itwin/imodel-transformer",
+  "email": "DanRod1999@users.noreply.github.com",
+  "dependentChangeType": "patch"
+}

@@ -1,0 +1,7 @@
+{
+  "type": "none",
+  "comment": "Add nyc coverage thresholds (dev/CI config only; no runtime change)",
+  "packageName": "@itwin/imodel-transformer",
+  "email": "50554904+hl662@users.noreply.github.com",
+  "dependentChangeType": "none"
+}

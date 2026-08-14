@@ -3,17 +3,16 @@
  * See LICENSE.md in the project root for license terms and full copyright notice.
  *--------------------------------------------------------------------------------------------*/
 
-import { assert, expect } from "chai";
+import { assert, expect } from "vitest";
 import {
   BriefcaseDb,
   IModelDb,
-  IModelHost,
   PhysicalModel,
   PhysicalObject,
   PhysicalPartition,
   SpatialCategory,
+  withEditTxn,
 } from "@itwin/core-backend";
-
 import {
   ChangesetIdWithIndex,
   Code,
@@ -29,10 +28,12 @@ import {
   IModelTransformOptions,
 } from "../../IModelTransformer";
 import {
+  createStartedEditTxn,
   HubWrappers,
   IModelTransformerTestUtils,
 } from "../IModelTransformerUtils";
 import { IModelTestUtils } from "./IModelTestUtils";
+import { transformerTestHub } from "./TransformerTestHub";
 import { omit } from "@itwin/core-bentley";
 
 const saveAndPushChanges = async (
@@ -44,20 +45,22 @@ const saveAndPushChanges = async (
 export const deleted = Symbol("DELETED");
 
 // NOTE: this is not done optimally
-export function getIModelState(db: IModelDb): TimelineIModelElemState {
+export async function getIModelState(
+  db: IModelDb
+): Promise<TimelineIModelElemState> {
   const result = {} as TimelineIModelElemState;
-
-  // eslint-disable-next-line @itwin/no-internal, deprecation/deprecation
-  const elemIds = db.withPreparedStatement(
-    `
+  const elemIds = [];
+  const sql = `
     SELECT ECInstanceId
     FROM Bis.Element
     WHERE ECInstanceId>${IModelDb.dictionaryId}
       -- ignore the known required elements set in 'populateTimelineSeed'
       AND CodeValue NOT IN ('SpatialCategory', 'PhysicalModel')
-  `,
-    (s) => [...s].map((row) => row.id)
-  );
+  `;
+  const reader = db.createQueryReader(sql, undefined, { usePrimaryConn: true });
+  for await (const row of reader) {
+    elemIds.push(row.id);
+  }
 
   for (const elemId of elemIds) {
     const elem = db.elements.getElement(elemId);
@@ -72,20 +75,22 @@ export function getIModelState(db: IModelDb): TimelineIModelElemState {
       : elem.toJSON();
   }
 
-  // eslint-disable-next-line @itwin/no-internal, deprecation/deprecation
-  const supportedRelIds = db.withPreparedStatement(
-    `
-    SELECT erte.ECInstanceId, erte.ECClassId,
-        se.ECInstanceId AS SourceId, se.UserLabel AS SourceUserLabel,
-        te.ECInstanceId AS TargetId, te.UserLabel AS TargetUserLabel
+  const supportedRelIds = [];
+  const supportedRelIdsSql = `
+    SELECT erte.ECInstanceId AS id, ec_classname(erte.ECClassId, 's.c') AS className,
+        se.ECInstanceId AS sourceId, se.UserLabel AS sourceUserLabel,
+        te.ECInstanceId AS targetId, te.UserLabel AS targetUserLabel
     FROM Bis.ElementRefersToElements erte
     JOIN Bis.Element se
       ON se.ECInstanceId=erte.SourceECInstanceId
     JOIN Bis.Element te
       ON te.ECInstanceId=erte.TargetECInstanceId
-  `,
-    (s) => [...s]
-  );
+  `;
+  for await (const row of db.createQueryReader(supportedRelIdsSql, undefined, {
+    usePrimaryConn: true,
+  })) {
+    supportedRelIds.push(row.toRow());
+  }
 
   for (const {
     id,
@@ -125,23 +130,26 @@ export function populateTimelineSeed(
   db: IModelDb,
   state?: TimelineIModelElemStateDelta
 ): void {
-  SpatialCategory.insert(
-    db,
-    IModel.dictionaryId,
-    "SpatialCategory",
-    new SubCategoryAppearance()
-  );
-  PhysicalModel.insert(db, IModel.rootSubjectId, "PhysicalModel");
+  withEditTxn(db, "populate timeline seed", (txn) => {
+    SpatialCategory.insert(
+      txn,
+      IModel.dictionaryId,
+      "SpatialCategory",
+      new SubCategoryAppearance()
+    );
+    PhysicalModel.insert(txn, IModel.rootSubjectId, "PhysicalModel");
+  });
   if (state) maintainObjects(db, state);
   db.performCheckpoint();
 }
 
-export function assertElemState(
+export async function assertElemState(
   db: IModelDb,
   state: TimelineIModelElemStateDelta,
   { subset = false } = {}
-): void {
-  expect(getIModelState(db)).to.deep.subsetEqual(state, {
+): Promise<void> {
+  const imodelState = await getIModelState(db);
+  expect(imodelState).to.deep.subsetEqual(state, {
     useSubsetEquality: subset,
   });
 }
@@ -161,59 +169,60 @@ function maintainObjects(
     SpatialCategory.createCode(iModelDb, IModel.dictionaryId, "SpatialCategory")
   )!;
 
-  for (const [elemName, upsertVal] of Object.entries(delta)) {
-    const isRel = (d: TimelineElemDelta): d is RelationshipProps =>
-      (d as RelationshipProps).sourceId !== undefined;
+  withEditTxn(iModelDb, "maintain objects", (txn) => {
+    for (const [elemName, upsertVal] of Object.entries(delta)) {
+      const isRel = (d: TimelineElemDelta): d is RelationshipProps =>
+        (d as RelationshipProps).sourceId !== undefined;
 
-    if (isRel(upsertVal))
-      throw Error(
-        "adding relationships to the small delta format is not supported" +
-          "use a `manualUpdate` step instead"
-      );
+      if (isRel(upsertVal))
+        throw Error(
+          "adding relationships to the small delta format is not supported" +
+            "use a `manualUpdate` step instead"
+        );
 
-    const [id] = iModelDb.queryEntityIds({
-      from: "Bis.Element",
-      where: "UserLabel=?",
-      bindings: [elemName],
-    });
+      const [id] = iModelDb.queryEntityIds({
+        from: "Bis.Element",
+        where: "UserLabel=?",
+        bindings: [elemName],
+      });
 
-    if (upsertVal === deleted) {
-      assert(id, "tried to delete an element that wasn't in the database");
-      iModelDb.elements.deleteElement(id);
-      continue;
+      if (upsertVal === deleted) {
+        assert(id, "tried to delete an element that wasn't in the database");
+        txn.deleteElement(id);
+        continue;
+      }
+
+      const props: ElementProps | PhysicalElementProps =
+        typeof upsertVal !== "number"
+          ? upsertVal
+          : {
+              classFullName: PhysicalObject.classFullName,
+              model: modelId,
+              category: categoryId,
+              code: new Code({
+                spec: IModelDb.rootSubjectId,
+                scope: IModelDb.rootSubjectId,
+                value: elemName,
+              }),
+              userLabel: elemName,
+              geom: IModelTransformerTestUtils.createBox(
+                Point3d.create(1, 1, 1)
+              ),
+              placement: {
+                origin: Point3d.create(0, 0, 0),
+                angles: YawPitchRollAngles.createDegrees(0, 0, 0),
+              },
+              jsonProperties: {
+                updateState: upsertVal,
+              },
+            };
+
+      props.id = id;
+
+      if (id === undefined) txn.insertElement(props);
+      else txn.updateElement(props);
     }
-
-    const props: ElementProps | PhysicalElementProps =
-      typeof upsertVal !== "number"
-        ? upsertVal
-        : {
-            classFullName: PhysicalObject.classFullName,
-            model: modelId,
-            category: categoryId,
-            code: new Code({
-              spec: IModelDb.rootSubjectId,
-              scope: IModelDb.rootSubjectId,
-              value: elemName,
-            }),
-            userLabel: elemName,
-            geom: IModelTransformerTestUtils.createBox(Point3d.create(1, 1, 1)),
-            placement: {
-              origin: Point3d.create(0, 0, 0),
-              angles: YawPitchRollAngles.createDegrees(0, 0, 0),
-            },
-            jsonProperties: {
-              updateState: upsertVal,
-            },
-          };
-
-    props.id = id;
-
-    if (id === undefined) iModelDb.elements.insertElement(props);
-    else iModelDb.elements.updateElement(props);
-  }
-
-  // TODO: iModelDb.performCheckpoint?
-  iModelDb.saveChanges();
+  });
 }
 
 export type TimelineElemState =
@@ -259,6 +268,7 @@ export type TimelineStateChange =
           expectThrow?: boolean;
           assert?: {
             afterProcessChanges?: (transformer: IModelTransformer) => void;
+            onError?: (error: unknown) => void;
           };
         },
       ];
@@ -292,7 +302,9 @@ export type TimelineReferences = Record<string, ElementProps>;
 export type Timeline = Record<
   number,
   {
-    assert?: (imodels: Record<string, TimelineIModelState>) => void;
+    assert?: (
+      imodels: Record<string, TimelineIModelState>
+    ) => void | Promise<void>;
     [modelName: string]:
       | undefined // only necessary for the previous optional properties
       | ((imodels: Record<string, TimelineIModelState>) => void) // only necessary for the assert property
@@ -320,7 +332,6 @@ export async function runTimeline(
   const trackedIModels = new Map<string, TimelineIModelState>();
   const masterOfBranch = new Map<string, string>();
 
-  /* eslint-disable @typescript-eslint/indent */
   const timelineStates = new Map<
     number,
     {
@@ -328,7 +339,6 @@ export async function runTimeline(
       changesets: { [iModelName: string]: ChangesetIdWithIndex };
     }
   >();
-  /* eslint-enable @typescript-eslint/indent */
 
   function printChangelogs() {
     const rows = [...timelineStates.values()].map((state) =>
@@ -363,6 +373,7 @@ export async function runTimeline(
             expectThrow?: boolean;
             assert?: {
               afterProcessChanges?: (transformer: IModelTransformer) => void;
+              onError?: (error: unknown) => void;
             };
           },
         ]
@@ -416,7 +427,7 @@ export async function runTimeline(
         undefined;
 
       seed?.db.performCheckpoint(); // make sure WAL is flushed before we use this as a file seed
-      const newIModelId = await IModelHost.hubAccess.createNewIModel({
+      const newIModelId = await transformerTestHub.createNewIModel({
         iTwinId,
         iModelName: newIModelName,
         version0: seed?.db.pathName,
@@ -446,12 +457,14 @@ export async function runTimeline(
         const master = seed;
         const branchDb = newIModelDb;
         // record branch provenance
-        const provenanceInserter = new IModelTransformer(master.db, branchDb, {
-          ...transformerOpts,
-          wasSourceIModelCopiedToTarget: true,
-        });
+        const branchProvenanceEditTxn = createStartedEditTxn(branchDb);
+        const provenanceInserter = new IModelTransformer(
+          { source: master.db, target: branchProvenanceEditTxn },
+          { ...transformerOpts, wasSourceIModelCopiedToTarget: true }
+        );
         await provenanceInserter.process();
         provenanceInserter.dispose();
+        branchProvenanceEditTxn.end();
         await saveAndPushChanges(
           accessToken,
           branchDb,
@@ -473,7 +486,7 @@ export async function runTimeline(
             newTrackedIModel.db.close();
             newTrackedIModel.db = await BriefcaseDb.open({ fileName });
           }
-          newTrackedIModel.state = getIModelState(newIModelDb);
+          newTrackedIModel.state = await getIModelState(newIModelDb);
         } else
           maintainObjects(
             newIModelDb,
@@ -487,7 +500,7 @@ export async function runTimeline(
       }
 
       if (seed) {
-        assertElemState(newIModelDb, seed.state);
+        await assertElemState(newIModelDb, seed.state);
       }
     }
 
@@ -512,17 +525,26 @@ export async function runTimeline(
 
         let targetStateBefore: TimelineIModelElemState | undefined;
         if (process.env.TRANSFORMER_BRANCH_TEST_DEBUG)
-          targetStateBefore = getIModelState(target.db);
+          targetStateBefore = await getIModelState(target.db);
 
-        const syncer = new IModelTransformer(source.db, target.db, {
-          ...transformerOpts,
-          argsForProcessChanges: {
-            startChangeset: startIndex
-              ? { index: startIndex }
-              : { index: undefined },
-          },
-        });
+        const syncEditTxn = createStartedEditTxn(target.db);
+        const sourceEditTxn = !isForwardSync
+          ? createStartedEditTxn(source.db)
+          : undefined;
+        const syncer = new IModelTransformer(
+          { source: source.db, target: syncEditTxn },
+          {
+            ...transformerOpts,
+            sourceEditTxn,
+            argsForProcessChanges: {
+              startChangeset: startIndex
+                ? { index: startIndex }
+                : { index: undefined },
+            },
+          }
+        );
         initTransformer?.(syncer);
+        let processSucceeded = false;
         try {
           await syncer.process();
           expect(
@@ -530,7 +552,9 @@ export async function runTimeline(
             "expectThrow was set to true and transformer succeeded."
           ).to.be.true;
           assertFxns?.afterProcessChanges?.(syncer);
+          processSucceeded = true;
         } catch (err: any) {
+          assertFxns?.onError?.(err);
           if (/startChangesetId should be exactly/.test(err.message)) {
             console.log("change history:"); // eslint-disable-line
             printChangelogs();
@@ -545,6 +569,8 @@ export async function runTimeline(
             throw err;
         } finally {
           syncer.dispose();
+          syncEditTxn.end(processSucceeded ? "save" : "abandon");
+          sourceEditTxn?.end(processSucceeded ? "save" : "abandon");
         }
 
         const stateMsg = `synced changes from ${syncSource} to ${iModelName} at ${i}`;
@@ -560,7 +586,7 @@ export async function runTimeline(
           /* eslint-enable no-console */
         }
 
-        target.state = getIModelState(target.db); // update the tracking state
+        target.state = await getIModelState(target.db); // update the tracking state
 
         if (!expectThrow) {
           if (!isForwardSync)
@@ -579,7 +605,7 @@ export async function runTimeline(
             alreadySeenIModel.db.close();
             alreadySeenIModel.db = await BriefcaseDb.open({ fileName });
           }
-          alreadySeenIModel.state = getIModelState(alreadySeenIModel.db);
+          alreadySeenIModel.state = await getIModelState(alreadySeenIModel.db);
           stateMsg =
             `${iModelName} becomes: ${JSON.stringify(
               alreadySeenIModel.state
@@ -601,7 +627,7 @@ export async function runTimeline(
     }
 
     if (pt.assert) {
-      pt.assert(Object.fromEntries(trackedIModels));
+      await pt.assert(Object.fromEntries(trackedIModels));
     }
 
     timelineStates.set(i, {
@@ -620,7 +646,7 @@ export async function runTimeline(
     tearDown: async () => {
       for (const [, state] of trackedIModels) {
         state.db.close();
-        await IModelHost.hubAccess.deleteIModel({
+        await transformerTestHub.deleteIModel({
           iTwinId,
           iModelId: state.id,
         });

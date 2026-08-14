@@ -4,15 +4,19 @@
  *--------------------------------------------------------------------------------------------*/
 
 import { ConcreteEntityTypes } from "@itwin/core-common";
-import { assert, expect } from "chai";
-import * as path from "path";
+import { assert, expect } from "vitest";
+import * as path from "node:path";
 import { ECReferenceTypesCache } from "../../ECReferenceTypesCache";
 import { Relationship, SnapshotDb } from "@itwin/core-backend";
 import { IModelTestUtils } from "../TestUtils/IModelTestUtils";
 import { KnownTestLocations as BackendTestsKnownLocations } from "../TestUtils/KnownTestLocations";
 import * as Semver from "semver";
-import { Schema, SchemaItemType, SchemaLoader } from "@itwin/ecschema-metadata";
-import * as sinon from "sinon";
+import {
+  ECClass,
+  Schema,
+  SchemaItemType,
+  SchemaLoader,
+} from "@itwin/ecschema-metadata";
 import { version as iTwinCoreBackendVersion } from "@itwin/core-backend/package.json";
 
 describe("ECReferenceTypesCache", () => {
@@ -29,7 +33,7 @@ describe("ECReferenceTypesCache", () => {
   let pathForEmpty: string;
   let emptyWithBrandNewBiscore: SnapshotDb;
 
-  before(async () => {
+  beforeAll(async () => {
     const seedFileName = IModelTestUtils.resolveAssetFile("test.bim");
     const testFileName = IModelTestUtils.prepareOutputFile(
       "ECReferenceTypesCache",
@@ -57,7 +61,8 @@ describe("ECReferenceTypesCache", () => {
       testIModel.getSchemaProps(name)
     );
     const schema = schemaLoader.getSchema("BisCore");
-    for (const ecclass of schema.getClasses()) {
+    for (const ecclass of schema.getItems()) {
+      if (!ECClass.isECClass(ecclass)) continue;
       const unsupportedClassNames = [
         "CodeSpec",
         "ElementDrivesElement",
@@ -167,9 +172,14 @@ describe("ECReferenceTypesCache", () => {
     assert(bisVersionInSeed !== undefined);
 
     assert(Semver.gt(bisVersionInEmpty, bisVersionInSeed));
-    expect(() => testIModel.getMetaData("BisCore:RenderTimeline")).not.to.throw;
-    expect(() => emptyWithBrandNewBiscore.getMetaData("BisCore:RenderTimeline"))
-      .to.throw;
+    expect(() =>
+      testIModel.schemaContext.getSchemaItemSync("BisCore:RenderTimeline")
+    ).not.to.throw;
+    expect(() =>
+      emptyWithBrandNewBiscore.schemaContext.getSchemaItemSync(
+        "BisCore:RenderTimeline"
+      )
+    ).to.throw;
 
     await thisTestRefCache.initAllSchemasInIModel(testIModel);
     expect(
@@ -200,7 +210,6 @@ describe("ECReferenceTypesCache", () => {
     assert(ecdbMapVersion !== undefined);
     assert(Semver.gte(ecdbMapVersion, "2.0.4"));
     await emptyWithBrandNewBiscore.importSchemas([testSchemaPathWithQueryView]);
-    emptyWithBrandNewBiscore.saveChanges();
     await thisTestRefCache.initAllSchemasInIModel(emptyWithBrandNewBiscore);
   });
 
@@ -228,40 +237,45 @@ describe("ECReferenceTypesCache", () => {
 
     assert(Semver.eq(bisVersionInEmpty1, bisVersionInEmpty2));
     assert(Semver.gt(bisVersionInEmpty1, bisVersionInSeed));
-    expect(() => testIModel.getMetaData("BisCore:RenderTimeline")).not.to.throw;
-    expect(() => emptyWithBrandNewBiscore.getMetaData("BisCore:RenderTimeline"))
-      .to.throw;
+    expect(() =>
+      testIModel.schemaContext.getSchemaItemSync("BisCore:RenderTimeline")
+    ).not.to.throw;
+    expect(() =>
+      emptyWithBrandNewBiscore.schemaContext.getSchemaItemSync(
+        "BisCore:RenderTimeline"
+      )
+    ).to.throw;
 
-    const initSchemaSpy = sinon.spy(
+    const initSchemaSpy = vi.spyOn(
       thisTestRefCache,
       "initSchema" as keyof ECReferenceTypesCache
     );
 
     await thisTestRefCache.initAllSchemasInIModel(emptyWithBrandNewBiscore);
     expect(
-      initSchemaSpy
-        .getCalls()
-        .find((c) => (c.args[0] as Schema).name === "BisCore")
+      initSchemaSpy.mock.calls.find(
+        (call) => (call[0] as unknown as Schema).name === "BisCore"
+      )
     ).not.to.be.undefined;
-    initSchemaSpy.resetHistory();
+    initSchemaSpy.mockClear();
 
     // test load from iModel with equal biscore version
     await thisTestRefCache.initAllSchemasInIModel(emptyWithBrandNewBiscore2);
     expect(
-      initSchemaSpy
-        .getCalls()
-        .find((c) => (c.args[0] as Schema).name === "BisCore")
+      initSchemaSpy.mock.calls.find(
+        (call) => (call[0] as unknown as Schema).name === "BisCore"
+      )
     ).to.be.undefined;
-    initSchemaSpy.resetHistory();
+    initSchemaSpy.mockClear();
 
     // test load from iModel with older biscore version
     await thisTestRefCache.initAllSchemasInIModel(testIModel);
     expect(
-      initSchemaSpy
-        .getCalls()
-        .find((c) => (c.args[0] as Schema).name === "BisCore")
+      initSchemaSpy.mock.calls.find(
+        (call) => (call[0] as unknown as Schema).name === "BisCore"
+      )
     ).to.be.undefined;
 
-    sinon.restore();
+    initSchemaSpy.mockRestore();
   });
 });
