@@ -24,6 +24,7 @@ import { ExternalSourceAspect } from '@itwin/core-backend';
 import { ExternalSourceAspectProps } from '@itwin/core-common';
 import { FontFamilyDescriptor } from '@itwin/core-common';
 import { FontProps } from '@itwin/core-common';
+import { GuidString } from '@itwin/core-bentley';
 import { Helmert2DWithZOffset } from '@itwin/core-common';
 import { Id64Arg } from '@itwin/core-bentley';
 import { Id64Array } from '@itwin/core-bentley';
@@ -163,6 +164,7 @@ export class IModelExporter {
     exportModel(modeledElementId: Id64String): Promise<void>;
     exportModelContents(modelId: Id64String, elementClassFullName?: string, skipRootSubject?: boolean): Promise<void>;
     exportRelationship(relClassFullName: string, relInstanceId: Id64String): Promise<void>;
+    protected exportRelationshipInstance(relationship: Relationship, isUpdate: boolean | undefined, sourceFedGuid?: GuidString, targetFedGuid?: GuidString): Promise<void>;
     exportRelationships(baseRelClassFullName: string): Promise<void>;
     exportSchemas(): Promise<void>;
     exportSubModels(parentModelId: Id64String): Promise<void>;
@@ -191,7 +193,7 @@ export abstract class IModelExportHandler {
     onExportElementUniqueAspect(_aspect: ElementUniqueAspect, _isUpdate: boolean | undefined): Promise<void>;
     onExportFont(_font: FontProps, _isUpdate: boolean | undefined): Promise<void>;
     onExportModel(_model: Model, _isUpdate: boolean | undefined): Promise<void>;
-    onExportRelationship(_relationship: Relationship, _isUpdate: boolean | undefined): Promise<void>;
+    onExportRelationship(_relationship: Relationship, _isUpdate: boolean | undefined, _sourceFedGuid?: GuidString, _targetFedGuid?: GuidString): Promise<void>;
     onExportSchema(_schema: Schema): Promise<void | ExportSchemaResult>;
     onProgress(): Promise<void>;
     onSkipElement(_elementId: Id64String): Promise<void>;
@@ -313,7 +315,7 @@ export class IModelTransformer extends IModelExportHandler {
     onExportElementUniqueAspect(sourceAspect: ElementUniqueAspect): Promise<void>;
     onExportFont(font: FontProps, _isUpdate: boolean | undefined): Promise<void>;
     onExportModel(sourceModel: Model): Promise<void>;
-    onExportRelationship(sourceRelationship: Relationship): Promise<void>;
+    onExportRelationship(sourceRelationship: Relationship, _isUpdate?: boolean, sourceFedGuid?: GuidString, targetFedGuid?: GuidString): Promise<void>;
     onExportSchema(schema: ECSchemaMetaData.Schema): Promise<void | ExportSchemaResult>;
     onTransformElement(sourceElement: Element_2): Promise<ElementProps>;
     protected onTransformElementAspect(sourceElementAspect: ElementAspect): Promise<ElementAspectProps>;
@@ -380,6 +382,7 @@ export enum IModelTransformerError {
     InvalidCode = "invalid-code",
     InvalidEntityReference = "invalid-entity-reference",
     InvalidModelId = "invalid-model-id",
+    InvalidRelationshipData = "invalid-relationship-data",
     InvalidSubCategory = "invalid-subcategory",
     NoChangesets = "no-changesets",
     ParentModelRequired = "parent-model-required",
