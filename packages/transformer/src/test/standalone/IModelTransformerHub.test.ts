@@ -1296,7 +1296,13 @@ describe("IModelTransformerHub", () => {
     }
   });
 
-  const relationshipDeleteCases = [
+  interface RelationshipDeleteCase {
+    name: string;
+    masterIModelName: string;
+    federationGuidMode: "preserved" | "null";
+    provenanceMode: "none" | "new" | "old";
+  }
+  const relationshipDeleteCases: readonly RelationshipDeleteCase[] = [
     {
       name: "should be able to handle relationship delete using fedguids",
       masterIModelName: "MasterNewRelProvenanceFedGuids",
@@ -1315,7 +1321,7 @@ describe("IModelTransformerHub", () => {
       federationGuidMode: "null",
       provenanceMode: "old",
     },
-  ] as const;
+  ];
 
   for (const testCase of relationshipDeleteCases) {
     it(testCase.name, async () => {
@@ -1392,7 +1398,7 @@ describe("IModelTransformerHub", () => {
       let branchIModelId: GuidString | undefined;
       let masterDb: BriefcaseDb | undefined;
       let branchDb: BriefcaseDb | undefined;
-      let relIdInBranch: string | undefined;
+      let relIdInBranch: Id64String | undefined;
 
       try {
         masterIModelId = await HubWrappers.recreateIModel({
