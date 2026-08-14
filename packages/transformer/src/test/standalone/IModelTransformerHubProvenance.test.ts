@@ -253,15 +253,10 @@ describe("IModelTransformerHub - provenance", () => {
           sourceEditTxn: reverseSourceEditTxn,
         }
       );
-      let reverseSyncSucceeded = false;
-      try {
-        await reverseSyncer.process();
-        reverseSyncSucceeded = true;
-      } finally {
-        reverseSyncer.dispose();
-        reverseTargetEditTxn.end(reverseSyncSucceeded ? "save" : "abandon");
-        reverseSourceEditTxn.end(reverseSyncSucceeded ? "save" : "abandon");
-      }
+      await withTransformerLifecycle(reverseSyncer, [
+        reverseTargetEditTxn,
+        reverseSourceEditTxn,
+      ]);
       await branchDb.pushChanges({
         accessToken,
         description: "reverse sync",
@@ -492,15 +487,10 @@ describe("IModelTransformerHub - provenance", () => {
           sourceEditTxn: reverseSyncSourceEditTxn,
         }
       );
-      let reverseSyncSucceeded = false;
-      try {
-        await reverseSyncer.process();
-        reverseSyncSucceeded = true;
-      } finally {
-        reverseSyncer.dispose();
-        reverseSyncEditTxn.end(reverseSyncSucceeded ? "save" : "abandon");
-        reverseSyncSourceEditTxn.end(reverseSyncSucceeded ? "save" : "abandon");
-      }
+      await withTransformerLifecycle(reverseSyncer, [
+        reverseSyncEditTxn,
+        reverseSyncSourceEditTxn,
+      ]);
       await branchDb.pushChanges({
         accessToken,
         description: "reverse sync deleted object",

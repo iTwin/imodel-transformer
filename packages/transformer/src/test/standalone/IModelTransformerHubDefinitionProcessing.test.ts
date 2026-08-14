@@ -338,15 +338,10 @@ describe("IModelTransformerHub - definition processing", () => {
           sourceEditTxn: reverseSyncSourceEditTxn,
         }
       );
-      let reverseSyncSucceeded = false;
-      try {
-        await reverseSyncer.process();
-        reverseSyncSucceeded = true;
-      } finally {
-        reverseSyncer.dispose();
-        reverseSyncEditTxn.end(reverseSyncSucceeded ? "save" : "abandon");
-        reverseSyncSourceEditTxn.end(reverseSyncSucceeded ? "save" : "abandon");
-      }
+      await withTransformerLifecycle(reverseSyncer, [
+        reverseSyncEditTxn,
+        reverseSyncSourceEditTxn,
+      ]);
       await branchDb.pushChanges({
         accessToken,
         description: "reverse sync",
@@ -736,8 +731,7 @@ describe("IModelTransformerHub - definition processing", () => {
       { source: sourceDb, target: initialTargetEditTxn },
       { argsForProcessChanges: {}, wasSourceIModelCopiedToTarget: true }
     );
-    await transformer.process();
-    initialTargetEditTxn.end();
+    await withTransformerLifecycle(transformer, [initialTargetEditTxn]);
 
     // Update source iModel
     withEditTxn(sourceDb, "change 2 source", (txn) => {
@@ -764,8 +758,7 @@ describe("IModelTransformerHub - definition processing", () => {
       { source: sourceDb, target: changeTargetEditTxn },
       { argsForProcessChanges: {} }
     );
-    await transformer.process();
-    changeTargetEditTxn.end();
+    await withTransformerLifecycle(transformer, [changeTargetEditTxn]);
 
     const queryReader = targetDb.createQueryReader(
       `SELECT COUNT(*) FROM ${Subject.classFullName}`

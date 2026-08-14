@@ -234,15 +234,10 @@ describe("IModelTransformerHub - root elements", () => {
             sourceEditTxn: reverseSourceEditTxn,
           }
         );
-        let reverseSyncSucceeded = false;
-        try {
-          await reverseSyncer.process();
-          reverseSyncSucceeded = true;
-        } finally {
-          reverseSyncer.dispose();
-          reverseTargetEditTxn.end(reverseSyncSucceeded ? "save" : "abandon");
-          reverseSourceEditTxn.end(reverseSyncSucceeded ? "save" : "abandon");
-        }
+        await withTransformerLifecycle(reverseSyncer, [
+          reverseTargetEditTxn,
+          reverseSourceEditTxn,
+        ]);
         await branchDb.pushChanges({
           accessToken,
           description: "reverse sync root changes",

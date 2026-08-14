@@ -135,22 +135,29 @@ describe("IModelTransformerHub - core", () => {
         source: sourceBriefcase,
         target: targetEditTxn1,
       });
-      await transformer1.process();
-      const scopeEsaResult1 =
-        await ProvenanceManager.queryScopeExternalSourceAspect(
-          targetBriefcase,
-          {
-            id: undefined,
-            classFullName: ExternalSourceAspect.classFullName,
-            scope: { id: IModel.rootSubjectId },
-            kind: ExternalSourceAspect.Kind.Scope,
-            element: { id: IModel.rootSubjectId },
-            identifier: sourceBriefcase.iModelId,
-          }
-        );
-      const jsonProps1 = JSON.parse(scopeEsaResult1?.jsonProperties ?? "{}");
-      assert.isEmpty(jsonProps1.reverseSyncVersion ?? "");
-      targetEditTxn1.end();
+      await withTransformerLifecycle(
+        transformer1,
+        [targetEditTxn1],
+        async () => {
+          await transformer1.process();
+          const scopeEsaResult1 =
+            await ProvenanceManager.queryScopeExternalSourceAspect(
+              targetBriefcase,
+              {
+                id: undefined,
+                classFullName: ExternalSourceAspect.classFullName,
+                scope: { id: IModel.rootSubjectId },
+                kind: ExternalSourceAspect.Kind.Scope,
+                element: { id: IModel.rootSubjectId },
+                identifier: sourceBriefcase.iModelId,
+              }
+            );
+          const jsonProps1 = JSON.parse(
+            scopeEsaResult1?.jsonProperties ?? "{}"
+          );
+          assert.isEmpty(jsonProps1.reverseSyncVersion ?? "");
+        }
+      );
       await targetBriefcase.pushChanges({
         description: "target changes for transformation 1",
         retainLocks: true,
@@ -173,35 +180,42 @@ describe("IModelTransformerHub - core", () => {
         source: sourceBriefcase,
         target: targetEditTxn2,
       });
-      await transformer2.process();
-      await transformer2.updateSynchronizationVersion({
-        initializeReverseSyncVersion: true,
-      });
-      const scopeEsaResult2 =
-        await ProvenanceManager.queryScopeExternalSourceAspect(
-          targetBriefcase,
-          {
-            id: undefined,
-            classFullName: ExternalSourceAspect.classFullName,
-            scope: { id: IModel.rootSubjectId },
-            kind: ExternalSourceAspect.Kind.Scope,
-            element: { id: IModel.rootSubjectId },
-            identifier: sourceBriefcase.iModelId,
-          }
-        );
-      const jsonProps2 = JSON.parse(scopeEsaResult2?.jsonProperties ?? "{}");
-      const reverseSyncVersion2 = jsonProps2.reverseSyncVersion;
-      assert.isNotEmpty(reverseSyncVersion2);
-      const expectedReverseSyncVersion1 = `${targetBriefcase.changeset.id};${targetBriefcase.changeset.index}`;
-      assert.equal(reverseSyncVersion2, expectedReverseSyncVersion1);
-      // the recently pushed PendingReverseSync index should be equal to the latest target changeset index + 1
-      const lastPendingReverseSyncIndex1 =
-        jsonProps2.pendingReverseSyncChangesetIndices?.pop();
-      assert.equal(
-        lastPendingReverseSyncIndex1,
-        (targetBriefcase.changeset.index ?? 0) + 1
+      await withTransformerLifecycle(
+        transformer2,
+        [targetEditTxn2],
+        async () => {
+          await transformer2.process();
+          await transformer2.updateSynchronizationVersion({
+            initializeReverseSyncVersion: true,
+          });
+          const scopeEsaResult2 =
+            await ProvenanceManager.queryScopeExternalSourceAspect(
+              targetBriefcase,
+              {
+                id: undefined,
+                classFullName: ExternalSourceAspect.classFullName,
+                scope: { id: IModel.rootSubjectId },
+                kind: ExternalSourceAspect.Kind.Scope,
+                element: { id: IModel.rootSubjectId },
+                identifier: sourceBriefcase.iModelId,
+              }
+            );
+          const jsonProps2 = JSON.parse(
+            scopeEsaResult2?.jsonProperties ?? "{}"
+          );
+          const reverseSyncVersion2 = jsonProps2.reverseSyncVersion;
+          assert.isNotEmpty(reverseSyncVersion2);
+          const expectedReverseSyncVersion1 = `${targetBriefcase.changeset.id};${targetBriefcase.changeset.index}`;
+          assert.equal(reverseSyncVersion2, expectedReverseSyncVersion1);
+          // the recently pushed PendingReverseSync index should be equal to the latest target changeset index + 1
+          const lastPendingReverseSyncIndex1 =
+            jsonProps2.pendingReverseSyncChangesetIndices?.pop();
+          assert.equal(
+            lastPendingReverseSyncIndex1,
+            (targetBriefcase.changeset.index ?? 0) + 1
+          );
+        }
       );
-      targetEditTxn2.end();
       await targetBriefcase.pushChanges({
         description: "target changes for transformation 2",
         retainLocks: true,
@@ -298,22 +312,27 @@ describe("IModelTransformerHub - core", () => {
         retainLocks: true,
       });
 
+      const sourceDbChangesetIndex = sourceDb.changeset.index;
       const processAllEditTxn = createStartedEditTxn(targetDb);
       const processAllTransformer = new IModelTransformer({
         source: sourceDb,
         target: processAllEditTxn,
       });
-      await processAllTransformer.process();
-      const syncVersionAfterProcessAll =
-        await processAllTransformer[
-          "_provenanceManager"
-        ].getSynchronizationVersion();
-      expect(syncVersionAfterProcessAll.index).to.equal(
-        sourceDb.changeset.index,
-        "processAll should persist the source synchronization version"
+      await withTransformerLifecycle(
+        processAllTransformer,
+        [processAllEditTxn],
+        async () => {
+          await processAllTransformer.process();
+          const syncVersionAfterProcessAll =
+            await processAllTransformer[
+              "_provenanceManager"
+            ].getSynchronizationVersion();
+          expect(syncVersionAfterProcessAll.index).to.equal(
+            sourceDbChangesetIndex,
+            "processAll should persist the source synchronization version"
+          );
+        }
       );
-      processAllTransformer.dispose();
-      processAllEditTxn.end();
       await targetDb.pushChanges({
         accessToken,
         description: "Initial processAll transformation",
@@ -426,7 +445,7 @@ describe("IModelTransformerHub - core", () => {
       assert.isFalse(targetDb.isSnapshot);
       assert.isTrue(targetDb.codeSpecs.hasName("TargetCodeSpec")); // make sure prepareTargetDb changes were saved and pushed to iModelHub
 
-      if (true) {
+      {
         // initial import
         await withEditTxn(sourceDb, "populate source", async () => {
           await TestUtils.ExtensiveTestScenario.populateDb(sourceDb);
@@ -484,17 +503,23 @@ describe("IModelTransformerHub - core", () => {
           sourceDb,
           importEditTxn1
         );
-        await transformer.process();
-        // Verify processAll wrote the sync version so subsequent processChanges starts from correct index
-        const syncVersionAfterProcessAll =
-          await transformer["_provenanceManager"].getSynchronizationVersion();
-        assert.equal(
-          syncVersionAfterProcessAll.index,
-          sourceDb.changeset.index,
-          "processAll should write sync version matching source changeset index"
+        await withTransformerLifecycle(
+          transformer,
+          [importEditTxn1],
+          async () => {
+            await transformer.process();
+            // Verify processAll wrote the sync version so subsequent processChanges starts from correct index
+            const syncVersionAfterProcessAll =
+              await transformer[
+                "_provenanceManager"
+              ].getSynchronizationVersion();
+            assert.equal(
+              syncVersionAfterProcessAll.index,
+              sourceDb.changeset.index,
+              "processAll should write sync version matching source changeset index"
+            );
+          }
         );
-        transformer.dispose();
-        importEditTxn1.end();
         await targetDb.pushChanges({ accessToken, description: "Import #1" });
         TransformerExtensiveTestScenario.assertTargetDbContents(
           sourceDb,
@@ -548,7 +573,7 @@ describe("IModelTransformerHub - core", () => {
         assert.equal(targetDbChanges.relationship.deleteIds.size, 0);
       }
 
-      if (true) {
+      {
         // second import with no changes to source, should be a no-op
         const numTargetElements: number = count(
           targetDb,
@@ -569,41 +594,41 @@ describe("IModelTransformerHub - core", () => {
           targetImporter,
           { argsForProcessChanges: {} }
         );
-        await transformer.process();
-        assert.equal(targetImporter.numModelsInserted, 0);
-        assert.equal(targetImporter.numModelsUpdated, 0);
-        assert.equal(targetImporter.numElementsInserted, 0);
-        expect(targetImporter.numElementsUpdated).to.equal(0);
-        assert.equal(targetImporter.numElementsExplicitlyDeleted, 0);
-        assert.equal(targetImporter.numElementAspectsInserted, 0);
-        assert.equal(targetImporter.numElementAspectsUpdated, 0);
-        assert.equal(targetImporter.numRelationshipsInserted, 0);
-        assert.equal(targetImporter.numRelationshipsUpdated, 0);
-        assert.equal(
-          numTargetElements,
-          count(targetDb, Element.classFullName),
-          "Second import should not add elements"
-        );
-        assert.equal(
-          numTargetExternalSourceAspects,
-          count(targetDb, ExternalSourceAspect.classFullName),
-          "Second import should not add aspects"
-        );
-        assert.equal(
-          numTargetRelationships,
-          count(targetDb, ElementRefersToElements.classFullName),
-          "Second import should not add relationships"
-        );
-        hubEditTxn.end();
-        assert.isFalse(targetDb.txns.hasPendingTxns);
+        await withTransformerLifecycle(transformer, [hubEditTxn], async () => {
+          await transformer.process();
+          assert.equal(targetImporter.numModelsInserted, 0);
+          assert.equal(targetImporter.numModelsUpdated, 0);
+          assert.equal(targetImporter.numElementsInserted, 0);
+          expect(targetImporter.numElementsUpdated).to.equal(0);
+          assert.equal(targetImporter.numElementsExplicitlyDeleted, 0);
+          assert.equal(targetImporter.numElementAspectsInserted, 0);
+          assert.equal(targetImporter.numElementAspectsUpdated, 0);
+          assert.equal(targetImporter.numRelationshipsInserted, 0);
+          assert.equal(targetImporter.numRelationshipsUpdated, 0);
+          assert.equal(
+            numTargetElements,
+            count(targetDb, Element.classFullName),
+            "Second import should not add elements"
+          );
+          assert.equal(
+            numTargetExternalSourceAspects,
+            count(targetDb, ExternalSourceAspect.classFullName),
+            "Second import should not add aspects"
+          );
+          assert.equal(
+            numTargetRelationships,
+            count(targetDb, ElementRefersToElements.classFullName),
+            "Second import should not add relationships"
+          );
+          assert.isFalse(targetDb.txns.hasPendingTxns);
+        });
         await targetDb.pushChanges({
           accessToken,
           description: "Should not actually push because there are no changes",
         });
-        transformer.dispose();
       }
 
-      if (true) {
+      {
         // update source db, then import again
         withEditTxn(sourceDb, "update source", () => {
           TestUtils.ExtensiveTestScenario.updateDb(sourceDb);
