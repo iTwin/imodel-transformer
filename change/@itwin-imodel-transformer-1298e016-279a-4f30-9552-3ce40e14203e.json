@@ -1,7 +1,7 @@
 {
   "type": "patch",
-  "comment": "copy learning folder over to build folder (docs output)",
+  "comment": "Include transformer learning documentation in the generated documentation artifacts.",
   "packageName": "@itwin/imodel-transformer",
-  "email": "'DanRod1999@users.noreply.github.com'",
+  "email": "50554904+hl662@users.noreply.github.com",
   "dependentChangeType": "patch"
 }

@@ -3,8 +3,8 @@
  * See LICENSE.md in the project root for license terms and full copyright notice.
  *--------------------------------------------------------------------------------------------*/
 
-import * as fs from "fs";
-import * as path from "path";
+import * as fs from "node:fs";
+import * as path from "node:path";
 import { installCheckpointDownload } from "@itwin/imodel-transformer-test-utils";
 import * as TestUtils from "../TestUtils";
 import {
@@ -38,9 +38,10 @@ import {
 } from "@itwin/core-common";
 import { Point3d, YawPitchRollAngles } from "@itwin/core-geometry";
 import { IModelTransformer } from "../../IModelTransformer";
-process.env.TRANSFORMER_NO_STRICT_DEP_CHECK = "1"; // allow this monorepo's dev versions of core libs in transformer
+// Allow this example to use the monorepo's development versions of the core libraries.
+process.env.TRANSFORMER_NO_STRICT_DEP_CHECK = "1";
 
-// some json will be required later, but we don't want an eslint-disable line in the example code, so just disable for the file
+// This example reads package metadata with require, so disable the rule for this file.
 /* eslint-disable @typescript-eslint/no-require-imports */
 
 async function initializeBranch(
@@ -49,7 +50,7 @@ async function initializeBranch(
   myAccessToken: AccessToken
 ) {
   // __PUBLISH_EXTRACT_START__ IModelBranchingOperations_initialize
-  // download and open master
+  // Download and open the master iModel.
   const masterDbProps = await BriefcaseManager.downloadBriefcase({
     accessToken: myAccessToken,
     iTwinId: myITwinId,
@@ -57,16 +58,17 @@ async function initializeBranch(
   });
   const masterDb = await BriefcaseDb.open({ fileName: masterDbProps.fileName });
 
-  // create a duplicate of master as a good starting point for our branch
+  // Create the branch from the master's current file as its initial version.
   const branchIModelId = await transformerTestHub.createNewIModel({
     accessToken: myAccessToken,
     iTwinId: myITwinId,
     iModelName: "my-branch-imodel",
     version0: masterDb.pathName,
-    noLocks: true, // you may prefer locks for your application
+    // Enable locks when the application requires briefcase lock coordination.
+    noLocks: true,
   });
 
-  // download and open the new branch
+  // Download and open the branch iModel.
   const branchDbProps = await BriefcaseManager.downloadBriefcase({
     accessToken: myAccessToken,
     iTwinId: myITwinId,
@@ -76,7 +78,8 @@ async function initializeBranch(
   const branchEditTxn = new EditTxn(branchDb, "initialize branch iModel");
   branchEditTxn.start();
 
-  // create an external source and owning repository link to use as our *Target Scope Element* for future synchronizations
+  // Create the repository link and external source that identify the master as the
+  // branch's Target Scope Element.
   const masterLinkRepoId = branchDb
     .constructEntity<RepositoryLink, RepositoryLinkProps>({
       classFullName: RepositoryLink.classFullName,
@@ -106,14 +109,14 @@ async function initializeBranch(
     })
     .insert(branchEditTxn);
 
-  // initialize the branch provenance
+  // Initialize provenance for the branch.
   const branchInitializer = new IModelTransformer(
     { source: masterDb, target: branchEditTxn },
     {
-      // tells the transformer that we have a raw copy of a source and the target should receive
-      // provenance from the source that is necessary for performing synchronizations in the future
+      // The branch is a raw copy of the source, so record the provenance required for
+      // future synchronization.
       wasSourceIModelCopiedToTarget: true,
-      // store the synchronization provenance in the scope of our representation of the external source, master
+      // Store synchronization provenance under the ExternalSource that represents the master.
       targetScopeElementId: masterExternalSourceId,
     }
   );
@@ -121,7 +124,7 @@ async function initializeBranch(
   branchInitializer.dispose();
   branchEditTxn.end("save");
 
-  // push our changes to whatever hub we're using
+  // Push the branch changes to the hub.
   const description = "initialized branch iModel";
   await branchDb.pushChanges({
     accessToken: myAccessToken,
@@ -132,7 +135,7 @@ async function initializeBranch(
   return { masterDb, branchDb };
 }
 
-// we assume masterDb and branchDb have already been opened (see the first example)
+// The master and branch databases are already open (see the initialization example).
 async function forwardSyncMasterToBranch(
   masterDb: BriefcaseDb,
   branchDb: BriefcaseDb,
@@ -158,9 +161,9 @@ async function forwardSyncMasterToBranch(
   const synchronizer = new IModelTransformer(
     { source: masterDb, target: branchEditTxn },
     {
-      // read the synchronization provenance in the scope of our representation of the external source, master
+      // Read synchronization provenance for the ExternalSource that represents the master.
       targetScopeElementId: masterExternalSourceId,
-      // An empty argsForProcessChanges object processes the next unsynchronized changes.
+      // Pass an empty argsForProcessChanges object to process the next unsynchronized changes.
       argsForProcessChanges: {},
     }
   );
@@ -168,7 +171,7 @@ async function forwardSyncMasterToBranch(
   await synchronizer.process();
   synchronizer.dispose();
   branchEditTxn.end("save");
-  // save and push
+  // Push the synchronized branch changes.
   const description = "updated branch with recent master changes";
   await branchDb.pushChanges({
     accessToken: myAccessToken,
@@ -183,7 +186,7 @@ async function reverseSyncBranchToMaster(
   myAccessToken: AccessToken
 ) {
   // __PUBLISH_EXTRACT_START__ IModelBranchingOperations_reverseSync
-  // we assume masterDb and branchDb have already been opened (see the first example)
+  // The master and branch databases are already open (see the initialization example).
   const repositoryLinkId = branchDb.elements.queryElementIdByCode(
     RepositoryLink.createCode(
       masterDb,
@@ -208,11 +211,11 @@ async function reverseSyncBranchToMaster(
   const reverseSynchronizer = new IModelTransformer(
     { source: branchDb, target: masterEditTxn },
     {
-      // The transformer detects reverse synchronization from the provenance direction. The
-      // targetScopeElementId identifies the master's ExternalSource in the branch source.
+      // Identify the master's ExternalSource in the branch source for reverse synchronization.
       targetScopeElementId: masterExternalSourceId,
-      // An empty argsForProcessChanges object processes the next unsynchronized changes.
+      // Pass an empty argsForProcessChanges object to process the next unsynchronized changes.
       argsForProcessChanges: {},
+      // Record updated provenance in the branch source transaction.
       sourceEditTxn: branchEditTxn,
     }
   );
@@ -221,13 +224,12 @@ async function reverseSyncBranchToMaster(
   reverseSynchronizer.dispose();
   masterEditTxn.end("save");
   branchEditTxn.end("save");
-  // save and push
+  // Push the synchronized master changes and branch provenance.
   const description = "merged changes from branch into master";
   await masterDb.pushChanges({
     accessToken: myAccessToken,
     description,
   });
-  // sourceEditTxn records updated provenance in the branch, which must also be pushed.
   await branchDb.pushChanges({
     accessToken: myAccessToken,
     description: `${description} provenance`,
@@ -235,12 +237,11 @@ async function reverseSyncBranchToMaster(
   // __PUBLISH_EXTRACT_END__
 }
 
-let arbitraryEditCounter = 0;
-
 async function arbitraryEdit(
   db: BriefcaseDb,
   myAccessToken: AccessToken,
-  description: string
+  description: string,
+  editNumber: number
 ) {
   const editTxn = new EditTxn(db, description);
   editTxn.start();
@@ -279,16 +280,15 @@ async function arbitraryEdit(
       code: new Code({
         spec: IModelDb.rootSubjectId,
         scope: IModelDb.rootSubjectId,
-        value: `${arbitraryEditCounter}`,
+        value: `${editNumber}`,
       }),
-      userLabel: `${arbitraryEditCounter}`,
+      userLabel: `${editNumber}`,
       geom: IModelTransformerTestUtils.createBox(Point3d.create(1, 1, 1)),
       placement: {
-        origin: Point3d.create(arbitraryEditCounter, arbitraryEditCounter, 0),
+        origin: Point3d.create(editNumber, editNumber, 0),
         angles: YawPitchRollAngles.createDegrees(0, 0, 0),
       },
     };
-    arbitraryEditCounter++;
     editTxn.insertElement(physicalObjectProps);
     editSucceeded = true;
   } finally {
@@ -342,9 +342,11 @@ describe("IModelBranchingOperations", () => {
       masterIModelId,
       myAccessToken
     );
-    await arbitraryEdit(masterDb, myAccessToken, "edit master");
+    // Use distinct numbers because the branch already contains the master's edit
+    // after forward synchronization.
+    await arbitraryEdit(masterDb, myAccessToken, "edit master", 0);
     await forwardSyncMasterToBranch(masterDb, branchDb, myAccessToken);
-    await arbitraryEdit(branchDb, myAccessToken, "edit branch");
+    await arbitraryEdit(branchDb, myAccessToken, "edit branch", 1);
     await reverseSyncBranchToMaster(branchDb, masterDb, myAccessToken);
     masterDb.close();
     branchDb.close();
