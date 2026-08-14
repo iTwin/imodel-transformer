@@ -18,7 +18,7 @@ export async function findBulkDeleteRoots(
   targetDb: IModelDb,
   elementIds: ReadonlySet<Id64String>
 ): Promise<Id64Set> {
-  const deleteRoots = new Set<Id64String>() as Id64Set;
+  const deleteRoots: Id64Set = new Set<Id64String>();
   // CascadeIds pairs each traversed element with a root that the native API must delete. The anchor
   // adds requested roots that still exist. Recursive branches walk child elements and modeled
   // contents while preserving DeleteRootId. A top-level element whose code is scoped by anything
