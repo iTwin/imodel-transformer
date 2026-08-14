@@ -489,12 +489,18 @@ describe("IModelTransformerHub - model selector", () => {
       { source: sourceDb, target: forkInitEditTxn },
       { wasSourceIModelCopiedToTarget: true }
     );
-    await transformer.process();
-    forkInitEditTxn.end();
+    const { catIdInTarget, modelIdInTarget } = await withTransformerLifecycle(
+      transformer,
+      [forkInitEditTxn],
+      async () => {
+        await transformer.process();
+        return {
+          catIdInTarget: transformer.context.findTargetElementId(categoryId1),
+          modelIdInTarget: transformer.context.findTargetElementId(modelId1),
+        };
+      }
+    );
     await targetDb.pushChanges({ description: "fork init" });
-    const catIdInTarget = transformer.context.findTargetElementId(categoryId1);
-    const modelIdInTarget = transformer.context.findTargetElementId(modelId1);
-    transformer.dispose();
 
     // Push change to target db so we have changes to process during our reverse sync.
     await pushChangesets(targetDb, catIdInTarget, modelIdInTarget, 1);
@@ -513,9 +519,13 @@ describe("IModelTransformerHub - model selector", () => {
       { source: targetDb, target: reverseSyncEditTxn },
       { argsForProcessChanges: {}, sourceEditTxn: reverseSyncSourceEditTxn }
     );
-    await transformer.process();
-    reverseSyncEditTxn.end("save", "reverse sync");
-    reverseSyncSourceEditTxn.end("save", "reverse sync provenance");
+    try {
+      await transformer.process();
+    } finally {
+      transformer.dispose();
+      reverseSyncEditTxn.end("save", "reverse sync");
+      reverseSyncSourceEditTxn.end("save", "reverse sync provenance");
+    }
     // Query scope ESA from database instead of reaching into private internals
     let scopeEsaResult = await ProvenanceManager.queryScopeExternalSourceAspect(
       targetDb,
@@ -531,8 +541,6 @@ describe("IModelTransformerHub - model selector", () => {
     let scopeJsonProps = JSON.parse(scopeEsaResult?.jsonProperties ?? "{}");
     expect(scopeJsonProps.pendingSyncChangesetIndices?.length).to.equal(1);
     expect(scopeJsonProps.pendingSyncChangesetIndices[0]).to.equal(4);
-    transformer.dispose();
-
     // Open sourceDb not at tip
     const tipChangesetOfSourceDb = sourceDb.changeset;
     sourceDb.close();
@@ -553,8 +561,7 @@ describe("IModelTransformerHub - model selector", () => {
       { source: sourceDbNotAtTip, target: forwardSyncEditTxn },
       { argsForProcessChanges: {} }
     );
-    await transformer.process();
-    forwardSyncEditTxn.end();
+    await withTransformerLifecycle(transformer, [forwardSyncEditTxn]);
     scopeEsaResult = await ProvenanceManager.queryScopeExternalSourceAspect(
       targetDb,
       {
@@ -568,6 +575,5 @@ describe("IModelTransformerHub - model selector", () => {
     );
     scopeJsonProps = JSON.parse(scopeEsaResult?.jsonProperties ?? "{}");
     expect(scopeJsonProps.pendingSyncChangesetIndices).to.deep.equal([4]);
-    transformer.dispose();
   });
 });

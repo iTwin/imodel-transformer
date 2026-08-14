@@ -220,24 +220,22 @@ describe("IModelTransformerHub - changesets", () => {
         }
       );
       const queryChangeset = vi.spyOn(BriefcaseManager, "queryChangeset");
-      let syncSucceeded = false;
-      try {
-        await syncer.process();
-        syncSucceeded = true;
-        expect(queryChangeset.mock.calls).to.have.length.greaterThan(0);
-        for (const [args] of queryChangeset.mock.calls) {
-          expect(args).to.deep.equal({
-            iModelId: branchIModelId,
-            changeset: {
-              id: branchAt2Changeset.id,
-            },
-          });
+      await withTransformerLifecycle(
+        syncer,
+        [syncEditTxn, reverseSyncSourceEditTxn],
+        async () => {
+          await syncer.process();
+          expect(queryChangeset.mock.calls).to.have.length.greaterThan(0);
+          for (const [args] of queryChangeset.mock.calls) {
+            expect(args).to.deep.equal({
+              iModelId: branchIModelId,
+              changeset: {
+                id: branchAt2Changeset.id,
+              },
+            });
+          }
         }
-      } finally {
-        syncer.dispose();
-        syncEditTxn.end(syncSucceeded ? "save" : "abandon");
-        reverseSyncSourceEditTxn.end(syncSucceeded ? "save" : "abandon");
-      }
+      );
     } finally {
       if (branchAt2)
         await HubWrappers.closeAndDeleteBriefcaseDb(accessToken, branchAt2);
@@ -524,8 +522,7 @@ describe("IModelTransformerHub - changesets", () => {
         { source: sourceDb, target: changeTargetEditTxn1 },
         { argsForProcessChanges: { startChangeset: sourceDb.changeset } }
       );
-      await transformer.process();
-      changeTargetEditTxn1.end();
+      await withTransformerLifecycle(transformer, [changeTargetEditTxn1]);
       await targetDb.pushChanges({
         description: "change processing transformation",
       });
@@ -592,8 +589,7 @@ describe("IModelTransformerHub - changesets", () => {
         { source: sourceDb, target: changeTargetEditTxn2 },
         { argsForProcessChanges: { startChangeset } }
       );
-      await transformer.process();
-      changeTargetEditTxn2.end();
+      await withTransformerLifecycle(transformer, [changeTargetEditTxn2]);
       await targetDb.pushChanges({ description: "transformation" });
 
       const thirdCopySubject = targetDb.elements.getElement<Subject>(

@@ -83,7 +83,7 @@ describe("IModelTransformerHub - process changes", () => {
         source: sourceDb,
         target: editTxn,
       });
-      try {
+      await withTransformerLifecycle(transformer, [editTxn], async () => {
         await expectTransformerError(
           transformer["processDeletedOp"](
             {
@@ -98,10 +98,7 @@ describe("IModelTransformerHub - process changes", () => {
           IModelTransformerError.ChangedInstanceMetadataMissing,
           "Relationship deletion 0x123 is missing an endpoint."
         );
-      } finally {
-        transformer.dispose();
-        editTxn.end();
-      }
+      });
     });
 
     it("should skip unchanged parent elements but still export changed child elements during processChanges", async () => {
@@ -180,28 +177,27 @@ describe("IModelTransformerHub - process changes", () => {
         { argsForProcessChanges: {} }
       );
       const onExportElementSpy = vi.spyOn(transformer, "onExportElement");
-      await transformer.process();
+      await withTransformerLifecycle(transformer, [secondEditTxn], async () => {
+        await transformer.process();
 
-      // Verify: parent element was NOT exported (short-circuited)
-      const parentWasExported = onExportElementSpy.mock.calls.some(
-        ([element]) => element.id === parentElementId
-      );
-      expect(
-        parentWasExported,
-        "onExportElement should not have been called for unchanged parent element"
-      ).to.be.false;
+        // Verify: parent element was NOT exported (short-circuited)
+        const parentWasExported = onExportElementSpy.mock.calls.some(
+          ([element]) => element.id === parentElementId
+        );
+        expect(
+          parentWasExported,
+          "onExportElement should not have been called for unchanged parent element"
+        ).to.be.false;
 
-      // Verify: child element WAS exported (still traversed through unchanged parent)
-      const childWasExported = onExportElementSpy.mock.calls.some(
-        ([element]) => element.id === childElementId
-      );
-      expect(
-        childWasExported,
-        "onExportElement should have been called for changed child element"
-      ).to.be.true;
-
-      transformer.dispose();
-      secondEditTxn.end();
+        // Verify: child element WAS exported (still traversed through unchanged parent)
+        const childWasExported = onExportElementSpy.mock.calls.some(
+          ([element]) => element.id === childElementId
+        );
+        expect(
+          childWasExported,
+          "onExportElement should have been called for changed child element"
+        ).to.be.true;
+      });
     });
 
     it("should still export updated aspects when the owning element is unchanged during processChanges", async () => {
@@ -337,9 +333,14 @@ describe("IModelTransformerHub - process changes", () => {
         source: sourceDb,
         target: firstTransformEditTxn,
       });
-      await transformer.processSchemas();
-      await transformer.process();
-      firstTransformEditTxn.end();
+      await withTransformerLifecycle(
+        transformer,
+        [firstTransformEditTxn],
+        async () => {
+          await transformer.processSchemas();
+          await transformer.process();
+        }
+      );
       await targetDb.pushChanges({
         description: "Transformation 1: Process All",
         retainLocks: true,
@@ -378,27 +379,32 @@ describe("IModelTransformerHub - process changes", () => {
       await transformer.processSchemas();
       const openFileSpy = vi.spyOn(ChangesetReader, "openFile");
       try {
-        await transformer.process();
-        secondTransformEditTxn.end();
+        await withTransformerLifecycle(
+          transformer,
+          [secondTransformEditTxn],
+          async () => {
+            await transformer.process();
+
+            const selectedChangesetPaths = transformer["_csFileProps"]!.map(
+              (csFile) => csFile.pathname
+            );
+            expect(openFileSpy).toHaveBeenCalledTimes(
+              selectedChangesetPaths.length
+            );
+            expect(
+              openFileSpy.mock.calls.map(([args]) => args.fileName)
+            ).to.deep.equal(selectedChangesetPaths);
+            expect(
+              openFileSpy.mock.calls.map(([args]) => args.propFilter)
+            ).to.deep.equal(
+              selectedChangesetPaths.map(() => PropertyFilter.BisCoreElement)
+            );
+          }
+        );
         await targetDb.pushChanges({
           description: "Transformation 2: Process Changes with deletion",
           retainLocks: true,
         });
-
-        const selectedChangesetPaths = transformer["_csFileProps"]!.map(
-          (csFile) => csFile.pathname
-        );
-        expect(openFileSpy).toHaveBeenCalledTimes(
-          selectedChangesetPaths.length
-        );
-        expect(
-          openFileSpy.mock.calls.map(([args]) => args.fileName)
-        ).to.deep.equal(selectedChangesetPaths);
-        expect(
-          openFileSpy.mock.calls.map(([args]) => args.propFilter)
-        ).to.deep.equal(
-          selectedChangesetPaths.map(() => PropertyFilter.BisCoreElement)
-        );
       } finally {
         openFileSpy.mockRestore();
       }

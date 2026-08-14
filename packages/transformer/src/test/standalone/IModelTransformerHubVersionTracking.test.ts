@@ -233,13 +233,12 @@ describe("IModelTransformerHub - version tracking", () => {
       );
       let reverseError: unknown;
       try {
-        await reverseSyncer.process();
+        await withTransformerLifecycle(reverseSyncer, [
+          reverseTargetEditTxn,
+          reverseSourceEditTxn,
+        ]);
       } catch (error) {
         reverseError = error;
-      } finally {
-        reverseSyncer.dispose();
-        reverseTargetEditTxn.end(reverseError ? "abandon" : "save");
-        reverseSourceEditTxn.end(reverseError ? "abandon" : "save");
       }
       expect(reverseError).to.not.be.undefined;
 
@@ -253,16 +252,9 @@ describe("IModelTransformerHub - version tracking", () => {
           },
         }
       );
-      let branchForwardInitSucceeded = false;
-      try {
-        await branchForwardInit.process();
-        branchForwardInitSucceeded = true;
-      } finally {
-        branchForwardInit.dispose();
-        branchForwardInitTargetTxn.end(
-          branchForwardInitSucceeded ? "save" : "abandon"
-        );
-      }
+      await withTransformerLifecycle(branchForwardInit, [
+        branchForwardInitTargetTxn,
+      ]);
       await branchDb.pushChanges({
         accessToken,
         description: "forward sync with missing json properties",
@@ -291,18 +283,25 @@ describe("IModelTransformerHub - version tracking", () => {
       );
       let forwardError: unknown;
       try {
-        await branchForward.process();
+        await withTransformerLifecycle(
+          branchForward,
+          [branchForwardTargetTxn],
+          async () => {
+            try {
+              await branchForward.process();
+            } catch (error) {
+              assertTransformerError(
+                error,
+                IModelTransformerError.SynchronizationVersionMissing,
+                "Could not find synchronization version in scope aspect. This may be due to the last successful run of the transformer being done with an older version.\n         Consider running the transformer with branchRelationshipDataBehavior set to 'unsafe-migrate'"
+              );
+              synchronizationVersionErrorAsserted = true;
+              throw error;
+            }
+          }
+        );
       } catch (error) {
         forwardError = error;
-        assertTransformerError(
-          error,
-          IModelTransformerError.SynchronizationVersionMissing,
-          "Could not find synchronization version in scope aspect. This may be due to the last successful run of the transformer being done with an older version.\n         Consider running the transformer with branchRelationshipDataBehavior set to 'unsafe-migrate'"
-        );
-        synchronizationVersionErrorAsserted = true;
-      } finally {
-        branchForward.dispose();
-        branchForwardTargetTxn.end(forwardError ? "abandon" : "save");
       }
       expect(forwardError).to.not.be.undefined;
 
@@ -318,15 +317,10 @@ describe("IModelTransformerHub - version tracking", () => {
           sourceEditTxn: masterReverseSourceTxn,
         }
       );
-      let masterReverseSucceeded = false;
-      try {
-        await masterReverse.process();
-        masterReverseSucceeded = true;
-      } finally {
-        masterReverse.dispose();
-        masterReverseTargetTxn.end(masterReverseSucceeded ? "save" : "abandon");
-        masterReverseSourceTxn.end(masterReverseSucceeded ? "save" : "abandon");
-      }
+      await withTransformerLifecycle(masterReverse, [
+        masterReverseTargetTxn,
+        masterReverseSourceTxn,
+      ]);
       await branchDb.pushChanges({
         accessToken,
         description: "reverse sync after missing version",
@@ -362,15 +356,14 @@ describe("IModelTransformerHub - version tracking", () => {
           },
         }
       );
-      let unsafeForwardSucceeded = false;
-      try {
-        setBranchRelationshipDataBehaviorToUnsafeMigrate(unsafeForward);
-        await unsafeForward.process();
-        unsafeForwardSucceeded = true;
-      } finally {
-        unsafeForward.dispose();
-        unsafeForwardTargetTxn.end(unsafeForwardSucceeded ? "save" : "abandon");
-      }
+      await withTransformerLifecycle(
+        unsafeForward,
+        [unsafeForwardTargetTxn],
+        async () => {
+          setBranchRelationshipDataBehaviorToUnsafeMigrate(unsafeForward);
+          await unsafeForward.process();
+        }
+      );
       await branchDb.pushChanges({
         accessToken,
         description: "unsafe forward sync",
@@ -388,16 +381,14 @@ describe("IModelTransformerHub - version tracking", () => {
           sourceEditTxn: unsafeReverseSourceTxn,
         }
       );
-      let unsafeReverseSucceeded = false;
-      try {
-        setBranchRelationshipDataBehaviorToUnsafeMigrate(unsafeReverse);
-        await unsafeReverse.process();
-        unsafeReverseSucceeded = true;
-      } finally {
-        unsafeReverse.dispose();
-        unsafeReverseTargetTxn.end(unsafeReverseSucceeded ? "save" : "abandon");
-        unsafeReverseSourceTxn.end(unsafeReverseSucceeded ? "save" : "abandon");
-      }
+      await withTransformerLifecycle(
+        unsafeReverse,
+        [unsafeReverseTargetTxn, unsafeReverseSourceTxn],
+        async () => {
+          setBranchRelationshipDataBehaviorToUnsafeMigrate(unsafeReverse);
+          await unsafeReverse.process();
+        }
+      );
       await branchDb.pushChanges({
         accessToken,
         description: "unsafe reverse sync",

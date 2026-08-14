@@ -181,14 +181,9 @@ describe("IModelTransformerHub - branch synchronization", () => {
           wasSourceIModelCopiedToTarget: true,
         }
       );
-      let branchInitSucceeded = false;
-      try {
-        await provenanceInitializer.process();
-        branchInitSucceeded = true;
-      } finally {
-        provenanceInitializer.dispose();
-        branchInitEditTxn.end(branchInitSucceeded ? "save" : "abandon");
-      }
+      await withTransformerLifecycle(provenanceInitializer, [
+        branchInitEditTxn,
+      ]);
       await branchDb.pushChanges({
         accessToken,
         description: "initialized branch provenance",
@@ -253,14 +248,7 @@ describe("IModelTransformerHub - branch synchronization", () => {
           },
         }
       );
-      let forwardSyncSucceeded = false;
-      try {
-        await forwardSyncer.process();
-        forwardSyncSucceeded = true;
-      } finally {
-        forwardSyncer.dispose();
-        forwardSyncEditTxn.end(forwardSyncSucceeded ? "save" : "abandon");
-      }
+      await withTransformerLifecycle(forwardSyncer, [forwardSyncEditTxn]);
       await branchDb.pushChanges({
         accessToken,
         description: "forward sync relationship provenance",
@@ -311,15 +299,10 @@ describe("IModelTransformerHub - branch synchronization", () => {
           sourceEditTxn: reverseSyncSourceEditTxn,
         }
       );
-      let reverseSyncSucceeded = false;
-      try {
-        await reverseSyncer.process();
-        reverseSyncSucceeded = true;
-      } finally {
-        reverseSyncer.dispose();
-        reverseSyncEditTxn.end(reverseSyncSucceeded ? "save" : "abandon");
-        reverseSyncSourceEditTxn.end(reverseSyncSucceeded ? "save" : "abandon");
-      }
+      await withTransformerLifecycle(reverseSyncer, [
+        reverseSyncEditTxn,
+        reverseSyncSourceEditTxn,
+      ]);
       await branchDb.pushChanges({
         accessToken,
         description: "reverse sync deleted relationship provenance data",
@@ -439,10 +422,8 @@ describe("IModelTransformerHub - branch synchronization", () => {
         { source: sourceDb, target: forkInitEditTxn },
         { wasSourceIModelCopiedToTarget: true }
       );
-      await transformer.process();
-      forkInitEditTxn.end();
+      await withTransformerLifecycle(transformer, [forkInitEditTxn]);
       await targetDb.pushChanges({ description: "fork init" });
-      transformer.dispose();
 
       const {
         targetSubjectId: _targetSubjectId,

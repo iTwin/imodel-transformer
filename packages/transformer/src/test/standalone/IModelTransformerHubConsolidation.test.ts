@@ -201,8 +201,7 @@ describe("IModelTransformerHub - consolidation", () => {
         consolidateEditTxn1,
         targetModelId
       );
-      await transformer.process();
-      consolidateEditTxn1.end();
+      await withTransformerLifecycle(transformer, [consolidateEditTxn1]);
 
       assert.equal(1, count(targetDb, PhysicalModel.classFullName));
       const targetPartition =
@@ -457,10 +456,10 @@ describe("IModelTransformerHub - consolidation", () => {
         source: new IModelExporter(sourceDb),
         target: importEditTxn,
       });
-      await transformer.process();
-      transformer.dispose();
-      IModelTransformerTestUtils.assertTeamIModelContents(targetDb, "Test");
-      importEditTxn.end();
+      await withTransformerLifecycle(transformer, [importEditTxn], async () => {
+        await transformer.process();
+        IModelTransformerTestUtils.assertTeamIModelContents(targetDb, "Test");
+      });
       await targetDb.pushChanges({
         accessToken,
         description: "Import changes from sourceDb",
