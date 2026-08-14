@@ -1,6 +1,6 @@
 {
   "type": "patch",
-  "comment": "Include transformer learning documentation in the generated documentation artifacts.",
+  "comment": "Add current branching synchronization examples to the transformer learning documentation.",
   "packageName": "@itwin/imodel-transformer",
   "email": "50554904+hl662@users.noreply.github.com",
   "dependentChangeType": "patch"
