@@ -71,6 +71,14 @@ no relationships) and `relationship-heavy-transform` (5,000 elements with
 30,000 `ElementGroupsMembers` relationships, exercising the relationship export
 path including federation-guid lookups).
 
+The `prefetch-full-transformation` scenario is that same pipeline with the
+`@alpha` `experimentalSourceElementPrefetch` transformer option enabled, so
+source-element reads run in a child process and overlap target writes. It
+defaults to the `standalone-full-transform-50k` fixture (50,000 elements),
+which amortizes the prefetch child's fixed ~4s boot cost included in every
+measured sample; run the baseline scenario on the same fixture for an
+apples-to-apples comparison.
+
 ## Running the quick suite
 
 Install the workspace dependencies from the repository root:
@@ -147,6 +155,20 @@ Run the generated standalone full-transform workload in a POSIX shell:
 
 ```sh
 QUICK_PERF_SCENARIO=standalone-full-transformation \
+QUICK_PERF_SAMPLES=3 \
+pnpm test:quick
+```
+
+Compare the experimental source-element prefetch against that baseline on the
+same 50,000-element fixture in a POSIX shell:
+
+```sh
+QUICK_PERF_SCENARIO=standalone-full-transformation \
+QUICK_PERF_FIXTURE=standalone-full-transform-50k \
+QUICK_PERF_SAMPLES=3 \
+pnpm test:quick
+
+QUICK_PERF_SCENARIO=prefetch-full-transformation \
 QUICK_PERF_SAMPLES=3 \
 pnpm test:quick
 ```

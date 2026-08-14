@@ -7,6 +7,7 @@ export * from "./IModelExporter";
 export * from "./IModelImporter";
 export * from "./IModelTransformer";
 export * from "./IModelTransformContext";
+export * from "./SourceElementPrefetcher";
 export * from "./schema-processing/SchemaProcessingStrategy";
 export * from "./IModelTransformerError";
 export * from "./BranchProvenanceInitializer";

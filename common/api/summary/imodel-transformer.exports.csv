@@ -30,6 +30,8 @@ beta;interface;RelationshipPropsForDelete
 beta;interface;SchemaProcessingContext
 beta;type;SchemaProcessingResult
 beta;interface;SchemaProcessingStrategy
+alpha;class;SourceElementPrefetcher
+alpha;interface;SourceElementPrefetchOptions
 beta;interface;TargetScopeProvenanceJsonProps
 beta;class;TemplateModelCloner
 public;enum;TransformerLoggerCategory

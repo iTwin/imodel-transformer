@@ -142,6 +142,8 @@ export class IModelExporter {
     constructor(sourceDb: IModelDb);
     // @internal
     get elementAspectExportCoordinator(): ElementAspectExportCoordinator;
+    // @alpha
+    elementPrefetcher?: SourceElementPrefetcher;
     enumerateSchemas(): AsyncIterable<Schema>;
     excludeCodeSpec(codeSpecName: string): void;
     excludeElement(elementId: Id64String): void;
@@ -411,6 +413,8 @@ export interface IModelTransformOptions {
     branchRelationshipDataBehavior?: "unsafe-migrate" | "reject";
     cloneUsingBinaryGeometry?: boolean;
     danglingReferencesBehavior?: "reject" | "ignore";
+    // @alpha
+    experimentalSourceElementPrefetch?: boolean | SourceElementPrefetchOptions;
     forceExternalSourceAspectProvenance?: boolean;
     includeSourceProvenance?: boolean;
     loadSourceGeometry?: boolean;
@@ -511,6 +515,29 @@ export type SchemaProcessingResult = {
 // @beta
 export interface SchemaProcessingStrategy {
     processSchemas(context: SchemaProcessingContext): Promise<SchemaProcessingResult[]>;
+}
+
+// @alpha
+export class SourceElementPrefetcher {
+    constructor(sourceDb: IModelDb, options?: SourceElementPrefetchOptions);
+    dispose(): void;
+    static isSupported(sourceDb: IModelDb): boolean;
+    start(wantGeometry: boolean): void;
+    get stats(): {
+        hits: number;
+        misses: number;
+        batches: number;
+        firstBatchMs: number | undefined;
+    };
+    takeElement<T extends Element_2>(id: Id64String): Promise<T | undefined>;
+    tryTakeElement<T extends Element_2>(id: Id64String): T | undefined;
+}
+
+// @alpha
+export interface SourceElementPrefetchOptions {
+    batchSize?: number;
+    maxCacheEntries?: number;
+    maxPendingBatches?: number;
 }
 
 // @beta

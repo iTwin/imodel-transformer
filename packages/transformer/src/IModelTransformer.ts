@@ -105,6 +105,10 @@ import { rangesFromRangeAndSkipped } from "./Algo";
 import { SyncTypeResolver } from "./SyncTypeResolver";
 import { ProvenanceManager } from "./ProvenanceManager";
 import {
+  SourceElementPrefetcher,
+  SourceElementPrefetchOptions,
+} from "./SourceElementPrefetcher";
+import {
   NewerVersionSchemaImportStrategy,
   ProcessSchemasOptions,
 } from "./schema-processing/SchemaProcessingStrategy";
@@ -269,6 +273,22 @@ export interface IModelTransformOptions {
    * @beta
    */
   sourceEditTxn?: EditTxn;
+
+  /** EXPERIMENTAL: prefetch source elements in a child process so that source
+   * reads overlap with target writes instead of executing serially on the
+   * main thread (issue #9).
+   *
+   * Only used by full transformations (not change processing) whose source is
+   * a local snapshot or standalone file; otherwise it is silently ignored.
+   * Prefetched elements are a speculative cache with bounded memory (see
+   * [[SourceElementPrefetchOptions]]); a miss or a prefetch-process failure
+   * falls back to the ordinary synchronous read, so results are identical
+   * with or without this option.
+   * Pass `true` for defaults or an options object to tune the window.
+   * @default false
+   * @alpha
+   */
+  experimentalSourceElementPrefetch?: boolean | SourceElementPrefetchOptions;
 }
 
 /**
@@ -651,7 +671,38 @@ export class IModelTransformer extends IModelExportHandler {
   /** Dispose any native resources associated with this IModelTransformer. */
   public dispose(): void {
     Logger.logTrace(loggerCategory, "dispose()");
+    this.stopSourceElementPrefetch();
     this._cloneContext[Symbol.dispose]();
+  }
+
+  /** Start the experimental source-element prefetch child process, if the
+   * option is enabled and the source supports it (local snapshot/standalone
+   * file). No-op otherwise.
+   */
+  private startSourceElementPrefetchIfRequested(): void {
+    const requested = this._options.experimentalSourceElementPrefetch;
+    if (!requested || this.exporter.elementPrefetcher !== undefined) return;
+    if (!SourceElementPrefetcher.isSupported(this.sourceDb)) {
+      Logger.logInfo(
+        loggerCategory,
+        "experimentalSourceElementPrefetch ignored: source iModel is not a local snapshot/standalone file"
+      );
+      return;
+    }
+    const prefetcher = new SourceElementPrefetcher(
+      this.sourceDb,
+      typeof requested === "object" ? requested : {}
+    );
+    prefetcher.start(this.exporter.wantGeometry);
+    this.exporter.elementPrefetcher = prefetcher;
+  }
+
+  /** Stop and dispose the source-element prefetcher, if any. */
+  private stopSourceElementPrefetch(): void {
+    const prefetcher = this.exporter.elementPrefetcher;
+    if (prefetcher === undefined) return;
+    this.exporter.elementPrefetcher = undefined;
+    prefetcher.dispose();
   }
 
   /** Log current settings that affect IModelTransformer's behavior. */
@@ -2566,13 +2617,21 @@ export class IModelTransformer extends IModelExportHandler {
    *
    */
   public async process(): Promise<void> {
-    await this.initialize();
+    // start early so the prefetch process boots while initialization runs
+    if (this._options.argsForProcessChanges === undefined)
+      this.startSourceElementPrefetchIfRequested();
 
-    this.logSettings();
+    try {
+      await this.initialize();
 
-    return this._options.argsForProcessChanges !== undefined
-      ? this.processChanges(this._options.argsForProcessChanges)
-      : this.processAll();
+      this.logSettings();
+
+      return this._options.argsForProcessChanges !== undefined
+        ? await this.processChanges(this._options.argsForProcessChanges)
+        : await this.processAll();
+    } finally {
+      this.stopSourceElementPrefetch();
+    }
   }
 
   /** Export everything from the source iModel and import the transformed entities into the target iModel.
@@ -2584,24 +2643,30 @@ export class IModelTransformer extends IModelExportHandler {
     // processAll always has changes to process, so mark it as such for version tracking
     this._sourceChangeDataState = "has-changes";
 
+    this.startSourceElementPrefetchIfRequested();
+
     await this.exporter.exportCodeSpecs();
     await this.exporter.exportFonts();
 
-    await this.exporter.elementAspectExportCoordinator.run(async () => {
-      if (this._options.skipPropagateChangesToRootElements) {
-        // The RepositoryModel and root Subject of the target iModel should not be transformed.
-        await this.exporter.exportChildElements(IModel.rootSubjectId); // start below the root Subject
-        await this.exporter.exportModelContents(
-          IModel.repositoryModelId,
-          Element.classFullName,
-          true
-        ); // after the Subject hierarchy, process the other elements of the RepositoryModel
-        await this.exporter.exportSubModels(IModel.repositoryModelId); // start below the RepositoryModel
-      } else {
-        await this.exporter.exportModel(IModel.repositoryModelId);
-      }
-      await this.completePartiallyCommittedElements();
-    });
+    try {
+      await this.exporter.elementAspectExportCoordinator.run(async () => {
+        if (this._options.skipPropagateChangesToRootElements) {
+          // The RepositoryModel and root Subject of the target iModel should not be transformed.
+          await this.exporter.exportChildElements(IModel.rootSubjectId); // start below the root Subject
+          await this.exporter.exportModelContents(
+            IModel.repositoryModelId,
+            Element.classFullName,
+            true
+          ); // after the Subject hierarchy, process the other elements of the RepositoryModel
+          await this.exporter.exportSubModels(IModel.repositoryModelId); // start below the RepositoryModel
+        } else {
+          await this.exporter.exportModel(IModel.repositoryModelId);
+        }
+        await this.completePartiallyCommittedElements();
+      });
+    } finally {
+      this.stopSourceElementPrefetch();
+    }
     await this.completePartiallyCommittedAspects();
     await this.exporter.exportRelationships(
       ElementRefersToElements.classFullName

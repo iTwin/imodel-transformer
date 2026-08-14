@@ -1,0 +1,7 @@
+{
+  "type": "minor",
+  "comment": "Add experimental opt-in `experimentalSourceElementPrefetch` transform option (@alpha) that prefetches source element props in a child process so source reads overlap target writes during full transformations",
+  "packageName": "@itwin/imodel-transformer",
+  "email": "223556219+Copilot@users.noreply.github.com",
+  "dependentChangeType": "patch"
+}

@@ -61,6 +61,7 @@ import {
   IModelTransformerErrorScope,
 } from "./IModelTransformerError";
 import { ChangesetScanner } from "./ChangesetScanner";
+import { SourceElementPrefetcher } from "./SourceElementPrefetcher";
 
 const loggerCategory = TransformerLoggerCategory.IModelExporter;
 
@@ -378,6 +379,13 @@ export class IModelExporter {
   }
   /** Whether change traversal skips root-owned entities. */
   private _skipPropagateChangesToRootElements = false;
+
+  /** Experimental prefetcher that reads source elements ahead in a child
+   * process so element loads overlap with target writes. Misses fall back to
+   * a synchronous read.
+   * @alpha
+   */
+  public elementPrefetcher?: SourceElementPrefetcher;
   private readonly _rootElementIds = new Set<Id64String>([
     IModel.rootSubjectId,
     IModel.repositoryModelId,
@@ -1032,11 +1040,15 @@ export class IModelExporter {
       return this.exportChildElements(elementId);
     }
 
-    const element = this.sourceDb.elements.getElement({
-      id: elementId,
-      wantGeometry: this.wantGeometry,
-      wantBRepData: this.wantGeometry,
-    });
+    const element =
+      (this.elementPrefetcher
+        ? await this.elementPrefetcher.takeElement(elementId)
+        : undefined) ??
+      this.sourceDb.elements.getElement({
+        id: elementId,
+        wantGeometry: this.wantGeometry,
+        wantBRepData: this.wantGeometry,
+      });
     Logger.logTrace(
       loggerCategory,
       `exportElement(${

@@ -8,6 +8,7 @@ import { BenchmarkRegistration } from "../framework/BenchmarkRegistration.js";
 import { BenchmarkScenarioDefinition } from "../framework/BenchmarkScenario.js";
 import { changesetScanningBenchmark } from "../scenarios/changesetScanning.js";
 import { incrementalSynchronizationBenchmark } from "../scenarios/incrementalSynchronization.js";
+import { prefetchFullTransformationBenchmark } from "../scenarios/prefetchFullTransformation.js";
 import { schemaProcessingBenchmark } from "../scenarios/schemaProcessing.js";
 import { standaloneFullTransformationBenchmark } from "../scenarios/standaloneFullTransformation.js";
 
@@ -17,6 +18,7 @@ const registrations: readonly BenchmarkRegistration[] = Object.freeze([
   changesetScanningBenchmark,
   schemaProcessingBenchmark,
   standaloneFullTransformationBenchmark,
+  prefetchFullTransformationBenchmark,
 ]);
 
 const scenarios = new Map<string, BenchmarkScenarioDefinition>();

@@ -4,7 +4,10 @@
  *--------------------------------------------------------------------------------------------*/
 
 import { EditTxn, SnapshotDb } from "@itwin/core-backend";
-import { IModelTransformer } from "@itwin/imodel-transformer";
+import {
+  IModelTransformer,
+  IModelTransformOptions,
+} from "@itwin/imodel-transformer";
 import { canonicalSha256 } from "../fixtures/FixtureDescriptor.js";
 import {
   PreparedDataset,
@@ -53,15 +56,25 @@ async function outputShapeDigest(targetDb: SnapshotDb): Promise<string> {
   return canonicalSha256(await structuralIdentity(targetDb));
 }
 
-export function standaloneFullTransformation(
-  dataset: PreparedDataset
+/**
+ * Shared factory for full standalone transformations. Scenario variants (e.g. the prefetch
+ * scenario) differ only in the extra transformer options they pass, so their measured pipelines
+ * stay directly comparable.
+ */
+export function createStandaloneFullTransformation(
+  dataset: PreparedDataset,
+  extraTransformOptions: Partial<IModelTransformOptions> = {}
 ): BenchmarkScenario {
   const { sourceDb, targetDb } = requireStandaloneDataset(dataset);
   const editTxn = new EditTxn(targetDb, "Quick standalone full transformation");
   editTxn.start();
   const transformer = new IModelTransformer(
     { source: sourceDb, target: editTxn },
-    { loadSourceGeometry: true, noProvenance: true }
+    {
+      loadSourceGeometry: true,
+      noProvenance: true,
+      ...extraTransformOptions,
+    }
   );
   let disposed = false;
   const dispose = () => {
@@ -99,6 +112,12 @@ export function standaloneFullTransformation(
       return outputShapeDigest(targetDb);
     },
   };
+}
+
+export function standaloneFullTransformation(
+  dataset: PreparedDataset
+): BenchmarkScenario {
+  return createStandaloneFullTransformation(dataset);
 }
 
 export const standaloneFullTransformationScenario: BenchmarkScenarioDefinition =
