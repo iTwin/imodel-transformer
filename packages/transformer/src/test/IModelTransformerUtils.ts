@@ -10,6 +10,7 @@ import * as inspector from "node:inspector";
 import {
   CompressedId64Set,
   Guid,
+  GuidString,
   Id64,
   Id64Set,
   Id64String,
@@ -2412,7 +2413,9 @@ export class IModelToTextFileExporter extends IModelExportHandler {
   }
   public override async onExportRelationship(
     relationship: Relationship,
-    isUpdate: boolean | undefined
+    isUpdate: boolean | undefined,
+    sourceFedGuid?: GuidString,
+    targetFedGuid?: GuidString
   ): Promise<void> {
     if (this._firstRelationship) {
       this.writeSeparator();
@@ -2423,7 +2426,12 @@ export class IModelToTextFileExporter extends IModelExportHandler {
         relationship.id
       }${this.formatOperationName(isUpdate)}`
     );
-    await super.onExportRelationship(relationship, isUpdate);
+    await super.onExportRelationship(
+      relationship,
+      isUpdate,
+      sourceFedGuid,
+      targetFedGuid
+    );
   }
   public override async onDeleteRelationship(
     relInstanceId: Id64String
@@ -2542,13 +2550,20 @@ export class ClassCounter extends IModelExportHandler {
   }
   public override async onExportRelationship(
     relationship: Relationship,
-    isUpdate: boolean | undefined
+    isUpdate: boolean | undefined,
+    sourceFedGuid?: GuidString,
+    targetFedGuid?: GuidString
   ): Promise<void> {
     this.incrementClassCount(
       this._relationshipClassCounts,
       relationship.classFullName
     );
-    await super.onExportRelationship(relationship, isUpdate);
+    await super.onExportRelationship(
+      relationship,
+      isUpdate,
+      sourceFedGuid,
+      targetFedGuid
+    );
   }
 }
 

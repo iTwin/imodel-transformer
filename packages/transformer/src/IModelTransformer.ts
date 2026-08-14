@@ -11,6 +11,7 @@ import { strict as nodeAssert } from "node:assert";
 import {
   assert,
   Guid,
+  GuidString,
   Id64,
   Id64Array,
   Id64Set,
@@ -1753,15 +1754,11 @@ export class IModelTransformer extends IModelExportHandler {
    * This override calls [[onTransformRelationship]] and then [IModelImporter.importRelationship]($transformer) to update the target iModel.
    */
   public override async onExportRelationship(
-    sourceRelationship: Relationship
+    sourceRelationship: Relationship,
+    _isUpdate?: boolean,
+    sourceFedGuid?: GuidString,
+    targetFedGuid?: GuidString
   ): Promise<void> {
-    const sourceFedGuid = this.sourceDb.elements.getFederationGuidFromId(
-      sourceRelationship.sourceId
-    );
-    const targetFedGuid = this.sourceDb.elements.getFederationGuidFromId(
-      sourceRelationship.targetId
-    );
-
     const targetRelationshipProps =
       this.onTransformRelationship(sourceRelationship);
     const targetRelationshipInstanceId = await this.importer.importRelationship(
@@ -1784,7 +1781,11 @@ export class IModelTransformer extends IModelExportHandler {
           await this._provenanceManager.initRelationshipProvenance(
             sourceRelationship.id,
             targetRelationshipInstanceId,
-            this._forceOldRelationshipProvenanceMethod
+            this._forceOldRelationshipProvenanceMethod,
+            {
+              sourceRelSourceElementId: sourceRelationship.sourceId,
+              targetRelSourceElementId: targetRelationshipProps.sourceId,
+            }
           );
         const foundEsaProps =
           await ProvenanceManager.queryScopeExternalSourceAspect(

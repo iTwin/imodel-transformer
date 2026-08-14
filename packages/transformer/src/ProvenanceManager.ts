@@ -887,6 +887,15 @@ export class ProvenanceManager {
       isReverseSynchronization: boolean;
       targetScopeElementId: Id64String;
       forceOldRelationshipProvenanceMethod: boolean;
+      /** Already-known source-endpoint element ids of the relationships, used to skip the
+       * per-relationship endpoint query when the caller knows the needed id.
+       */
+      knownEndpoints?: {
+        /** `SourceECInstanceId` of the relationship identified by `sourceRelInstanceId` in `sourceDb`. */
+        sourceRelSourceElementId?: Id64String;
+        /** `SourceECInstanceId` of the relationship identified by `targetRelInstanceId` in `targetDb`. */
+        targetRelSourceElementId?: Id64String;
+      };
     }
   ): Promise<ExternalSourceAspectProps> {
     const provenanceDb = args.isReverseSynchronization
@@ -899,21 +908,28 @@ export class ProvenanceManager {
       ? sourceRelInstanceId
       : targetRelInstanceId;
 
-    const sql =
-      "SELECT SourceECInstanceId FROM bis.ElementRefersToElements WHERE ECInstanceId=?";
-    const params = new QueryBinder().bindId(1, provenanceRelInstanceId);
-    const reader = provenanceDb.createQueryReader(sql, params, {
-      usePrimaryConn: true,
-    });
-    if (!(await reader.step()))
-      ITwinError.throwError({
-        iTwinErrorId: {
-          scope: IModelTransformerErrorScope,
-          key: IModelTransformerError.RelationshipProvenanceNotFound,
-        },
-        message: "relationship provenance query returned no rows",
+    // the provenance relationship lives in the provenanceDb, so its known source-endpoint id is
+    // the source rel's on reverse synchronization and the target rel's otherwise
+    let elementId = args.isReverseSynchronization
+      ? args.knownEndpoints?.sourceRelSourceElementId
+      : args.knownEndpoints?.targetRelSourceElementId;
+    if (undefined === elementId) {
+      const sql =
+        "SELECT SourceECInstanceId FROM bis.ElementRefersToElements WHERE ECInstanceId=?";
+      const params = new QueryBinder().bindId(1, provenanceRelInstanceId);
+      const reader = provenanceDb.createQueryReader(sql, params, {
+        usePrimaryConn: true,
       });
-    const elementId = reader.current[0];
+      if (!(await reader.step()))
+        ITwinError.throwError({
+          iTwinErrorId: {
+            scope: IModelTransformerErrorScope,
+            key: IModelTransformerError.RelationshipProvenanceNotFound,
+          },
+          message: "relationship provenance query returned no rows",
+        });
+      elementId = reader.current[0] as Id64String;
+    }
 
     const jsonProperties = args.forceOldRelationshipProvenanceMethod
       ? { targetRelInstanceId }
@@ -955,7 +971,11 @@ export class ProvenanceManager {
   public async initRelationshipProvenance(
     sourceRelInstanceId: Id64String,
     targetRelInstanceId: Id64String,
-    forceOldRelationshipProvenanceMethod: boolean
+    forceOldRelationshipProvenanceMethod: boolean,
+    knownEndpoints?: {
+      sourceRelSourceElementId?: Id64String;
+      targetRelSourceElementId?: Id64String;
+    }
   ): Promise<ExternalSourceAspectProps> {
     return ProvenanceManager.initRelationshipProvenanceOptions(
       sourceRelInstanceId,
@@ -966,6 +986,7 @@ export class ProvenanceManager {
         isReverseSynchronization: await this._isReverseSynchronization(),
         targetScopeElementId: this._targetScopeElementId,
         forceOldRelationshipProvenanceMethod,
+        knownEndpoints,
       }
     );
   }
