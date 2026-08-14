@@ -67,17 +67,25 @@ export async function prepareHubBriefcase(
     iTwinId,
     iModelName
   );
-  const briefcase = await HubWrappers.downloadAndOpenBriefcase({
-    accessToken: await IModelHost.getAccessToken(),
-    iTwinId,
-    iModelId,
-    asOf: IModelVersion.latest().toJSON(),
-  });
-  await briefcase.locks.acquireLocks({
-    shared: "0x10",
-    exclusive: "0x1",
-  });
-  return briefcase;
+  let briefcase: BriefcaseDb | undefined;
+  try {
+    briefcase = await HubWrappers.downloadAndOpenBriefcase({
+      accessToken: await IModelHost.getAccessToken(),
+      iTwinId,
+      iModelId,
+      asOf: IModelVersion.latest().toJSON(),
+    });
+    await briefcase.locks.acquireLocks({
+      shared: "0x10",
+      exclusive: "0x1",
+    });
+    return briefcase;
+  } catch (error) {
+    if (briefcase)
+      await closeAndDeleteHubBriefcase(accessToken, iTwinId, briefcase);
+    else await transformerTestHub.deleteIModel({ iTwinId, iModelId });
+    throw error;
+  }
 }
 
 export async function closeAndDeleteHubBriefcase(
@@ -85,12 +93,15 @@ export async function closeAndDeleteHubBriefcase(
   iTwinId: GuidString,
   briefcase: BriefcaseDb
 ): Promise<void> {
-  await HubWrappers.closeAndDeleteBriefcaseDb(accessToken, briefcase);
-  // eslint-disable-next-line @itwin/no-internal
-  await transformerTestHub.deleteIModel({
-    iTwinId,
-    iModelId: briefcase.iModelId,
-  });
+  try {
+    await HubWrappers.closeAndDeleteBriefcaseDb(accessToken, briefcase);
+  } finally {
+    // eslint-disable-next-line @itwin/no-internal
+    await transformerTestHub.deleteIModel({
+      iTwinId,
+      iModelId: briefcase.iModelId,
+    });
+  }
 }
 
 /** Register the common local-hub lifecycle for a standalone hub test file. */
