@@ -6,7 +6,10 @@
 import { DbResult, Id64String } from "@itwin/core-bentley";
 import {
   BulkDeleteElementsStatus,
+  DefinitionContainer,
+  DefinitionModel,
   EditTxn,
+  IModelDb,
   PhysicalModel,
   SpatialCategory,
   StandaloneDb,
@@ -314,6 +317,86 @@ describe("IModelImporter bulk element deletion", () => {
       expect(targetDb.models.tryGetModel(ids.modelId)).to.be.undefined;
       expect(targetDb.elements.tryGetElement(ids.modelId)).to.be.undefined;
       expect(targetDb.models.tryGetModel(ids.survivorModelId)).to.not.be
+        .undefined;
+      editTxn.end("abandon");
+    } finally {
+      targetDb.close();
+    }
+  });
+
+  it("deletes recursively nested submodels and their contents", async () => {
+    const targetDb = createTargetDb("NestedSubModels");
+    try {
+      const ids = withEditTxn(targetDb, "insert nested submodels", (txn) => {
+        const outerModelId = DefinitionModel.insert(
+          txn,
+          IModel.rootSubjectId,
+          "Outer definition model"
+        );
+        const firstContainerId = DefinitionContainer.insert(
+          txn,
+          outerModelId,
+          Code.createEmpty()
+        );
+        const secondContainerId = DefinitionContainer.insert(
+          txn,
+          firstContainerId,
+          Code.createEmpty()
+        );
+        const nestedCategoryId = SpatialCategory.insert(
+          txn,
+          secondContainerId,
+          "Nested category",
+          new SubCategoryAppearance()
+        );
+        const unrelatedId = Subject.insert(
+          txn,
+          IModel.rootSubjectId,
+          "Unrelated"
+        );
+        return {
+          outerModelId,
+          firstContainerId,
+          secondContainerId,
+          nestedCategoryId,
+          defaultSubCategoryId:
+            IModelDb.getDefaultSubCategoryId(nestedCategoryId),
+          unrelatedId,
+        };
+      });
+      const explicitRoots = new Set([ids.outerModelId]);
+      const expectedDeleteRoots = new Set([
+        ids.outerModelId,
+        ids.nestedCategoryId,
+      ]);
+      expect(await findBulkDeleteRoots(targetDb, explicitRoots)).to.deep.equal(
+        expectedDeleteRoots
+      );
+
+      const editTxn = createStartedEditTxn(targetDb);
+      const nativeDeleteSpy = vi.spyOn(editTxn, "deleteElements");
+      await new IModelImporter(editTxn).deleteElements(explicitRoots);
+
+      expect(new Set(nativeDeleteSpy.mock.calls[0][0])).to.deep.equal(
+        expectedDeleteRoots
+      );
+      for (const id of [
+        ids.outerModelId,
+        ids.firstContainerId,
+        ids.secondContainerId,
+        ids.nestedCategoryId,
+        ids.defaultSubCategoryId,
+      ]) {
+        expect(targetDb.elements.tryGetElement(id)).to.be.undefined;
+      }
+      for (const id of [
+        ids.outerModelId,
+        ids.firstContainerId,
+        ids.secondContainerId,
+      ]) {
+        expect(targetDb.models.tryGetModel(id)).to.be.undefined;
+      }
+      expect(targetDb.elements.tryGetElement(ids.unrelatedId)).to.not.be
         .undefined;
       editTxn.end("abandon");
     } finally {
