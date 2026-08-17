@@ -1167,6 +1167,7 @@ export class IModelTransformer extends IModelExportHandler {
   /** Cause the specified Element and its child Elements (if applicable) to be exported from the source iModel and imported into the target iModel.
    * @param sourceElementId Identifies the Element from the source iModel to import.
    * @note This method is called from [[process]], so it only needs to be called directly when processing a subset of an iModel.
+   * @note After composing subset processing calls, call [[IModelImporter.finalize]] before saving target changes.
    */
   public async processElement(sourceElementId: Id64String): Promise<void> {
     await this.initialize();
@@ -1187,6 +1188,7 @@ export class IModelTransformer extends IModelExportHandler {
   /** Import child elements into the target IModelDb
    * @param sourceElementId Import the child elements of this element in the source IModelDb.
    * @note This method is called from [[process]], so it only needs to be called directly when processing a subset of an iModel.
+   * @note After composing subset processing calls, call [[IModelImporter.finalize]] before saving target changes.
    */
   public async processChildElements(
     sourceElementId: Id64String
@@ -1641,6 +1643,7 @@ export class IModelTransformer extends IModelExportHandler {
   /** Cause the model container, contents, and sub-models to be exported from the source iModel and imported into the target iModel.
    * @param sourceModeledElementId Import this [Model]($backend) from the source IModelDb.
    * @note This method is called from [[process]], so it only needs to be called directly when processing a subset of an iModel.
+   * @note After composing subset processing calls, call [[IModelImporter.finalize]] before saving target changes.
    */
   public async processModel(sourceModeledElementId: Id64String): Promise<void> {
     await this.initialize();
@@ -1654,6 +1657,7 @@ export class IModelTransformer extends IModelExportHandler {
    * @param targetModelId Import into this model in the target IModelDb. The target model must exist prior to this call.
    * @param elementClassFullName Optional classFullName of an element subclass to limit import query against the source model.
    * @note This method is called from [[process]], so it only needs to be called directly when processing a subset of an iModel.
+   * @note After composing subset processing calls, call [[IModelImporter.finalize]] before saving target changes.
    */
   public async processModelContents(
     sourceModelId: Id64String,
@@ -1741,12 +1745,7 @@ export class IModelTransformer extends IModelExportHandler {
     return targetModelProps;
   }
 
-  /** Complete a high-level transformation.
-   * `processElement`, `processChildElements`, `processModel`, `processModelContents`,
-   * `processRelationships`, and `processSubject` are intentionally composable and do not finalize
-   * after each call. Callers using those methods directly must call `importer.finalize()` after
-   * the last operation.
-   */
+  /** Complete a high-level transformation after all export operations finish. */
   private async finalizeTransformation() {
     this.importer.finalize();
     this._cloneContext.existenceCache.clear();
@@ -1771,6 +1770,7 @@ export class IModelTransformer extends IModelExportHandler {
   /** Imports all relationships that subclass from the specified base class.
    * @param baseRelClassFullName The specified base relationship class.
    * @note This method is called from [[process]], so it only needs to be called directly when processing a subset of an iModel.
+   * @note After composing subset processing calls, call [[IModelImporter.finalize]] before saving target changes.
    */
   public async processRelationships(
     baseRelClassFullName: string
@@ -2110,7 +2110,9 @@ export class IModelTransformer extends IModelExportHandler {
     this._cloneContext.importCodeSpec(sourceCodeSpec.id);
   }
 
-  /** Recursively import all Elements and sub-Models that descend from the specified Subject */
+  /** Recursively import all Elements and sub-Models that descend from the specified Subject.
+   * @note After composing subset processing calls, call [[IModelImporter.finalize]] before saving target changes.
+   */
   public async processSubject(
     sourceSubjectId: Id64String,
     targetSubjectId: Id64String
