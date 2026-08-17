@@ -20,11 +20,11 @@ import { EntityUnifier } from "./EntityUnifier";
  * The cache is keyed by [IModelDb]($core-backend) instance, so same-iModel transformations
  * (where sourceDb === targetDb) share a single set and source/target roles cannot be confused.
  *
- * @note Deletes performed out-of-band (e.g. by an [IModelImporter]($transformer) or exporter
- * handler subclass that deletes entities without going through the transformer's onDelete*
- * overrides) are not observed by this cache. A successful high-level `process()` clears the
- * cache when the transformation finalizes; low-level or failed transformations clear it when
- * the transformer is disposed.
+ * [IModelImporter]($transformer) delete operations invalidate registered caches. Deletes performed
+ * directly through an `EditTxn` while a transformation is active are out-of-band and must not be
+ * mixed with transformer operations. A successful high-level `process()` clears the cache when the
+ * transformation finalizes; low-level or failed transformations clear it when the transformer is
+ * disposed.
  * @internal
  */
 export class EntityExistenceCache {

@@ -15,6 +15,7 @@ import {
 } from "@itwin/core-bentley";
 import {
   Base64EncodedString,
+  ConcreteEntityTypes,
   ECJsNames,
   ElementAspectProps,
   ElementProps,
@@ -31,6 +32,7 @@ import {
   ElementAspect,
   ElementMultiAspect,
   Entity,
+  EntityReferences,
   IModelDb,
   Relationship,
   RelationshipProps,
@@ -50,6 +52,7 @@ import {
   IModelTransformerError,
   IModelTransformerErrorScope,
 } from "./IModelTransformerError";
+import { EntityExistenceCache } from "./EntityExistenceCache";
 
 const loggerCategory: string = TransformerLoggerCategory.IModelImporter;
 
@@ -133,6 +136,7 @@ export class IModelImporter {
    * To resolve code values to their intended values call [[IModelImporter.resolveDuplicateCodeValues]].
    */
   private _duplicateCodeValueMap: Map<Id64String, string>;
+  private readonly _entityExistenceCaches = new Set<EntityExistenceCache>();
   /**
    * A set of elementIds that the transformer adds to while exporting elements to indicate that the element already exists in the target.
    * Defaults to an empty set.
@@ -190,6 +194,20 @@ export class IModelImporter {
       this._editTxn,
       async (aspect) => this.onDeleteElementAspect(aspect)
     );
+  }
+
+  /** Register a transformation-scoped existence cache for delete invalidation.
+   * @internal
+   */
+  public registerEntityExistenceCache(cache: EntityExistenceCache): void {
+    this._entityExistenceCaches.add(cache);
+  }
+
+  /** Stop invalidating a transformation-scoped existence cache.
+   * @internal
+   */
+  public unregisterEntityExistenceCache(cache: EntityExistenceCache): void {
+    this._entityExistenceCaches.delete(cache);
   }
 
   /**
@@ -476,6 +494,9 @@ export class IModelImporter {
       return;
     }
     await this.onDeleteElement(elementId);
+    // Element deletion cascades can remove descendants and their submodels.
+    for (const cache of this._entityExistenceCaches)
+      cache.clearDb(this.targetDb);
   }
 
   /** Delete the specified Model from the target iModel.
@@ -490,6 +511,12 @@ export class IModelImporter {
   /** Delete the specified Model from the target iModel. */
   public async deleteModel(modelId: Id64String): Promise<void> {
     await this.onDeleteModel(modelId);
+    const modelReference = EntityReferences.fromEntityType(
+      modelId,
+      ConcreteEntityTypes.Model
+    );
+    for (const cache of this._entityExistenceCaches)
+      cache.invalidate(this.targetDb, modelReference);
   }
 
   /** Format an Element for the Logger. */
@@ -913,7 +940,8 @@ export class IModelImporter {
    * Needs to be called to perform necessary cleanup operations.
    * By not calling `finalize` there is a risk that data imported into targetDb will not be as expected.
    *
-   * @note No need to call this If using [[IModelTransformer]] as it automatically invokes this method.
+   * @note [[IModelTransformer.process]] invokes this method automatically. Call it explicitly after
+   * composing the transformer's lower-level subset processing methods.
    */
   public finalize(): void {
     this.resolveDuplicateCodeValues();

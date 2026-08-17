@@ -572,6 +572,9 @@ export class IModelTransformer extends IModelExportHandler {
     );
     // create the IModelCloneContext, it must be initialized later
     this._cloneContext = new IModelCloneContext(this.sourceDb, this.targetDb);
+    this.importer.registerEntityExistenceCache(
+      this._cloneContext.existenceCache
+    );
 
     this.setCodeValueBehavior("exact");
     this._syncTypeResolver = new SyncTypeResolver(
@@ -649,6 +652,9 @@ export class IModelTransformer extends IModelExportHandler {
   /** Dispose any native resources associated with this IModelTransformer. */
   public dispose(): void {
     Logger.logTrace(loggerCategory, "dispose()");
+    this.importer.unregisterEntityExistenceCache(
+      this._cloneContext.existenceCache
+    );
     this._cloneContext.existenceCache.clear();
     this._cloneContext[Symbol.dispose]();
   }
@@ -1453,10 +1459,15 @@ export class IModelTransformer extends IModelExportHandler {
       );
     }
     this.context.remapElement(sourceElement.id, targetElementProps.id);
-    this._cloneContext.existenceCache.markExists(
-      this.targetDb,
-      `e${targetElementProps.id}`
-    );
+    if (this.sourceDb === this.targetDb) {
+      this._cloneContext.existenceCache.markExists(
+        this.targetDb,
+        EntityReferences.fromEntityType(
+          targetElementProps.id,
+          ConcreteEntityTypes.Element
+        )
+      );
+    }
 
     // the transformer does not currently 'split' or 'join' any elements, therefore, it does not
     // insert external source aspects because federation guids are sufficient for this.
@@ -1511,9 +1522,6 @@ export class IModelTransformer extends IModelExportHandler {
       // this transformation pass.
       if (!this._targetElementIdsRemappedByCode.has(targetElementId)) {
         await this.importer.deleteElement(targetElementId);
-        // element deletes cascade to descendants and their submodels, which we cannot
-        // cheaply enumerate here, so drop all cached existence results for the target
-        this._cloneContext.existenceCache.clearDb(this.targetDb);
       }
     }
   }
@@ -1546,7 +1554,10 @@ export class IModelTransformer extends IModelExportHandler {
 
     this._cloneContext.existenceCache.markExists(
       this.targetDb,
-      `m${targetModelProps.id}`
+      EntityReferences.fromEntityType(
+        targetModelProps.id,
+        ConcreteEntityTypes.Model
+      )
     );
     this._targetModelsImportedInCurrentTransform.add(targetModelProps.id);
   }
@@ -1603,10 +1614,6 @@ export class IModelTransformer extends IModelExportHandler {
 
     try {
       await this.importer.deleteModel(targetModelId);
-      this._cloneContext.existenceCache.invalidate(
-        this.targetDb,
-        `m${targetModelId}`
-      );
     } catch (error) {
       const isDeletionProhibitedErr =
         error instanceof IModelError &&
@@ -1733,7 +1740,12 @@ export class IModelTransformer extends IModelExportHandler {
     return targetModelProps;
   }
 
-  // FIXME<MIKE>: is this necessary when manually using low level transform APIs? (document if so)
+  /** Complete a high-level transformation.
+   * `processElement`, `processChildElements`, `processModel`, `processModelContents`,
+   * `processRelationships`, and `processSubject` are intentionally composable and do not finalize
+   * after each call. Callers using those methods directly must call `importer.finalize()` after
+   * the last operation.
+   */
   private async finalizeTransformation() {
     this.importer.finalize();
     this._cloneContext.existenceCache.clear();

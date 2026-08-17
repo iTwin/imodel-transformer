@@ -4,6 +4,7 @@
  *--------------------------------------------------------------------------------------------*/
 
 import {
+  EntityReferences,
   IModelJsFs,
   PhysicalModel,
   PhysicalObject,
@@ -15,6 +16,7 @@ import {
 import { Id64String } from "@itwin/core-bentley";
 import {
   Code,
+  ConcreteEntityTypes,
   EntityReference,
   IModel,
   PhysicalElementProps,
@@ -31,6 +33,7 @@ import { KnownTestLocations } from "../TestUtils/KnownTestLocations";
 import { EntityExistenceCache } from "../../EntityExistenceCache";
 import { EntityUnifier } from "../../EntityUnifier";
 import { IModelTransformer } from "../../IModelTransformer";
+import { IModelImporter } from "../../IModelImporter";
 
 describe("EntityExistenceCache", () => {
   const outputDir = path.join(
@@ -223,6 +226,101 @@ describe("EntityExistenceCache", () => {
     db.close();
   });
 
+  it("invalidates cached elements when the importer deletes and reimports them", async () => {
+    const { db, objIds } = createDbWithPhysicalObjects(
+      "ImporterElementInvalidation.bim"
+    );
+    const elementId = objIds[0];
+    const elementProps = db.elements.getElement(elementId).toJSON();
+    const elementRef = EntityReferences.fromEntityType(
+      elementId,
+      ConcreteEntityTypes.Element
+    );
+    const editTxn = createStartedEditTxn(db);
+    const importer = new IModelImporter(editTxn, {
+      preserveElementIdsForFiltering: true,
+    });
+    const cache = new EntityExistenceCache();
+    importer.registerEntityExistenceCache(cache);
+    const clearDb = vi.spyOn(cache, "clearDb");
+
+    try {
+      expect(await cache.exists(db, elementRef)).to.be.true;
+
+      await importer.deleteElement(elementId);
+      expect(clearDb).toHaveBeenCalledWith(db);
+      expect(await cache.exists(db, elementRef)).to.be.false;
+
+      await importer.importElement(elementProps);
+      expect(await cache.exists(db, elementRef)).to.be.true;
+    } finally {
+      importer.unregisterEntityExistenceCache(cache);
+      clearDb.mockRestore();
+      editTxn.end("abandon");
+      db.close();
+    }
+  });
+
+  it("invalidates cached models when the importer deletes and reimports them", async () => {
+    const { db, modelId } = createDbWithPhysicalObjects(
+      "ImporterModelInvalidation.bim",
+      0
+    );
+    const modelProps = db.models.getModel(modelId).toJSON();
+    const modelRef = EntityReferences.fromEntityType(
+      modelId,
+      ConcreteEntityTypes.Model
+    );
+    const editTxn = createStartedEditTxn(db);
+    const importer = new IModelImporter(editTxn);
+    const cache = new EntityExistenceCache();
+    importer.registerEntityExistenceCache(cache);
+    const invalidate = vi.spyOn(cache, "invalidate");
+
+    try {
+      expect(await cache.exists(db, modelRef)).to.be.true;
+
+      await importer.deleteModel(modelId);
+      expect(invalidate).toHaveBeenCalledWith(db, modelRef);
+      expect(await cache.exists(db, modelRef)).to.be.false;
+
+      await importer.importModel(modelProps);
+      expect(await cache.exists(db, modelRef)).to.be.true;
+    } finally {
+      importer.unregisterEntityExistenceCache(cache);
+      invalidate.mockRestore();
+      editTxn.end("abandon");
+      db.close();
+    }
+  });
+
+  it("marks imported elements for same-iModel transformations", async () => {
+    const { db, objIds } = createDbWithPhysicalObjects(
+      "SameIModelElementMarking.bim"
+    );
+    const editTxn = createStartedEditTxn(db);
+    const transformer = new IModelTransformer(
+      { source: db, target: editTxn },
+      { noProvenance: true }
+    );
+    const markExists = vi.spyOn(EntityExistenceCache.prototype, "markExists");
+
+    try {
+      await transformer.processElement(objIds[0]);
+      expect(
+        markExists.mock.calls.some(
+          ([, reference]) =>
+            EntityReferences.split(reference)[0] === ConcreteEntityTypes.Element
+        )
+      ).to.be.true;
+    } finally {
+      markExists.mockRestore();
+      transformer.dispose();
+      editTxn.end("abandon");
+      db.close();
+    }
+  });
+
   it("EntityUnifier.existsAll batches checks with one query per entity type", async () => {
     const { db, objIds, modelId } = createDbWithPhysicalObjects(
       "ExistsAll.bim",
@@ -262,6 +360,7 @@ describe("EntityExistenceCache", () => {
     });
 
     const createQueryReader = vi.spyOn(sourceDb, "createQueryReader");
+    const markExists = vi.spyOn(EntityExistenceCache.prototype, "markExists");
     const targetEditTxn = createStartedEditTxn(targetDb);
     const transformer = new IModelTransformer({
       source: sourceDb,
@@ -295,9 +394,16 @@ describe("EntityExistenceCache", () => {
       // source batch check should query that model type once, not once per object.
       expect(modelExistenceQueries).toHaveLength(1);
       expect(individualModelExistenceQueries).toHaveLength(0);
+      expect(
+        markExists.mock.calls.some(
+          ([, reference]) =>
+            EntityReferences.split(reference)[0] === ConcreteEntityTypes.Element
+        )
+      ).to.be.false;
       processSucceeded = true;
     } finally {
       createQueryReader.mockRestore();
+      markExists.mockRestore();
       transformer.dispose();
       targetEditTxn.end(processSucceeded ? "save" : "abandon");
       sourceDb.close();

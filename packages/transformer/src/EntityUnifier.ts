@@ -98,7 +98,7 @@ export namespace EntityUnifier {
         usePrimaryConn: true,
       });
       while (await reader.step()) {
-        found.add(`${type}${reader.current[0]}` as EntityReference);
+        found.add(EntityReferences.fromEntityType(reader.current[0], type));
       }
     }
     return found;
