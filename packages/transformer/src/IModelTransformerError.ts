@@ -47,6 +47,8 @@ export enum IModelTransformerError {
   InvalidCode = "invalid-code",
   /** An entity reference has an unsupported representation. */
   InvalidEntityReference = "invalid-entity-reference",
+  /** A relationship query returned malformed instance data. */
+  InvalidRelationshipData = "invalid-relationship-data",
   /** A model identifier is invalid or missing. */
   InvalidModelId = "invalid-model-id",
   /** A subcategory is invalid or incomplete. */

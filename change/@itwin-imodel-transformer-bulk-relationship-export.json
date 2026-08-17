@@ -1,0 +1,7 @@
+{
+  "type": "patch",
+  "comment": "Eliminate per-relationship N+1 queries during relationship export: relationships are hydrated by a single bulk query, endpoint FederationGuids are captured from that query instead of per-relationship lookups, and the relationship provenance endpoint query is skipped when the endpoint is already known.",
+  "packageName": "@itwin/imodel-transformer",
+  "email": "DanRod1999@users.noreply.github.com",
+  "dependentChangeType": "patch"
+}
