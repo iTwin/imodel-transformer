@@ -93,6 +93,25 @@ Potential transformations include:
 - Schema Mapping - mapping classes and properties to a new schema during transformation
 - Change Squashing - each iModel has its own change ledger, so multiple changesets from the source could be _squashed_ into a single changeset to the target
 
+### Processing a subset
+
+`IModelTransformer.process()` finalizes its importer automatically. The subset methods
+`processElement`, `processChildElements`, `processModel`, `processModelContents`,
+`processRelationships`, and `processSubject` are composable and do not finalize after each call.
+After the last subset operation, call [IModelImporter.finalize]($transformer) before saving target
+changes:
+
+```ts
+try {
+  await transformer.processElement(sourceElementId);
+  await transformer.processRelationships(relationshipClassName);
+  transformer.importer.finalize();
+  targetEditTxn.saveChanges();
+} finally {
+  transformer.dispose();
+}
+```
+
 See [schema processing](./schema-processing.md) for schema selection, dynamic schema unions, conflict handling, and the schema-processing workflow.
 
 ## Logging

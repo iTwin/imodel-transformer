@@ -19,7 +19,7 @@ import { ElementProps } from '@itwin/core-common';
 import { ElementUniqueAspect } from '@itwin/core-backend';
 import { Entity } from '@itwin/core-backend';
 import { EntityProps } from '@itwin/core-common';
-import type { EntityReference } from '@itwin/core-common';
+import { EntityReference } from '@itwin/core-common';
 import { ExternalSourceAspect } from '@itwin/core-backend';
 import { ExternalSourceAspectProps } from '@itwin/core-common';
 import { FontFamilyDescriptor } from '@itwin/core-common';
@@ -242,7 +242,11 @@ export class IModelImporter {
     optimizeGeometry(options: OptimizeGeometryOptions): void;
     readonly options: Required<IModelImportOptions>;
     progressInterval: number;
+    // @internal
+    registerEntityExistenceCache(cache: EntityExistenceCache): void;
     readonly targetDb: IModelDb;
+    // @internal
+    unregisterEntityExistenceCache(cache: EntityExistenceCache): void;
 }
 
 // @beta

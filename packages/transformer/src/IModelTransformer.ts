@@ -100,7 +100,6 @@ import { IModelImporter, OptimizeGeometryOptions } from "./IModelImporter";
 import { TransformerLoggerCategory } from "./TransformerLoggerCategory";
 import { IModelCloneContext } from "./IModelCloneContext";
 import type { IModelTransformContext } from "./IModelTransformContext";
-import { EntityUnifier } from "./EntityUnifier";
 import { rangesFromRangeAndSkipped } from "./Algo";
 import { SyncTypeResolver } from "./SyncTypeResolver";
 import { ProvenanceManager } from "./ProvenanceManager";
@@ -574,6 +573,9 @@ export class IModelTransformer extends IModelExportHandler {
     );
     // create the IModelCloneContext, it must be initialized later
     this._cloneContext = new IModelCloneContext(this.sourceDb, this.targetDb);
+    this.importer.registerEntityExistenceCache(
+      this._cloneContext.existenceCache
+    );
 
     this.setCodeValueBehavior("exact");
     this._syncTypeResolver = new SyncTypeResolver(
@@ -651,6 +653,10 @@ export class IModelTransformer extends IModelExportHandler {
   /** Dispose any native resources associated with this IModelTransformer. */
   public dispose(): void {
     Logger.logTrace(loggerCategory, "dispose()");
+    this.importer.unregisterEntityExistenceCache(
+      this._cloneContext.existenceCache
+    );
+    this._cloneContext.existenceCache.clear();
     this._cloneContext[Symbol.dispose]();
   }
 
@@ -1095,6 +1101,7 @@ export class IModelTransformer extends IModelExportHandler {
 
   private async doAllReferencesExistInTarget(entity: ConcreteEntity) {
     let allReferencesExist = true;
+    const checkedReferences: EntityReference[] = [];
     for (const referenceId of entity.getReferenceIds()) {
       const referencedEntityId = EntityReferences.toId64(referenceId);
       if (
@@ -1119,38 +1126,48 @@ export class IModelTransformer extends IModelExportHandler {
       }
 
       if (this._options.danglingReferencesBehavior === "reject") {
-        await this.assertReferenceExistsInSource(referenceId, entity);
+        checkedReferences.push(referenceId);
       }
+    }
+    if (checkedReferences.length > 0) {
+      await this.assertReferencesExistInSource(checkedReferences, entity);
     }
     return allReferencesExist;
   }
 
-  private async assertReferenceExistsInSource(
-    referenceId: EntityReference,
+  /** Assert that all `referenceIds` exist in the source iModel, batching the existence
+   * queries by entity type and caching positive results for the rest of the run.
+   */
+  private async assertReferencesExistInSource(
+    referenceIds: EntityReference[],
     entity: ConcreteEntity
   ) {
-    const referencedExistsInSource = await EntityUnifier.exists(this.sourceDb, {
-      entityReference: referenceId,
-    });
-    if (!referencedExistsInSource) {
-      ITwinError.throwError({
-        iTwinErrorId: {
-          scope: IModelTransformerErrorScope,
-          key: IModelTransformerError.DanglingReference,
-        },
-        message: [
-          `Found a reference to an element "${referenceId}" that doesn't exist while looking for references of "${entity.id}".`,
-          "This must have been caused by an upstream application that changed the iModel.",
-          "You can set the IModelTransformOptions.danglingReferencesBehavior option to 'ignore' to ignore this,",
-          `and the referenceId found on "${entity.id}" will not be carried over to corresponding target element.`,
-        ].join("\n"),
-      });
+    const found = await this._cloneContext.existenceCache.existsAll(
+      this.sourceDb,
+      referenceIds
+    );
+    for (const referenceId of referenceIds) {
+      if (!found.has(referenceId)) {
+        ITwinError.throwError({
+          iTwinErrorId: {
+            scope: IModelTransformerErrorScope,
+            key: IModelTransformerError.DanglingReference,
+          },
+          message: [
+            `Found a reference to an element "${referenceId}" that doesn't exist while looking for references of "${entity.id}".`,
+            "This must have been caused by an upstream application that changed the iModel.",
+            "You can set the IModelTransformOptions.danglingReferencesBehavior option to 'ignore' to ignore this,",
+            `and the referenceId found on "${entity.id}" will not be carried over to corresponding target element.`,
+          ].join("\n"),
+        });
+      }
     }
   }
 
   /** Cause the specified Element and its child Elements (if applicable) to be exported from the source iModel and imported into the target iModel.
    * @param sourceElementId Identifies the Element from the source iModel to import.
    * @note This method is called from [[process]], so it only needs to be called directly when processing a subset of an iModel.
+   * @note After composing subset processing calls, call [[IModelImporter.finalize]] before saving target changes.
    */
   public async processElement(sourceElementId: Id64String): Promise<void> {
     await this.initialize();
@@ -1171,6 +1188,7 @@ export class IModelTransformer extends IModelExportHandler {
   /** Import child elements into the target IModelDb
    * @param sourceElementId Import the child elements of this element in the source IModelDb.
    * @note This method is called from [[process]], so it only needs to be called directly when processing a subset of an iModel.
+   * @note After composing subset processing calls, call [[IModelImporter.finalize]] before saving target changes.
    */
   public async processChildElements(
     sourceElementId: Id64String
@@ -1275,7 +1293,7 @@ export class IModelTransformer extends IModelExportHandler {
         id,
         ConcreteEntityTypes.Model
       );
-      return EntityUnifier.exists(db, { entityReference: maybeModelId });
+      return this._cloneContext.existenceCache.exists(db, maybeModelId);
     };
     const isSubModeled = await dbHasModel(this.sourceDb, elementId);
     const idOfElemInTarget = this.context.findTargetElementId(elementId);
@@ -1444,6 +1462,15 @@ export class IModelTransformer extends IModelExportHandler {
       );
     }
     this.context.remapElement(sourceElement.id, targetElementProps.id);
+    if (this.sourceDb === this.targetDb) {
+      this._cloneContext.existenceCache.markExists(
+        this.targetDb,
+        EntityReferences.fromEntityType(
+          targetElementProps.id,
+          ConcreteEntityTypes.Element
+        )
+      );
+    }
 
     // the transformer does not currently 'split' or 'join' any elements, therefore, it does not
     // insert external source aspects because federation guids are sufficient for this.
@@ -1528,6 +1555,13 @@ export class IModelTransformer extends IModelExportHandler {
       throw new Error("targetModelProps.id should be assigned by now");
     }
 
+    this._cloneContext.existenceCache.markExists(
+      this.targetDb,
+      EntityReferences.fromEntityType(
+        targetModelProps.id,
+        ConcreteEntityTypes.Model
+      )
+    );
     this._targetModelsImportedInCurrentTransform.add(targetModelProps.id);
   }
 
@@ -1609,6 +1643,7 @@ export class IModelTransformer extends IModelExportHandler {
   /** Cause the model container, contents, and sub-models to be exported from the source iModel and imported into the target iModel.
    * @param sourceModeledElementId Import this [Model]($backend) from the source IModelDb.
    * @note This method is called from [[process]], so it only needs to be called directly when processing a subset of an iModel.
+   * @note After composing subset processing calls, call [[IModelImporter.finalize]] before saving target changes.
    */
   public async processModel(sourceModeledElementId: Id64String): Promise<void> {
     await this.initialize();
@@ -1622,6 +1657,7 @@ export class IModelTransformer extends IModelExportHandler {
    * @param targetModelId Import into this model in the target IModelDb. The target model must exist prior to this call.
    * @param elementClassFullName Optional classFullName of an element subclass to limit import query against the source model.
    * @note This method is called from [[process]], so it only needs to be called directly when processing a subset of an iModel.
+   * @note After composing subset processing calls, call [[IModelImporter.finalize]] before saving target changes.
    */
   public async processModelContents(
     sourceModelId: Id64String,
@@ -1709,9 +1745,10 @@ export class IModelTransformer extends IModelExportHandler {
     return targetModelProps;
   }
 
-  // FIXME<MIKE>: is this necessary when manually using low level transform APIs? (document if so)
+  /** Complete a high-level transformation after all export operations finish. */
   private async finalizeTransformation() {
     this.importer.finalize();
+    this._cloneContext.existenceCache.clear();
     await this.updateSynchronizationVersion({
       initializeReverseSyncVersion: this._isProvenanceInitTransform,
     });
@@ -1733,6 +1770,7 @@ export class IModelTransformer extends IModelExportHandler {
   /** Imports all relationships that subclass from the specified base class.
    * @param baseRelClassFullName The specified base relationship class.
    * @note This method is called from [[process]], so it only needs to be called directly when processing a subset of an iModel.
+   * @note After composing subset processing calls, call [[IModelImporter.finalize]] before saving target changes.
    */
   public async processRelationships(
     baseRelClassFullName: string
@@ -2072,7 +2110,9 @@ export class IModelTransformer extends IModelExportHandler {
     this._cloneContext.importCodeSpec(sourceCodeSpec.id);
   }
 
-  /** Recursively import all Elements and sub-Models that descend from the specified Subject */
+  /** Recursively import all Elements and sub-Models that descend from the specified Subject.
+   * @note After composing subset processing calls, call [[IModelImporter.finalize]] before saving target changes.
+   */
   public async processSubject(
     sourceSubjectId: Id64String,
     targetSubjectId: Id64String
