@@ -351,7 +351,7 @@ describe("IModelImporter", () => {
           classFullName: "BisCore:Subject",
           model: IModel.repositoryModelId,
           code: Code.createEmpty(),
-        } as any),
+        }),
         IModelTransformerError.ElementIdRequired,
         "elementProps.id must be defined during a preserveIds operation"
       );
@@ -361,7 +361,7 @@ describe("IModelImporter", () => {
           classFullName: "BisCore:SubCategory",
           model: IModel.dictionaryId,
           code: Code.createEmpty(),
-        } as any),
+        }),
         IModelTransformerError.InvalidSubCategory,
         "subcategory had invalid id"
       );
@@ -371,7 +371,7 @@ describe("IModelImporter", () => {
           classFullName: "BisCore:SubCategory",
           model: IModel.dictionaryId,
           code: Code.createEmpty(),
-        } as any),
+        }),
         IModelTransformerError.InvalidSubCategory,
         "subcategory with id 0x123 had no parent"
       );

@@ -134,7 +134,7 @@ describe("ElementAspectExportProcessor", () => {
                 txn.insertAspect({
                   classFullName,
                   element: new ElementOwnsMultiAspects(id),
-                } as ElementAspectProps);
+                });
               }
             }
           }

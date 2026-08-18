@@ -30,7 +30,7 @@ import {
 } from "@itwin/core-backend";
 import { EntityClass } from "@itwin/ecschema-metadata";
 import { ECReferenceTypesCache } from "./ECReferenceTypesCache";
-import { EntityUnifier } from "./EntityUnifier";
+import { EntityExistenceCache } from "./EntityExistenceCache";
 import { TransformerLoggerCategory } from "./TransformerLoggerCategory";
 import { BigMap } from "./BigMap";
 import type { IModelTransformContext } from "./IModelTransformContext";
@@ -46,6 +46,11 @@ export class IModelCloneContext
 {
   private _refTypesCache = new ECReferenceTypesCache();
   private _aspectRemapTable = new BigMap<Id64String>();
+
+  /** A positive-only cache of entity existence checks, scoped to the current transformation run.
+   * @internal
+   */
+  public readonly existenceCache = new EntityExistenceCache();
 
   /** perform necessary initialization to use a clone context, namely caching the reference types in the source's schemas */
   public override async initialize() {
@@ -187,11 +192,7 @@ export class IModelCloneContext
           }
           // Check if the model exists, `findTargetElementId` may have worked because the element exists when the model doesn't.
           // That can occur in the transformer since a submodeled element is imported before its submodel.
-          if (
-            await EntityUnifier.exists(this.targetDb, {
-              entityReference: targetId,
-            })
-          )
+          if (await this.existenceCache.exists(this.targetDb, targetId))
             return targetId;
           break;
         }

@@ -19,8 +19,10 @@ import { resolveBenchmarkRunFromEnvironment } from "../framework/BenchmarkResolu
 import {
   ComparisonArm,
   ComparisonReporter,
+  ComparisonSample,
   ComparisonSummary,
 } from "./ComparisonReport.js";
+import { isIModelInventory } from "../fixtures/IModelInventory.js";
 
 export const defaultComparisonMeasuredSamples = 3;
 export const defaultInformationalThresholdPercent = 5;
@@ -61,7 +63,7 @@ export interface ArmExecutionRequest {
 
 export type ArmExecutor = (
   request: ArmExecutionRequest
-) => Promise<BenchmarkSample>;
+) => Promise<ComparisonSample>;
 
 export interface FixtureArtifactBuildRequest {
   readonly artifactDirectory: string;
@@ -117,6 +119,15 @@ export function comparisonArmWorkerPath(rootDirectory: string): string {
   );
 }
 
+function isStringRecord(value: unknown): boolean {
+  return (
+    value !== null &&
+    typeof value === "object" &&
+    !Array.isArray(value) &&
+    Object.values(value).every((entry) => typeof entry === "string")
+  );
+}
+
 function isBenchmarkSample(value: unknown): value is BenchmarkSample {
   if (value === null || typeof value !== "object") return false;
   const sample = value as Record<string, unknown>;
@@ -130,7 +141,11 @@ function isBenchmarkSample(value: unknown): value is BenchmarkSample {
     typeof sample.sample === "number" &&
     typeof sample.wallMilliseconds === "number" &&
     typeof sample.fixtureVersion === "number" &&
+    (sample.fixtureInventory === undefined ||
+      isIModelInventory(sample.fixtureInventory)) &&
     typeof sample.reportSchemaVersion === "number" &&
+    (sample.scenarioConfiguration === undefined ||
+      isStringRecord(sample.scenarioConfiguration)) &&
     typeof sample.topology === "string" &&
     sample.fixtureGenerator !== null &&
     typeof sample.fixtureGenerator === "object" &&
@@ -145,6 +160,12 @@ function isBenchmarkSample(value: unknown): value is BenchmarkSample {
     typeof (sample.transformerProvenance as Record<string, unknown>).version ===
       "string"
   );
+}
+
+function isComparisonSample(value: unknown): value is ComparisonSample {
+  if (!isBenchmarkSample(value)) return false;
+  const peakRssBytes = (value as ComparisonSample).workerPeakRssBytes;
+  return Number.isFinite(peakRssBytes) && peakRssBytes > 0;
 }
 
 interface WorkerProcessResult {
@@ -203,7 +224,7 @@ async function runWorkerProcess(
         }${output.length === 0 ? "" : `: ${output}`}`
       );
     };
-    const settle = (action: () => void) => {
+    const settle = (action: () => void): void => {
       if (settled) return;
       settled = true;
       clearTimeout(timeout);
@@ -263,7 +284,7 @@ export async function executeArmProcess(
   request: ArmExecutionRequest,
   terminationGraceMilliseconds = defaultWorkerTerminationGraceMilliseconds,
   forcedTerminationConfirmationMilliseconds = defaultForcedTerminationConfirmationMilliseconds
-): Promise<BenchmarkSample> {
+): Promise<ComparisonSample> {
   const resultFile = path.join(request.outputDir, "sample-result.json");
   fs.mkdirSync(request.outputDir, { recursive: true });
   const processResult = await runWorkerProcess(
@@ -290,7 +311,7 @@ export async function executeArmProcess(
       `${request.arm} sample ${request.sample} process did not write a result`
     );
   const parsed: unknown = JSON.parse(fs.readFileSync(resultFile, "utf8"));
-  if (!isBenchmarkSample(parsed))
+  if (!isComparisonSample(parsed))
     throw new Error(
       `${request.arm} sample ${request.sample} process wrote an invalid result`
     );
@@ -398,7 +419,7 @@ export async function runComparison(
     scenarioId: options.scenarioId,
     workerTimeoutMilliseconds,
   });
-  const samples: Record<ComparisonArm, BenchmarkSample[]> = {
+  const samples: Record<ComparisonArm, ComparisonSample[]> = {
     baseline: [],
     candidate: [],
   };

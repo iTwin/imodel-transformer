@@ -10,6 +10,7 @@ import * as inspector from "node:inspector";
 import {
   CompressedId64Set,
   Guid,
+  GuidString,
   Id64,
   Id64Set,
   Id64String,
@@ -84,7 +85,6 @@ import {
   Placement3d,
   QueryBinder,
   QueryRowFormat,
-  SkyBoxImageProps,
   SkyBoxImageType,
   SpatialViewDefinitionProps,
   SubCategoryAppearance,
@@ -732,8 +732,7 @@ export async function assertIdentityTransformation(
           | undefined;
         if (styles?.environment?.sky) {
           const sky = styles.environment.sky;
-          if (!sky.image)
-            sky.image = { type: SkyBoxImageType.None } as SkyBoxImageProps;
+          if (!sky.image) sky.image = { type: SkyBoxImageType.None };
 
           const image = sky.image;
           if (image?.texture === Id64.invalid)
@@ -2420,7 +2419,9 @@ export class IModelToTextFileExporter extends IModelExportHandler {
   }
   public override async onExportRelationship(
     relationship: Relationship,
-    isUpdate: boolean | undefined
+    isUpdate: boolean | undefined,
+    sourceFedGuid?: GuidString,
+    targetFedGuid?: GuidString
   ): Promise<void> {
     if (this._firstRelationship) {
       this.writeSeparator();
@@ -2431,7 +2432,12 @@ export class IModelToTextFileExporter extends IModelExportHandler {
         relationship.id
       }${this.formatOperationName(isUpdate)}`
     );
-    await super.onExportRelationship(relationship, isUpdate);
+    await super.onExportRelationship(
+      relationship,
+      isUpdate,
+      sourceFedGuid,
+      targetFedGuid
+    );
   }
   public override async onDeleteRelationship(
     relInstanceId: Id64String
@@ -2550,13 +2556,20 @@ export class ClassCounter extends IModelExportHandler {
   }
   public override async onExportRelationship(
     relationship: Relationship,
-    isUpdate: boolean | undefined
+    isUpdate: boolean | undefined,
+    sourceFedGuid?: GuidString,
+    targetFedGuid?: GuidString
   ): Promise<void> {
     this.incrementClassCount(
       this._relationshipClassCounts,
       relationship.classFullName
     );
-    await super.onExportRelationship(relationship, isUpdate);
+    await super.onExportRelationship(
+      relationship,
+      isUpdate,
+      sourceFedGuid,
+      targetFedGuid
+    );
   }
 }
 

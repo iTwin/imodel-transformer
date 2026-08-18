@@ -19,12 +19,13 @@
     "@itwin/build-tools": "^5.10.3",
     "@itwin/core-backend": "^5.10.3",
     "@itwin/core-bentley": "^5.10.3",
-    "@itwin/eslint-plugin": "^5.2.1",
+    "@itwin/eslint-plugin": "^6.1.0",
     "@types/node": "22.18.12",
+    "@typescript/native": "npm:typescript@~7.0.2",
     "eslint": "^9.36.0",
     "prettier": "^3.6.2",
     "rimraf": "^3.0.2",
-    "typescript": "^5.9.3"
+    "typescript": "npm:@typescript/typescript6@~6.0.2"
   },
   "eslintConfig": {
     "plugins": [

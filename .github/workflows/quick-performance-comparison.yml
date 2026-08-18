@@ -3,12 +3,38 @@ name: Quick performance A/B
 on:
   pull_request:
     branches: [main]
+  workflow_dispatch:
+    inputs:
+      scenario:
+        description: Quick performance scenario
+        required: true
+        default: incremental-synchronization
+        type: choice
+        options:
+          - incremental-synchronization
+          - changeset-scanning
+          - schema-processing
+          - standalone-full-transformation
+      fixture:
+        description: Fixture id (blank uses the scenario's default)
+        required: false
+        type: string
+      baseline_ref:
+        description: Baseline branch, tag, or commit
+        required: true
+        default: main
+        type: string
+      samples:
+        description: Measured samples per arm
+        required: true
+        default: 40
+        type: number
 
 permissions:
   contents: read
 
 concurrency:
-  group: quick-performance-ab-${{ github.event.pull_request.number }}
+  group: quick-performance-ab-${{ github.event.pull_request.number || github.run_id }}
   cancel-in-progress: true
 
 jobs:
@@ -20,23 +46,30 @@ jobs:
       - name: Checkout candidate
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
         with:
-          repository: ${{ github.event.pull_request.head.repo.full_name }}
-          ref: ${{ github.event.pull_request.head.sha }}
+          repository: ${{ github.event.pull_request.head.repo.full_name || github.repository }}
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
           path: candidate
           persist-credentials: false
 
       - name: Checkout baseline
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
         with:
-          repository: ${{ github.event.pull_request.base.repo.full_name }}
-          ref: ${{ github.event.pull_request.base.sha }}
+          repository: ${{ github.event.pull_request.base.repo.full_name || github.repository }}
+          ref: ${{ github.event.pull_request.base.sha || inputs.baseline_ref }}
           path: baseline
           persist-credentials: false
+
+      - name: Resolve revisions
+        id: revisions
+        shell: bash
+        run: |
+          echo "candidate=$(git -C candidate rev-parse HEAD)" >> "${GITHUB_OUTPUT}"
+          echo "baseline=$(git -C baseline rev-parse HEAD)" >> "${GITHUB_OUTPUT}"
 
       - name: Install pnpm
         uses: pnpm/action-setup@0e279bb959325dab635dd2c09392533439d90093
         with:
-          version: 11.9.0
+          package_json_file: candidate/package.json
 
       - name: Use Node.js 24
         uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e
@@ -79,15 +112,16 @@ jobs:
           node
           candidate/packages/performance-tests/test/quick/runtime/.compiled/quick/src/cli/comparisonCli.js
         env:
-          QUICK_PERF_BASELINE_REVISION: ${{ github.event.pull_request.base.sha }}
+          QUICK_PERF_BASELINE_REVISION: ${{ steps.revisions.outputs.baseline }}
           QUICK_PERF_BASELINE_ROOT: ${{ github.workspace }}/baseline
-          QUICK_PERF_CANDIDATE_REVISION: ${{ github.event.pull_request.head.sha }}
+          QUICK_PERF_CANDIDATE_REVISION: ${{ steps.revisions.outputs.candidate }}
           QUICK_PERF_CANDIDATE_ROOT: ${{ github.workspace }}/candidate
           QUICK_PERF_COMPARISON_OUTPUT: ${{ runner.temp }}/quick-performance-comparison
-          QUICK_PERF_COMPARISON_SAMPLES: 3
+          QUICK_PERF_COMPARISON_SAMPLES: ${{ inputs.samples || 3 }}
           QUICK_PERF_COMPARISON_THRESHOLD_PERCENT: 5
           QUICK_PERF_COMPARISON_WORKER_TIMEOUT_SECONDS: 600
-          QUICK_PERF_SCENARIO: incremental-synchronization
+          QUICK_PERF_SCENARIO: ${{ inputs.scenario || 'incremental-synchronization' }}
+          QUICK_PERF_FIXTURE: ${{ inputs.fixture }}
 
       - name: Annotate concerning performance
         shell: bash
@@ -105,7 +139,7 @@ jobs:
             process.exit(0);
 
           const delta = `${summary.percentageDelta >= 0 ? "+" : ""}${summary.percentageDelta.toFixed(2)}%`;
-          const message = `Candidate median is ${delta} relative to baseline, beyond the ${summary.policy.informationalThresholdPercent}% informational threshold. This warning is not a statistical-confidence or merge-blocking result.`;
+          const message = `Candidate wall-time median is ${delta} relative to baseline, beyond the ${summary.policy.informationalThresholdPercent}% informational threshold. Peak worker RSS is reported separately and does not affect this warning. This warning is not a statistical-confidence or merge-blocking result.`;
           console.log(`::warning title=Quick performance informational threshold::${message}`);
           fs.appendFileSync(
             process.env.GITHUB_STEP_SUMMARY,

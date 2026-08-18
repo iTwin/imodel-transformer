@@ -1,6 +1,6 @@
 {
   "name": "@itwin/imodel-transformer",
-  "version": "2.0.0-dev.46",
+  "version": "2.0.0-dev.50",
   "description": "API for exporting an iModel's parts and also importing them into another iModel",
   "main": "lib/cjs/imodel-transformer.js",
   "typings": "lib/cjs/imodel-transformer.d.ts",
@@ -105,12 +105,12 @@
     "@itwin/ecschema-editing": "5.10.3",
     "@itwin/ecschema-locaters": "5.10.3",
     "@itwin/ecschema-metadata": "^5.10.3",
-    "@itwin/eslint-plugin": "^5.2.1",
+    "@itwin/eslint-plugin": "^6.1.0",
     "@itwin/imodel-transformer-test-utils": "workspace:*",
     "@types/node": "^22.18.8",
     "@types/node-fetch": "^2.6.13",
     "@types/semver": "^7.7.1",
-    "@typescript-eslint/parser": "^8.45.0",
+    "@typescript-eslint/parser": "^8.64.0",
     "@vitest/coverage-v8": "4.1.10",
     "cross-env": "^5.2.1",
     "eslint": "^9.36.0",
@@ -119,7 +119,8 @@
     "npm-run-all": "^4.1.5",
     "prettier": "^3.6.2",
     "rimraf": "^3.0.2",
-    "typescript": "^5.9.3",
+    "@typescript/native": "npm:typescript@~7.0.2",
+    "typescript": "npm:@typescript/typescript6@~6.0.2",
     "vitest": "4.1.10"
   },
   "dependencies": {

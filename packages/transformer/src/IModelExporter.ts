@@ -27,24 +27,29 @@ import {
 } from "@itwin/core-backend";
 import {
   assert,
+  GuidString,
   Id64,
   Id64Arg,
   Id64Set,
   Id64String,
   IModelStatus,
   ITwinError,
+  JsonUtils,
   Logger,
   YieldManager,
 } from "@itwin/core-bentley";
 import {
+  Base64EncodedString,
   ChangesetFileProps,
   CodeSpec,
+  ECJsNames,
   FontFamilyDescriptor,
   FontId,
   FontProps,
   IModel,
   IModelError,
   QueryBinder,
+  RelationshipProps,
 } from "@itwin/core-common";
 import { ECVersion, Schema, SchemaKey } from "@itwin/ecschema-metadata";
 import { TransformerLoggerCategory } from "./TransformerLoggerCategory";
@@ -243,11 +248,15 @@ export abstract class IModelExportHandler {
   /** Called when a Relationship should be exported.
    * @param relationship The Relationship to export
    * @param isUpdate If defined, then `true` indicates an UPDATE operation while `false` indicates an INSERT operation. If not defined, then INSERT vs. UPDATE is not known.
+   * @param sourceFedGuid The FederationGuid of the relationship's source endpoint, if available.
+   * @param targetFedGuid The FederationGuid of the relationship's target endpoint, if available.
    * @note This should be overridden to actually do the export.
    */
   public async onExportRelationship(
     _relationship: Relationship,
-    _isUpdate: boolean | undefined
+    _isUpdate: boolean | undefined,
+    _sourceFedGuid?: GuidString,
+    _targetFedGuid?: GuidString
   ): Promise<void> {}
 
   /** Called when a relationship should be deleted. */
@@ -1397,6 +1406,7 @@ export class IModelExporter {
 
   /** Exports all relationships that subclass from the specified base class.
    * @note This method is called from [[exportChanges]] and [[exportAll]], so it only needs to be called directly when exporting a subset of an iModel.
+   * @note This is the bulk traversal path. It hydrates relationships with one streaming query and calls [[exportRelationshipInstance]] directly; it does not call [[exportRelationship]] once per row.
    */
   public async exportRelationships(
     baseRelClassFullName: string
@@ -1412,21 +1422,166 @@ export class IModelExporter {
       loggerCategory,
       `exportRelationships(${baseRelClassFullName})`
     );
-    const sql = `SELECT r.ECInstanceId, ec_className(r.ECClassId, 's.c') as className FROM ${baseRelClassFullName} r
-                  JOIN bis.Element s ON s.ECInstanceId = r.SourceECInstanceId
-                  JOIN bis.Element t ON t.ECInstanceId = r.TargetECInstanceId
-                  WHERE s.ECInstanceId IS NOT NULL AND t.ECInstanceId IS NOT NULL`;
-    for await (const row of this.sourceDb.createQueryReader(sql, undefined, {
-      usePrimaryConn: true,
-    })) {
-      const relationshipId = row.id;
-      const relationshipClass = row.className;
-      await this.exportRelationship(relationshipClass, relationshipId); // must call exportRelationship using the actual classFullName, not baseRelClassFullName
-      await this._yieldManager.allowYield();
+
+    const changedRelationshipIds =
+      this._sourceDbChanges === undefined
+        ? undefined
+        : new Set<Id64String>([
+            ...this._sourceDbChanges.relationship.insertIds,
+            ...this._sourceDbChanges.relationship.updateIds,
+          ]);
+    if (changedRelationshipIds?.size === 0) {
+      // Deleted relationships are handled by exportChanges after this traversal; they are no
+      // longer present in the source iModel and must not cause a full relationship scan here.
+      Logger.logTrace(
+        loggerCategory,
+        "No inserted or updated relationships, skipping exportRelationships()"
+      );
+      return;
+    }
+
+    const changedRelationshipJoin =
+      changedRelationshipIds === undefined
+        ? undefined
+        : "INNER JOIN IdSet(:changedRelationshipIds) changed ON changed.id = r.ECInstanceId";
+    const relationshipWhereClause =
+      "s.ECInstanceId IS NOT NULL AND t.ECInstanceId IS NOT NULL";
+    // Bound the async reader's retained raw rows while preserving batched query throughput.
+    // Keyset pagination avoids rescanning rows returned by earlier batches.
+    const relationshipQueryBatchSize = 1000;
+    let lastRelationshipId: Id64String | undefined;
+    while (true) {
+      let rowsRead = 0;
+      const whereClause =
+        lastRelationshipId === undefined
+          ? relationshipWhereClause
+          : `${relationshipWhereClause} AND r.ECInstanceId > :lastRelationshipId`;
+      // QueryBinder parameters are immutable after binding a name. Recreate the binder for each
+      // keyset page so the changing boundary can be bound without redefining a property.
+      const queryParams =
+        changedRelationshipIds === undefined && lastRelationshipId === undefined
+          ? undefined
+          : new QueryBinder();
+      if (queryParams !== undefined) {
+        if (changedRelationshipIds !== undefined) {
+          queryParams.bindIdSet(
+            "changedRelationshipIds",
+            changedRelationshipIds
+          );
+        }
+        if (lastRelationshipId !== undefined) {
+          queryParams.bindId("lastRelationshipId", lastRelationshipId);
+        }
+      }
+      const reader = this.sourceDb.createQueryReader(
+        this.getRelationshipQuery(
+          baseRelClassFullName,
+          "JOIN",
+          whereClause,
+          changedRelationshipJoin
+        ),
+        queryParams,
+        {
+          usePrimaryConn: true,
+          limit: { count: relationshipQueryBatchSize },
+        }
+      );
+      for await (const row of reader) {
+        rowsRead++;
+        const relInstanceId: Id64String = row.relInstanceId;
+        lastRelationshipId = relInstanceId;
+        const changesetFilter =
+          this.checkRelationshipChangesetFilter(relInstanceId);
+        if (changesetFilter.skip) {
+          await this._yieldManager.allowYield();
+          continue;
+        }
+        await this.exportHydratedRelationship(
+          row.rawInstance,
+          row.sourceFedGuid,
+          row.targetFedGuid,
+          changesetFilter.isUpdate
+        );
+        await this._yieldManager.allowYield();
+      }
+      if (rowsRead < relationshipQueryBatchSize) break;
     }
   }
 
-  /** Export a relationship from the source iModel. */
+  /** Builds the raw relationship query used by the bulk and targeted export paths. */
+  private getRelationshipQuery(
+    relClassFullName: string,
+    endpointJoin: "JOIN" | "LEFT JOIN",
+    whereClause: string,
+    relationshipJoin?: string
+  ): string {
+    return `SELECT r.$ AS rawInstance, r.ECInstanceId AS relInstanceId, s.FederationGuid AS sourceFedGuid, t.FederationGuid AS targetFedGuid FROM ${relClassFullName} r
+                  ${relationshipJoin ?? ""}
+                  ${endpointJoin} bis.Element s ON s.ECInstanceId = r.SourceECInstanceId
+                  ${endpointJoin} bis.Element t ON t.ECInstanceId = r.TargetECInstanceId
+                  WHERE ${whereClause}
+                  ORDER BY r.ECInstanceId
+                  OPTIONS USE_JS_PROP_NAMES DO_NOT_TRUNCATE_BLOB`;
+  }
+
+  /** Applies the changeset filter (when exporting changes) to a relationship instance id.
+   * @returns whether to skip the relationship, and whether the export is an update.
+   */
+  private checkRelationshipChangesetFilter(relInstanceId: Id64String): {
+    skip: boolean;
+    isUpdate: boolean | undefined;
+  } {
+    if (undefined === this._sourceDbChanges)
+      return { skip: false, isUpdate: undefined };
+    if (this._sourceDbChanges.relationship.insertIds.has(relInstanceId))
+      return { skip: false, isUpdate: false };
+    if (this._sourceDbChanges.relationship.updateIds.has(relInstanceId))
+      return { skip: false, isUpdate: true };
+    return { skip: true, isUpdate: undefined }; // not in changeset, don't export
+  }
+
+  /** Converts a raw `$` instance-access row into [RelationshipProps]($common). */
+  private getRelationshipProps(rawInstance: unknown): RelationshipProps {
+    const parsedRow: unknown =
+      typeof rawInstance === "string"
+        ? JSON.parse(rawInstance, Base64EncodedString.reviver)
+        : rawInstance;
+    if (!JsonUtils.isObject(parsedRow))
+      ITwinError.throwError({
+        iTwinErrorId: {
+          scope: IModelTransformerErrorScope,
+          key: IModelTransformerError.InvalidRelationshipData,
+        },
+        message: "Expected a Relationship instance query to return an object",
+      });
+
+    const row: Record<string, unknown> = {};
+    for (const [key, value] of Object.entries(parsedRow)) {
+      const ecPropertyName =
+        key.length === 0 ? key : key[0].toUpperCase() + key.substring(1);
+      row[ECJsNames.toJsName(ecPropertyName)] = value;
+    }
+
+    const className = row.className;
+    if (typeof className !== "string")
+      ITwinError.throwError({
+        iTwinErrorId: {
+          scope: IModelTransformerErrorScope,
+          key: IModelTransformerError.InvalidRelationshipData,
+        },
+        message: "Expected a Relationship instance query to return a className",
+      });
+
+    row.classFullName = className.replace(".", ":");
+    delete row.className;
+    delete row.sourceClassName;
+    delete row.targetClassName;
+    return row as unknown as RelationshipProps;
+  }
+
+  /** Export one specified relationship from the source iModel.
+   * @note This targeted path is separate from [[exportRelationships]], which traverses a class hierarchy. It uses the same raw instance query and passes endpoint FederationGuids to the handler.
+   */
   public async exportRelationship(
     relClassFullName: string,
     relInstanceId: Id64String
@@ -1438,27 +1593,80 @@ export class IModelExporter {
       );
       return;
     }
-    let isUpdate: boolean | undefined;
-    if (undefined !== this._sourceDbChanges) {
-      // is changeset information available?
-      if (this._sourceDbChanges.relationship.insertIds.has(relInstanceId)) {
-        isUpdate = false;
-      } else if (
-        this._sourceDbChanges.relationship.updateIds.has(relInstanceId)
-      ) {
-        isUpdate = true;
-      } else {
-        return; // not in changeset, don't export
-      }
-    }
-    // passed changeset test, now apply standard exclusion rules
-    Logger.logTrace(
-      loggerCategory,
-      `exportRelationship(${relClassFullName}, ${relInstanceId})`
+    const changesetFilter =
+      this.checkRelationshipChangesetFilter(relInstanceId);
+    if (changesetFilter.skip) return;
+
+    const queryParams = new QueryBinder().bindId(
+      "relInstanceId",
+      relInstanceId
     );
+    const reader = this.sourceDb.createQueryReader(
+      this.getRelationshipQuery(
+        relClassFullName,
+        "LEFT JOIN",
+        "r.ECInstanceId = :relInstanceId"
+      ),
+      queryParams,
+      { usePrimaryConn: true }
+    );
+    if (await reader.step()) {
+      const row = reader.current;
+      await this.exportHydratedRelationship(
+        row.rawInstance,
+        row.sourceFedGuid,
+        row.targetFedGuid,
+        changesetFilter.isUpdate
+      );
+      return;
+    }
+
+    // Preserve the previous not-found behavior if the targeted query returned no row.
     const relationship: Relationship = this.sourceDb.relationships.getInstance(
       relClassFullName,
       relInstanceId
+    );
+    await this.exportRelationshipInstance(
+      relationship,
+      changesetFilter.isUpdate,
+      this.sourceDb.elements.getFederationGuidFromId(relationship.sourceId),
+      this.sourceDb.elements.getFederationGuidFromId(relationship.targetId)
+    );
+  }
+
+  /** Hydrates a relationship query row and runs the common export pipeline. */
+  private async exportHydratedRelationship(
+    rawInstance: unknown,
+    sourceFedGuid: GuidString | null | undefined,
+    targetFedGuid: GuidString | null | undefined,
+    isUpdate: boolean | undefined
+  ): Promise<void> {
+    const relationship = this.sourceDb.constructEntity<Relationship>(
+      this.getRelationshipProps(rawInstance)
+    );
+    await this.exportRelationshipInstance(
+      relationship,
+      isUpdate,
+      sourceFedGuid ?? undefined,
+      targetFedGuid ?? undefined
+    );
+  }
+
+  /** Applies exclusion rules and handler callbacks to an already-hydrated relationship instance.
+   * @param sourceFedGuid The FederationGuid of the relationship's source endpoint, if available.
+   * @param targetFedGuid The FederationGuid of the relationship's target endpoint, if available.
+   * @note This is the common protected hook used by both [[exportRelationship]] and [[exportRelationships]]. Most consumers should customize [[IModelExportHandler]] instead.
+   */
+  protected async exportRelationshipInstance(
+    relationship: Relationship,
+    isUpdate: boolean | undefined,
+    sourceFedGuid?: GuidString,
+    targetFedGuid?: GuidString
+  ): Promise<void> {
+    // passed changeset test, now apply standard exclusion rules
+    Logger.logTrace(
+      loggerCategory,
+      `exportRelationship(${relationship.classFullName}, ${relationship.id})`
     );
     for (const excludedRelationshipClass of this._excludedRelationshipClasses) {
       if (relationship instanceof excludedRelationshipClass) {
@@ -1471,7 +1679,12 @@ export class IModelExporter {
     }
     // relationship has passed standard exclusion rules, now give handler a chance to accept/reject export
     if (await this.handler.shouldExportRelationship(relationship)) {
-      await this.handler.onExportRelationship(relationship, isUpdate);
+      await this.handler.onExportRelationship(
+        relationship,
+        isUpdate,
+        sourceFedGuid,
+        targetFedGuid
+      );
       await this.trackProgress();
     }
   }

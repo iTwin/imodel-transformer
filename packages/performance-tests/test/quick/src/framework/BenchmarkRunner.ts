@@ -15,6 +15,7 @@ import {
 import {
   BenchmarkScenario,
   BenchmarkScenarioDefinition,
+  ScenarioConfiguration,
 } from "./BenchmarkScenario.js";
 import {
   FixtureDescriptor,
@@ -25,6 +26,7 @@ import {
   ConfiguredFixture,
   withExternalFixtureSourceIdentity,
 } from "../fixtures/FixtureRecipe.js";
+import { IModelInventory } from "../fixtures/IModelInventory.js";
 import {
   FixtureArtifactManifest,
   readFixtureArtifact,
@@ -129,6 +131,7 @@ export interface BenchmarkSample {
   readonly cpuUserMilliseconds: number;
   readonly fixtureId: string;
   readonly fixtureGenerator: FixtureDescriptor["generator"];
+  readonly fixtureInventory?: IModelInventory;
   readonly fixtureRecipeHash: string;
   readonly fixtureSource?: FixtureDescriptor["source"];
   readonly fixtureContentHash?: string;
@@ -143,6 +146,7 @@ export interface BenchmarkSample {
   readonly reportSchemaVersion: typeof benchmarkReportSchemaVersion;
   readonly sample: number;
   readonly scenarioId: string;
+  readonly scenarioConfiguration?: ScenarioConfiguration;
   readonly semanticDigest: string;
   readonly teardownMilliseconds: number;
   readonly topology: FixtureTopology;
@@ -384,6 +388,7 @@ export class BenchmarkRunner {
               fixtureGenerator: descriptor.generator,
               fixtureId: descriptor.id,
               fixtureContentHash: built.artifact?.manifest.contentHash,
+              fixtureInventory: built.artifact?.manifest.iModelInventory,
               fixtureRecipeHash: descriptor.recipeHash,
               ...(descriptor.source === undefined
                 ? {}
@@ -396,6 +401,7 @@ export class BenchmarkRunner {
               rssDeltaBytes,
               sample,
               scenarioId: this._scenario.id,
+              scenarioConfiguration: this._scenario.configuration,
               semanticDigest,
               topology: descriptor.layout.topology,
               transformerProvenance,

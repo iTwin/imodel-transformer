@@ -20,16 +20,16 @@ import {
   PhysicalModel,
   PhysicalObject,
   PhysicalPartition,
+  Relationship,
   SnapshotDb,
   SpatialCategory,
   Subject,
   SubjectOwnsPartitionElements,
   withEditTxn,
 } from "@itwin/core-backend";
-import { Id64, Id64String, ITwinError } from "@itwin/core-bentley";
+import { GuidString, Id64, Id64String, ITwinError } from "@itwin/core-bentley";
 import {
   Code,
-  ElementAspectProps,
   ExternalSourceAspectProps,
   GeometryPartProps,
   GeometryStreamBuilder,
@@ -54,6 +54,7 @@ import {
   IModelTransformerErrorScope,
 } from "../../IModelTransformerError";
 import { IModelTransformerTestUtils } from "../IModelTransformerUtils";
+import { ProvenanceManager } from "../../ProvenanceManager";
 import { importElementAspectTestSchema } from "../TestUtils/ElementAspectTestUtils";
 import { createBRepDataProps } from "../TestUtils/GeometryTestUtil";
 import { KnownTestLocations } from "../TestUtils/KnownTestLocations";
@@ -103,6 +104,85 @@ export function deletedElementAspectChangeExample(
   // __PUBLISH_EXTRACT_START__ ElementAspectProcessingExamples_deletedChange.code
   changes.addCustomAspectChange("Deleted", deletedAspectId, owningElementId);
   // __PUBLISH_EXTRACT_END__
+}
+
+async function createBulkRelationshipTestData(fileName: string): Promise<{
+  sourceDb: SnapshotDb;
+  relClassFullName: string;
+  relId: Id64String;
+  sourceElemId: Id64String;
+  targetElemId: Id64String;
+}> {
+  const sourceDbPath = IModelTransformerTestUtils.prepareOutputFile(
+    "IModelExporter",
+    fileName
+  );
+  const sourceDb = SnapshotDb.createEmpty(sourceDbPath, {
+    rootSubject: { name: "bulk-relationship-hydration" },
+  });
+  const relSchemaPath = IModelTransformerTestUtils.prepareOutputFile(
+    "IModelExporter",
+    "BulkRelHydrationSchema.ecschema.xml"
+  );
+  IModelJsFs.writeFileSync(
+    relSchemaPath,
+    `<?xml version="1.0" encoding="UTF-8"?>
+    <ECSchema schemaName="BulkRelHydration" alias="brh" version="01.00" xmlns="http://www.bentley.com/schemas/Bentley.ECXML.3.1">
+      <ECSchemaReference name="BisCore" version="01.00" alias="bis"/>
+      <ECRelationshipClass typeName="RelWithProps" strength="referencing" modifier="None">
+        <BaseClass>bis:ElementRefersToElements</BaseClass>
+        <ECProperty propertyName="myString" typeName="string"/>
+        <ECProperty propertyName="myDouble" typeName="double"/>
+        <Source multiplicity="(0..*)" roleLabel="refers to" polymorphic="true">
+          <Class class="bis:Element"/>
+        </Source>
+        <Target multiplicity="(0..*)" roleLabel="is referenced by" polymorphic="true">
+          <Class class="bis:Element"/>
+        </Target>
+      </ECRelationshipClass>
+    </ECSchema>`
+  );
+  await sourceDb.importSchemas([relSchemaPath]);
+
+  const relClassFullName = "BulkRelHydration:RelWithProps";
+  const { relId, sourceElemId, targetElemId } = withEditTxn(
+    sourceDb,
+    "insert elements and relationship",
+    (txn) => {
+      const categoryId = SpatialCategory.insert(
+        txn,
+        IModel.dictionaryId,
+        "SpatialCategory",
+        new SubCategoryAppearance()
+      );
+      const modelId = PhysicalModel.insert(
+        txn,
+        IModel.rootSubjectId,
+        "PhysicalModel"
+      );
+      const physicalObjectProps: PhysicalElementProps = {
+        classFullName: PhysicalObject.classFullName,
+        model: modelId,
+        category: categoryId,
+        code: Code.createEmpty(),
+      };
+      const insertedSourceElemId = txn.insertElement(physicalObjectProps);
+      const insertedTargetElemId = txn.insertElement(physicalObjectProps);
+      const insertedRelId = txn.insertRelationship({
+        classFullName: relClassFullName,
+        sourceId: insertedSourceElemId,
+        targetId: insertedTargetElemId,
+        myString: "hello",
+        myDouble: 3.14,
+      } as RelationshipProps);
+      return {
+        relId: insertedRelId,
+        sourceElemId: insertedSourceElemId,
+        targetElemId: insertedTargetElemId,
+      };
+    }
+  );
+  return { sourceDb, relClassFullName, relId, sourceElemId, targetElemId };
 }
 
 describe("IModelExporter", () => {
@@ -291,7 +371,7 @@ describe("IModelExporter", () => {
         txn.insertAspect({
           classFullName: "ExporterAspectTest:UniqueAspect",
           element: new ElementOwnsUniqueAspect(id),
-        } as ElementAspectProps);
+        });
         return id;
       });
       const exporter = new IModelExporter(sourceDb);
@@ -922,6 +1002,413 @@ describe("IModelExporter", () => {
       ).to.be.equal(0);
 
       sourceDb.close();
+    });
+
+    it("exports hydrated relationship instances identical to getInstance, with endpoint fedguids passed to the handler", async () => {
+      const { sourceDb, relClassFullName, relId, sourceElemId, targetElemId } =
+        await createBulkRelationshipTestData("BulkRelationshipHydration.bim");
+      try {
+        const exporter = new IModelExporter(sourceDb);
+        const exported: Array<{
+          relationship: Relationship;
+          isUpdate: boolean | undefined;
+          sourceFedGuid?: GuidString;
+          targetFedGuid?: GuidString;
+        }> = [];
+        class CaptureHandler extends IModelExportHandler {
+          public override async onExportRelationship(
+            exportedRelationship: Relationship,
+            exportedIsUpdate: boolean | undefined,
+            handlerSourceFedGuid?: GuidString,
+            handlerTargetFedGuid?: GuidString
+          ): Promise<void> {
+            exported.push({
+              relationship: exportedRelationship,
+              isUpdate: exportedIsUpdate,
+              sourceFedGuid: handlerSourceFedGuid,
+              targetFedGuid: handlerTargetFedGuid,
+            });
+          }
+        }
+        exporter.registerHandler(new CaptureHandler());
+        await exporter.exportRelationships(
+          ElementRefersToElements.classFullName
+        );
+
+        expect(exported.length).to.equal(1);
+        const { relationship, isUpdate, sourceFedGuid, targetFedGuid } =
+          exported[0];
+        expect(isUpdate).to.equal(undefined);
+
+        // the bulk-hydrated instance must match what relationships.getInstance would produce
+        const viaGetInstance = sourceDb.relationships.getInstance(
+          relClassFullName,
+          relId
+        );
+        expect(relationship.toJSON()).to.deep.equal(viaGetInstance.toJSON());
+        expect(relationship.classFullName).to.equal(relClassFullName);
+        expect((relationship as any).myString).to.equal("hello");
+        expect((relationship as any).myDouble).to.equal(3.14);
+
+        // endpoint fedguids captured by the bulk query and passed to the handler must match per-element lookups
+        assert(sourceFedGuid !== undefined);
+        assert(targetFedGuid !== undefined);
+        expect(sourceFedGuid).to.equal(
+          sourceDb.elements.getFederationGuidFromId(sourceElemId)
+        );
+        expect(targetFedGuid).to.equal(
+          sourceDb.elements.getFederationGuidFromId(targetElemId)
+        );
+      } finally {
+        sourceDb.close();
+      }
+    });
+
+    it("passes endpoint fedguids through targeted and changeset relationship exports", async () => {
+      const { sourceDb, relClassFullName, relId, sourceElemId, targetElemId } =
+        await createBulkRelationshipTestData("BulkRelationshipPaths.bim");
+      try {
+        const viaGetInstance = sourceDb.relationships.getInstance(
+          relClassFullName,
+          relId
+        );
+        const directExporter = new IModelExporter(sourceDb);
+        let directRelationship: Relationship | undefined;
+        let directSourceFedGuid: GuidString | undefined;
+        let directTargetFedGuid: GuidString | undefined;
+        directExporter.registerHandler(
+          new (class extends IModelExportHandler {
+            public override async onExportRelationship(
+              exportedRelationship: Relationship,
+              _isUpdate: boolean | undefined,
+              sourceFedGuid?: GuidString,
+              targetFedGuid?: GuidString
+            ): Promise<void> {
+              directRelationship = exportedRelationship;
+              directSourceFedGuid = sourceFedGuid;
+              directTargetFedGuid = targetFedGuid;
+            }
+          })()
+        );
+        const getInstance = vi.spyOn(sourceDb.relationships, "getInstance");
+        await directExporter.exportRelationship(relClassFullName, relId);
+        expect(getInstance).not.toHaveBeenCalled();
+        getInstance.mockRestore();
+
+        expect(directRelationship?.toJSON()).to.deep.equal(
+          viaGetInstance.toJSON()
+        );
+        expect(directSourceFedGuid).to.equal(
+          sourceDb.elements.getFederationGuidFromId(sourceElemId)
+        );
+        expect(directTargetFedGuid).to.equal(
+          sourceDb.elements.getFederationGuidFromId(targetElemId)
+        );
+
+        const changedExporter = new IModelExporter(sourceDb);
+        const changed = new ChangedInstanceIds(sourceDb);
+        changed.relationship.insertIds.add(relId);
+        changedExporter["_sourceDbChanges"] = changed;
+        changedExporter.registerHandler(
+          new (class extends IModelExportHandler {})()
+        );
+        const changedQueryReader = vi.spyOn(sourceDb, "createQueryReader");
+        await changedExporter.exportRelationships(
+          ElementRefersToElements.classFullName
+        );
+        expect(changedQueryReader.mock.calls[0][0]).toContain(
+          "INNER JOIN IdSet(:changedRelationshipIds)"
+        );
+        changedQueryReader.mockRestore();
+
+        class HookExporter extends IModelExporter {
+          public hookCalls = 0;
+
+          protected override async exportRelationshipInstance(
+            exportedRelationship: Relationship,
+            exportedIsUpdate: boolean | undefined,
+            sourceFedGuid?: GuidString,
+            targetFedGuid?: GuidString
+          ): Promise<void> {
+            this.hookCalls++;
+            await super.exportRelationshipInstance(
+              exportedRelationship,
+              exportedIsUpdate,
+              sourceFedGuid,
+              targetFedGuid
+            );
+          }
+        }
+        const hookExporter = new HookExporter(sourceDb);
+        hookExporter.registerHandler(
+          new (class extends IModelExportHandler {})()
+        );
+        await hookExporter.exportRelationships(
+          ElementRefersToElements.classFullName
+        );
+        await hookExporter.exportRelationship(relClassFullName, relId);
+        expect(hookExporter.hookCalls).to.equal(2);
+      } finally {
+        sourceDb.close();
+      }
+    });
+
+    it("uses keyset pagination for large relationship exports", async () => {
+      const sourceDbPath = IModelTransformerTestUtils.prepareOutputFile(
+        "IModelExporter",
+        "KeysetRelationshipPagination.bim"
+      );
+      const sourceDb = SnapshotDb.createEmpty(sourceDbPath, {
+        rootSubject: { name: "keyset-relationship-pagination" },
+      });
+      try {
+        const { sourceId, targetId } = withEditTxn(
+          sourceDb,
+          "insert relationships for keyset pagination",
+          (txn) => {
+            const categoryId = SpatialCategory.insert(
+              txn,
+              IModel.dictionaryId,
+              "KeysetCategory",
+              new SubCategoryAppearance()
+            );
+            const modelId = PhysicalModel.insert(
+              txn,
+              IModel.rootSubjectId,
+              "KeysetModel"
+            );
+            const physicalObjectProps: PhysicalElementProps = {
+              classFullName: PhysicalObject.classFullName,
+              model: modelId,
+              category: categoryId,
+              code: Code.createEmpty(),
+            };
+            return {
+              sourceId: txn.insertElement(physicalObjectProps),
+              targetId: txn.insertElement(physicalObjectProps),
+            };
+          }
+        );
+        withEditTxn(sourceDb, "insert 2001 relationships", (txn) => {
+          for (let index = 0; index < 2001; index++) {
+            txn.insertRelationship({
+              classFullName: GraphicalElement3dRepresentsElement.classFullName,
+              sourceId,
+              targetId,
+            });
+          }
+        });
+
+        const createQueryReader = vi.spyOn(sourceDb, "createQueryReader");
+        const exportedRelationshipIds = new Set<Id64String>();
+        const exporter = new IModelExporter(sourceDb);
+        exporter.registerHandler(
+          new (class extends IModelExportHandler {
+            public override async onExportRelationship(
+              relationship: Relationship
+            ): Promise<void> {
+              exportedRelationshipIds.add(relationship.id);
+            }
+          })()
+        );
+
+        await exporter.exportRelationships(
+          GraphicalElement3dRepresentsElement.classFullName
+        );
+
+        expect(exportedRelationshipIds).to.have.lengthOf(2001);
+        expect(createQueryReader).toHaveBeenCalledTimes(3);
+        expect(createQueryReader.mock.calls[0][0]).not.toContain(
+          ":lastRelationshipId"
+        );
+        expect(createQueryReader.mock.calls[1][0]).toContain(
+          "r.ECInstanceId > :lastRelationshipId"
+        );
+        expect(createQueryReader.mock.calls[0][2]?.limit).to.deep.equal({
+          count: 1000,
+        });
+        expect(createQueryReader.mock.calls[1][2]?.limit).to.deep.equal({
+          count: 1000,
+        });
+        expect(createQueryReader.mock.calls[2][0]).toContain(
+          "r.ECInstanceId > :lastRelationshipId"
+        );
+        expect(createQueryReader.mock.calls[2][2]?.limit).to.deep.equal({
+          count: 1000,
+        });
+      } finally {
+        sourceDb.close();
+      }
+    });
+
+    it("skips the relationship query when changes contain only deletes", async () => {
+      const sourceDbPath = IModelTransformerTestUtils.prepareOutputFile(
+        "IModelExporter",
+        "DeletedRelationshipsOnly.bim"
+      );
+      const sourceDb = SnapshotDb.createEmpty(sourceDbPath, {
+        rootSubject: { name: "deleted-relationships-only" },
+      });
+      try {
+        const exporter = new IModelExporter(sourceDb);
+        const changes = new ChangedInstanceIds(sourceDb);
+        changes.relationship.deleteIds.add("0x123");
+        exporter["_sourceDbChanges"] = changes;
+        const createQueryReader = vi.spyOn(sourceDb, "createQueryReader");
+
+        await exporter.exportRelationships(
+          ElementRefersToElements.classFullName
+        );
+
+        expect(createQueryReader).not.toHaveBeenCalled();
+      } finally {
+        sourceDb.close();
+      }
+    });
+
+    it("still excludes relationship classes on the bulk export path", async () => {
+      const sourceDbPath = IModelTransformerTestUtils.prepareOutputFile(
+        "IModelExporter",
+        "BulkRelationshipExclusion.bim"
+      );
+      const sourceDb = SnapshotDb.createEmpty(sourceDbPath, {
+        rootSubject: { name: "bulk-relationship-exclusion" },
+      });
+
+      withEditTxn(sourceDb, "insert elements and relationships", (txn) => {
+        const categoryId = SpatialCategory.insert(
+          txn,
+          IModel.dictionaryId,
+          "SpatialCategory",
+          new SubCategoryAppearance()
+        );
+        const modelId = PhysicalModel.insert(
+          txn,
+          IModel.rootSubjectId,
+          "PhysicalModel"
+        );
+        const physicalObjectProps: PhysicalElementProps = {
+          classFullName: PhysicalObject.classFullName,
+          model: modelId,
+          category: categoryId,
+          code: Code.createEmpty(),
+        };
+        const obj1 = txn.insertElement(physicalObjectProps);
+        const obj2 = txn.insertElement(physicalObjectProps);
+        txn.insertRelationship({
+          classFullName: GraphicalElement3dRepresentsElement.classFullName,
+          sourceId: obj1,
+          targetId: obj2,
+        });
+      });
+
+      const exporter = new IModelExporter(sourceDb);
+      const exportedClassNames: string[] = [];
+      class CaptureHandler extends IModelExportHandler {
+        public override async onExportRelationship(
+          relationship: Relationship
+        ): Promise<void> {
+          exportedClassNames.push(relationship.classFullName);
+        }
+      }
+      exporter.registerHandler(new CaptureHandler());
+      exporter.excludeRelationshipClass(
+        GraphicalElement3dRepresentsElement.classFullName
+      );
+      await exporter.exportRelationships(ElementRefersToElements.classFullName);
+
+      expect(exportedClassNames).to.deep.equal([]);
+
+      sourceDb.close();
+    });
+
+    it("produces identical relationship provenance with and without known endpoints", async () => {
+      const dbPath = IModelTransformerTestUtils.prepareOutputFile(
+        "IModelExporter",
+        "RelProvenanceKnownEndpoints.bim"
+      );
+      const db = SnapshotDb.createEmpty(dbPath, {
+        rootSubject: { name: "rel-provenance-known-endpoints" },
+      });
+
+      const { relId, sourceElemId } = withEditTxn(
+        db,
+        "insert elements and relationship",
+        (txn) => {
+          const categoryId = SpatialCategory.insert(
+            txn,
+            IModel.dictionaryId,
+            "SpatialCategory",
+            new SubCategoryAppearance()
+          );
+          const modelId = PhysicalModel.insert(
+            txn,
+            IModel.rootSubjectId,
+            "PhysicalModel"
+          );
+          const physicalObjectProps: PhysicalElementProps = {
+            classFullName: PhysicalObject.classFullName,
+            model: modelId,
+            category: categoryId,
+            code: Code.createEmpty(),
+          };
+          const obj1 = txn.insertElement(physicalObjectProps);
+          const obj2 = txn.insertElement(physicalObjectProps);
+          const insertedRelId = txn.insertRelationship({
+            classFullName: GraphicalElement3dRepresentsElement.classFullName,
+            sourceId: obj1,
+            targetId: obj2,
+          });
+          return { relId: insertedRelId, sourceElemId: obj1 };
+        }
+      );
+
+      for (const isReverseSynchronization of [false, true]) {
+        for (const forceOldRelationshipProvenanceMethod of [false, true]) {
+          const baseArgs = {
+            sourceDb: db,
+            targetDb: db,
+            isReverseSynchronization,
+            targetScopeElementId: IModel.rootSubjectId,
+            forceOldRelationshipProvenanceMethod,
+          };
+          const viaQuery =
+            await ProvenanceManager.initRelationshipProvenanceOptions(
+              relId,
+              relId,
+              baseArgs
+            );
+          const viaKnownEndpoints =
+            await ProvenanceManager.initRelationshipProvenanceOptions(
+              relId,
+              relId,
+              {
+                ...baseArgs,
+                knownEndpoints: {
+                  sourceRelSourceElementId: sourceElemId,
+                  targetRelSourceElementId: sourceElemId,
+                },
+              }
+            );
+          expect(viaKnownEndpoints).to.deep.equal(viaQuery);
+
+          // when only the irrelevant endpoint is known, it must fall back to the query
+          const viaIrrelevantEndpoint =
+            await ProvenanceManager.initRelationshipProvenanceOptions(
+              relId,
+              relId,
+              {
+                ...baseArgs,
+                knownEndpoints: isReverseSynchronization
+                  ? { targetRelSourceElementId: sourceElemId }
+                  : { sourceRelSourceElementId: sourceElemId },
+              }
+            );
+          expect(viaIrrelevantEndpoint).to.deep.equal(viaQuery);
+        }
+      }
+
+      db.close();
     });
   });
 });

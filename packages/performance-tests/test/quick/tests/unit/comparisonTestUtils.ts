@@ -3,15 +3,15 @@
  * See LICENSE.md in the project root for license terms and full copyright notice.
  *--------------------------------------------------------------------------------------------*/
 
-import { BenchmarkSample } from "../../src/framework/BenchmarkRunner.js";
+import type { ComparisonSample } from "../../src/comparison/ComparisonReport.js";
 import {
   FixtureArtifactManifest,
   fixtureArtifactVersion,
 } from "../../src/fixtures/FixtureArtifact.js";
 
 export function benchmarkSample(
-  overrides: Partial<BenchmarkSample> = {}
-): BenchmarkSample {
+  overrides: Partial<ComparisonSample> = {}
+): ComparisonSample {
   return {
     cpuSystemMilliseconds: 1,
     cpuUserMilliseconds: 2,
@@ -23,6 +23,14 @@ export function benchmarkSample(
     },
     fixtureContentHash: "fixture-content-hash",
     fixtureId: "update-heavy-scan",
+    fixtureInventory: {
+      byteLength: 1_048_576,
+      schemaCount: 10,
+      classCount: 100,
+      propertyCount: 500,
+      modelCount: 5,
+      elementCount: 1_000,
+    },
     fixtureRecipeHash: "recipe-hash",
     fixtureVersion: 1,
     measured: true,
@@ -38,6 +46,7 @@ export function benchmarkSample(
     rssDeltaBytes: 4,
     sample: 1,
     scenarioId: "changeset-scanning",
+    scenarioConfiguration: { mode: "scan" },
     semanticDigest: "semantic-digest",
     teardownMilliseconds: 5,
     topology: "source-only",
@@ -48,13 +57,14 @@ export function benchmarkSample(
     },
     verificationMilliseconds: 6,
     wallMilliseconds: 100,
+    workerPeakRssBytes: 50 * 1048576,
     ...overrides,
   };
 }
 
 export function armSamples(
   measuredMilliseconds: readonly number[]
-): BenchmarkSample[] {
+): ComparisonSample[] {
   return [
     benchmarkSample({ measured: false, sample: 0, wallMilliseconds: 90 }),
     ...measuredMilliseconds.map((wallMilliseconds, index) =>
@@ -89,6 +99,14 @@ export function fixtureArtifactManifest(): FixtureArtifactManifest {
       },
       generator: benchmarkSample().fixtureGenerator,
       recipeHash: "recipe-hash",
+    },
+    iModelInventory: {
+      byteLength: 1_048_576,
+      schemaCount: 10,
+      classCount: 100,
+      propertyCount: 500,
+      modelCount: 5,
+      elementCount: 1_000,
     },
     briefcase: {
       fileName: "briefcase.bim",
