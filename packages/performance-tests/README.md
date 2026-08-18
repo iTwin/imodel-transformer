@@ -71,6 +71,16 @@ no relationships) and `relationship-heavy-transform` (5,000 elements with
 30,000 `ElementGroupsMembers` relationships, exercising the relationship export
 path including federation-guid lookups).
 
+The `export-only-hierarchy-traversal` and `export-only-linear-traversal`
+scenarios also use `standalone-source-and-empty-target`, over the
+hierarchy-rich `hierarchy-heavy-export` fixture (many models, each full of
+parent/child assemblies). They run `IModelExporter.exportAll` with a no-op
+counting handler and never touch the target, isolating exporter traversal cost.
+The two scenarios differ only in `ExportAllOptions.traversal`, so running each
+against the same fixture is a reproducible A/B of the hierarchy versus linear
+traversal; `finish()` digests the order-insensitive sets of exported element
+and model ids, which must be identical across both.
+
 ## Running the quick suite
 
 Install the workspace dependencies from the repository root:
@@ -165,6 +175,13 @@ The equivalent PowerShell command is:
 $env:QUICK_PERF_SCENARIO = "standalone-full-transformation"
 $env:QUICK_PERF_STANDALONE_BIM = "C:\iModels\source.bim"
 pnpm test:quick
+```
+
+Compare the exporter traversal modes over the same fixture in a POSIX shell:
+
+```sh
+QUICK_PERF_SCENARIO=export-only-hierarchy-traversal QUICK_PERF_SAMPLES=5 pnpm test:quick
+QUICK_PERF_SCENARIO=export-only-linear-traversal QUICK_PERF_SAMPLES=5 pnpm test:quick
 ```
 
 `QUICK_PERF_STANDALONE_BIM` is valid only for a

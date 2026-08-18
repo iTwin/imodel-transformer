@@ -3,6 +3,8 @@ Release Tag;API Item Type;API Item Name
 public;class;ChangedInstanceIds
 public;type;ChangedInstanceIdsInitOptions
 public;class;ChangedInstanceOps
+beta;interface;ExportAllElementsAndModelsOptions
+beta;interface;ExportAllOptions
 public;type;ExportChangesOptions
 beta;type;ExporterInitOptions
 beta;interface;ExportSchemaResult
