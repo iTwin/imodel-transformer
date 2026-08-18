@@ -37,28 +37,39 @@ import { quickPath } from "../../support/paths.js";
  * elements are labeled: `inserted-large-<n>` and `updated-large-<n>`.
  */
 export interface LargeBaseIncrementalParameters {
+  readonly scale: number;
+}
+
+interface LargeBaseWorkload {
   readonly baseElements: number;
   readonly elementInserts: number;
   readonly elementUpdates: number;
 }
 
+const baseElementsPerScale = 2_000;
+const elementInsertsPerScale = 1;
+const elementUpdatesPerScale = 1;
 /** Inserts land in one changeset and updates in a second one. */
 const largeBaseSourceChangesets = 2;
+
+function largeBaseWorkload(
+  parameters: Readonly<LargeBaseIncrementalParameters>
+): LargeBaseWorkload {
+  const { scale } = parameters;
+  if (!Number.isInteger(scale) || scale < 1)
+    throw new Error("Large-base fixture scale must be a positive integer");
+  return {
+    baseElements: baseElementsPerScale * scale,
+    elementInserts: elementInsertsPerScale * scale,
+    elementUpdates: elementUpdatesPerScale * scale,
+  };
+}
 
 function largeBaseDistribution(
   parameters: Readonly<LargeBaseIncrementalParameters>
 ): FixtureDistribution {
-  const { baseElements, elementInserts, elementUpdates } = parameters;
-  for (const [name, value] of Object.entries(parameters)) {
-    if (!Number.isInteger(value) || value < 1)
-      throw new Error(
-        `Large-base fixture ${name} must be a positive integer, got ${value}`
-      );
-  }
-  if (elementUpdates > baseElements)
-    throw new Error(
-      "Large-base fixture cannot update more elements than the base holds"
-    );
+  const { baseElements, elementInserts, elementUpdates } =
+    largeBaseWorkload(parameters);
   return {
     base: {
       aspects: 0,
@@ -130,8 +141,9 @@ export async function createLargeBaseSeed(
         ),
       })
     );
+    const { baseElements } = largeBaseWorkload(parameters);
     const elementIds = withEditTxn(db, "insert large base elements", (txn) =>
-      Array.from({ length: parameters.baseElements }, (_, index) =>
+      Array.from({ length: baseElements }, (_, index) =>
         txn.insertElement(elementProps(modelId, categoryId, index))
       )
     );
@@ -147,7 +159,9 @@ export async function applyLargeBaseChangesets(
   context: FixtureRecipeContext<LargeBaseIncrementalParameters>,
   state: LargeBaseRecipeState
 ): Promise<void> {
-  const { baseElements, elementInserts, elementUpdates } = context.parameters;
+  const { baseElements, elementInserts, elementUpdates } = largeBaseWorkload(
+    context.parameters
+  );
 
   withEditTxn(db, "insert large-base delta elements", (txn) => {
     for (let index = 0; index < elementInserts; index++)
@@ -173,7 +187,7 @@ export async function applyLargeBaseChangesets(
       txn.updateElement({
         ...props,
         userLabel: `updated-large-${index}`,
-      } as PhysicalElementProps);
+      });
     }
   });
   await db.pushChanges({
@@ -257,11 +271,7 @@ export const largeBaseIncrementalFixture = configureFixture(
     ],
     topology: "source-and-empty-target",
     seed: 98,
-    parameters: {
-      baseElements: 50_000,
-      elementInserts: 25,
-      elementUpdates: 25,
-    },
+    parameters: { scale: 25 },
   }
 );
 

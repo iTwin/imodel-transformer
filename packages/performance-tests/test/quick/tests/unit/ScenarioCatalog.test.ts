@@ -14,6 +14,7 @@ import {
   listRegisteredScenarios,
 } from "../../src/catalogs/BenchmarkRegistry.js";
 import { validateFixtureDescriptor } from "../../src/fixtures/FixtureDescriptor.js";
+import { largeBaseIncrementalRecipe } from "../../src/fixtures/recipes/largeBaseIncremental.js";
 import {
   assertScenarioSupportsFixture,
   resolveBenchmarkRun,
@@ -60,10 +61,36 @@ describe("quick performance scenario catalog", () => {
     );
     // the point of the fixture is the base/delta ratio; pin it against dilution
     const { base, operations } = resolved.descriptor.distribution;
+    expect(base.elements).to.equal(50_000);
+    expect(operations.elements.inserts).to.equal(25);
+    expect(operations.elements.updates).to.equal(25);
+    expect(operations.sourceChangesets).to.equal(2);
     const changed = operations.elements.inserts + operations.elements.updates;
     expect(changed).to.be.greaterThan(0);
-    expect(base.elements / changed).to.be.greaterThanOrEqual(500);
+    expect(base.elements / changed).to.equal(1_000);
   });
+
+  it("derives the large-base workload from scale", () => {
+    const distribution = largeBaseIncrementalRecipe.distribution({ scale: 50 });
+    expect(distribution.base.elements).to.equal(100_000);
+    expect(distribution.operations.elements.inserts).to.equal(50);
+    expect(distribution.operations.elements.updates).to.equal(50);
+    expect(distribution.operations.sourceChangesets).to.equal(2);
+    expect(
+      distribution.base.elements /
+        (distribution.operations.elements.inserts +
+          distribution.operations.elements.updates)
+    ).to.equal(1_000);
+  });
+
+  it.each([0, -1, 1.5])(
+    "rejects invalid large-base fixture scale %s",
+    (scale) => {
+      expect(() => largeBaseIncrementalRecipe.distribution({ scale })).to.throw(
+        "Large-base fixture scale must be a positive integer"
+      );
+    }
+  );
 
   it("validates every registered benchmark and configured fixture", () => {
     const registeredScenarioIds = new Set(
