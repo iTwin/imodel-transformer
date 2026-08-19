@@ -6,6 +6,7 @@
  * @module iModels
  */
 import {
+  DbResult,
   Guid,
   Id64,
   Id64String,
@@ -28,6 +29,7 @@ import {
 } from "@itwin/core-common";
 import { TransformerLoggerCategory } from "./TransformerLoggerCategory";
 import {
+  BulkDeleteElementsStatus,
   EditTxn,
   ElementAspect,
   ElementMultiAspect,
@@ -41,7 +43,6 @@ import {
 } from "@itwin/core-backend";
 import type { RelationshipPropsForDelete } from "./IModelTransformer";
 import { strict as assert } from "node:assert";
-import { deleteElementTreeCascade } from "./ElementCascadingDeleter";
 import { ElementAspectCleanup } from "./ElementAspectCleanup";
 import {
   EntityClass,
@@ -52,9 +53,22 @@ import {
   IModelTransformerError,
   IModelTransformerErrorScope,
 } from "./IModelTransformerError";
+import { findBulkDeleteRoots } from "./ElementBulkDelete";
 import { EntityExistenceCache } from "./EntityExistenceCache";
 
 const loggerCategory: string = TransformerLoggerCategory.IModelImporter;
+
+/** Error thrown when native bulk deletion fails to delete one or more requested element trees.
+ * @beta
+ */
+export interface ElementBulkDeleteError extends ITwinError {
+  /** Status returned by the native bulk-delete operation. */
+  readonly status: BulkDeleteElementsStatus;
+  /** SQLite status returned by the native delete statement. */
+  readonly sqlDeleteStatus: DbResult;
+  /** Target roots that the native operation did not delete. */
+  readonly failedIds: ReadonlySet<Id64String>;
+}
 
 /** Options provided to [[IModelImporter.optimizeGeometry]] specifying post-processing optimizations to be applied to the iModel's geometry.
  * @beta
@@ -151,9 +165,10 @@ export class IModelImporter {
    */
   private _elementsToUpdateDuringPreserveIds = new Set<Id64String>([]);
 
-  /** The set of elements that should not be updated by this IModelImporter.
-   * Defaults to an empty set.
+  /** The set of target elements that this importer must not directly update or request for deletion.
+   * Defaults to an empty set and is populated by consumers or custom transformers.
    * @note Adding an element to this set is typically necessary when remapping a source element to one that already exists in the target and already has the desired properties.
+   * @note Deletion protection applies only when the exact element ID is passed to [[deleteElement]] or [[deleteElements]]. It does not protect the element from deletion through a parent, containing model, or other cascading dependency. Consumers that need to preserve such an element must also add every requested deletion root whose cascade would delete it.
    */
   public readonly doNotUpdateElementIds = new Set<Id64String>([]);
 
@@ -471,29 +486,64 @@ export class IModelImporter {
     }
   }
 
-  /** Delete the specified Element (and all its children) from the target iModel.
-   * Will delete special elements like definition elements and subjects.
-   * @note A subclass may override this method to customize delete behavior but should call `super.onDeleteElement`.
-   */
-  protected async onDeleteElement(elementId: Id64String): Promise<void> {
-    deleteElementTreeCascade(this._editTxn, elementId);
-    Logger.logInfo(
-      loggerCategory,
-      `Deleted element ${elementId} and its descendants`
-    );
-    await this.trackProgress();
+  /** Deletes one target element tree through [[deleteElements]]. */
+  public async deleteElement(elementId: Id64String): Promise<void> {
+    await this.deleteElements(new Set([elementId]));
   }
 
-  /** Delete the specified Element from the target iModel. */
-  public async deleteElement(elementId: Id64String): Promise<void> {
-    if (this.doNotUpdateElement(elementId)) {
+  /** Adds roots required by code-scope dependencies, then deletes the target element trees in one native operation.
+   * @note An override must call `super.onDeleteElements` once to perform the deletion.
+   */
+  protected async onDeleteElements(
+    elementIds: ReadonlySet<Id64String>
+  ): Promise<void> {
+    const deleteRoots = await findBulkDeleteRoots(this.targetDb, elementIds);
+    if (deleteRoots.size === 0) return;
+    const result = this._editTxn.deleteElements([...deleteRoots]);
+    if (result.status !== BulkDeleteElementsStatus.Success) {
+      ITwinError.throwError<ElementBulkDeleteError>({
+        iTwinErrorId: {
+          scope: IModelTransformerErrorScope,
+          key: IModelTransformerError.ElementBulkDeleteFailed,
+        },
+        message:
+          `Bulk element deletion failed: status ${BulkDeleteElementsStatus[result.status]}, ` +
+          `SQLite status ${result.sqlDeleteStatus}, failed element IDs: ${[
+            ...result.failedIds,
+          ].join(", ")}`,
+        status: result.status,
+        sqlDeleteStatus: result.sqlDeleteStatus,
+        failedIds: new Set(result.failedIds),
+      });
+    }
+
+    Logger.logInfo(
+      loggerCategory,
+      `Deleted ${elementIds.size} requested element trees using ${deleteRoots.size} native deletion roots`
+    );
+    await this.trackProgress(elementIds.size);
+  }
+
+  /** Deletes target element trees in one native operation.
+   * Requested roots in [[doNotUpdateElementIds]] are skipped. This does not prevent an element in that set from being deleted as part of another root's cascade.
+   * @throws [[ElementBulkDeleteError]] if native deletion fails for any root. A partial failure leaves successful deletions pending in the caller-owned transaction. Abandon the transaction before retrying.
+   */
+  public async deleteElements(
+    elementIds: ReadonlySet<Id64String>
+  ): Promise<void> {
+    const idsToDelete = new Set<Id64String>();
+    for (const elementId of elementIds) {
+      if (!this.doNotUpdateElement(elementId)) {
+        idsToDelete.add(elementId);
+        continue;
+      }
       Logger.logInfo(
         loggerCategory,
         `Do not delete target element ${elementId}`
       );
-      return;
     }
-    await this.onDeleteElement(elementId);
+    if (idsToDelete.size === 0) return;
+    await this.onDeleteElements(idsToDelete);
     // Element deletion cascades can remove descendants and their submodels.
     for (const cache of this._entityExistenceCaches)
       cache.clearDb(this.targetDb);
@@ -821,11 +871,13 @@ export class IModelImporter {
   }
 
   /** Tracks incremental progress */
-  private async trackProgress(): Promise<void> {
-    this._progressCounter++;
-    if (0 === this._progressCounter % this.progressInterval) {
-      await this.onProgress();
-    }
+  private async trackProgress(increment = 1): Promise<void> {
+    const previousProgressCounter = this._progressCounter;
+    this._progressCounter += increment;
+    const progressCallbacks =
+      Math.floor(this._progressCounter / this.progressInterval) -
+      Math.floor(previousProgressCounter / this.progressInterval);
+    for (let i = 0; i < progressCallbacks; ++i) await this.onProgress();
   }
 
   /** This method is called when IModelImporter has made incremental progress based on the [[progressInterval]] setting.

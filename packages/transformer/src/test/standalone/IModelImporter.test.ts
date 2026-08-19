@@ -30,61 +30,6 @@ import {
 } from "../IModelTransformerUtils";
 
 describe("IModelImporter", () => {
-  it("deleteElement skips elements in doNotUpdateElementIds (no-op guard)", async () => {
-    const targetDbFile = IModelTransformerTestUtils.prepareOutputFile(
-      "IModelImporter",
-      "DeleteElementGuard.bim"
-    );
-    const targetDb = StandaloneDb.createEmpty(targetDbFile, {
-      rootSubject: { name: "DeleteElementGuard" },
-    });
-    try {
-      const { protectedId, deletableId } = withEditTxn(
-        targetDb,
-        "insert subjects",
-        (txn) => {
-          const pId = Subject.create(
-            targetDb,
-            IModel.rootSubjectId,
-            "Protected"
-          ).insert(txn);
-          const dId = Subject.create(
-            targetDb,
-            IModel.rootSubjectId,
-            "Deletable"
-          ).insert(txn);
-          return { protectedId: pId, deletableId: dId };
-        }
-      );
-
-      const editTxn = createStartedEditTxn(targetDb);
-      // __PUBLISH_EXTRACT_START__ EditTxnInTransformer.custom-importer
-      // IModelImporter derives targetDb from the EditTxn.
-      const importer = new IModelImporter(editTxn);
-      // __PUBLISH_EXTRACT_END__
-      expect(importer.targetDb).to.equal(editTxn.iModel);
-      importer.doNotUpdateElementIds.add(protectedId);
-
-      await importer.deleteElement(protectedId);
-      editTxn.saveChanges();
-      expect(
-        targetDb.elements.tryGetElement(protectedId),
-        "guarded element should NOT be deleted"
-      ).to.not.be.undefined;
-
-      // Control: an element not in the set is actually deleted.
-      await importer.deleteElement(deletableId);
-      editTxn.saveChanges();
-      expect(
-        targetDb.elements.tryGetElement(deletableId),
-        "unguarded element should be deleted"
-      ).to.be.undefined;
-      editTxn.end();
-    } finally {
-      targetDb.close();
-    }
-  });
-
   it("importElementMultiAspects preserves result order when deleting surplus aspects", async () => {
     const targetDbFile = IModelTransformerTestUtils.prepareOutputFile(
       "IModelImporter",

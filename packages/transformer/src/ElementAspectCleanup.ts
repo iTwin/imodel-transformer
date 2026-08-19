@@ -76,8 +76,7 @@ export class ElementAspectCleanup {
           FROM ${aspectClassFullName} aspect
           INNER JOIN IdSet(:elementIds) ids ON ids.id = aspect.Element.Id
           WHERE ${whereClause}
-          LIMIT ${pageSize}
-          OPTIONS ENABLE_EXPERIMENTAL_FEATURES`;
+          LIMIT ${pageSize}`;
         // Drain the full page before deleting: mutating a table while a reader is still
         // scanning it is unsafe.
         const candidateIds: Id64String[] = [];

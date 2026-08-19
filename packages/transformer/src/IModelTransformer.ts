@@ -1512,21 +1512,21 @@ export class IModelTransformer extends IModelExportHandler {
     }
   }
 
-  /** Override of [IModelExportHandler.onDeleteElement]($transformer) that is called when [IModelExporter]($transformer) detects that an Element has been deleted from the source iModel.
-   * This override propagates the delete to the target iModel via [IModelImporter.deleteElement]($transformer).
-   */
-  public override async onDeleteElement(
-    sourceElementId: Id64String
+  /** Maps the deleted source element IDs and passes the target IDs to the importer as one set. */
+  public override async onDeleteElements(
+    sourceElementIds: ReadonlySet<Id64String>
   ): Promise<void> {
-    const targetElementId: Id64String =
-      this.context.findTargetElementId(sourceElementId);
-    if (Id64.isValidId64(targetElementId)) {
-      // Skip deletion if new / updated source element was remapped to it by Code during
-      // this transformation pass.
-      if (!this._targetElementIdsRemappedByCode.has(targetElementId)) {
-        await this.importer.deleteElement(targetElementId);
+    const targetElementIds = new Set<Id64String>();
+    for (const sourceElementId of sourceElementIds) {
+      const targetElementId = this.context.findTargetElementId(sourceElementId);
+      if (
+        Id64.isValidId64(targetElementId) &&
+        !this._targetElementIdsRemappedByCode.has(targetElementId)
+      ) {
+        targetElementIds.add(targetElementId);
       }
     }
+    await this.importer.deleteElements(targetElementIds);
   }
 
   /** Override of [IModelExportHandler.onExportModel]($transformer) that is called when a Model should be exported from the source iModel.
@@ -1624,9 +1624,8 @@ export class IModelTransformer extends IModelExportHandler {
           error.errorNumber === IModelStatus.ForeignKeyConstraint);
       if (!isDeletionProhibitedErr) throw error;
 
-      // Transformer tries to delete models before it deletes elements. Definition models cannot be deleted unless all of their modeled elements are deleted first.
-      // In case a definition model needs to be deleted we need to skip it for now and register its modeled partition for deletion.
-      // The `OnDeleteElement` calls `DeleteElementTree` Which deletes the model together with its partition after deleting all of the modeled elements.
+      // Models are processed before elements, but a definition model cannot be deleted while it contains elements.
+      // Add its partition to the element deletion set. Bulk cascade deletion will remove the contents, model, and partition together.
       this.scheduleModeledPartitionDeletion(sourceModelId);
     }
   }
