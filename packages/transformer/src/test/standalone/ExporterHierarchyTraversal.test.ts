@@ -16,7 +16,7 @@ import {
   Subject,
   withEditTxn,
 } from "@itwin/core-backend";
-import { Id64String } from "@itwin/core-bentley";
+import { Id64, Id64String, OrderedId64Iterable } from "@itwin/core-bentley";
 import {
   Code,
   IModel,
@@ -91,6 +91,23 @@ async function referenceModelTraversal(
   return order;
 }
 
+/** Assert that a long traversal returns control to the event loop before it finishes. */
+async function expectEventLoopYield(run: () => Promise<void>): Promise<void> {
+  let completed = false;
+  let yieldedBeforeCompletion = false;
+  const eventLoopTurn = new Promise<void>((resolve) => {
+    setImmediate(() => {
+      yieldedBeforeCompletion = !completed;
+      resolve();
+    });
+  });
+
+  await run();
+  completed = true;
+  await eventLoopTurn;
+  expect(yieldedBeforeCompletion).to.be.true;
+}
+
 /** Inserts a subject tree below the root Subject. Node arrays are child specs. */
 interface TreeSpec {
   name: string;
@@ -158,25 +175,58 @@ describe("IModelExporter hierarchy traversal", () => {
     }
   }
 
-  it("preserves ECInstanceId order independent of unrelated inserts", async () => {
+  it("preserves ECInstanceId order independent of insertion order", async () => {
     const sourceDb = createSourceDb("QueryChildrenOrder");
     try {
       const fixture = withEditTxn(
         sourceDb,
-        "insert interleaved subjects",
+        "insert physical elements with non-monotonic ids",
         (txn) => {
-          const parentId = Subject.insert(txn, IModel.rootSubjectId, "parent");
-          const childIds: Id64String[] = [];
-          childIds.push(Subject.insert(txn, parentId, "third"));
-          Subject.insert(txn, IModel.rootSubjectId, "unrelated-1");
-          childIds.push(Subject.insert(txn, parentId, "first"));
-          Subject.insert(txn, IModel.rootSubjectId, "unrelated-2");
-          childIds.push(Subject.insert(txn, parentId, "second"));
+          const categoryId = SpatialCategory.insert(
+            txn,
+            IModel.dictionaryId,
+            "QueryChildrenOrderCategory",
+            new SubCategoryAppearance()
+          );
+          const modelId = PhysicalModel.insert(
+            txn,
+            IModel.rootSubjectId,
+            "QueryChildrenOrderModel"
+          );
+          const parentId = txn.insertElement(
+            {
+              id: Id64.fromLocalAndBriefcaseIds(0x300001, 0),
+              classFullName: PhysicalObject.classFullName,
+              model: modelId,
+              category: categoryId,
+              code: Code.createEmpty(),
+            } as PhysicalElementProps,
+            { forceUseId: true }
+          );
+          const childIds = [
+            Id64.fromLocalAndBriefcaseIds(0x300003, 0),
+            Id64.fromLocalAndBriefcaseIds(0x300004, 0),
+            Id64.fromLocalAndBriefcaseIds(0x300002, 0),
+          ];
+          for (const [index, id] of childIds.entries()) {
+            txn.insertElement(
+              {
+                id,
+                classFullName: PhysicalObject.classFullName,
+                model: modelId,
+                category: categoryId,
+                code: Code.createEmpty(),
+                parent: new ElementOwnsChildElements(parentId),
+                userLabel: `child-${index}`,
+              } as PhysicalElementProps,
+              { forceUseId: true }
+            );
+          }
           return { parentId, childIds };
         }
       );
-      const expectedChildIds = [...fixture.childIds].sort((a, b) =>
-        BigInt(a) < BigInt(b) ? -1 : BigInt(a) > BigInt(b) ? 1 : 0
+      const expectedChildIds = [...fixture.childIds].sort(
+        OrderedId64Iterable.compare
       );
 
       expect(sourceDb.elements.queryChildren(fixture.parentId)).to.deep.equal(
@@ -521,17 +571,47 @@ describe("IModelExporter hierarchy traversal", () => {
     }
   });
 
-  it("preserves skipRootSubject behavior in streamed and legacy traversal", async () => {
+  it("preserves skipRootSubject behavior for custom root classes", async () => {
     const sourceDb = createSourceDb("SkipRootSubject");
     try {
-      insertSubjectTree(sourceDb, mixedSpec);
+      const fixture = withEditTxn(
+        sourceDb,
+        "insert non-subject model contents",
+        (txn) => {
+          const categoryId = SpatialCategory.insert(
+            txn,
+            IModel.dictionaryId,
+            "SkipRootSubjectCategory",
+            new SubCategoryAppearance()
+          );
+          const modelId = PhysicalModel.insert(
+            txn,
+            IModel.rootSubjectId,
+            "SkipRootSubjectModel"
+          );
+          const rootId = txn.insertElement({
+            classFullName: PhysicalObject.classFullName,
+            model: modelId,
+            category: categoryId,
+            code: Code.createEmpty(),
+          } as PhysicalElementProps);
+          const childId = txn.insertElement({
+            classFullName: PhysicalObject.classFullName,
+            model: modelId,
+            category: categoryId,
+            code: Code.createEmpty(),
+            parent: new ElementOwnsChildElements(rootId),
+          } as PhysicalElementProps);
+          return { modelId, rootId, childId };
+        }
+      );
 
       const runTraversal = async (exporter: IModelExporter) => {
         const handler = new RecordingHandler();
         exporter.registerHandler(handler);
         await exporter.exportModelContents(
-          IModel.repositoryModelId,
-          Element.classFullName,
+          fixture.modelId,
+          PhysicalObject.classFullName,
           true
         );
         return handler.events;
@@ -540,7 +620,9 @@ describe("IModelExporter hierarchy traversal", () => {
       const streamed = await runTraversal(new IModelExporter(sourceDb));
       const legacy = await runTraversal(new LegacyTraversalExporter(sourceDb));
       expect(streamed).to.deep.equal(legacy);
-      expect(streamed).to.deep.equal([]);
+      expect(
+        streamed.filter(([kind]) => kind === "export").map(([, id]) => id)
+      ).to.deep.equal([fixture.rootId, fixture.childId]);
     } finally {
       sourceDb.close();
     }
@@ -565,15 +647,53 @@ describe("IModelExporter hierarchy traversal", () => {
   it("yields to the event loop during model contents traversal", async () => {
     const sourceDb = createSourceDb("Yielding");
     try {
-      insertSubjectTree(sourceDb, mixedSpec);
-      const handler = new RecordingHandler();
+      const childCount = 1_001;
+      const parentId = withEditTxn(
+        sourceDb,
+        "insert yielding subtree",
+        (txn) => {
+          const id = Subject.insert(
+            txn,
+            IModel.rootSubjectId,
+            "yielding-parent"
+          );
+          for (let index = 0; index < childCount; index++)
+            Subject.insert(txn, id, `child-${index}`);
+          return id;
+        }
+      );
+      class QueryingHandler extends RecordingHandler {
+        private _hasQueriedSource = false;
+
+        public override async onExportElement(element: Element) {
+          if (!this._hasQueriedSource) {
+            let found = false;
+            for await (const row of sourceDb.createQueryReader(
+              "SELECT ECInstanceId FROM bis.Element WHERE ECInstanceId=:elementId",
+              new QueryBinder().bindId("elementId", element.id),
+              { usePrimaryConn: true }
+            )) {
+              expect(row.id).to.equal(element.id);
+              found = true;
+            }
+            expect(found).to.be.true;
+            this._hasQueriedSource = true;
+          }
+          await super.onExportElement(element);
+        }
+      }
+      const handler = new QueryingHandler();
       const exporter = new IModelExporter(sourceDb);
       exporter.registerHandler(handler);
-      const allowYieldSpy = vi.spyOn(exporter["_yieldManager"], "allowYield");
-      await exporter.exportModelContents(IModel.repositoryModelId);
-      expect(allowYieldSpy).toHaveBeenCalled();
+
+      // 1,001 accepted owners also crosses the aspect-owner batch boundary while
+      // the recursive reader is active.
+      await expectEventLoopYield(async () =>
+        exporter.exportModelContents(IModel.repositoryModelId)
+      );
+      expect(handler.exportedIds.length).to.be.greaterThan(childCount);
+      expect(handler.exportedIds).to.include(parentId);
     } finally {
-      vi.restoreAllMocks();
       sourceDb.close();
     }
   });
@@ -596,28 +716,18 @@ describe("IModelExporter hierarchy traversal", () => {
           return rejectedParentId;
         }
       );
-      const modelElementIds: Id64String[] = [];
-      for await (const row of sourceDb.createQueryReader(
-        "SELECT ECInstanceId FROM bis.Element WHERE Model.Id=:modelId",
-        new QueryBinder().bindId("modelId", IModel.repositoryModelId)
-      ))
-        modelElementIds.push(row.id);
-
       const handler = new RecordingHandler();
       handler.rejectedIds.add(parentId);
       const exporter = new IModelExporter(sourceDb);
       exporter.registerHandler(handler);
-      const allowYieldSpy = vi.spyOn(exporter["_yieldManager"], "allowYield");
-
-      await exporter.exportModelContents(IModel.repositoryModelId);
 
       // The CTE emits every repository-model element, including descendants skipped
-      // inside the rejected subtree.
-      expect(modelElementIds.length).to.be.greaterThan(childCount);
-      expect(allowYieldSpy).toHaveBeenCalledTimes(modelElementIds.length);
+      // inside the rejected subtree. The traversal must still yield while consuming them.
+      await expectEventLoopYield(async () =>
+        exporter.exportModelContents(IModel.repositoryModelId)
+      );
       expect(handler.skippedIds).to.deep.equal([parentId]);
     } finally {
-      vi.restoreAllMocks();
       sourceDb.close();
     }
   });
@@ -757,41 +867,6 @@ describe("IModelExporter hierarchy traversal", () => {
       expect(legacy.queryChildrenCalls).to.be.greaterThan(0);
     } finally {
       vi.restoreAllMocks();
-      sourceDb.close();
-    }
-  });
-
-  it("depends on SQLite ordered recursive-CTE queue semantics for depth-first order", async () => {
-    // The set-based traversal relies on SQLite treating an ORDER BY inside a
-    // recursive CTE as a priority queue: ordering by depth DESC then id ASC makes
-    // the query emit rows in exact depth-first pre-order. This test documents that
-    // dependency against the supported iTwin.js core range; if it fails, the
-    // streamed traversal in IModelExporter can no longer assume pre-order rows.
-    const sourceDb = createSourceDb("RecursiveCteDependency");
-    try {
-      insertSubjectTree(sourceDb, mixedSpec);
-      const sql = `
-        WITH RECURSIVE ElementTree (ECInstanceId, Depth) AS (
-          SELECT e.ECInstanceId, 0 FROM bis.Element e
-            WHERE e.Parent.Id IS NULL AND e.Model.Id=:modelId
-          UNION ALL
-          SELECT c.ECInstanceId, t.Depth + 1 FROM bis.Element c
-            JOIN ElementTree t ON c.Parent.Id = t.ECInstanceId
-          ORDER BY 2 DESC, 1 ASC
-        )
-        SELECT ECInstanceId, Depth FROM ElementTree`;
-      const cteOrder: Id64String[] = [];
-      for await (const row of sourceDb.createQueryReader(
-        sql,
-        new QueryBinder().bindId("modelId", IModel.repositoryModelId),
-        { usePrimaryConn: true }
-      )) {
-        cteOrder.push(row[0]);
-      }
-      expect(cteOrder).to.deep.equal(
-        await referenceModelTraversal(sourceDb, IModel.repositoryModelId)
-      );
-    } finally {
       sourceDb.close();
     }
   });

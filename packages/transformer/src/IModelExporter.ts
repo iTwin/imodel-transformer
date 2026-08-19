@@ -918,6 +918,8 @@ export class IModelExporter {
    * unchanged elements are traversed-but-not-exported by the legacy path.
    */
   private canUseSetBasedTraversal(): boolean {
+    // The streamed helper bypasses these public overridable methods. Compare function
+    // identity so subclass, bound, wrapped, or instrumented methods retain legacy dispatch.
     return (
       this._sourceDbChanges === undefined &&
       this.exportElement === IModelExporter.prototype.exportElement &&
@@ -959,16 +961,13 @@ export class IModelExporter {
     })) {
       const elementId: Id64String = row[0];
       const depth: number = row[1];
-      if (pruneDepth !== undefined) {
-        if (depth > pruneDepth) {
-          // Keep the streamed loop responsive while consuming a rejected subtree.
-          await this._yieldManager.allowYield();
-          continue;
-        }
+      const isPruned = pruneDepth !== undefined && depth > pruneDepth;
+      if (!isPruned) {
         pruneDepth = undefined;
+        const visitChildren = await this.exportElementShallow(elementId);
+        if (!visitChildren) pruneDepth = depth;
       }
-      const visitChildren = await this.exportElementShallow(elementId);
-      if (!visitChildren) pruneDepth = depth;
+      // Keep the streamed loop responsive, including while consuming a rejected subtree.
       await this._yieldManager.allowYield();
     }
   }
