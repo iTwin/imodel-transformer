@@ -165,9 +165,10 @@ export class IModelImporter {
    */
   private _elementsToUpdateDuringPreserveIds = new Set<Id64String>([]);
 
-  /** The set of elements that should not be updated by this IModelImporter.
-   * Defaults to an empty set.
+  /** The set of target elements that this importer must not directly update or request for deletion.
+   * Defaults to an empty set and is populated by consumers or custom transformers.
    * @note Adding an element to this set is typically necessary when remapping a source element to one that already exists in the target and already has the desired properties.
+   * @note Deletion protection applies only when the exact element ID is passed to [[deleteElement]] or [[deleteElements]]. It does not protect the element from deletion through a parent, containing model, or other cascading dependency. Consumers that need to preserve such an element must also add every requested deletion root whose cascade would delete it.
    */
   public readonly doNotUpdateElementIds = new Set<Id64String>([]);
 
@@ -524,7 +525,7 @@ export class IModelImporter {
   }
 
   /** Deletes target element trees in one native operation.
-   * Roots in [[doNotUpdateElementIds]] are skipped.
+   * Requested roots in [[doNotUpdateElementIds]] are skipped. This does not prevent an element in that set from being deleted as part of another root's cascade.
    * @throws [[ElementBulkDeleteError]] if native deletion fails for any root. A partial failure leaves successful deletions pending in the caller-owned transaction. Abandon the transaction before retrying.
    */
   public async deleteElements(
