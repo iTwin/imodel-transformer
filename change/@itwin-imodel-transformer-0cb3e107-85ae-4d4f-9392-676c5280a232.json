@@ -1,6 +1,6 @@
 {
   "type": "minor",
-  "comment": "exportChanges no longer traverses the element hierarchy of changed models; changed elements are exported directly from the changeset, so incremental synchronization cost scales with changeset size instead of iModel size",
+  "comment": "exportChanges builds one ancestor forest per run from changed and explicitly excluded elements, avoiding recursive queries across every element in each changed model",
   "packageName": "@itwin/imodel-transformer",
   "email": "DanRod1999@users.noreply.github.com",
   "dependentChangeType": "patch"

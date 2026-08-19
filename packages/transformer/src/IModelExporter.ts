@@ -61,6 +61,7 @@ import {
   IModelTransformerErrorScope,
 } from "./IModelTransformerError";
 import { ChangesetScanner } from "./ChangesetScanner";
+import { ChangedElementForest } from "./ChangedElementForest";
 
 const loggerCategory = TransformerLoggerCategory.IModelExporter;
 
@@ -331,6 +332,9 @@ export class IModelExporter {
   private _progressCounter: number = 0;
   /** Optionally cached entity change information */
   private _sourceDbChanges?: ChangedInstanceIds;
+  /** Reused only while one exportChanges element traversal is active. */
+  private _changedElementForest?: Promise<ChangedElementForest>;
+  private _reuseChangedElementForest = false;
 
   /**
    * Retrieve the cached entity change information.
@@ -545,22 +549,29 @@ export class IModelExporter {
 
     await this.exportCodeSpecs();
     await this.exportFonts();
-    await this._elementAspectExportCoordinator.run(async () => {
-      if (initOpts.skipPropagateChangesToRootElements) {
-        // The root Subject is in the RepositoryModel. Traverse its children
-        // separately, then export other top-level repository elements while
-        // excluding the root so no element is visited twice.
-        await this.exportChildElements(IModel.rootSubjectId);
-        await this.exportModelContents(
-          IModel.repositoryModelId,
-          Element.classFullName,
-          true
-        );
-        await this.exportSubModels(IModel.repositoryModelId);
-      } else {
-        await this.exportModel(IModel.repositoryModelId);
-      }
-    });
+    this._changedElementForest = undefined;
+    this._reuseChangedElementForest = true;
+    try {
+      await this._elementAspectExportCoordinator.run(async () => {
+        if (initOpts.skipPropagateChangesToRootElements) {
+          // The root Subject is in the RepositoryModel. Traverse its children
+          // separately, then export other top-level repository elements while
+          // excluding the root so no element is visited twice.
+          await this.exportChildElements(IModel.rootSubjectId);
+          await this.exportModelContents(
+            IModel.repositoryModelId,
+            Element.classFullName,
+            true
+          );
+          await this.exportSubModels(IModel.repositoryModelId);
+        } else {
+          await this.exportModel(IModel.repositoryModelId);
+        }
+      });
+    } finally {
+      this._reuseChangedElementForest = false;
+      this._changedElementForest = undefined;
+    }
     const aspectOnlyOwnerElementIds = new Set(
       this._sourceDbChanges.aspectOwnerElementIds
     );
@@ -1116,90 +1127,55 @@ export class IModelExporter {
     );
   }
 
-  /** Exports the changed elements of one scope directly, without traversing the
-   * hierarchy of unchanged elements.
-   *
-   * Candidates are the changed element ids plus the configured excluded element ids
-   * (exclusion fires [[IModelExportHandler.onSkipElement]] and prunes the subtree even
-   * for unchanged elements, so excluded ids must stay part of the walk). One upward
-   * recursive ECSQL query computes the candidates' ancestor closure, which induces the
-   * forest the legacy per-element recursion would have effectively visited; walking it
-   * depth-first with siblings in ECInstanceId order fires exactly the callbacks of the
-   * legacy traversal, in the same order, at a cost proportional to the changeset
-   * instead of the size of each changed model.
-   *
-   * The scope is either a model's contents (optionally without the root Subject tree,
-   * mirroring [[exportModelContents]]) or the descendants of one element (mirroring
-   * [[exportChildElements]]; parents and children always share a model in BIS, so the
-   * candidate query is bounded by the root's model in both cases).
-   */
+  private async createChangedElementForest(): Promise<ChangedElementForest> {
+    nodeAssert(
+      this._sourceDbChanges !== undefined,
+      "direct changed-element export requires sourceDbChanges"
+    );
+    return ChangedElementForest.create(
+      this.sourceDb,
+      new Set([
+        ...this._sourceDbChanges.element.insertIds,
+        ...this._sourceDbChanges.element.updateIds,
+        ...this._excludedElementIds,
+      ])
+    );
+  }
+
+  private async getChangedElementForest(): Promise<ChangedElementForest> {
+    if (!this._reuseChangedElementForest) {
+      return this.createChangedElementForest();
+    }
+    return (this._changedElementForest ??= this.createChangedElementForest());
+  }
+
+  /** Exports one model or child scope from the changed-element ancestor forest. */
   private async exportChangedElementTrees(
     scope:
       | { modelId: Id64String; skipRootSubject?: boolean }
       | { rootElementId: Id64String }
   ): Promise<void> {
-    nodeAssert(
-      this._sourceDbChanges !== undefined,
-      "direct changed-element export requires sourceDbChanges"
-    );
-    const candidateIds = new Set<Id64String>([
-      ...this._sourceDbChanges.element.insertIds,
-      ...this._sourceDbChanges.element.updateIds,
-      ...this._excludedElementIds,
-    ]);
-    if (candidateIds.size === 0) return;
-
-    const isModelScope = "modelId" in scope;
-    const params = new QueryBinder().bindIdSet("candidateIds", candidateIds);
-    if (isModelScope) params.bindId("modelId", scope.modelId);
-    else params.bindId("rootElementId", scope.rootElementId);
-    const sql = `
-      WITH RECURSIVE ChangedElementTree (ECInstanceId, ParentId) AS (
-        SELECT e.ECInstanceId, e.Parent.Id
-        FROM ${Element.classFullName} e
-        INNER JOIN IdSet(:candidateIds) ids ON ids.id = e.ECInstanceId
-        WHERE e.Model.Id = ${
-          isModelScope
-            ? ":modelId"
-            : `(SELECT re.Model.Id FROM ${Element.classFullName} re WHERE re.ECInstanceId = :rootElementId)`
-        }
-        UNION
-        SELECT p.ECInstanceId, p.Parent.Id
-        FROM ${Element.classFullName} p
-        INNER JOIN ChangedElementTree c ON p.ECInstanceId = c.ParentId
-      )
-      SELECT ECInstanceId, ParentId FROM ChangedElementTree
-      OPTIONS ENABLE_EXPERIMENTAL_FEATURES
-    `;
-    const noParent = "";
-    const childrenOf = new Map<Id64String, Id64String[]>();
-    for await (const row of this.sourceDb.createQueryReader(sql, params, {
-      usePrimaryConn: true,
-    })) {
-      const parentId: Id64String = row[1] ?? noParent;
-      const siblings = childrenOf.get(parentId);
-      if (siblings === undefined) childrenOf.set(parentId, [row[0]]);
-      else siblings.push(row[0]);
-    }
-
-    // normalized Id64 strings compare numerically by length, then lexically
-    const compareIds = (a: Id64String, b: Id64String) =>
-      a.length - b.length || (a < b ? -1 : a > b ? 1 : 0);
+    const forest = await this.getChangedElementForest();
     const visit = async (elementId: Id64String): Promise<void> => {
       const visitChildren = await this.exportElementShallow(elementId);
       await this._yieldManager.allowYield();
       if (!visitChildren) return;
-      const childIds = childrenOf.get(elementId);
-      if (childIds === undefined) return;
-      for (const childId of childIds.sort(compareIds)) await visit(childId);
+      for (const childId of forest.getChildren(elementId)) {
+        await visit(childId);
+      }
     };
-    let rootIds = isModelScope
-      ? (childrenOf.get(noParent) ?? [])
-      : (childrenOf.get(scope.rootElementId) ?? []);
-    if (isModelScope && scope.skipRootSubject) {
-      rootIds = rootIds.filter((id) => id !== IModel.rootSubjectId);
+
+    if ("rootElementId" in scope) {
+      for (const rootId of forest.getChildren(scope.rootElementId)) {
+        await visit(rootId);
+      }
+      return;
     }
-    for (const rootId of rootIds.sort(compareIds)) await visit(rootId);
+
+    for (const rootId of forest.getModelRoots(scope.modelId)) {
+      if (scope.skipRootSubject && rootId === IModel.rootSubjectId) continue;
+      await visit(rootId);
+    }
   }
 
   /** Exports all aspects owned by the supplied elements. */

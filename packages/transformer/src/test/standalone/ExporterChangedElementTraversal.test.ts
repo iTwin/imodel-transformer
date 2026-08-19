@@ -30,7 +30,7 @@ import { KnownTestLocations } from "../TestUtils/KnownTestLocations";
 
 /** Recorded traversal event: callback kind, element id, and the isUpdate flag for exports. */
 type ChangeTraversalEvent =
-  | [kind: "pre" | "skip", id: Id64String]
+  | [kind: "should" | "pre" | "skip", id: Id64String]
   | [kind: "export", id: Id64String, isUpdate: boolean | undefined];
 
 class RecordingHandler extends IModelExportHandler {
@@ -48,6 +48,7 @@ class RecordingHandler extends IModelExportHandler {
   }
 
   public override async shouldExportElement(element: Element) {
+    this.events.push(["should", element.id]);
     return !this.rejectedIds.has(element.id);
   }
 
@@ -161,8 +162,10 @@ describe("IModelExporter changed-element traversal", () => {
       await exporter.exportModelContents(IModel.repositoryModelId);
 
       expect(handler.events).to.deep.equal([
+        ["should", ids.get("A1a")!],
         ["pre", ids.get("A1a")!],
         ["export", ids.get("A1a")!, false],
+        ["should", ids.get("B")!],
         ["pre", ids.get("B")!],
         ["export", ids.get("B")!, true],
       ]);
@@ -210,7 +213,9 @@ describe("IModelExporter changed-element traversal", () => {
       // A is rejected via shouldExportElement: onSkipElement fires and the whole
       // subtree is pruned, dropping the changed descendant A1a silently
       expect(handler.events).to.deep.equal([
+        ["should", ids.get("A")!],
         ["skip", ids.get("A")!],
+        ["should", ids.get("B")!],
         ["pre", ids.get("B")!],
         ["export", ids.get("B")!, true],
       ]);
@@ -234,6 +239,7 @@ describe("IModelExporter changed-element traversal", () => {
 
       expect(handler.events).to.deep.equal([
         ["skip", ids.get("A1")!],
+        ["should", ids.get("B")!],
         ["pre", ids.get("B")!],
         ["export", ids.get("B")!, true],
       ]);
@@ -348,8 +354,10 @@ describe("IModelExporter changed-element traversal", () => {
 
       // top (changed) exported before leaf (changed); mid (unchanged) is silent
       expect(handler.events).to.deep.equal([
+        ["should", inserted.topId],
         ["pre", inserted.topId],
         ["export", inserted.topId, true],
+        ["should", inserted.leafId],
         ["pre", inserted.leafId],
         ["export", inserted.leafId, false],
       ]);
@@ -369,6 +377,7 @@ describe("IModelExporter changed-element traversal", () => {
 
       // B1 is outside A's subtree and must not be exported by this call
       expect(handler.events).to.deep.equal([
+        ["should", ids.get("A1a")!],
         ["pre", ids.get("A1a")!],
         ["export", ids.get("A1a")!, false],
       ]);
@@ -441,33 +450,13 @@ describe("IModelExporter changed-element traversal", () => {
     }
   }
 
-  it("produces identical callback sequences on the legacy and direct paths", async () => {
-    // randomized changed/rejected/excluded assignments over a deep+wide tree,
-    // deterministic seed, compared between the two traversal implementations
-    const spine: TreeSpec[] = [];
-    let cursor = spine;
-    for (let depth = 0; depth < 8; depth++) {
-      const node: TreeSpec = {
-        name: `spine${depth}`,
-        children: Array.from({ length: 4 }, (_, i) => ({
-          name: `leaf${depth}-${i}`,
-        })),
-      };
-      cursor.push(node);
-      cursor = node.children!;
-    }
-    let seed = 1234567;
-    const nextRandom = () => {
-      seed = (seed * 48271) % 2147483647;
-      return seed / 2147483647;
-    };
-
+  it("matches an explicit callback oracle on the legacy and direct paths", async () => {
     const runPath = async (useLegacy: boolean) => {
       const sourceDb = createSourceDb(
         `Parity${useLegacy ? "Legacy" : "Direct"}`
       );
       try {
-        const ids = insertSubjectTree(sourceDb, spine);
+        const ids = insertSubjectTree(sourceDb, mixedSpec);
         const handler = new RecordingHandler();
         const exporter = useLegacy
           ? new LegacyTraversalExporter(sourceDb)
@@ -475,18 +464,19 @@ describe("IModelExporter changed-element traversal", () => {
         exporter.registerHandler(handler);
         const changes = new ChangedInstanceIds(sourceDb);
         changes.model.updateIds.add(IModel.repositoryModelId);
-        const names = [...ids.keys()];
-        for (const name of names) {
-          const roll = nextRandom();
-          const id = ids.get(name)!;
-          if (roll < 0.25) changes.element.insertIds.add(id);
-          else if (roll < 0.5) changes.element.updateIds.add(id);
-          if (nextRandom() < 0.1) handler.rejectedIds.add(id);
-          if (nextRandom() < 0.05) exporter.excludeElement(id);
+        for (const name of ["A1a", "A2"]) {
+          changes.element.insertIds.add(ids.get(name)!);
         }
+        for (const name of ["A", "A1b", "B1"]) {
+          changes.element.updateIds.add(ids.get(name)!);
+        }
+        handler.rejectedIds.add(ids.get("A1b")!);
+        exporter.excludeElement(ids.get("A2")!);
+        exporter.excludeElement(ids.get("B")!);
         exporter["_sourceDbChanges"] = changes;
+
         await exporter.exportModelContents(IModel.repositoryModelId);
-        // remap recorded ids to names so the sequences are comparable across dbs
+
         const idToName = new Map([...ids].map(([name, id]) => [id, name]));
         return handler.events.map(([kind, id, ...rest]) => [
           kind,
@@ -498,12 +488,20 @@ describe("IModelExporter changed-element traversal", () => {
       }
     };
 
-    const legacySeedStart = seed;
-    const legacyEvents = await runPath(true);
-    seed = legacySeedStart; // replay the same random assignments
-    const directEvents = await runPath(false);
-    expect(directEvents.length).to.be.greaterThan(0);
-    expect(directEvents).to.deep.equal(legacyEvents);
+    const expectedEvents = [
+      ["should", "A"],
+      ["pre", "A"],
+      ["export", "A", true],
+      ["should", "A1a"],
+      ["pre", "A1a"],
+      ["export", "A1a", false],
+      ["should", "A1b"],
+      ["skip", "A1b"],
+      ["skip", "A2"],
+      ["skip", "B"],
+    ];
+    expect(await runPath(true)).to.deep.equal(expectedEvents);
+    expect(await runPath(false)).to.deep.equal(expectedEvents);
   });
 
   it("does not call queryChildren when exporting changes on the direct path", async () => {
@@ -519,6 +517,88 @@ describe("IModelExporter changed-element traversal", () => {
 
       expect(handler.exportedIds).to.include(ids.get("A1a")!);
       expect(queryChildrenSpy).not.toHaveBeenCalled();
+    } finally {
+      sourceDb.close();
+    }
+  });
+
+  it("builds one changed-element forest across models and scopes in exportChanges", async () => {
+    const sourceDb = createSourceDb("OneForestPerExportChanges");
+    try {
+      const inserted = withEditTxn(
+        sourceDb,
+        "insert elements in multiple models",
+        (txn) => {
+          const categoryId = SpatialCategory.insert(
+            txn,
+            IModel.dictionaryId,
+            "Category",
+            {}
+          );
+          const modelAId = PhysicalModel.insert(
+            txn,
+            IModel.rootSubjectId,
+            "ModelA"
+          );
+          const modelBId = PhysicalModel.insert(
+            txn,
+            IModel.rootSubjectId,
+            "ModelB"
+          );
+          const insertObject = (modelId: Id64String) =>
+            txn.insertElement({
+              category: categoryId,
+              classFullName: PhysicalObject.classFullName,
+              code: Code.createEmpty(),
+              model: modelId,
+            } as PhysicalElementProps);
+          return {
+            modelAId,
+            modelBId,
+            objectAId: insertObject(modelAId),
+            objectBId: insertObject(modelBId),
+            repositoryElementId: Subject.insert(
+              txn,
+              IModel.rootSubjectId,
+              "RepositoryElement"
+            ),
+          };
+        }
+      );
+      const handler = new RecordingHandler();
+      const exporter = new IModelExporter(sourceDb);
+      exporter.registerHandler(handler);
+      const changes = new ChangedInstanceIds(sourceDb);
+      changes.model.updateIds.add(IModel.repositoryModelId);
+      changes.model.updateIds.add(inserted.modelAId);
+      changes.model.updateIds.add(inserted.modelBId);
+      changes.element.insertIds.add(inserted.repositoryElementId);
+      changes.element.insertIds.add(inserted.objectAId);
+      changes.element.insertIds.add(inserted.objectBId);
+      const isBriefcaseDb = vi
+        .spyOn(sourceDb, "isBriefcaseDb")
+        .mockReturnValue(true);
+      const createQueryReader = vi.spyOn(sourceDb, "createQueryReader");
+      try {
+        await exporter.exportChanges({
+          changedInstanceIds: changes,
+          skipPropagateChangesToRootElements: true,
+        });
+
+        const hierarchyQueries = createQueryReader.mock.calls.filter(
+          ([query]) =>
+            String(query).includes("WITH RECURSIVE ChangedElementHierarchy")
+        );
+        expect(hierarchyQueries).to.have.lengthOf(1);
+        expect(handler.exportedIds).to.include.members([
+          inserted.repositoryElementId,
+          inserted.objectAId,
+          inserted.objectBId,
+        ]);
+      } finally {
+        createQueryReader.mockRestore();
+        isBriefcaseDb.mockRestore();
+      }
     } finally {
       sourceDb.close();
     }

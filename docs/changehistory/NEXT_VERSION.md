@@ -1,10 +1,10 @@
 # Next release notes
 
-## Change processing no longer traverses the element hierarchy
+## Change processing avoids full element-hierarchy traversal
 
-During `IModelExporter.exportChanges()` (and therefore `IModelTransformer.process()` with `argsForProcessChanges`), changed elements are now exported directly from the changeset's inserted and updated element ids instead of recursively walking every element of each changed model. Incremental synchronization cost now scales with the size of the changeset rather than the size of the iModel.
+During `IModelExporter.exportChanges()` (and therefore `IModelTransformer.process()` with `argsForProcessChanges`), one ancestor-closure query builds a forest from the changeset's inserted and updated element ids plus explicitly excluded ids. The exporter walks that forest instead of recursively querying every element of each changed model. Element traversal work therefore depends on those candidate elements and their required ancestry; model discovery and other export phases retain their existing costs.
 
-All export-handler callbacks (`shouldExportElement`, `preExportElement`, `onExportElement`, `onSkipElement`) fire for the same elements, with the same arguments, in the same depth-first parent-before-child order as before; unchanged elements continue to receive no callbacks. Subclasses of `IModelExporter` that override `exportElement` or `exportChildElements` automatically fall back to the previous per-element traversal so overridden dispatch continues to see every element.
+Export-handler callbacks (`shouldExportElement`, `preExportElement`, `onExportElement`, `onSkipElement`) retain their previous arguments and depth-first parent-before-child order. Unchanged ancestors in the forest remain silent, while explicitly excluded unchanged elements still receive `onSkipElement`; modeled elements continue through the existing model-filtering path. Subclasses of `IModelExporter` that override `exportElement` or `exportChildElements` automatically fall back to the previous per-element traversal so overridden dispatch continues to see every element.
 
 ## Breaking change: batched incremental element deletion
 
