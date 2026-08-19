@@ -909,13 +909,8 @@ export class IModelExporter {
     }
   }
 
-  /** Whether hierarchy traversal may use the streamed set-based query instead of
-   * per-element `queryChildren` recursion.
-   *
-   * The streamed traversal only replaces the exporter's own recursion, so it must not
-   * be used when a subclass overrides [[exportElement]] or [[exportChildElements]]
-   * (those overrides rely on per-element dispatch), nor in changes mode, where
-   * unchanged elements are traversed-but-not-exported by the legacy path.
+  /** Whether hierarchy traversal can use the streamed query.
+   * Changes mode and overrides of the public traversal methods require legacy dispatch.
    */
   private canUseSetBasedTraversal(): boolean {
     // The streamed helper bypasses these public overridable methods. Compare function
@@ -927,25 +922,16 @@ export class IModelExporter {
     );
   }
 
-  /** Stream one or more element trees in depth-first pre-order using a single recursive
-   * ECSQL query instead of one `queryChildren` round trip per visited element.
-   *
-   * The `ORDER BY Depth DESC, ECInstanceId ASC` inside the recursive select turns
-   * SQLite's recursive-CTE queue into a priority queue that always continues down the
-   * current branch before moving to the next sibling, yielding exactly the traversal
-   * order of the legacy recursion (roots and siblings in ECInstanceId order, parents
-   * before descendants) without materializing the hierarchy in JavaScript.
-   *
-   * Rows from rejected subtrees are skipped in the exporter: when an element is rejected,
-   * every subsequent row deeper than it belongs to its subtree (pre-order contiguity) and
-   * is skipped without loading the descendant or invoking its callbacks.
-   *
+  /** Stream element trees in the legacy depth-first order with one recursive ECSQL query.
+   * Rejected subtrees are skipped in the exporter without loading their descendants.
    * @param anchorSelect a SELECT producing `(ECInstanceId, 0)` rows for the tree roots
    */
   private async exportElementTreesStreamed(
     anchorSelect: string,
     params: QueryBinder
   ): Promise<void> {
+    // The anchor seeds roots at depth 0; the recursive term follows parent links.
+    // Deeper pending rows continue the current branch before ascending IDs break ties.
     const sql = `
       WITH RECURSIVE ElementTree (ECInstanceId, Depth) AS (
         ${anchorSelect}
@@ -1143,6 +1129,7 @@ export class IModelExporter {
     }
     if (this.canUseSetBasedTraversal()) {
       Logger.logTrace(loggerCategory, `exportChildElements(${elementId})`);
+      // Seed the stream with direct children; the helper adds their descendants.
       return this.exportElementTreesStreamed(
         `SELECT e.ECInstanceId, 0 FROM ${Element.classFullName} e WHERE e.Parent.Id=:parentId`,
         new QueryBinder().bindId("parentId", elementId)
