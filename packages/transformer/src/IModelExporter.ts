@@ -205,8 +205,10 @@ export abstract class IModelExportHandler {
    */
   public async preExportElement(_element: Element): Promise<void> {}
 
-  /** Called when an element should be deleted. */
-  public async onDeleteElement(_elementId: Id64String): Promise<void> {}
+  /** Called once with the source IDs of all elements deleted by the exported changes. */
+  public async onDeleteElements(
+    _elementIds: ReadonlySet<Id64String>
+  ): Promise<void> {}
 
   /** If `true` is returned, then the ElementAspect will be exported.
    * @note This method can optionally be overridden to exclude an individual ElementAspect from the export. The base implementation always returns `true`.
@@ -579,21 +581,10 @@ export class IModelExporter {
       for (const modelId of this._sourceDbChanges.model.deleteIds) {
         await this.handler.onDeleteModel(modelId);
       }
-      for (const elementId of this._sourceDbChanges.element.deleteIds) {
-        // We don't know how the handler wants to handle deletions, and we don't have enough information
-        // to know if deleted entities were related, so when processing changes, ignore errors from deletion.
-        // Technically, to keep the ignored error scope small, we ignore only the error of looking up a missing element,
-        // that approach works at least for the IModelTransformer.
-        // In the future, the handler may be responsible for doing the work of finding out which elements were cascade deleted,
-        // and returning them for the exporter to use to avoid double-deleting with error ignoring
-        try {
-          await this.handler.onDeleteElement(elementId);
-        } catch (err: unknown) {
-          const isMissingErr =
-            err instanceof IModelError &&
-            err.errorNumber === IModelStatus.NotFound;
-          if (!isMissingErr) throw err;
-        }
+      if (this._sourceDbChanges.element.deleteIds.size > 0) {
+        await this.handler.onDeleteElements(
+          new Set(this._sourceDbChanges.element.deleteIds)
+        );
       }
     }
 
@@ -1408,8 +1399,7 @@ export class IModelExporter {
                 ec_className(e.ECClassId, 's') schemaName,
                 ec_className(e.ECClassId, 'c') className
          FROM bis.Element e
-         INNER JOIN IdSet(:elementIds) ids ON ids.id = e.ECInstanceId
-         OPTIONS ENABLE_EXPERIMENTAL_FEATURES`,
+         INNER JOIN IdSet(:elementIds) ids ON ids.id = e.ECInstanceId`,
         queryParams,
         { usePrimaryConn: true }
       )) {
@@ -1428,8 +1418,7 @@ export class IModelExporter {
         for await (const row of this.sourceDb.createQueryReader(
           `SELECT g.ECInstanceId id, g.Category.Id categoryId
            FROM bis.GeometricElement g
-           INNER JOIN IdSet(:elementIds) ids ON ids.id = g.ECInstanceId
-           OPTIONS ENABLE_EXPERIMENTAL_FEATURES`,
+           INNER JOIN IdSet(:elementIds) ids ON ids.id = g.ECInstanceId`,
           categoryQueryParams,
           { usePrimaryConn: true }
         )) {
@@ -1461,8 +1450,7 @@ export class IModelExporter {
         for await (const row of this.sourceDb.createQueryReader(
           `SELECT model.ECInstanceId id, model.ParentModel.Id parentModelId, model.IsTemplate isTemplate
            FROM bis.Model model
-           INNER JOIN IdSet(:modelIds) ids ON ids.id = model.ECInstanceId
-           OPTIONS ENABLE_EXPERIMENTAL_FEATURES`,
+           INNER JOIN IdSet(:modelIds) ids ON ids.id = model.ECInstanceId`,
           queryParams,
           { usePrimaryConn: true }
         )) {
@@ -2169,7 +2157,6 @@ export class ChangedInstanceIds {
             INNER JOIN hierarchy h ON h.parentId = e.ECInstanceId
         )
         SELECT parentId FROM hierarchy where parentId is not null
-        OPTIONS ENABLE_EXPERIMENTAL_FEATURES
     `;
     const parentModelIds = new Set<Id64String>();
     for await (const row of this._db.createQueryReader(ecQuery, params, {
@@ -2200,8 +2187,7 @@ export class ChangedInstanceIds {
         SELECT relationship.ECInstanceId
         FROM ${relationshipClassName} relationship
         INNER JOIN IdSet(:elementIds) ids
-          ON ids.id = relationship.SourceECInstanceId
-        OPTIONS ENABLE_EXPERIMENTAL_FEATURES`;
+          ON ids.id = relationship.SourceECInstanceId`;
 
     const queryBinder = new QueryBinder().bindIdSet("elementIds", elementIds);
     const queryReader = this._db.createQueryReader(ecQuery, queryBinder, {
@@ -2220,8 +2206,7 @@ export class ChangedInstanceIds {
     ]) {
       const ecQuery = `SELECT aspect.ECInstanceId, aspect.Element.Id
         FROM ${aspectClassName} aspect
-        INNER JOIN IdSet(:elementIds) ids ON ids.id = aspect.Element.Id
-        OPTIONS ENABLE_EXPERIMENTAL_FEATURES`;
+        INNER JOIN IdSet(:elementIds) ids ON ids.id = aspect.Element.Id`;
       const queryBinder = new QueryBinder().bindIdSet("elementIds", elementIds);
       const queryReader = this._db.createQueryReader(ecQuery, queryBinder, {
         usePrimaryConn: true,

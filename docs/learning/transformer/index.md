@@ -43,6 +43,12 @@ While it is possible to import data into an iModel using the standard [IModelDb]
 - The ability to optionally simplify element geometry to optimize visualization workflows via the [IModelImportOptions.simplifyElementGeometry]($transformer) setting.
 - Integration with [IModelTransformer]($transformer)
 
+### Incremental element deletion callbacks
+
+[IModelExporter.exportChanges]($transformer) passes all deleted source element IDs to one [IModelExportHandler.onDeleteElements]($transformer) callback. Custom export handlers and [IModelTransformer]($transformer) subclasses must use this callback because there is no singular deletion callback.
+
+[IModelTransformer]($transformer) maps the source IDs before [IModelImporter]($transformer) submits the target roots together. A custom importer can inspect, count, or audit those roots by overriding `onDeleteElements(elementIds: ReadonlySet<Id64String>)`. Complete any work that requires the elements to exist before calling `super.onDeleteElements()`, which performs the native bulk deletion. The public `deleteElement()` method sends its target ID through the same hook as a one-element set.
+
 ### IModelImportOptions.autoExtendProjectExtents
 
 [IModelImportOptions.autoExtendProjectExtents]($transformer) provides different options for handling the projectExtents of the target iModel.
@@ -92,6 +98,25 @@ Potential transformations include:
 - Augmenting - generating data during transformation for the target that is not part of the source
 - Schema Mapping - mapping classes and properties to a new schema during transformation
 - Change Squashing - each iModel has its own change ledger, so multiple changesets from the source could be _squashed_ into a single changeset to the target
+
+### Processing a subset
+
+`IModelTransformer.process()` finalizes its importer automatically. The subset methods
+`processElement`, `processChildElements`, `processModel`, `processModelContents`,
+`processRelationships`, and `processSubject` are composable and do not finalize after each call.
+After the last subset operation, call [IModelImporter.finalize]($transformer) before saving target
+changes:
+
+```ts
+try {
+  await transformer.processElement(sourceElementId);
+  await transformer.processRelationships(relationshipClassName);
+  transformer.importer.finalize();
+  targetEditTxn.saveChanges();
+} finally {
+  transformer.dispose();
+}
+```
 
 See [schema processing](./schema-processing.md) for schema selection, dynamic schema unions, conflict handling, and the schema-processing workflow.
 

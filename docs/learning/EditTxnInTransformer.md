@@ -30,7 +30,7 @@ The transformer detects reverse sync automatically based on provenance direction
 
 ## IModelImporter
 
-The importer takes a single `EditTxn` and derives `targetDb` from it:
+The importer takes a single `EditTxn` and derives `targetDb` from it. Pass the target deletion roots to `deleteElements()` as a set:
 
 [[include:EditTxnInTransformer.custom-importer]]
 
