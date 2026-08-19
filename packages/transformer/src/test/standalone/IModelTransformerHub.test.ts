@@ -22,6 +22,7 @@ import {
   DocumentListModel,
   Drawing,
   DrawingModel,
+  EditTxn,
   // eslint-disable-next-line @typescript-eslint/no-redeclare
   Element,
   ElementGroupsMembers,
@@ -60,12 +61,12 @@ import {
   Id64String,
   Logger,
   LogLevel,
+  omit,
 } from "@itwin/core-bentley";
 import {
   BisCodeSpec,
   Code,
   ColorDef,
-  DefinitionElementProps,
   ElementProps,
   ExternalSourceAspectProps,
   GeometricElementProps,
@@ -73,7 +74,6 @@ import {
   IModelError,
   IModelVersion,
   InformationPartitionElementProps,
-  ModelProps,
   PhysicalElementProps,
   Placement3d,
   SpatialViewDefinitionProps,
@@ -108,16 +108,6 @@ import { KnownTestLocations } from "../TestUtils/KnownTestLocations";
 import { IModelTestUtils } from "../TestUtils/IModelTestUtils";
 import { transformerTestHub } from "../TestUtils/TransformerTestHub";
 
-import {
-  assertElemState,
-  deleted,
-  populateTimelineSeed,
-  runTimeline,
-  Timeline,
-  TimelineIModelElemState,
-  TimelineIModelState,
-} from "../TestUtils/TimelineTestUtil";
-
 const { count } = IModelTestUtils;
 const countElementExternalSourceAspects = (
   db: IModelDb,
@@ -130,6 +120,73 @@ const countElementExternalSourceAspects = (
         (aspect as ExternalSourceAspect).kind ===
         ExternalSourceAspect.Kind.Element
     ).length;
+
+type TestIModelState = Record<string, unknown>;
+
+async function getTestIModelState(db: IModelDb): Promise<TestIModelState> {
+  const result: TestIModelState = {};
+  const elemIds: Id64String[] = [];
+  const reader = db.createQueryReader(
+    `
+    SELECT ECInstanceId
+    FROM Bis.Element
+    WHERE ECInstanceId>${IModelDb.dictionaryId}
+      AND CodeValue NOT IN ('SpatialCategory', 'PhysicalModel')
+  `,
+    undefined,
+    { usePrimaryConn: true }
+  );
+  for await (const row of reader) elemIds.push(row.id);
+
+  for (const elemId of elemIds) {
+    const elem = db.elements.getElement(elemId);
+    const tag = elem.userLabel ?? elem.id;
+    if (tag in result)
+      throw Error("test iModel state requires unique user labels");
+    result[tag] =
+      elem.jsonProperties.updateState !== undefined
+        ? elem.jsonProperties.updateState
+        : elem.toJSON();
+  }
+
+  const relationshipReader = db.createQueryReader(
+    `
+    SELECT erte.ECInstanceId AS id, ec_classname(erte.ECClassId, 's.c') AS className,
+        se.ECInstanceId AS sourceId, se.UserLabel AS sourceUserLabel,
+        te.ECInstanceId AS targetId, te.UserLabel AS targetUserLabel
+    FROM Bis.ElementRefersToElements erte
+    JOIN Bis.Element se
+      ON se.ECInstanceId=erte.SourceECInstanceId
+    JOIN Bis.Element te
+      ON te.ECInstanceId=erte.TargetECInstanceId
+  `,
+    undefined,
+    { usePrimaryConn: true }
+  );
+  for await (const row of relationshipReader) {
+    const sourceLabel = row.sourceUserLabel ?? row.sourceId;
+    const targetLabel = row.targetUserLabel ?? row.targetId;
+    const tag = `REL_${sourceLabel}_${targetLabel}_${row.className}`;
+    if (tag in result)
+      throw Error("test iModel state requires unique relationship labels");
+    result[tag] = omit(
+      db.relationships.getInstanceProps(row.className, row.id),
+      ["id"]
+    );
+  }
+
+  return result;
+}
+
+async function assertTestIModelState(
+  db: IModelDb,
+  state: TestIModelState,
+  { subset = false } = {}
+): Promise<void> {
+  expect(await getTestIModelState(db)).to.deep.subsetEqual(state, {
+    useSubsetEquality: subset,
+  });
+}
 
 describe("IModelTransformerHub", () => {
   const outputDir = path.join(
@@ -1635,55 +1692,256 @@ describe("IModelTransformerHub", () => {
         )
       ).to.be.false;
     };
-    const timeline: Timeline = [
-      { master: { 1: 1, 2: 2, 3: 1 } },
-      { branch: { branch: "master" } },
-      { branch: { 1: 2, 4: 1 } },
-      {
-        master: {
-          sync: [
-            "branch",
-            { assert: { afterProcessChanges: validateCsFileProps } },
-          ],
-        },
-      },
-    ];
-
-    const { tearDown } = await runTimeline(timeline, {
-      iTwinId,
+    const masterIModelName = IModelTransformerTestUtils.generateUniqueName(
+      "InitializedBranchProvenanceMaster"
+    );
+    const branchIModelName = IModelTransformerTestUtils.generateUniqueName(
+      "InitializedBranchProvenanceBranch"
+    );
+    const masterIModelId = await HubWrappers.recreateIModel({
       accessToken,
+      iTwinId,
+      iModelName: masterIModelName,
+      noLocks: true,
     });
+    let masterDb: BriefcaseDb | undefined;
+    let branchDb: BriefcaseDb | undefined;
+    let branchIModelId: GuidString | undefined;
 
-    await tearDown();
+    try {
+      masterDb = await HubWrappers.downloadAndOpenBriefcase({
+        accessToken,
+        iTwinId,
+        iModelId: masterIModelId,
+      });
+      const { modelId, categoryId } = withEditTxn(
+        masterDb,
+        "populate master seed",
+        (txn) => ({
+          modelId: PhysicalModel.insert(
+            txn,
+            IModel.rootSubjectId,
+            "PhysicalModel"
+          ),
+          categoryId: SpatialCategory.insert(
+            txn,
+            IModel.dictionaryId,
+            "SpatialCategory",
+            new SubCategoryAppearance()
+          ),
+        })
+      );
+      withEditTxn(masterDb, "maintain master objects", (txn) => {
+        for (const [name, updateState] of Object.entries({
+          1: 1,
+          2: 2,
+          3: 1,
+        })) {
+          txn.insertElement({
+            classFullName: PhysicalObject.classFullName,
+            model: modelId,
+            category: categoryId,
+            code: new Code({
+              spec: IModelDb.rootSubjectId,
+              scope: IModelDb.rootSubjectId,
+              value: name,
+            }),
+            userLabel: name,
+            geom: IModelTransformerTestUtils.createBox(Point3d.create(1, 1, 1)),
+            placement: {
+              origin: Point3d.create(0, 0, 0),
+              angles: YawPitchRollAngles.createDegrees(0, 0, 0),
+            },
+            jsonProperties: { updateState },
+          } as PhysicalElementProps);
+        }
+      });
+      await masterDb.pushChanges({
+        accessToken,
+        description: "seeded master",
+      });
+      masterDb.performCheckpoint();
+
+      branchIModelId = await HubWrappers.recreateIModel({
+        accessToken,
+        iTwinId,
+        iModelName: branchIModelName,
+        noLocks: true,
+        version0: masterDb.pathName,
+      });
+      branchDb = await HubWrappers.downloadAndOpenBriefcase({
+        accessToken,
+        iTwinId,
+        iModelId: branchIModelId,
+      });
+      const branchInitEditTxn = createStartedEditTxn(branchDb);
+      const provenanceInitializer = new IModelTransformer(
+        { source: masterDb, target: branchInitEditTxn },
+        { wasSourceIModelCopiedToTarget: true }
+      );
+      let branchInitSucceeded = false;
+      try {
+        await provenanceInitializer.process();
+        branchInitSucceeded = true;
+      } finally {
+        provenanceInitializer.dispose();
+        branchInitEditTxn.end(branchInitSucceeded ? "save" : "abandon");
+      }
+      await branchDb.pushChanges({
+        accessToken,
+        description: "initialized branch provenance",
+      });
+
+      withEditTxn(branchDb, "update branch objects", (txn) => {
+        const element1 = branchDb!.elements.getElement(
+          IModelTestUtils.queryByUserLabel(branchDb!, "1")
+        );
+        txn.updateElement({
+          ...element1.toJSON(),
+          jsonProperties: { ...element1.jsonProperties, updateState: 2 },
+        });
+        txn.insertElement({
+          classFullName: PhysicalObject.classFullName,
+          model: modelId,
+          category: categoryId,
+          code: new Code({
+            spec: IModelDb.rootSubjectId,
+            scope: IModelDb.rootSubjectId,
+            value: "4",
+          }),
+          userLabel: "4",
+          geom: IModelTransformerTestUtils.createBox(Point3d.create(1, 1, 1)),
+          placement: {
+            origin: Point3d.create(0, 0, 0),
+            angles: YawPitchRollAngles.createDegrees(0, 0, 0),
+          },
+          jsonProperties: { updateState: 1 },
+        } as PhysicalElementProps);
+      });
+      await branchDb.pushChanges({
+        accessToken,
+        description: "updated branch objects",
+      });
+
+      const reverseSyncEditTxn = createStartedEditTxn(masterDb);
+      const reverseSyncSourceEditTxn = createStartedEditTxn(branchDb);
+      const reverseSyncer = new IModelTransformer(
+        { source: branchDb, target: reverseSyncEditTxn },
+        {
+          sourceEditTxn: reverseSyncSourceEditTxn,
+          argsForProcessChanges: {
+            startChangeset: { index: undefined },
+          },
+        }
+      );
+      let reverseSyncSucceeded = false;
+      try {
+        await reverseSyncer.process();
+        validateCsFileProps(reverseSyncer);
+        reverseSyncSucceeded = true;
+      } finally {
+        reverseSyncer.dispose();
+        reverseSyncEditTxn.end(reverseSyncSucceeded ? "save" : "abandon");
+        reverseSyncSourceEditTxn.end(reverseSyncSucceeded ? "save" : "abandon");
+      }
+      await branchDb.pushChanges({
+        accessToken,
+        description: "reverse sync",
+      });
+      await masterDb.pushChanges({
+        accessToken,
+        description: "reverse sync",
+      });
+    } finally {
+      if (masterDb)
+        await HubWrappers.closeAndDeleteBriefcaseDb(accessToken, masterDb);
+      if (branchDb)
+        await HubWrappers.closeAndDeleteBriefcaseDb(accessToken, branchDb);
+      await transformerTestHub.deleteIModel({
+        iTwinId,
+        iModelId: masterIModelId,
+      });
+      if (branchIModelId)
+        await transformerTestHub.deleteIModel({
+          iTwinId,
+          iModelId: branchIModelId,
+        });
+    }
   });
 
   it("should merge changes made on a branch back to master", async () => {
-    const masterIModelName = "Master";
+    const masterIModelName =
+      IModelTransformerTestUtils.generateUniqueName("MergeMaster");
     const masterSeedFileName = path.join(outputDir, `${masterIModelName}.bim`);
     if (IModelJsFs.existsSync(masterSeedFileName))
       IModelJsFs.removeSync(masterSeedFileName);
-    const masterSeedState = { 1: 1, 2: 1, 20: 1, 21: 1, 40: 1, 41: 2, 42: 3 };
     const masterSeedDb = SnapshotDb.createEmpty(masterSeedFileName, {
       rootSubject: { name: masterIModelName },
     });
-    // masterSeedDb.nativeDb.setITwinId(iTwinId); // workaround for "ContextId was not properly setup in the checkpoint" issue
-    populateTimelineSeed(masterSeedDb, masterSeedState);
+    const masterSeedState = {
+      1: 1,
+      2: 1,
+      20: 1,
+      21: 1,
+      40: 1,
+      41: 2,
+      42: 3,
+    };
+    const { modelId, categoryId } = withEditTxn(
+      masterSeedDb,
+      "populate master seed",
+      (txn) => ({
+        categoryId: SpatialCategory.insert(
+          txn,
+          IModel.dictionaryId,
+          "SpatialCategory",
+          new SubCategoryAppearance()
+        ),
+        modelId: PhysicalModel.insert(
+          txn,
+          IModel.rootSubjectId,
+          "PhysicalModel"
+        ),
+      })
+    );
+    withEditTxn(masterSeedDb, "maintain master seed objects", (txn) => {
+      for (const [name, updateState] of Object.entries(masterSeedState)) {
+        txn.insertElement({
+          classFullName: PhysicalObject.classFullName,
+          model: modelId,
+          category: categoryId,
+          code: new Code({
+            spec: IModelDb.rootSubjectId,
+            scope: IModelDb.rootSubjectId,
+            value: name,
+          }),
+          userLabel: name,
+          geom: IModelTransformerTestUtils.createBox(Point3d.create(1, 1, 1)),
+          placement: {
+            origin: Point3d.create(0, 0, 0),
+            angles: YawPitchRollAngles.createDegrees(0, 0, 0),
+          },
+          jsonProperties: { updateState },
+        } as PhysicalElementProps);
+      }
+    });
 
     // 20 will be deleted, so it's important to know remapping deleted elements still works if there is no fedguid
     const noFedGuidElemIds = masterSeedDb.queryEntityIds({
       from: "Bis.Element",
       where: "UserLabel IN ('1','20','41','42')",
     });
-    for (const elemId of noFedGuidElemIds)
-      masterSeedDb.withSqliteStatement(
-        `UPDATE bis_Element SET FederationGuid=NULL WHERE Id=${elemId}`,
-        (s) => {
-          expect(s.step()).to.equal(DbResult.BE_SQLITE_DONE);
-        }
-      );
+    withEditTxn(masterSeedDb, "null out selected federation guids", () => {
+      for (const elemId of noFedGuidElemIds)
+        masterSeedDb.withSqliteStatement(
+          `UPDATE bis_Element SET FederationGuid=NULL WHERE Id=${elemId}`,
+          (s) => {
+            expect(s.step()).to.equal(DbResult.BE_SQLITE_DONE);
+          }
+        );
+    });
     masterSeedDb.performCheckpoint();
 
-    // hard to check this without closing the db...
     const seedSecondConn = SnapshotDb.openFile(masterSeedDb.pathName);
     for (const elemId of noFedGuidElemIds)
       expect(seedSecondConn.elements.getElement(elemId).federationGuid).to.be
@@ -1707,368 +1965,572 @@ describe("IModelTransformerHub", () => {
       },
     ];
 
-    const masterSeed: TimelineIModelState = {
-      // HACK: we know this will only be used for seeding via its path and performCheckpoint
-      db: masterSeedDb as any as BriefcaseDb,
-      id: "master-seed",
-      state: masterSeedState,
+    const masterIModelId = await HubWrappers.recreateIModel({
+      accessToken,
+      iTwinId,
+      iModelName: masterIModelName,
+      noLocks: true,
+      version0: masterSeedFileName,
+    });
+    let branch1IModelId: GuidString | undefined;
+    let branch2IModelId: GuidString | undefined;
+    let masterDb: BriefcaseDb | undefined;
+    let branch1Db: BriefcaseDb | undefined;
+    let branch2Db: BriefcaseDb | undefined;
+
+    const insertPhysicalObject = (
+      txn: EditTxn,
+      name: string,
+      updateState: number
+    ) =>
+      txn.insertElement({
+        classFullName: PhysicalObject.classFullName,
+        model: modelId,
+        category: categoryId,
+        code: new Code({
+          spec: IModelDb.rootSubjectId,
+          scope: IModelDb.rootSubjectId,
+          value: name,
+        }),
+        userLabel: name,
+        geom: IModelTransformerTestUtils.createBox(Point3d.create(1, 1, 1)),
+        placement: {
+          origin: Point3d.create(0, 0, 0),
+          angles: YawPitchRollAngles.createDegrees(0, 0, 0),
+        },
+        jsonProperties: { updateState },
+      } as PhysicalElementProps);
+    const updatePhysicalObject = (
+      db: IModelDb,
+      txn: EditTxn,
+      name: string,
+      updateState: number
+    ) => {
+      const element = db.elements.getElement(
+        IModelTestUtils.queryByUserLabel(db, name)
+      );
+      txn.updateElement({
+        ...element.toJSON(),
+        jsonProperties: { ...element.jsonProperties, updateState },
+      });
     };
 
-    const timeline: Timeline = [
-      { master: { seed: masterSeed } }, // masterSeedState is above
-      { branch1: { branch: "master" } },
-      { master: { 40: 5 } },
-      { branch2: { branch: "master" } },
-      { branch1: { 2: 2, 3: 1, 4: 1 } },
-      {
-        branch1: {
-          manualUpdate(db) {
-            withEditTxn(db, "insert expected relationships", (txn) => {
-              expectedRelationships.map(({ sourceLabel, targetLabel }, i) => {
-                const sourceId = IModelTestUtils.queryByUserLabel(
-                  db,
-                  sourceLabel
-                );
-                const targetId = IModelTestUtils.queryByUserLabel(
-                  db,
-                  targetLabel
-                );
-                assert(sourceId && targetId);
-                const rel = ElementGroupsMembers.create(
-                  db,
-                  sourceId,
-                  targetId,
-                  0
-                );
-                expectedRelationships[i].idInBranch1 = txn.insertRelationship(
-                  rel.toJSON()
-                );
-              });
-            });
-          },
-        },
-      },
-      {
-        branch1: {
-          manualUpdate(db) {
-            withEditTxn(db, "update expected relationship", (txn) => {
-              const rel = db.relationships.getInstance<ElementGroupsMembers>(
-                ElementGroupsMembers.classFullName,
-                expectedRelationships[0].idInBranch1
-              );
-              rel.memberPriority = 1;
-              txn.updateRelationship(rel.toJSON());
-            });
-          },
-        },
-      },
-      { branch1: { 1: 2, 3: deleted, 5: 1, 6: 1, 20: deleted, 21: 2 } },
-      { branch1: { 21: deleted, 30: 1 } },
-      { master: { sync: ["branch1"] } }, // first master<-branch1 reverse sync
-      {
-        async assert({ master, branch1 }) {
-          await assertElemState(master.db, {
-            // relationship props are a lot to type out so let's grab those from the branch
-            ...branch1.state,
-            // double check deletions propagated by sync
-            20: undefined as any,
-            21: undefined as any,
-            40: 5, // this element was not changed in the branch, so the sync won't update it
-          });
-        },
-      },
-      { branch2: { sync: ["master"] } }, // first master->branch2 forward sync
-      {
-        async assert({ master, branch2 }) {
-          await assertElemState(branch2.db, master.state);
-        },
-      },
-      { branch2: { 7: 1, 8: 1 } },
-      // insert 9 and a conflicting state for 7 on master
-      { master: { 7: 2, 9: 1 } },
-      { master: { sync: ["branch2"] } }, // first master<-branch2 reverse sync
-      {
-        async assert({ master, branch1, branch2 }) {
-          for (const { db } of [master, branch1, branch2]) {
-            const elem1Id = IModelTestUtils.queryByUserLabel(db, "1");
-            expect(db.elements.getElement(elem1Id).federationGuid).to.be
-              .undefined;
-
-            for (const rel of expectedRelationships) {
-              const sourceId = IModelTestUtils.queryByUserLabel(
-                db,
-                rel.sourceLabel
-              );
-              const targetId = IModelTestUtils.queryByUserLabel(
-                db,
-                rel.targetLabel
-              );
-              expect(
-                db.elements.getElement(sourceId).federationGuid !== undefined
-              ).to.be.equal(rel.sourceFedGuid);
-              expect(
-                db.elements.getElement(targetId).federationGuid !== undefined
-              ).to.be.equal(rel.targetFedGuid);
-            }
-          }
-
-          expect(count(master.db, ExternalSourceAspect.classFullName)).to.equal(
-            0
-          );
-
-          for (const branch of [branch1, branch2]) {
-            const elem1Id = IModelTestUtils.queryByUserLabel(branch.db, "1");
-            expect(branch.db.elements.getElement(elem1Id).federationGuid).to.be
-              .undefined;
-            const aspects = [
-              ...branch.db.queryEntityIds({
-                from: "BisCore.ExternalSourceAspect",
-              }),
-            ].map((aspectId) =>
-              branch.db.elements.getAspect(aspectId).toJSON()
-            ) as ExternalSourceAspectProps[];
-            expect(aspects).to.deep.subsetEqual([
-              {
-                element: { id: IModelDb.rootSubjectId },
-                identifier: master.db.iModelId,
-              },
-              {
-                element: { id: elem1Id },
-                identifier: elem1Id,
-              },
-            ]);
-            expect(Date.parse(aspects[3].version!)).not.to.be.NaN;
-          }
-
-          // branch2 won the conflict since it is the synchronization source
-          await assertElemState(master.db, { 7: 1 }, { subset: true });
-        },
-      },
-      { master: { 6: 2 } },
-      {
-        master: {
-          manualUpdate(db) {
-            withEditTxn(db, "delete expected relationships", (txn) => {
-              expectedRelationships.forEach(({ sourceLabel, targetLabel }) => {
-                const sourceId = IModelTestUtils.queryByUserLabel(
-                  db,
-                  sourceLabel
-                );
-                const targetId = IModelTestUtils.queryByUserLabel(
-                  db,
-                  targetLabel
-                );
-                assert(sourceId && targetId);
-                const rel = db.relationships.getInstance(
-                  ElementGroupsMembers.classFullName,
-                  { sourceId, targetId }
-                );
-                txn.deleteRelationship(rel.toJSON());
-              });
-            });
-          },
-        },
-      },
-      { branch1: { sync: ["master"] } }, // first master->branch1 forward sync
-      {
-        async assert({ branch1 }) {
-          for (const rel of expectedRelationships) {
-            expect(
-              branch1.db.relationships.tryGetInstance(
-                ElementGroupsMembers.classFullName,
-                rel.idInBranch1
-              ),
-              `had ${rel.sourceLabel}->${rel.targetLabel}`
-            ).to.be.undefined;
-            const sourceId = IModelTestUtils.queryByUserLabel(
-              branch1.db,
-              rel.sourceLabel
-            );
-            const targetId = IModelTestUtils.queryByUserLabel(
-              branch1.db,
-              rel.targetLabel
-            );
-            assert(sourceId && targetId);
-            expect(
-              branch1.db.relationships.tryGetInstance(
-                ElementGroupsMembers.classFullName,
-                { sourceId, targetId }
-              ),
-              `had ${rel.sourceLabel}->${rel.targetLabel}`
-            ).to.be.undefined;
-
-            // check rel aspect was deleted
-            const srcElemAspects = branch1.db.elements.getAspects(
-              sourceId,
-              ExternalSourceAspect.classFullName
-            ) as ExternalSourceAspect[];
-            expect(
-              !srcElemAspects.some((a) => a.identifier === rel.idInBranch1)
-            ).to.be.true;
-            expect(srcElemAspects.length).to.lessThanOrEqual(1);
-          }
-          await assertElemState(branch1.db, { 7: 1 }, { subset: true });
-        },
-      },
-      // 7 originally came from branch2. Modify it.
-      { branch1: { 7: 10 } },
-      // Reverse sync branch 1 to master with the change to 7.
-      { master: { sync: ["branch1"] } },
-      // Forward sync master to branch2 with the change to 7.
-      { branch2: { sync: ["master"] } },
-      {
-        async assert({ master, branch1, branch2 }) {
-          for (const imodel of [master, branch1, branch2]) {
-            await assertElemState(imodel.db, { 7: 10 }, { subset: true });
-          }
-        },
-      },
-    ];
-
-    const { trackedIModels, tearDown } = await runTimeline(timeline, {
-      iTwinId,
-      accessToken,
-    });
-    masterSeedDb.close();
-
-    // create empty iModel meant to contain replayed master history
-    const replayedIModelName = "Replayed";
-    const replayedIModelId = await transformerTestHub.createNewIModel({
-      iTwinId,
-      iModelName: replayedIModelName,
-      description: "blank",
-      noLocks: true,
-    });
-
-    const replayedDb = await HubWrappers.downloadAndOpenBriefcase({
-      accessToken,
-      iTwinId,
-      iModelId: replayedIModelId,
-    });
-    assert.isTrue(replayedDb.isBriefcaseDb());
-    assert.equal(replayedDb.iTwinId, iTwinId);
-
     try {
-      const master = trackedIModels.get("master");
-      assert(master);
-
-      const masterDbChangesets = await transformerTestHub.downloadChangesets({
-        accessToken,
-        iModelId: master.id,
-        targetDir: BriefcaseManager.getChangeSetsPath(master.id),
-      });
-      assert.equal(masterDbChangesets.length, 7);
-      const masterDeletedElementIds = new Set<Id64String>();
-      const masterDeletedRelationshipIds = new Set<Id64String>();
-      for (const masterDbChangeset of masterDbChangesets) {
-        assert.isDefined(masterDbChangeset.id);
-        assert.isDefined(masterDbChangeset.description); // test code above always included a change description when pushChanges was called
-        // below is one way of determining the set of elements that were deleted in a specific changeset
-        const changedInstanceIds = await ChangedInstanceIds.initialize({
-          iModel: master.db,
-          csFileProps: [masterDbChangeset],
-        });
-        const result = changedInstanceIds;
-        if (result === undefined) throw Error("expected to be defined");
-
-        if (result.element.deleteIds) {
-          result.element.deleteIds.forEach((id: Id64String) =>
-            masterDeletedElementIds.add(id)
-          );
-        }
-        if (result.relationship.deleteIds) {
-          result.relationship.deleteIds.forEach((id: Id64String) =>
-            masterDeletedRelationshipIds.add(id)
-          );
-        }
-      }
-      expect(masterDeletedElementIds.size).to.equal(2); // elem '3' is never seen by master
-      expect(masterDeletedRelationshipIds.size).to.equal(2);
-
-      // replay master history to create replayed iModel
-      const sourceDb = await HubWrappers.downloadAndOpenBriefcase({
+      masterDb = await HubWrappers.downloadAndOpenBriefcase({
         accessToken,
         iTwinId,
-        iModelId: master.id,
-        asOf: IModelVersion.first().toJSON(),
+        iModelId: masterIModelId,
       });
-      const makeReplayTransformer = (
-        argsForProcessChanges?: ProcessChangesOptions
+      await saveAndPushChanges(masterDb, "seeded master");
+      masterDb.performCheckpoint();
+
+      const initializeBranch = async (
+        iModelName: string
+      ): Promise<{ id: GuidString; db: BriefcaseDb }> => {
+        const id = await HubWrappers.recreateIModel({
+          accessToken,
+          iTwinId,
+          iModelName,
+          noLocks: true,
+          version0: masterDb!.pathName,
+        });
+        const db = await HubWrappers.downloadAndOpenBriefcase({
+          accessToken,
+          iTwinId,
+          iModelId: id,
+        });
+        const initEditTxn = createStartedEditTxn(db);
+        const initializer = new IModelTransformer(
+          { source: masterDb!, target: initEditTxn },
+          { wasSourceIModelCopiedToTarget: true }
+        );
+        let succeeded = false;
+        try {
+          await initializer.process();
+          succeeded = true;
+        } finally {
+          initializer.dispose();
+          initEditTxn.end(succeeded ? "save" : "abandon");
+        }
+        await db.pushChanges({
+          accessToken,
+          description: "initialized branch provenance",
+        });
+        return { id, db };
+      };
+      const forwardSync = async (
+        source: BriefcaseDb,
+        target: BriefcaseDb,
+        description: string
       ) => {
-        const editTxn = createStartedEditTxn(replayedDb);
-        const transformer = new IModelTransformer(
-          { source: sourceDb, target: editTxn },
+        const targetEditTxn = createStartedEditTxn(target);
+        const synchronizer = new IModelTransformer(
+          { source, target: targetEditTxn },
           {
-            argsForProcessChanges,
+            argsForProcessChanges: {
+              startChangeset: { index: undefined },
+            },
           }
         );
-        // this replay strategy pretends that deleted elements never existed
-        for (const elementId of masterDeletedElementIds) {
-          transformer.exporter.excludeElement(elementId);
+        let succeeded = false;
+        try {
+          await synchronizer.process();
+          succeeded = true;
+        } finally {
+          synchronizer.dispose();
+          targetEditTxn.end(succeeded ? "save" : "abandon");
         }
-        return { editTxn, transformer };
+        await target.pushChanges({ accessToken, description });
+      };
+      const reverseSync = async (
+        source: BriefcaseDb,
+        target: BriefcaseDb,
+        description: string
+      ) => {
+        const targetEditTxn = createStartedEditTxn(target);
+        const sourceEditTxn = createStartedEditTxn(source);
+        const synchronizer = new IModelTransformer(
+          { source, target: targetEditTxn },
+          {
+            argsForProcessChanges: {
+              startChangeset: { index: undefined },
+            },
+            sourceEditTxn,
+          }
+        );
+        let succeeded = false;
+        try {
+          await synchronizer.process();
+          succeeded = true;
+        } finally {
+          synchronizer.dispose();
+          targetEditTxn.end(succeeded ? "save" : "abandon");
+          sourceEditTxn.end(succeeded ? "save" : "abandon");
+        }
+        await source.pushChanges({ accessToken, description });
+        await target.pushChanges({ accessToken, description });
       };
 
-      // NOTE: this test knows that there were no schema changes, so does not call `processSchemas`
-      const replayInitTransformer = makeReplayTransformer();
-      await replayInitTransformer.transformer.process(); // process any elements that were part of the "seed"
-      replayInitTransformer.transformer.dispose();
-      replayInitTransformer.editTxn.end();
+      const branch1 = await initializeBranch(
+        IModelTransformerTestUtils.generateUniqueName("MergeBranch1")
+      );
+      branch1IModelId = branch1.id;
+      branch1Db = branch1.db;
 
-      await saveAndPushChanges(replayedDb, "changes from source seed");
-      for (const masterDbChangeset of masterDbChangesets) {
-        await sourceDb.pullChanges({
-          accessToken,
-          toIndex: masterDbChangeset.index,
-        });
-        const replayTransformer = makeReplayTransformer({
-          startChangeset: sourceDb.changeset,
-        });
-        await replayTransformer.transformer.process();
-        replayTransformer.editTxn.end();
-        await saveAndPushChanges(
-          replayedDb,
-          masterDbChangeset.description ?? ""
-        );
-        replayTransformer.transformer.dispose();
-      }
-      sourceDb.close();
-      await assertElemState(replayedDb, master.state); // should have same ending state as masterDb
-
-      // make sure there are no deletes in the replay history (all elements that were eventually deleted from masterDb were excluded)
-      const replayedDbChangesets = await transformerTestHub.downloadChangesets({
-        accessToken,
-        iModelId: replayedIModelId,
-        targetDir: BriefcaseManager.getChangeSetsPath(replayedIModelId),
+      withEditTxn(masterDb, "update master object 40", (txn) => {
+        updatePhysicalObject(masterDb!, txn, "40", 5);
       });
-      assert.isAtLeast(replayedDbChangesets.length, masterDbChangesets.length); // replayedDb will have more changesets when seed contains elements
-      const replayedDeletedElementIds = new Set<Id64String>();
-      for (const replayedDbChangeset of replayedDbChangesets) {
-        assert.isDefined(replayedDbChangeset.id);
-        const changesetPath = replayedDbChangeset.pathname;
-        assert.isTrue(IModelJsFs.existsSync(changesetPath));
-        // below is one way of determining the set of elements that were deleted in a specific changeset
-        const changedInstanceIds = await ChangedInstanceIds.initialize({
-          iModel: replayedDb,
-          csFileProps: [replayedDbChangeset],
-        });
-        const result = changedInstanceIds;
-        if (result === undefined) throw Error("expected to be defined");
+      await masterDb.pushChanges({
+        accessToken,
+        description: "update master object 40",
+      });
+      masterDb.performCheckpoint();
 
-        assert.isDefined(result.element);
-        if (result.element.deleteIds) {
-          result.element.deleteIds.forEach((id: Id64String) =>
-            replayedDeletedElementIds.add(id)
+      const branch2 = await initializeBranch(
+        IModelTransformerTestUtils.generateUniqueName("MergeBranch2")
+      );
+      branch2IModelId = branch2.id;
+      branch2Db = branch2.db;
+
+      withEditTxn(branch1Db, "update branch1 objects", (txn) => {
+        updatePhysicalObject(branch1Db!, txn, "2", 2);
+        insertPhysicalObject(txn, "3", 1);
+        insertPhysicalObject(txn, "4", 1);
+      });
+      await branch1Db.pushChanges({
+        accessToken,
+        description: "update branch1 objects",
+      });
+      withEditTxn(branch1Db, "insert expected relationships", (txn) => {
+        expectedRelationships.forEach(({ sourceLabel, targetLabel }, i) => {
+          const sourceId = IModelTestUtils.queryByUserLabel(
+            branch1Db!,
+            sourceLabel
           );
+          const targetId = IModelTestUtils.queryByUserLabel(
+            branch1Db!,
+            targetLabel
+          );
+          assert(sourceId && targetId);
+          const rel = ElementGroupsMembers.create(
+            branch1Db!,
+            sourceId,
+            targetId,
+            0
+          );
+          expectedRelationships[i].idInBranch1 = txn.insertRelationship(
+            rel.toJSON()
+          );
+        });
+      });
+      await branch1Db.pushChanges({
+        accessToken,
+        description: "insert expected relationships",
+      });
+      withEditTxn(branch1Db, "update expected relationship", (txn) => {
+        const rel = branch1Db!.relationships.getInstance<ElementGroupsMembers>(
+          ElementGroupsMembers.classFullName,
+          expectedRelationships[0].idInBranch1
+        );
+        rel.memberPriority = 1;
+        txn.updateRelationship(rel.toJSON());
+      });
+      await branch1Db.pushChanges({
+        accessToken,
+        description: "update expected relationship",
+      });
+      withEditTxn(branch1Db, "update and delete branch1 objects", (txn) => {
+        updatePhysicalObject(branch1Db!, txn, "1", 2);
+        txn.deleteElement(IModelTestUtils.queryByUserLabel(branch1Db!, "3"));
+        insertPhysicalObject(txn, "5", 1);
+        insertPhysicalObject(txn, "6", 1);
+        txn.deleteElement(IModelTestUtils.queryByUserLabel(branch1Db!, "20"));
+        updatePhysicalObject(branch1Db!, txn, "21", 2);
+      });
+      await branch1Db.pushChanges({
+        accessToken,
+        description: "update and delete branch1 objects",
+      });
+      withEditTxn(
+        branch1Db,
+        "delete branch1 object 21 and insert 30",
+        (txn) => {
+          txn.deleteElement(IModelTestUtils.queryByUserLabel(branch1Db!, "21"));
+          insertPhysicalObject(txn, "30", 1);
+        }
+      );
+      await branch1Db.pushChanges({
+        accessToken,
+        description: "delete branch1 object 21 and insert 30",
+      });
+
+      await reverseSync(branch1Db, masterDb, "reverse sync branch1");
+      const branch1State = await getTestIModelState(branch1Db);
+      expect(await getTestIModelState(masterDb)).to.deep.equal({
+        ...branch1State,
+        40: 5,
+      });
+
+      await forwardSync(masterDb, branch2Db, "forward sync branch2");
+      expect(await getTestIModelState(branch2Db)).to.deep.equal(
+        await getTestIModelState(masterDb)
+      );
+
+      withEditTxn(branch2Db, "insert branch2 objects", (txn) => {
+        insertPhysicalObject(txn, "7", 1);
+        insertPhysicalObject(txn, "8", 1);
+      });
+      await branch2Db.pushChanges({
+        accessToken,
+        description: "insert branch2 objects",
+      });
+      withEditTxn(masterDb, "update master conflict objects", (txn) => {
+        const master7Id = IModelTestUtils.queryByUserLabel(masterDb!, "7");
+        if (Id64.isValid(master7Id))
+          updatePhysicalObject(masterDb!, txn, "7", 2);
+        else insertPhysicalObject(txn, "7", 2);
+        insertPhysicalObject(txn, "9", 1);
+      });
+      await masterDb.pushChanges({
+        accessToken,
+        description: "update master conflict objects",
+      });
+      await reverseSync(branch2Db, masterDb, "reverse sync branch2");
+
+      for (const db of [masterDb, branch1Db, branch2Db]) {
+        const elem1Id = IModelTestUtils.queryByUserLabel(db, "1");
+        expect(db.elements.getElement(elem1Id).federationGuid).to.be.undefined;
+        for (const rel of expectedRelationships) {
+          const sourceId = IModelTestUtils.queryByUserLabel(
+            db,
+            rel.sourceLabel
+          );
+          const targetId = IModelTestUtils.queryByUserLabel(
+            db,
+            rel.targetLabel
+          );
+          expect(
+            db.elements.getElement(sourceId).federationGuid !== undefined
+          ).to.be.equal(rel.sourceFedGuid);
+          expect(
+            db.elements.getElement(targetId).federationGuid !== undefined
+          ).to.be.equal(rel.targetFedGuid);
         }
       }
-      assert.equal(replayedDeletedElementIds.size, 0);
-    } finally {
-      await tearDown();
-      replayedDb.close();
-      await transformerTestHub.deleteIModel({
+      expect(count(masterDb, ExternalSourceAspect.classFullName)).to.equal(0);
+      for (const db of [branch1Db, branch2Db]) {
+        const elem1Id = IModelTestUtils.queryByUserLabel(db, "1");
+        expect(db.elements.getElement(elem1Id).federationGuid).to.be.undefined;
+        const aspects = [
+          ...db.queryEntityIds({ from: "BisCore.ExternalSourceAspect" }),
+        ].map((aspectId) =>
+          db.elements.getAspect(aspectId).toJSON()
+        ) as ExternalSourceAspectProps[];
+        expect(aspects).to.deep.subsetEqual([
+          {
+            element: { id: IModelDb.rootSubjectId },
+            identifier: masterDb.iModelId,
+          },
+          { element: { id: elem1Id }, identifier: elem1Id },
+        ]);
+        expect(Date.parse(aspects[3].version!)).not.to.be.NaN;
+      }
+      await assertTestIModelState(masterDb, { 7: 1 }, { subset: true });
+
+      withEditTxn(masterDb, "update master object 6", (txn) => {
+        updatePhysicalObject(masterDb!, txn, "6", 2);
+      });
+      await masterDb.pushChanges({
+        accessToken,
+        description: "update master object 6",
+      });
+      withEditTxn(masterDb, "delete expected relationships", (txn) => {
+        expectedRelationships.forEach(({ sourceLabel, targetLabel }) => {
+          const sourceId = IModelTestUtils.queryByUserLabel(
+            masterDb!,
+            sourceLabel
+          );
+          const targetId = IModelTestUtils.queryByUserLabel(
+            masterDb!,
+            targetLabel
+          );
+          assert(sourceId && targetId);
+          const rel = masterDb!.relationships.getInstance(
+            ElementGroupsMembers.classFullName,
+            { sourceId, targetId }
+          );
+          txn.deleteRelationship(rel.toJSON());
+        });
+      });
+      await masterDb.pushChanges({
+        accessToken,
+        description: "delete expected relationships",
+      });
+      await forwardSync(masterDb, branch1Db, "forward sync branch1");
+      for (const rel of expectedRelationships) {
+        expect(
+          branch1Db.relationships.tryGetInstance(
+            ElementGroupsMembers.classFullName,
+            rel.idInBranch1
+          ),
+          `had ${rel.sourceLabel}->${rel.targetLabel}`
+        ).to.be.undefined;
+        const sourceId = IModelTestUtils.queryByUserLabel(
+          branch1Db,
+          rel.sourceLabel
+        );
+        const targetId = IModelTestUtils.queryByUserLabel(
+          branch1Db,
+          rel.targetLabel
+        );
+        assert(sourceId && targetId);
+        expect(
+          branch1Db.relationships.tryGetInstance(
+            ElementGroupsMembers.classFullName,
+            { sourceId, targetId }
+          ),
+          `had ${rel.sourceLabel}->${rel.targetLabel}`
+        ).to.be.undefined;
+        const srcElemAspects = branch1Db.elements.getAspects(
+          sourceId,
+          ExternalSourceAspect.classFullName
+        ) as ExternalSourceAspect[];
+        expect(!srcElemAspects.some((a) => a.identifier === rel.idInBranch1)).to
+          .be.true;
+        expect(srcElemAspects.length).to.lessThanOrEqual(1);
+      }
+      await assertTestIModelState(branch1Db, { 7: 1 }, { subset: true });
+
+      withEditTxn(branch1Db, "update branch1 conflict object", (txn) => {
+        updatePhysicalObject(branch1Db!, txn, "7", 10);
+      });
+      await branch1Db.pushChanges({
+        accessToken,
+        description: "update branch1 conflict object",
+      });
+      await reverseSync(
+        branch1Db,
+        masterDb,
+        "reverse sync final branch1 change"
+      );
+      await forwardSync(
+        masterDb,
+        branch2Db,
+        "forward sync final branch2 change"
+      );
+      for (const db of [masterDb, branch1Db, branch2Db])
+        await assertTestIModelState(db, { 7: 10 }, { subset: true });
+
+      // create empty iModel meant to contain replayed master history
+      const replayedIModelName = "Replayed";
+      const replayedIModelId = await transformerTestHub.createNewIModel({
+        iTwinId,
+        iModelName: replayedIModelName,
+        description: "blank",
+        noLocks: true,
+      });
+
+      const replayedDb = await HubWrappers.downloadAndOpenBriefcase({
+        accessToken,
         iTwinId,
         iModelId: replayedIModelId,
+      });
+      assert.isTrue(replayedDb.isBriefcaseDb());
+      assert.equal(replayedDb.iTwinId, iTwinId);
+      let sourceDb: BriefcaseDb | undefined;
+
+      try {
+        const master = {
+          id: masterIModelId,
+          db: masterDb,
+          state: await getTestIModelState(masterDb),
+        };
+
+        const masterDbChangesets = await transformerTestHub.downloadChangesets({
+          accessToken,
+          iModelId: master.id,
+          targetDir: BriefcaseManager.getChangeSetsPath(master.id),
+        });
+        assert.equal(masterDbChangesets.length, 7);
+        const masterDeletedElementIds = new Set<Id64String>();
+        const masterDeletedRelationshipIds = new Set<Id64String>();
+        for (const masterDbChangeset of masterDbChangesets) {
+          assert.isDefined(masterDbChangeset.id);
+          assert.isDefined(masterDbChangeset.description); // test code above always included a change description when pushChanges was called
+          // below is one way of determining the set of elements that were deleted in a specific changeset
+          const changedInstanceIds = await ChangedInstanceIds.initialize({
+            iModel: master.db,
+            csFileProps: [masterDbChangeset],
+          });
+          const result = changedInstanceIds;
+          if (result === undefined) throw Error("expected to be defined");
+
+          if (result.element.deleteIds) {
+            result.element.deleteIds.forEach((id: Id64String) =>
+              masterDeletedElementIds.add(id)
+            );
+          }
+          if (result.relationship.deleteIds) {
+            result.relationship.deleteIds.forEach((id: Id64String) =>
+              masterDeletedRelationshipIds.add(id)
+            );
+          }
+        }
+        expect(masterDeletedElementIds.size).to.equal(2); // elem '3' is never seen by master
+        expect(masterDeletedRelationshipIds.size).to.equal(2);
+
+        // replay master history to create replayed iModel
+        sourceDb = await HubWrappers.downloadAndOpenBriefcase({
+          accessToken,
+          iTwinId,
+          iModelId: master.id,
+          asOf: IModelVersion.first().toJSON(),
+        });
+        const makeReplayTransformer = (
+          argsForProcessChanges?: ProcessChangesOptions
+        ) => {
+          const editTxn = createStartedEditTxn(replayedDb);
+          const transformer = new IModelTransformer(
+            { source: sourceDb!, target: editTxn },
+            {
+              argsForProcessChanges,
+            }
+          );
+          // this replay strategy pretends that deleted elements never existed
+          for (const elementId of masterDeletedElementIds) {
+            transformer.exporter.excludeElement(elementId);
+          }
+          return { editTxn, transformer };
+        };
+
+        // NOTE: this test knows that there were no schema changes, so does not call `processSchemas`
+        const replayInitTransformer = makeReplayTransformer();
+        await replayInitTransformer.transformer.process(); // process any elements that were part of the "seed"
+        replayInitTransformer.transformer.dispose();
+        replayInitTransformer.editTxn.end();
+
+        await saveAndPushChanges(replayedDb, "changes from source seed");
+        for (const masterDbChangeset of masterDbChangesets) {
+          await sourceDb.pullChanges({
+            accessToken,
+            toIndex: masterDbChangeset.index,
+          });
+          const replayTransformer = makeReplayTransformer({
+            startChangeset: sourceDb.changeset,
+          });
+          await replayTransformer.transformer.process();
+          replayTransformer.editTxn.end();
+          await saveAndPushChanges(
+            replayedDb,
+            masterDbChangeset.description ?? ""
+          );
+          replayTransformer.transformer.dispose();
+        }
+        sourceDb?.close();
+        sourceDb = undefined;
+        await assertTestIModelState(replayedDb, master.state); // should have same ending state as masterDb
+
+        // make sure there are no deletes in the replay history (all elements that were eventually deleted from masterDb were excluded)
+        const replayedDbChangesets =
+          await transformerTestHub.downloadChangesets({
+            accessToken,
+            iModelId: replayedIModelId,
+            targetDir: BriefcaseManager.getChangeSetsPath(replayedIModelId),
+          });
+        assert.isAtLeast(
+          replayedDbChangesets.length,
+          masterDbChangesets.length
+        ); // replayedDb will have more changesets when seed contains elements
+        const replayedDeletedElementIds = new Set<Id64String>();
+        for (const replayedDbChangeset of replayedDbChangesets) {
+          assert.isDefined(replayedDbChangeset.id);
+          const changesetPath = replayedDbChangeset.pathname;
+          assert.isTrue(IModelJsFs.existsSync(changesetPath));
+          // below is one way of determining the set of elements that were deleted in a specific changeset
+          const changedInstanceIds = await ChangedInstanceIds.initialize({
+            iModel: replayedDb,
+            csFileProps: [replayedDbChangeset],
+          });
+          const result = changedInstanceIds;
+          if (result === undefined) throw Error("expected to be defined");
+
+          assert.isDefined(result.element);
+          if (result.element.deleteIds) {
+            result.element.deleteIds.forEach((id: Id64String) =>
+              replayedDeletedElementIds.add(id)
+            );
+          }
+        }
+        assert.equal(replayedDeletedElementIds.size, 0);
+      } finally {
+        sourceDb?.close();
+        replayedDb.close();
+        await transformerTestHub.deleteIModel({
+          iTwinId,
+          iModelId: replayedIModelId,
+        });
+      }
+    } finally {
+      if (masterDb)
+        await HubWrappers.closeAndDeleteBriefcaseDb(accessToken, masterDb);
+      if (branch1Db)
+        await HubWrappers.closeAndDeleteBriefcaseDb(accessToken, branch1Db);
+      if (branch2Db)
+        await HubWrappers.closeAndDeleteBriefcaseDb(accessToken, branch2Db);
+      masterSeedDb.close();
+      if (branch1IModelId)
+        await transformerTestHub.deleteIModel({
+          iTwinId,
+          iModelId: branch1IModelId,
+        });
+      if (branch2IModelId)
+        await transformerTestHub.deleteIModel({
+          iTwinId,
+          iModelId: branch2IModelId,
+        });
+      await transformerTestHub.deleteIModel({
+        iTwinId,
+        iModelId: masterIModelId,
       });
     }
   });
@@ -2575,119 +3037,283 @@ describe("IModelTransformerHub", () => {
 
   it("should properly delete element in master when element in branch is deleted alongside all of its ESAs.", async () => {
     // This test exercises elemIdToScopeESAs map in IModelTransformer.
-    // create masterdb
-    // create branch
-    // insert multiple elements and relationships into master.
-    // forward sync causing ESAs to be created for the elements and relationships.
-    // delete all the aspects and the element that had those aspects on them in the branch
-    // reverse sync.
-    // expect that the correct element in master db was deleted.
     const masterIModelName = "MasterMultipleESAsDifferentKinds";
     const masterSeedFileName = path.join(outputDir, `${masterIModelName}.bim`);
     if (IModelJsFs.existsSync(masterSeedFileName))
       IModelJsFs.removeSync(masterSeedFileName);
-    const masterSeedState = { 1: 1, 2: 1 };
     const masterSeedDb = SnapshotDb.createEmpty(masterSeedFileName, {
       rootSubject: { name: masterIModelName },
     });
-    // masterSeedDb.nativeDb.setITwinId(iTwinId); // workaround for "ContextId was not properly setup in the checkpoint" issue
-    populateTimelineSeed(masterSeedDb, masterSeedState);
-    const masterSeed: TimelineIModelState = {
-      // HACK: we know this will only be used for seeding via its path and performCheckpoint
-      db: masterSeedDb as any as BriefcaseDb,
-      id: "master-seed",
-      state: masterSeedState,
-    };
-    const timeline: Timeline = [
-      { master: { seed: masterSeed } }, // masterSeedState is above
-      { branch1: { branch: "master" } },
-      { master: { 3: 3, 4: 4, 5: 5 } },
-      {
-        master: {
-          manualUpdate(db) {
-            // Create relationships in master iModel. Each one will introduce a new aspect of kind "Relationship".
-            withEditTxn(
-              db,
-              "insert relationship provenance test data",
-              (txn) => {
-                const sourceId = IModelTestUtils.queryByUserLabel(db, "3");
-                const targetId = IModelTestUtils.queryByUserLabel(db, "2");
-                const targetId2 = IModelTestUtils.queryByUserLabel(db, "1");
-                const targetId3 = IModelTestUtils.queryByUserLabel(db, "4");
-                const targetId4 = IModelTestUtils.queryByUserLabel(db, "5");
-                ElementGroupsMembers.insert(txn, sourceId, targetId);
-                ElementGroupsMembers.insert(txn, sourceId, targetId2);
-                ElementGroupsMembers.insert(txn, sourceId, targetId3);
-                ElementGroupsMembers.insert(txn, sourceId, targetId4);
-              }
-            );
+    const { modelId, categoryId } = withEditTxn(
+      masterSeedDb,
+      "populate master seed",
+      (txn) => ({
+        modelId: PhysicalModel.insert(
+          txn,
+          IModel.rootSubjectId,
+          "PhysicalModel"
+        ),
+        categoryId: SpatialCategory.insert(
+          txn,
+          IModel.dictionaryId,
+          "SpatialCategory",
+          new SubCategoryAppearance()
+        ),
+      })
+    );
+    withEditTxn(masterSeedDb, "maintain master objects", (txn) => {
+      for (const name of ["1", "2"]) {
+        txn.insertElement({
+          classFullName: PhysicalObject.classFullName,
+          model: modelId,
+          category: categoryId,
+          code: new Code({
+            spec: IModelDb.rootSubjectId,
+            scope: IModelDb.rootSubjectId,
+            value: name,
+          }),
+          userLabel: name,
+          geom: IModelTransformerTestUtils.createBox(Point3d.create(1, 1, 1)),
+          placement: {
+            origin: Point3d.create(0, 0, 0),
+            angles: YawPitchRollAngles.createDegrees(0, 0, 0),
           },
-        },
-      },
-      {
-        branch1: {
-          sync: ["master"],
-        },
-      }, // first master->branch1 forward sync picking up new relationship from master imodel
-      {
-        assert({ branch1 }) {
-          const elemId = IModelTestUtils.queryByUserLabel(branch1.db, "3");
-          const aspects = branch1.db.elements.getAspects(
-            elemId,
-            ExternalSourceAspect.classFullName
-          ) as ExternalSourceAspect[];
-          expect(aspects.length).to.be.equal(5); // 4 relationships + 1 element.
-          aspects.forEach((a, index) => {
-            if (index === 0)
-              expect(a.kind).to.be.equal(ExternalSourceAspect.Kind.Element);
-            else
-              expect(a.kind).to.be.equal(
-                ExternalSourceAspect.Kind.Relationship
-              );
-          });
-        },
-      },
-      {
-        branch1: {
-          manualUpdate(db) {
-            withEditTxn(
-              db,
-              "delete relationship provenance test data",
-              (txn) => {
-                const elemId = IModelTestUtils.queryByUserLabel(db, "3");
-                const aspects = db.elements.getAspects(
-                  elemId
-                ) as ExternalSourceAspect[];
-                aspects.forEach((a) => txn.deleteAspect(a.id));
-                txn.deleteElement(elemId);
-              }
-            );
-          },
-        },
-      },
-      {
-        master: {
-          sync: ["branch1"],
-        },
-      }, // sync branch1 into master picking up deletes
-      {
-        assert({ master, branch1 }) {
-          const elem = IModelTestUtils.queryByUserLabel(branch1.db, "3");
-          expect(elem).to.be.equal(Id64.invalid);
-          const elemInMaster = IModelTestUtils.queryByUserLabel(master.db, "3");
-          expect(elemInMaster).to.be.equal(Id64.invalid);
-        },
-      },
-    ];
-
-    const { tearDown } = await runTimeline(timeline, {
-      iTwinId,
-      accessToken,
-      transformerOpts: {
-        forceExternalSourceAspectProvenance: true,
-      },
+          jsonProperties: { updateState: 1 },
+        } as PhysicalElementProps);
+      }
     });
-    await tearDown();
+    masterSeedDb.performCheckpoint();
+    const noFedGuidElemIds = masterSeedDb.queryEntityIds({
+      from: "Bis.Element",
+      where: "UserLabel IN ('1','2')",
+    });
+    withEditTxn(masterSeedDb, "null out fedguids", () => {
+      for (const elemId of noFedGuidElemIds)
+        masterSeedDb.withSqliteStatement(
+          `UPDATE bis_Element SET FederationGuid=NULL WHERE Id=${elemId}`,
+          (s) => {
+            expect(s.step()).to.equal(DbResult.BE_SQLITE_DONE);
+          }
+        );
+    });
+    masterSeedDb.performCheckpoint();
+
+    let masterIModelId: GuidString | undefined;
+    let branchIModelId: GuidString | undefined;
+    let masterDb: BriefcaseDb | undefined;
+    let branchDb: BriefcaseDb | undefined;
+    let aspectIdForRelationship: Id64String | undefined;
+
+    try {
+      masterIModelId = await HubWrappers.recreateIModel({
+        accessToken,
+        iTwinId,
+        iModelName: masterIModelName,
+        noLocks: true,
+        version0: masterSeedFileName,
+      });
+      masterDb = await HubWrappers.downloadAndOpenBriefcase({
+        accessToken,
+        iTwinId,
+        iModelId: masterIModelId,
+      });
+      await saveAndPushChanges(masterDb, "seeded master");
+      masterDb.performCheckpoint();
+
+      branchIModelId = await HubWrappers.recreateIModel({
+        accessToken,
+        iTwinId,
+        iModelName: "BranchMultipleESAsDifferentKinds",
+        noLocks: true,
+        version0: masterDb.pathName,
+      });
+      branchDb = await HubWrappers.downloadAndOpenBriefcase({
+        accessToken,
+        iTwinId,
+        iModelId: branchIModelId,
+      });
+      const branchInitEditTxn = createStartedEditTxn(branchDb);
+      const provenanceInitializer = new IModelTransformer(
+        { source: masterDb, target: branchInitEditTxn },
+        {
+          forceExternalSourceAspectProvenance: true,
+          wasSourceIModelCopiedToTarget: true,
+        }
+      );
+      let branchInitSucceeded = false;
+      try {
+        await provenanceInitializer.process();
+        branchInitSucceeded = true;
+      } finally {
+        provenanceInitializer.dispose();
+        branchInitEditTxn.end(branchInitSucceeded ? "save" : "abandon");
+      }
+      await branchDb.pushChanges({
+        accessToken,
+        description: "initialized branch provenance",
+      });
+
+      withEditTxn(
+        masterDb,
+        "insert master relationship provenance data",
+        (txn) => {
+          for (const name of ["3", "4", "5"]) {
+            const elementProps: PhysicalElementProps = {
+              classFullName: PhysicalObject.classFullName,
+              model: modelId,
+              category: categoryId,
+              code: new Code({
+                spec: IModelDb.rootSubjectId,
+                scope: IModelDb.rootSubjectId,
+                value: name,
+              }),
+              userLabel: name,
+              geom: IModelTransformerTestUtils.createBox(
+                Point3d.create(1, 1, 1)
+              ),
+              placement: {
+                origin: Point3d.create(0, 0, 0),
+                angles: YawPitchRollAngles.createDegrees(0, 0, 0),
+              },
+              jsonProperties: { updateState: Number(name) },
+            };
+            txn.insertElement(elementProps);
+          }
+        }
+      );
+      await masterDb.pushChanges({
+        accessToken,
+        description: "insert master relationship provenance data",
+      });
+      withEditTxn(
+        masterDb,
+        "insert relationship provenance test data",
+        (txn) => {
+          const sourceId = IModelTestUtils.queryByUserLabel(masterDb!, "3");
+          const targetIds = ["2", "1", "4", "5"].map((name) =>
+            IModelTestUtils.queryByUserLabel(masterDb!, name)
+          );
+          for (const targetId of targetIds)
+            ElementGroupsMembers.insert(txn, sourceId, targetId);
+        }
+      );
+      await masterDb.pushChanges({
+        accessToken,
+        description: "insert relationship provenance test data",
+      });
+
+      const forwardSyncEditTxn = createStartedEditTxn(branchDb);
+      const forwardSyncer = new IModelTransformer(
+        { source: masterDb, target: forwardSyncEditTxn },
+        {
+          forceExternalSourceAspectProvenance: true,
+          argsForProcessChanges: {
+            startChangeset: { index: undefined },
+          },
+        }
+      );
+      let forwardSyncSucceeded = false;
+      try {
+        await forwardSyncer.process();
+        forwardSyncSucceeded = true;
+      } finally {
+        forwardSyncer.dispose();
+        forwardSyncEditTxn.end(forwardSyncSucceeded ? "save" : "abandon");
+      }
+      await branchDb.pushChanges({
+        accessToken,
+        description: "forward sync relationship provenance",
+      });
+
+      const elemId = IModelTestUtils.queryByUserLabel(branchDb, "3");
+      const aspects = branchDb.elements.getAspects(
+        elemId,
+        ExternalSourceAspect.classFullName
+      ) as ExternalSourceAspect[];
+      expect(aspects.length).to.be.equal(5); // 4 relationships + 1 element.
+      let foundElementEsa = false;
+      aspects.forEach((a) => {
+        if (a.kind === ExternalSourceAspect.Kind.Element)
+          foundElementEsa = true;
+        else if (a.kind === ExternalSourceAspect.Kind.Relationship)
+          aspectIdForRelationship = a.id;
+      });
+      expect(aspectIdForRelationship).to.not.be.undefined;
+      expect(foundElementEsa).to.be.true;
+
+      withEditTxn(
+        branchDb,
+        "delete relationship provenance test data",
+        (txn) => {
+          const branchElemId = IModelTestUtils.queryByUserLabel(branchDb!, "3");
+          const branchAspects = branchDb!.elements.getAspects(
+            branchElemId
+          ) as ExternalSourceAspect[];
+          branchAspects.forEach((a) => txn.deleteAspect(a.id));
+          txn.deleteElement(branchElemId);
+        }
+      );
+      await branchDb.pushChanges({
+        accessToken,
+        description: "delete relationship provenance test data",
+      });
+
+      const reverseSyncEditTxn = createStartedEditTxn(masterDb);
+      const reverseSyncSourceEditTxn = createStartedEditTxn(branchDb);
+      const reverseSyncer = new IModelTransformer(
+        { source: branchDb, target: reverseSyncEditTxn },
+        {
+          forceExternalSourceAspectProvenance: true,
+          argsForProcessChanges: {
+            startChangeset: { index: undefined },
+          },
+          sourceEditTxn: reverseSyncSourceEditTxn,
+        }
+      );
+      let reverseSyncSucceeded = false;
+      try {
+        await reverseSyncer.process();
+        reverseSyncSucceeded = true;
+      } finally {
+        reverseSyncer.dispose();
+        reverseSyncEditTxn.end(reverseSyncSucceeded ? "save" : "abandon");
+        reverseSyncSourceEditTxn.end(reverseSyncSucceeded ? "save" : "abandon");
+      }
+      await branchDb.pushChanges({
+        accessToken,
+        description: "reverse sync deleted relationship provenance data",
+      });
+      await masterDb.pushChanges({
+        accessToken,
+        description: "reverse sync deleted relationship provenance data",
+      });
+
+      expect(IModelTestUtils.queryByUserLabel(branchDb, "3")).to.be.equal(
+        Id64.invalid
+      );
+      expect(IModelTestUtils.queryByUserLabel(masterDb, "3")).to.be.equal(
+        Id64.invalid
+      );
+      expect(() =>
+        branchDb!.elements.getAspect(aspectIdForRelationship!)
+      ).to.throw("not found");
+    } finally {
+      if (masterDb)
+        await HubWrappers.closeAndDeleteBriefcaseDb(accessToken, masterDb);
+      if (branchDb)
+        await HubWrappers.closeAndDeleteBriefcaseDb(accessToken, branchDb);
+      if (masterIModelId)
+        await transformerTestHub.deleteIModel({
+          iTwinId,
+          iModelId: masterIModelId,
+        });
+      if (branchIModelId)
+        await transformerTestHub.deleteIModel({
+          iTwinId,
+          iModelId: branchIModelId,
+        });
+      masterSeedDb.close();
+    }
   });
 
   it("should correctly reverse synchronize changes when targetDb was a clone of sourceDb", async () => {
@@ -3218,61 +3844,207 @@ describe("IModelTransformerHub", () => {
   });
 
   it("should not download more changesets than necessary", async () => {
-    const timeline: Timeline = {
-      0: { master: { 1: 1 } },
-      1: { branch: { branch: "master" } },
-      2: { branch: { 1: 2, 2: 1 } },
-      3: { branch: { 3: 3 } },
-    };
-
-    const { trackedIModels, timelineStates, tearDown } = await runTimeline(
-      timeline,
-      { iTwinId, accessToken }
-    );
-
-    const master = trackedIModels.get("master")!;
-    const branch = trackedIModels.get("branch")!;
-    const branchAt2Changeset = timelineStates.get(1)?.changesets.branch;
-    assert(branchAt2Changeset?.index);
-    const branchAt2 = await HubWrappers.downloadAndOpenBriefcase({
+    const masterIModelId = await HubWrappers.recreateIModel({
       accessToken,
       iTwinId,
-      iModelId: branch.id,
-      asOf: { first: true },
+      iModelName: IModelTransformerTestUtils.generateUniqueName(
+        "DownloadChangesetsMaster"
+      ),
+      noLocks: true,
     });
-    await branchAt2.pullChanges({
-      toIndex: branchAt2Changeset.index,
-      accessToken,
-    });
-
-    const syncEditTxn = createStartedEditTxn(master.db);
-    const reverseSyncSourceEditTxn = createStartedEditTxn(branchAt2);
-    const syncer = new IModelTransformer(
-      { source: branchAt2, target: syncEditTxn },
-      {
-        argsForProcessChanges: {
-          startChangeset: branchAt2Changeset,
-        },
-        sourceEditTxn: reverseSyncSourceEditTxn,
-      }
+    const branchIModelName = IModelTransformerTestUtils.generateUniqueName(
+      "DownloadChangesetsBranch"
     );
-    const queryChangeset = vi.spyOn(BriefcaseManager, "queryChangeset");
-    await syncer.process();
-    expect(queryChangeset.mock.calls).to.have.length.greaterThan(0);
-    for (const [args] of queryChangeset.mock.calls) {
-      expect(args).to.deep.equal({
-        iModelId: branch.id,
-        changeset: {
-          id: branchAt2Changeset.id,
-        },
-      });
-    }
+    let masterDb: BriefcaseDb | undefined;
+    let branchDb: BriefcaseDb | undefined;
+    let branchAt2: BriefcaseDb | undefined;
+    let branchIModelId: GuidString | undefined;
 
-    syncer.dispose();
-    syncEditTxn.end();
-    reverseSyncSourceEditTxn.end();
-    await tearDown();
-    vi.restoreAllMocks();
+    try {
+      masterDb = await HubWrappers.downloadAndOpenBriefcase({
+        accessToken,
+        iTwinId,
+        iModelId: masterIModelId,
+      });
+      const { modelId, categoryId } = withEditTxn(
+        masterDb,
+        "populate master seed",
+        (txn) => ({
+          modelId: PhysicalModel.insert(
+            txn,
+            IModel.rootSubjectId,
+            "PhysicalModel"
+          ),
+          categoryId: SpatialCategory.insert(
+            txn,
+            IModel.dictionaryId,
+            "SpatialCategory",
+            new SubCategoryAppearance()
+          ),
+        })
+      );
+      withEditTxn(masterDb, "insert master object", (txn) => {
+        txn.insertElement({
+          classFullName: PhysicalObject.classFullName,
+          model: modelId,
+          category: categoryId,
+          code: new Code({
+            spec: IModelDb.rootSubjectId,
+            scope: IModelDb.rootSubjectId,
+            value: "1",
+          }),
+          userLabel: "1",
+          geom: IModelTransformerTestUtils.createBox(Point3d.create(1, 1, 1)),
+          placement: {
+            origin: Point3d.create(0, 0, 0),
+            angles: YawPitchRollAngles.createDegrees(0, 0, 0),
+          },
+          jsonProperties: { updateState: 1 },
+        } as PhysicalElementProps);
+      });
+      await masterDb.pushChanges({ accessToken, description: "seeded master" });
+      masterDb.performCheckpoint();
+
+      branchIModelId = await HubWrappers.recreateIModel({
+        accessToken,
+        iTwinId,
+        iModelName: branchIModelName,
+        noLocks: true,
+        version0: masterDb.pathName,
+      });
+      branchDb = await HubWrappers.downloadAndOpenBriefcase({
+        accessToken,
+        iTwinId,
+        iModelId: branchIModelId,
+      });
+      const branchInitEditTxn = createStartedEditTxn(branchDb);
+      const provenanceInitializer = new IModelTransformer(
+        { source: masterDb, target: branchInitEditTxn },
+        { wasSourceIModelCopiedToTarget: true }
+      );
+      await provenanceInitializer.process();
+      provenanceInitializer.dispose();
+      branchInitEditTxn.end();
+      await branchDb.pushChanges({
+        accessToken,
+        description: "initialized branch provenance",
+      });
+      const branchAt2Changeset = branchDb.changeset;
+      assert(branchAt2Changeset.index);
+
+      withEditTxn(branchDb, "update branch objects", (txn) => {
+        const element1 = branchDb!.elements.getElement(
+          IModelTestUtils.queryByUserLabel(branchDb!, "1")
+        );
+        txn.updateElement({
+          ...element1.toJSON(),
+          jsonProperties: { ...element1.jsonProperties, updateState: 2 },
+        });
+        txn.insertElement({
+          classFullName: PhysicalObject.classFullName,
+          model: modelId,
+          category: categoryId,
+          code: new Code({
+            spec: IModelDb.rootSubjectId,
+            scope: IModelDb.rootSubjectId,
+            value: "2",
+          }),
+          userLabel: "2",
+          geom: IModelTransformerTestUtils.createBox(Point3d.create(1, 1, 1)),
+          placement: {
+            origin: Point3d.create(0, 0, 0),
+            angles: YawPitchRollAngles.createDegrees(0, 0, 0),
+          },
+          jsonProperties: { updateState: 1 },
+        } as PhysicalElementProps);
+      });
+      await branchDb.pushChanges({
+        accessToken,
+        description: "updated branch objects",
+      });
+      withEditTxn(branchDb, "insert final branch object", (txn) => {
+        txn.insertElement({
+          classFullName: PhysicalObject.classFullName,
+          model: modelId,
+          category: categoryId,
+          code: new Code({
+            spec: IModelDb.rootSubjectId,
+            scope: IModelDb.rootSubjectId,
+            value: "3",
+          }),
+          userLabel: "3",
+          geom: IModelTransformerTestUtils.createBox(Point3d.create(1, 1, 1)),
+          placement: {
+            origin: Point3d.create(0, 0, 0),
+            angles: YawPitchRollAngles.createDegrees(0, 0, 0),
+          },
+          jsonProperties: { updateState: 3 },
+        } as PhysicalElementProps);
+      });
+      await branchDb.pushChanges({
+        accessToken,
+        description: "insert final branch object",
+      });
+
+      branchAt2 = await HubWrappers.downloadAndOpenBriefcase({
+        accessToken,
+        iTwinId,
+        iModelId: branchIModelId,
+        asOf: { first: true },
+      });
+      await branchAt2.pullChanges({
+        toIndex: branchAt2Changeset.index,
+        accessToken,
+      });
+
+      const syncEditTxn = createStartedEditTxn(masterDb);
+      const reverseSyncSourceEditTxn = createStartedEditTxn(branchAt2);
+      const syncer = new IModelTransformer(
+        { source: branchAt2, target: syncEditTxn },
+        {
+          argsForProcessChanges: {
+            startChangeset: branchAt2Changeset,
+          },
+          sourceEditTxn: reverseSyncSourceEditTxn,
+        }
+      );
+      const queryChangeset = vi.spyOn(BriefcaseManager, "queryChangeset");
+      let syncSucceeded = false;
+      try {
+        await syncer.process();
+        syncSucceeded = true;
+        expect(queryChangeset.mock.calls).to.have.length.greaterThan(0);
+        for (const [args] of queryChangeset.mock.calls) {
+          expect(args).to.deep.equal({
+            iModelId: branchIModelId,
+            changeset: {
+              id: branchAt2Changeset.id,
+            },
+          });
+        }
+      } finally {
+        syncer.dispose();
+        syncEditTxn.end(syncSucceeded ? "save" : "abandon");
+        reverseSyncSourceEditTxn.end(syncSucceeded ? "save" : "abandon");
+      }
+    } finally {
+      if (branchAt2)
+        await HubWrappers.closeAndDeleteBriefcaseDb(accessToken, branchAt2);
+      if (masterDb)
+        await HubWrappers.closeAndDeleteBriefcaseDb(accessToken, masterDb);
+      if (branchDb)
+        await HubWrappers.closeAndDeleteBriefcaseDb(accessToken, branchDb);
+      await transformerTestHub.deleteIModel({
+        iTwinId,
+        iModelId: masterIModelId,
+      });
+      if (branchIModelId)
+        await transformerTestHub.deleteIModel({
+          iTwinId,
+          iModelId: branchIModelId,
+        });
+      vi.restoreAllMocks();
+    }
   });
 
   it("should reverse synchronize forked iModel when an element was updated", async () => {
@@ -3913,91 +4685,149 @@ describe("IModelTransformerHub", () => {
     let displayStyleId: Id64String;
     let spatialViewDef: SpatialViewDefinition;
     let displayStyle: DisplayStyle3d;
-
-    const timeline: Timeline = {
-      0: {
-        master: {
-          manualUpdate(db) {
-            withEditTxn(db, "create view definition test data", (txn) => {
-              const modelSelector = ModelSelector.create(
-                db,
-                IModelDb.dictionaryId,
-                "modelSelector",
-                []
-              );
-              const modelSelectorId = txn.insertElement(modelSelector.toJSON());
-              const categorySelectorId = CategorySelector.insert(
-                txn,
-                IModelDb.dictionaryId,
-                "categorySelector",
-                []
-              );
-              displayStyle = DisplayStyle3d.create(
-                db,
-                IModelDb.dictionaryId,
-                "displayStyle"
-              );
-              displayStyleId = txn.insertElement(displayStyle.toJSON());
-              spatialViewDefId = txn.insertElement({
-                classFullName: SpatialViewDefinition.classFullName,
-                model: IModelDb.dictionaryId,
-                code: Code.createEmpty().toJSON(),
-                camera: {
-                  eye: { x: 0, y: 0, z: 0 },
-                  lens: { radians: 0 },
-                  focusDist: 0,
-                },
-                userLabel: "spatialViewDef",
-                extents: { x: 0, y: 0, z: 0 },
-                origin: { x: 0, y: 0, z: 0 },
-                cameraOn: false,
-                displayStyleId,
-                categorySelectorId,
-                modelSelectorId,
-              } as SpatialViewDefinitionProps);
-              spatialViewDef =
-                db.elements.getElement<SpatialViewDefinition>(spatialViewDefId);
-            });
-          },
-        },
-      },
-      1: { branch: { branch: "master" } },
-      2: {
-        master: {
-          manualUpdate(db) {
-            withEditTxn(db, "delete view definition test data", (txn) => {
-              const notDeleted = txn.deleteDefinitionElements([
-                spatialViewDefId,
-                displayStyleId,
-              ]);
-              assert(notDeleted.size === 0);
-            });
-          },
-        },
-      },
-      3: { branch: { sync: ["master", { since: 2 }] } },
-    };
-
-    const { trackedIModels, tearDown } = await runTimeline(timeline, {
-      iTwinId,
+    const masterIModelId = await HubWrappers.recreateIModel({
       accessToken,
+      iTwinId,
+      iModelName: IModelTransformerTestUtils.generateUniqueName(
+        "DefinitionElementsMaster"
+      ),
+      noLocks: true,
     });
+    const branchIModelName = IModelTransformerTestUtils.generateUniqueName(
+      "DefinitionElementsBranch"
+    );
+    let masterDb: BriefcaseDb | undefined;
+    let branchDb: BriefcaseDb | undefined;
+    let branchIModelId: GuidString | undefined;
 
-    const master = trackedIModels.get("master")!;
-    const branch = trackedIModels.get("branch")!;
+    try {
+      masterDb = await HubWrappers.downloadAndOpenBriefcase({
+        accessToken,
+        iTwinId,
+        iModelId: masterIModelId,
+      });
+      withEditTxn(masterDb, "create view definition test data", (txn) => {
+        const modelSelector = ModelSelector.create(
+          masterDb!,
+          IModelDb.dictionaryId,
+          "modelSelector",
+          []
+        );
+        const modelSelectorId = txn.insertElement(modelSelector.toJSON());
+        const categorySelectorId = CategorySelector.insert(
+          txn,
+          IModelDb.dictionaryId,
+          "categorySelector",
+          []
+        );
+        displayStyle = DisplayStyle3d.create(
+          masterDb!,
+          IModelDb.dictionaryId,
+          "displayStyle"
+        );
+        displayStyleId = txn.insertElement(displayStyle.toJSON());
+        spatialViewDefId = txn.insertElement({
+          classFullName: SpatialViewDefinition.classFullName,
+          model: IModelDb.dictionaryId,
+          code: Code.createEmpty().toJSON(),
+          camera: {
+            eye: { x: 0, y: 0, z: 0 },
+            lens: { radians: 0 },
+            focusDist: 0,
+          },
+          userLabel: "spatialViewDef",
+          extents: { x: 0, y: 0, z: 0 },
+          origin: { x: 0, y: 0, z: 0 },
+          cameraOn: false,
+          displayStyleId,
+          categorySelectorId,
+          modelSelectorId,
+        } as SpatialViewDefinitionProps);
+        spatialViewDef =
+          masterDb!.elements.getElement<SpatialViewDefinition>(
+            spatialViewDefId
+          );
+      });
+      await masterDb.pushChanges({
+        accessToken,
+        description: "create view definition test data",
+      });
+      masterDb.performCheckpoint();
 
-    expect(master.db.elements.tryGetElement(spatialViewDef!.code)).to.be
-      .undefined;
-    expect(master.db.elements.tryGetElement(displayStyle!.code)).to.be
-      .undefined;
+      branchIModelId = await HubWrappers.recreateIModel({
+        accessToken,
+        iTwinId,
+        iModelName: branchIModelName,
+        noLocks: true,
+        version0: masterDb.pathName,
+      });
+      branchDb = await HubWrappers.downloadAndOpenBriefcase({
+        accessToken,
+        iTwinId,
+        iModelId: branchIModelId,
+      });
+      const branchInitEditTxn = createStartedEditTxn(branchDb);
+      const provenanceInitializer = new IModelTransformer(
+        { source: masterDb, target: branchInitEditTxn },
+        { wasSourceIModelCopiedToTarget: true }
+      );
+      await provenanceInitializer.process();
+      provenanceInitializer.dispose();
+      branchInitEditTxn.end();
+      await branchDb.pushChanges({
+        accessToken,
+        description: "initialized branch provenance",
+      });
 
-    expect(branch.db.elements.tryGetElement(spatialViewDef!.code)).to.be
-      .undefined;
-    expect(branch.db.elements.tryGetElement(displayStyle!.code)).to.be
-      .undefined;
+      withEditTxn(masterDb, "delete view definition test data", (txn) => {
+        const notDeleted = txn.deleteDefinitionElements([
+          spatialViewDefId,
+          displayStyleId,
+        ]);
+        assert(notDeleted.size === 0);
+      });
+      await masterDb.pushChanges({
+        accessToken,
+        description: "delete view definition test data",
+      });
 
-    await tearDown();
-    vi.restoreAllMocks();
+      const branchSyncEditTxn = createStartedEditTxn(branchDb);
+      const branchSyncer = new IModelTransformer(
+        { source: masterDb, target: branchSyncEditTxn },
+        { argsForProcessChanges: { startChangeset: { index: 2 } } }
+      );
+      await branchSyncer.process();
+      branchSyncer.dispose();
+      branchSyncEditTxn.end();
+      await branchDb.pushChanges({
+        accessToken,
+        description: "synchronize deleted view definition data",
+      });
+
+      expect(masterDb.elements.tryGetElement(spatialViewDef!.code)).to.be
+        .undefined;
+      expect(masterDb.elements.tryGetElement(displayStyle!.code)).to.be
+        .undefined;
+      expect(branchDb.elements.tryGetElement(spatialViewDef!.code)).to.be
+        .undefined;
+      expect(branchDb.elements.tryGetElement(displayStyle!.code)).to.be
+        .undefined;
+    } finally {
+      if (masterDb)
+        await HubWrappers.closeAndDeleteBriefcaseDb(accessToken, masterDb);
+      if (branchDb)
+        await HubWrappers.closeAndDeleteBriefcaseDb(accessToken, branchDb);
+      await transformerTestHub.deleteIModel({
+        iTwinId,
+        iModelId: masterIModelId,
+      });
+      if (branchIModelId)
+        await transformerTestHub.deleteIModel({
+          iTwinId,
+          iModelId: branchIModelId,
+        });
+      vi.restoreAllMocks();
+    }
   });
 
   // Regression test for https://github.com/iTwin/imodel-transformer/issues/28
@@ -4006,83 +4836,133 @@ describe("IModelTransformerHub", () => {
     let modelId: Id64String;
     let elementId: Id64String;
     let displayStyleId: Id64String;
-
-    const timeline: Timeline = {
-      0: {
-        master: {
-          manualUpdate(db) {
-            withEditTxn(db, "create display style regression data", (txn) => {
-              categoryId = SpatialCategory.insert(
-                txn,
-                IModel.dictionaryId,
-                "TestCategory",
-                {}
-              );
-              modelId = PhysicalModel.insert(
-                txn,
-                IModel.rootSubjectId,
-                "TestPhysicalModel"
-              );
-              const physicalObjectProps: PhysicalElementProps = {
-                classFullName: PhysicalObject.classFullName,
-                model: modelId,
-                category: categoryId,
-                code: Code.createEmpty(),
-                userLabel: "TestElement",
-                geom: IModelTransformerTestUtils.createBox(
-                  Point3d.create(1, 1, 1)
-                ),
-                placement: Placement3d.fromJSON({
-                  origin: { x: 0, y: 0 },
-                  angles: {},
-                }),
-              };
-              elementId = txn.insertElement(physicalObjectProps);
-              displayStyleId = DisplayStyle3d.insert(
-                txn,
-                IModel.dictionaryId,
-                "TestDisplayStyle",
-                { excludedElements: [elementId] }
-              );
-            });
-          },
-        },
-      },
-      1: { branch: { branch: "master" } },
-      2: {
-        master: {
-          manualUpdate(db) {
-            // Delete the DisplayStyle3d and re-insert one with the same code
-            withEditTxn(db, "replace display style", (txn) => {
-              txn.deleteDefinitionElements([displayStyleId]);
-              DisplayStyle3d.insert(
-                txn,
-                IModel.dictionaryId,
-                "TestDisplayStyle",
-                {
-                  excludedElements: [elementId],
-                }
-              );
-            });
-          },
-        },
-      },
-      3: { branch: { sync: ["master", { since: 2 }] } },
-    };
-
-    const { trackedIModels, tearDown } = await runTimeline(timeline, {
-      iTwinId,
+    const masterIModelId = await HubWrappers.recreateIModel({
       accessToken,
+      iTwinId,
+      iModelName: IModelTransformerTestUtils.generateUniqueName(
+        "DisplayStyleRegressionMaster"
+      ),
+      noLocks: true,
     });
+    let masterDb: BriefcaseDb | undefined;
+    let branchDb: BriefcaseDb | undefined;
+    let branchIModelId: GuidString | undefined;
 
-    const branch = trackedIModels.get("branch")!;
-    expect(
-      count(branch.db, DisplayStyle3d.classFullName),
-      "target should contain one DisplayStyle3d element"
-    ).to.equal(1);
+    try {
+      masterDb = await HubWrappers.downloadAndOpenBriefcase({
+        accessToken,
+        iTwinId,
+        iModelId: masterIModelId,
+      });
+      withEditTxn(masterDb, "create display style regression data", (txn) => {
+        categoryId = SpatialCategory.insert(
+          txn,
+          IModel.dictionaryId,
+          "TestCategory",
+          {}
+        );
+        modelId = PhysicalModel.insert(
+          txn,
+          IModel.rootSubjectId,
+          "TestPhysicalModel"
+        );
+        const physicalObjectProps: PhysicalElementProps = {
+          classFullName: PhysicalObject.classFullName,
+          model: modelId,
+          category: categoryId,
+          code: Code.createEmpty(),
+          userLabel: "TestElement",
+          geom: IModelTransformerTestUtils.createBox(Point3d.create(1, 1, 1)),
+          placement: Placement3d.fromJSON({
+            origin: { x: 0, y: 0 },
+            angles: {},
+          }),
+        };
+        elementId = txn.insertElement(physicalObjectProps);
+        displayStyleId = DisplayStyle3d.insert(
+          txn,
+          IModel.dictionaryId,
+          "TestDisplayStyle",
+          { excludedElements: [elementId] }
+        );
+      });
+      await masterDb.pushChanges({
+        accessToken,
+        description: "create display style regression data",
+      });
+      masterDb.performCheckpoint();
 
-    await tearDown();
-    vi.restoreAllMocks();
+      branchIModelId = await HubWrappers.recreateIModel({
+        accessToken,
+        iTwinId,
+        iModelName: IModelTransformerTestUtils.generateUniqueName(
+          "DisplayStyleRegressionBranch"
+        ),
+        noLocks: true,
+        version0: masterDb.pathName,
+      });
+      branchDb = await HubWrappers.downloadAndOpenBriefcase({
+        accessToken,
+        iTwinId,
+        iModelId: branchIModelId,
+      });
+      const branchInitEditTxn = createStartedEditTxn(branchDb);
+      const provenanceInitializer = new IModelTransformer(
+        { source: masterDb, target: branchInitEditTxn },
+        { wasSourceIModelCopiedToTarget: true }
+      );
+      await provenanceInitializer.process();
+      provenanceInitializer.dispose();
+      branchInitEditTxn.end();
+      await branchDb.pushChanges({
+        accessToken,
+        description: "initialized branch provenance",
+      });
+
+      withEditTxn(masterDb, "replace display style", (txn) => {
+        txn.deleteDefinitionElements([displayStyleId]);
+        DisplayStyle3d.insert(txn, IModel.dictionaryId, "TestDisplayStyle", {
+          excludedElements: [elementId],
+        });
+      });
+      await masterDb.pushChanges({
+        accessToken,
+        description: "replace display style",
+      });
+
+      const branchSyncEditTxn = createStartedEditTxn(branchDb);
+      const branchSyncer = new IModelTransformer(
+        { source: masterDb, target: branchSyncEditTxn },
+        { argsForProcessChanges: { startChangeset: { index: 2 } } }
+      );
+      await branchSyncer.process();
+      branchSyncer.dispose();
+      branchSyncEditTxn.end();
+      await branchDb.pushChanges({
+        accessToken,
+        description: "synchronize replaced display style",
+      });
+
+      expect(
+        count(branchDb, DisplayStyle3d.classFullName),
+        "target should contain one DisplayStyle3d element"
+      ).to.equal(1);
+    } finally {
+      if (masterDb)
+        await HubWrappers.closeAndDeleteBriefcaseDb(accessToken, masterDb);
+      if (branchDb)
+        await HubWrappers.closeAndDeleteBriefcaseDb(accessToken, branchDb);
+      await transformerTestHub.deleteIModel({
+        iTwinId,
+        iModelId: masterIModelId,
+      });
+      if (branchIModelId)
+        await transformerTestHub.deleteIModel({
+          iTwinId,
+          iModelId: branchIModelId,
+        });
+      vi.restoreAllMocks();
+    }
   });
 
   it("should be able to handle a transformation which deletes a relationship and then elements of that relationship", async () => {
@@ -4090,44 +4970,72 @@ describe("IModelTransformerHub", () => {
     const masterSeedFileName = path.join(outputDir, `${masterIModelName}.bim`);
     if (IModelJsFs.existsSync(masterSeedFileName))
       IModelJsFs.removeSync(masterSeedFileName);
-    const masterSeedState = {
-      40: 1,
-      2: 2,
-      41: 3,
-      42: 4,
-    } as TimelineIModelElemState;
     const masterSeedDb = SnapshotDb.createEmpty(masterSeedFileName, {
       rootSubject: { name: masterIModelName },
     });
-    // masterSeedDb.nativeDb.setITwinId(iTwinId); // workaround for "ContextId was not properly setup in the checkpoint" issue
-    populateTimelineSeed(masterSeedDb, masterSeedState);
-
+    const { modelId, categoryId } = withEditTxn(
+      masterSeedDb,
+      "populate master seed",
+      (txn) => ({
+        modelId: PhysicalModel.insert(
+          txn,
+          IModel.rootSubjectId,
+          "PhysicalModel"
+        ),
+        categoryId: SpatialCategory.insert(
+          txn,
+          IModel.dictionaryId,
+          "SpatialCategory",
+          new SubCategoryAppearance()
+        ),
+      })
+    );
+    withEditTxn(masterSeedDb, "maintain master objects", (txn) => {
+      for (const [name, updateState] of Object.entries({
+        40: 1,
+        2: 2,
+        41: 3,
+        42: 4,
+      })) {
+        txn.insertElement({
+          classFullName: PhysicalObject.classFullName,
+          model: modelId,
+          category: categoryId,
+          code: new Code({
+            spec: IModelDb.rootSubjectId,
+            scope: IModelDb.rootSubjectId,
+            value: name,
+          }),
+          userLabel: name,
+          geom: IModelTransformerTestUtils.createBox(Point3d.create(1, 1, 1)),
+          placement: {
+            origin: Point3d.create(0, 0, 0),
+            angles: YawPitchRollAngles.createDegrees(0, 0, 0),
+          },
+          jsonProperties: { updateState },
+        } as PhysicalElementProps);
+      }
+    });
     const noFedGuidElemIds = masterSeedDb.queryEntityIds({
       from: "Bis.Element",
       where: "UserLabel IN ('41', '42')",
     });
-    for (const elemId of noFedGuidElemIds)
-      masterSeedDb.withSqliteStatement(
-        `UPDATE bis_Element SET FederationGuid=NULL WHERE Id=${elemId}`,
-        (s) => {
-          expect(s.step()).to.equal(DbResult.BE_SQLITE_DONE);
-        }
-      );
+    withEditTxn(masterSeedDb, "null out fedguids", () => {
+      for (const elemId of noFedGuidElemIds)
+        masterSeedDb.withSqliteStatement(
+          `UPDATE bis_Element SET FederationGuid=NULL WHERE Id=${elemId}`,
+          (s) => {
+            expect(s.step()).to.equal(DbResult.BE_SQLITE_DONE);
+          }
+        );
+    });
     masterSeedDb.performCheckpoint();
 
-    // hard to check this without closing the db...
     const seedSecondConn = SnapshotDb.openFile(masterSeedDb.pathName);
     for (const elemId of noFedGuidElemIds)
       expect(seedSecondConn.elements.getElement(elemId).federationGuid).to.be
         .undefined;
     seedSecondConn.close();
-
-    const masterSeed: TimelineIModelState = {
-      // HACK: we know this will only be used for seeding via its path and performCheckpoint
-      db: masterSeedDb as any as BriefcaseDb,
-      id: "master-seed",
-      state: masterSeedState,
-    };
 
     const expectedRelationships = [
       {
@@ -4145,141 +5053,226 @@ describe("IModelTransformerHub", () => {
         targetFedGuid: false,
       },
     ];
-
     let aspectIdForRelationship: Id64String | undefined;
-    const timeline: Timeline = [
-      { master: { seed: masterSeed } },
-      { branch: { branch: "master" } },
-      {
-        branch: {
-          manualUpdate(db) {
-            withEditTxn(db, "insert branch relationships", (txn) => {
-              expectedRelationships.map(({ sourceLabel, targetLabel }, i) => {
-                const sourceId = IModelTestUtils.queryByUserLabel(
-                  db,
-                  sourceLabel
-                );
-                const targetId = IModelTestUtils.queryByUserLabel(
-                  db,
-                  targetLabel
-                );
-                assert(sourceId && targetId);
-                const rel = ElementGroupsMembers.create(
-                  db,
-                  sourceId,
-                  targetId,
-                  0
-                );
-                expectedRelationships[i].idInBranch = txn.insertRelationship(
-                  rel.toJSON()
-                );
-              });
-            });
-          },
-        },
-      },
-      { master: { sync: ["branch"] } }, // first master<-branch reverse sync
-      {
-        assert({ branch }) {
-          // expectedRelationships[1] has no fedguids, so expect to find 2 esas. One for the relationship and one for the element's own provenance.
-          const sourceId = IModelTestUtils.queryByUserLabel(
-            branch.db,
-            expectedRelationships[1].sourceLabel
-          );
-          const aspects = branch.db.elements.getAspects(
-            sourceId,
-            ExternalSourceAspect.classFullName
-          ) as ExternalSourceAspect[];
-          assert(aspects.length === 2);
-          let foundElementEsa = false;
-          for (const aspect of aspects) {
-            if (aspect.kind === "Element") foundElementEsa = true;
-            else if (aspect.kind === "Relationship")
-              aspectIdForRelationship = aspect.id;
-          }
-          assert(
-            aspectIdForRelationship &&
-              Id64.isValid(aspectIdForRelationship) &&
-              foundElementEsa
-          );
-        },
-      },
-      {
-        master: {
-          manualUpdate(db) {
-            withEditTxn(db, "delete relationships and elements", (txn) => {
-              expectedRelationships.forEach(({ sourceLabel, targetLabel }) => {
-                const sourceId = IModelTestUtils.queryByUserLabel(
-                  db,
-                  sourceLabel
-                );
-                const targetId = IModelTestUtils.queryByUserLabel(
-                  db,
-                  targetLabel
-                );
-                assert(sourceId && targetId);
-                const rel = db.relationships.getInstance(
-                  ElementGroupsMembers.classFullName,
-                  { sourceId, targetId }
-                );
-                txn.deleteRelationship(rel.toJSON());
-                txn.deleteElement(sourceId);
-                txn.deleteElement(targetId);
-              });
-            });
-          },
-        },
-      },
-      { branch: { sync: ["master"] } }, // master->branch forward sync
-      {
-        assert({ branch }) {
-          for (const rel of expectedRelationships) {
-            expect(
-              branch.db.relationships.tryGetInstance(
-                ElementGroupsMembers.classFullName,
-                rel.idInBranch
-              ),
-              `had ${rel.sourceLabel}->${rel.targetLabel}`
-            ).to.be.undefined;
-            const sourceId = IModelTestUtils.queryByUserLabel(
-              branch.db,
-              rel.sourceLabel
-            );
-            const targetId = IModelTestUtils.queryByUserLabel(
-              branch.db,
-              rel.targetLabel
-            );
-            // Since we deleted both elements in the previous manualUpdate
-            assert(
-              Id64.isInvalid(sourceId) && Id64.isInvalid(targetId),
-              `SourceId is ${sourceId}, TargetId is ${targetId}. Expected both to be ${Id64.invalid}.`
-            );
-            expect(
-              () =>
-                branch.db.relationships.tryGetInstance(
-                  ElementGroupsMembers.classFullName,
-                  { sourceId, targetId }
-                ),
-              `had ${rel.sourceLabel}->${rel.targetLabel}`
-            ).to.throw; // TODO: This shouldn't throw but it does in core due to failing to bind ids of 0.
+    let masterIModelId: GuidString | undefined;
+    let branchIModelId: GuidString | undefined;
+    let masterDb: BriefcaseDb | undefined;
+    let branchDb: BriefcaseDb | undefined;
 
-            expect(() =>
-              branch.db.elements.getAspect(aspectIdForRelationship!)
-            ).to.throw(
-              "not found",
-              `Expected aspectId: ${aspectIdForRelationship} to no longer be present in branch imodel.`
-            );
-          }
-        },
-      },
-    ];
-    const { tearDown } = await runTimeline(timeline, {
-      iTwinId,
-      accessToken,
-    });
+    try {
+      masterIModelId = await HubWrappers.recreateIModel({
+        accessToken,
+        iTwinId,
+        iModelName: masterIModelName,
+        noLocks: true,
+        version0: masterSeedFileName,
+      });
+      masterDb = await HubWrappers.downloadAndOpenBriefcase({
+        accessToken,
+        iTwinId,
+        iModelId: masterIModelId,
+      });
+      await saveAndPushChanges(masterDb, "seeded master");
+      masterDb.performCheckpoint();
 
-    await tearDown();
-    masterSeedDb.close();
+      branchIModelId = await HubWrappers.recreateIModel({
+        accessToken,
+        iTwinId,
+        iModelName: "BranchDeleteRelAndEnds",
+        noLocks: true,
+        version0: masterDb.pathName,
+      });
+      branchDb = await HubWrappers.downloadAndOpenBriefcase({
+        accessToken,
+        iTwinId,
+        iModelId: branchIModelId,
+      });
+      const branchInitEditTxn = createStartedEditTxn(branchDb);
+      const provenanceInitializer = new IModelTransformer(
+        { source: masterDb, target: branchInitEditTxn },
+        { wasSourceIModelCopiedToTarget: true }
+      );
+      await provenanceInitializer.process();
+      provenanceInitializer.dispose();
+      branchInitEditTxn.end();
+      await branchDb.pushChanges({
+        accessToken,
+        description: "initialized branch provenance",
+      });
+
+      withEditTxn(branchDb, "insert branch relationships", (txn) => {
+        expectedRelationships.forEach(({ sourceLabel, targetLabel }, i) => {
+          const relationshipSourceId = IModelTestUtils.queryByUserLabel(
+            branchDb!,
+            sourceLabel
+          );
+          const targetId = IModelTestUtils.queryByUserLabel(
+            branchDb!,
+            targetLabel
+          );
+          assert(relationshipSourceId && targetId);
+          const rel = ElementGroupsMembers.create(
+            branchDb!,
+            relationshipSourceId,
+            targetId,
+            0
+          );
+          expectedRelationships[i].idInBranch = txn.insertRelationship(
+            rel.toJSON()
+          );
+        });
+      });
+      await branchDb.pushChanges({
+        accessToken,
+        description: "insert branch relationships",
+      });
+
+      const reverseSyncEditTxn = createStartedEditTxn(masterDb);
+      const reverseSyncSourceEditTxn = createStartedEditTxn(branchDb);
+      const reverseSyncer = new IModelTransformer(
+        { source: branchDb, target: reverseSyncEditTxn },
+        {
+          argsForProcessChanges: {
+            startChangeset: { index: undefined },
+          },
+          sourceEditTxn: reverseSyncSourceEditTxn,
+        }
+      );
+      let reverseSyncSucceeded = false;
+      try {
+        await reverseSyncer.process();
+        reverseSyncSucceeded = true;
+      } finally {
+        reverseSyncer.dispose();
+        reverseSyncEditTxn.end(reverseSyncSucceeded ? "save" : "abandon");
+        reverseSyncSourceEditTxn.end(reverseSyncSucceeded ? "save" : "abandon");
+      }
+      await branchDb.pushChanges({
+        accessToken,
+        description: "reverse sync",
+      });
+      await masterDb.pushChanges({
+        accessToken,
+        description: "reverse sync",
+      });
+
+      const sourceId = IModelTestUtils.queryByUserLabel(
+        branchDb,
+        expectedRelationships[1].sourceLabel
+      );
+      const aspects = branchDb.elements.getAspects(
+        sourceId,
+        ExternalSourceAspect.classFullName
+      ) as ExternalSourceAspect[];
+      assert(aspects.length === 2);
+      let foundElementEsa = false;
+      for (const aspect of aspects) {
+        if (aspect.kind === "Element") foundElementEsa = true;
+        else if (aspect.kind === "Relationship")
+          aspectIdForRelationship = aspect.id;
+      }
+      assert(
+        aspectIdForRelationship &&
+          Id64.isValid(aspectIdForRelationship) &&
+          foundElementEsa
+      );
+
+      withEditTxn(masterDb, "delete relationships and elements", (txn) => {
+        expectedRelationships.forEach(({ sourceLabel, targetLabel }) => {
+          const sourceElementId = IModelTestUtils.queryByUserLabel(
+            masterDb!,
+            sourceLabel
+          );
+          const targetElementId = IModelTestUtils.queryByUserLabel(
+            masterDb!,
+            targetLabel
+          );
+          assert(sourceElementId && targetElementId);
+          const rel = masterDb!.relationships.getInstance(
+            ElementGroupsMembers.classFullName,
+            { sourceId: sourceElementId, targetId: targetElementId }
+          );
+          txn.deleteRelationship(rel.toJSON());
+          txn.deleteElement(sourceElementId);
+          txn.deleteElement(targetElementId);
+        });
+      });
+      await masterDb.pushChanges({
+        accessToken,
+        description: "delete relationships and elements",
+      });
+
+      const forwardSyncEditTxn = createStartedEditTxn(branchDb);
+      const forwardSyncer = new IModelTransformer(
+        { source: masterDb, target: forwardSyncEditTxn },
+        { argsForProcessChanges: { startChangeset: { index: undefined } } }
+      );
+      let forwardSyncSucceeded = false;
+      try {
+        await forwardSyncer.process();
+        forwardSyncSucceeded = true;
+      } finally {
+        forwardSyncer.dispose();
+        forwardSyncEditTxn.end(forwardSyncSucceeded ? "save" : "abandon");
+      }
+      await branchDb.pushChanges({
+        accessToken,
+        description: "forward sync deleted relationships and elements",
+      });
+
+      for (const rel of expectedRelationships) {
+        expect(
+          branchDb.relationships.tryGetInstance(
+            ElementGroupsMembers.classFullName,
+            rel.idInBranch
+          ),
+          `had ${rel.sourceLabel}->${rel.targetLabel}`
+        ).to.be.undefined;
+        const branchSourceId = IModelTestUtils.queryByUserLabel(
+          branchDb,
+          rel.sourceLabel
+        );
+        const branchTargetId = IModelTestUtils.queryByUserLabel(
+          branchDb,
+          rel.targetLabel
+        );
+        assert(
+          Id64.isInvalid(branchSourceId) && Id64.isInvalid(branchTargetId),
+          `SourceId is ${branchSourceId}, TargetId is ${branchTargetId}. Expected both to be ${Id64.invalid}.`
+        );
+        expect(
+          () =>
+            branchDb!.relationships.tryGetInstance(
+              ElementGroupsMembers.classFullName,
+              { sourceId: branchSourceId, targetId: branchTargetId }
+            ),
+          `had ${rel.sourceLabel}->${rel.targetLabel}`
+        ).to.throw; // TODO: This shouldn't throw but it does in core due to failing to bind ids of 0.
+
+        expect(() =>
+          branchDb!.elements.getAspect(aspectIdForRelationship!)
+        ).to.throw(
+          "not found",
+          `Expected aspectId: ${aspectIdForRelationship} to no longer be present in branch imodel.`
+        );
+      }
+    } finally {
+      if (masterDb)
+        await HubWrappers.closeAndDeleteBriefcaseDb(accessToken, masterDb);
+      if (branchDb)
+        await HubWrappers.closeAndDeleteBriefcaseDb(accessToken, branchDb);
+      if (masterIModelId)
+        await transformerTestHub.deleteIModel({
+          iTwinId,
+          iModelId: masterIModelId,
+        });
+      if (branchIModelId)
+        await transformerTestHub.deleteIModel({
+          iTwinId,
+          iModelId: branchIModelId,
+        });
+      masterSeedDb.close();
+    }
   });
 
   it("should throw when pendingSyncChangesetIndices and pendingReverseSyncChangesetIndices are undefined and then not throw when they're undefined, but 'unsafe-migrate' is set.", async () => {
@@ -4289,114 +5282,254 @@ describe("IModelTransformerHub", () => {
     ) =>
       (transformer["_options"]["branchRelationshipDataBehavior"] =
         "unsafe-migrate");
-
-    const timeline: Timeline = [
-      { master: { 1: 1, 2: 2, 3: 1 } },
-      { branch: { branch: "master" } },
-      { branch: { 1: 2, 4: 1 } },
-      {
-        assert({ master, branch }) {
-          const scopeProvenanceCandidates = branch.db.elements
-            .getAspects(
-              IModelDb.rootSubjectId,
-              ExternalSourceAspect.classFullName
-            )
-            .filter(
-              (a) =>
-                (a as ExternalSourceAspect).identifier === master.db.iModelId
-            );
-          expect(scopeProvenanceCandidates).to.have.length(1);
-          const targetScopeProvenance =
-            scopeProvenanceCandidates[0].toJSON() as ExternalSourceAspectProps;
-
-          expect(targetScopeProvenance).to.deep.subsetEqual({
-            identifier: master.db.iModelId,
-            version: `${master.db.changeset.id};${master.db.changeset.index}`,
-            jsonProperties: JSON.stringify({
-              pendingReverseSyncChangesetIndices: [1],
-              pendingSyncChangesetIndices: [],
-              reverseSyncVersion: ";0", // not synced yet
-            }),
-          });
-          targetScopeProvenanceProps = targetScopeProvenance;
-        },
-      },
-      {
-        branch: {
-          manualUpdate(branch) {
-            // Check it fails without pendingReverseSync and pendingSync
-            const missingPendings = JSON.stringify({
-              pendingReverseSyncChangesetIndices: undefined,
-              pendingSyncChangesetIndices: undefined,
-              reverseSyncVersion: ";0",
-            });
-            withEditTxn(branch, "update target scope provenance", (txn) => {
-              txn.updateAspect({
-                ...targetScopeProvenanceProps!,
-                jsonProperties: missingPendings as any,
-              });
-            });
-          },
-        },
-      },
-      {
-        master: {
-          // Our pendingReverseSyncChangesetIndices are undefined, so we expect to throw when we try to read them.
-          sync: ["branch", { expectThrow: true }],
-        },
-      },
-      {
-        assert({ branch }) {
-          const aspect = branch.db.elements.getAspect(
-            targetScopeProvenanceProps!.id!
-          );
-          expect(aspect).to.not.be.undefined;
-          expect((aspect as ExternalSourceAspect).jsonProperties).to.equal(
-            JSON.stringify({
-              pendingReverseSyncChangesetIndices: undefined,
-              pendingSyncChangesetIndices: undefined,
-              reverseSyncVersion: ";0",
-            })
-          );
-        },
-      },
-      {
-        master: {
-          // Our pendingReverseSyncChangesetIndices are undefined, but our branchrelationshipdatabehavior is 'unsafe-migrate' so we expect the transformer to correct the issue.
-          sync: [
-            "branch",
-            {
-              expectThrow: false,
-              initTransformer: setBranchRelationshipDataBehaviorToUnsafeMigrate,
-            },
-          ],
-        },
-      },
-      {
-        assert({ branch }) {
-          const aspect = branch.db.elements.getAspect(
-            targetScopeProvenanceProps!.id!
-          );
-          expect(aspect).to.not.be.undefined;
-          const jsonProps = JSON.parse(
-            (aspect as ExternalSourceAspect).jsonProperties!
-          );
-          expect((aspect as any).version).to.match(/;1$/);
-          expect(jsonProps.reverseSyncVersion).to.match(/;3$/);
-          expect(jsonProps).to.deep.subsetEqual({
-            pendingReverseSyncChangesetIndices: [4],
-            pendingSyncChangesetIndices: [2],
-          });
-        },
-      },
-    ];
-
-    const { tearDown } = await runTimeline(timeline, {
-      iTwinId,
+    const masterIModelId = await HubWrappers.recreateIModel({
       accessToken,
+      iTwinId,
+      iModelName: IModelTransformerTestUtils.generateUniqueName(
+        "PendingIndicesMaster"
+      ),
+      noLocks: true,
     });
+    let masterDb: BriefcaseDb | undefined;
+    let branchDb: BriefcaseDb | undefined;
+    let branchIModelId: GuidString | undefined;
 
-    await tearDown();
+    try {
+      masterDb = await HubWrappers.downloadAndOpenBriefcase({
+        accessToken,
+        iTwinId,
+        iModelId: masterIModelId,
+      });
+      const { modelId, categoryId } = withEditTxn(
+        masterDb,
+        "populate master objects",
+        (txn) => ({
+          modelId: PhysicalModel.insert(
+            txn,
+            IModel.rootSubjectId,
+            "PhysicalModel"
+          ),
+          categoryId: SpatialCategory.insert(
+            txn,
+            IModel.dictionaryId,
+            "SpatialCategory",
+            new SubCategoryAppearance()
+          ),
+        })
+      );
+      withEditTxn(masterDb, "insert master objects", (txn) => {
+        for (const [name, updateState] of Object.entries({
+          1: 1,
+          2: 2,
+          3: 1,
+        })) {
+          txn.insertElement({
+            classFullName: PhysicalObject.classFullName,
+            model: modelId,
+            category: categoryId,
+            code: new Code({
+              spec: IModelDb.rootSubjectId,
+              scope: IModelDb.rootSubjectId,
+              value: name,
+            }),
+            userLabel: name,
+            geom: IModelTransformerTestUtils.createBox(Point3d.create(1, 1, 1)),
+            placement: {
+              origin: Point3d.create(0, 0, 0),
+              angles: YawPitchRollAngles.createDegrees(0, 0, 0),
+            },
+            jsonProperties: { updateState },
+          } as PhysicalElementProps);
+        }
+      });
+      await masterDb.pushChanges({
+        accessToken,
+        description: "populate master objects",
+      });
+      masterDb.performCheckpoint();
+
+      branchIModelId = await HubWrappers.recreateIModel({
+        accessToken,
+        iTwinId,
+        iModelName: IModelTransformerTestUtils.generateUniqueName(
+          "PendingIndicesBranch"
+        ),
+        noLocks: true,
+        version0: masterDb.pathName,
+      });
+      branchDb = await HubWrappers.downloadAndOpenBriefcase({
+        accessToken,
+        iTwinId,
+        iModelId: branchIModelId,
+      });
+      const branchInitEditTxn = createStartedEditTxn(branchDb);
+      const provenanceInitializer = new IModelTransformer(
+        { source: masterDb, target: branchInitEditTxn },
+        { wasSourceIModelCopiedToTarget: true }
+      );
+      await provenanceInitializer.process();
+      provenanceInitializer.dispose();
+      branchInitEditTxn.end();
+      await branchDb.pushChanges({
+        accessToken,
+        description: "initialized branch provenance",
+      });
+
+      withEditTxn(branchDb, "update branch objects", (txn) => {
+        const element1 = branchDb!.elements.getElement(
+          IModelTestUtils.queryByUserLabel(branchDb!, "1")
+        );
+        txn.updateElement({
+          ...element1.toJSON(),
+          jsonProperties: { ...element1.jsonProperties, updateState: 2 },
+        });
+        txn.insertElement({
+          classFullName: PhysicalObject.classFullName,
+          model: modelId,
+          category: categoryId,
+          code: new Code({
+            spec: IModelDb.rootSubjectId,
+            scope: IModelDb.rootSubjectId,
+            value: "4",
+          }),
+          userLabel: "4",
+          geom: IModelTransformerTestUtils.createBox(Point3d.create(1, 1, 1)),
+          placement: {
+            origin: Point3d.create(0, 0, 0),
+            angles: YawPitchRollAngles.createDegrees(0, 0, 0),
+          },
+          jsonProperties: { updateState: 1 },
+        } as PhysicalElementProps);
+      });
+      await branchDb.pushChanges({
+        accessToken,
+        description: "update branch objects",
+      });
+
+      const scopeProvenanceCandidates = branchDb.elements
+        .getAspects(IModelDb.rootSubjectId, ExternalSourceAspect.classFullName)
+        .filter(
+          (a) => (a as ExternalSourceAspect).identifier === masterDb!.iModelId
+        );
+      expect(scopeProvenanceCandidates).to.have.length(1);
+      const targetScopeProvenance =
+        scopeProvenanceCandidates[0].toJSON() as ExternalSourceAspectProps;
+      expect(targetScopeProvenance).to.deep.subsetEqual({
+        identifier: masterDb.iModelId,
+        version: `${masterDb.changeset.id};${masterDb.changeset.index}`,
+        jsonProperties: JSON.stringify({
+          pendingReverseSyncChangesetIndices: [1],
+          pendingSyncChangesetIndices: [],
+          reverseSyncVersion: ";0",
+        }),
+      });
+      targetScopeProvenanceProps = targetScopeProvenance;
+
+      const missingPendings = JSON.stringify({
+        pendingReverseSyncChangesetIndices: undefined,
+        pendingSyncChangesetIndices: undefined,
+        reverseSyncVersion: ";0",
+      });
+      withEditTxn(branchDb, "update target scope provenance", (txn) => {
+        txn.updateAspect({
+          ...targetScopeProvenanceProps!,
+          jsonProperties: missingPendings as any,
+        });
+      });
+      await branchDb.pushChanges({
+        accessToken,
+        description: "remove pending synchronization indices",
+      });
+
+      const failingTargetEditTxn = createStartedEditTxn(masterDb);
+      const failingSourceEditTxn = createStartedEditTxn(branchDb);
+      const failingSyncer = new IModelTransformer(
+        { source: branchDb, target: failingTargetEditTxn },
+        {
+          argsForProcessChanges: {
+            startChangeset: { index: undefined },
+          },
+          sourceEditTxn: failingSourceEditTxn,
+        }
+      );
+      let syncError: unknown;
+      try {
+        await failingSyncer.process();
+      } catch (error) {
+        syncError = error;
+      } finally {
+        failingSyncer.dispose();
+        failingTargetEditTxn.end(syncError ? "abandon" : "save");
+        failingSourceEditTxn.end(syncError ? "abandon" : "save");
+      }
+      expect(syncError).to.not.be.undefined;
+
+      const missingAspect = branchDb.elements.getAspect(
+        targetScopeProvenanceProps.id!
+      );
+      expect(missingAspect).to.not.be.undefined;
+      expect((missingAspect as ExternalSourceAspect).jsonProperties).to.equal(
+        missingPendings
+      );
+
+      const targetEditTxn = createStartedEditTxn(masterDb);
+      const sourceEditTxn = createStartedEditTxn(branchDb);
+      const syncer = new IModelTransformer(
+        { source: branchDb, target: targetEditTxn },
+        {
+          argsForProcessChanges: {
+            startChangeset: { index: undefined },
+          },
+          sourceEditTxn,
+        }
+      );
+      let syncSucceeded = false;
+      try {
+        setBranchRelationshipDataBehaviorToUnsafeMigrate(syncer);
+        await syncer.process();
+        syncSucceeded = true;
+      } finally {
+        syncer.dispose();
+        targetEditTxn.end(syncSucceeded ? "save" : "abandon");
+        sourceEditTxn.end(syncSucceeded ? "save" : "abandon");
+      }
+      await branchDb.pushChanges({
+        accessToken,
+        description: "migrate target scope provenance",
+      });
+      await masterDb.pushChanges({
+        accessToken,
+        description: "migrate target scope provenance",
+      });
+
+      const migratedAspect = branchDb.elements.getAspect(
+        targetScopeProvenanceProps.id!
+      );
+      expect(migratedAspect).to.not.be.undefined;
+      const jsonProps = JSON.parse(
+        (migratedAspect as ExternalSourceAspect).jsonProperties!
+      );
+      expect((migratedAspect as any).version).to.match(/;1$/);
+      expect(jsonProps.reverseSyncVersion).to.match(/;3$/);
+      expect(jsonProps).to.deep.subsetEqual({
+        pendingReverseSyncChangesetIndices: [4],
+        pendingSyncChangesetIndices: [2],
+      });
+    } finally {
+      if (masterDb)
+        await HubWrappers.closeAndDeleteBriefcaseDb(accessToken, masterDb);
+      if (branchDb)
+        await HubWrappers.closeAndDeleteBriefcaseDb(accessToken, branchDb);
+      await transformerTestHub.deleteIModel({
+        iTwinId,
+        iModelId: masterIModelId,
+      });
+      if (branchIModelId)
+        await transformerTestHub.deleteIModel({
+          iTwinId,
+          iModelId: branchIModelId,
+        });
+    }
   });
 
   it("should set unsafeVersions correctly when branchRelationshipDataBehavior is 'unsafe-migrate'", async () => {
@@ -4414,237 +5547,529 @@ describe("IModelTransformerHub", () => {
       ] = ";3";
     };
 
-    const timeline: Timeline = [
-      { master: { 1: 1, 2: 2, 3: 1 } },
-      { branch: { branch: "master" } },
-      { branch: { 1: 2, 4: 1 } },
-      { branch: { 5: 1 } },
-      {
-        assert({ master, branch }) {
-          const scopeProvenanceCandidates = branch.db.elements
-            .getAspects(
-              IModelDb.rootSubjectId,
-              ExternalSourceAspect.classFullName
-            )
-            .filter(
-              (a) =>
-                (a as ExternalSourceAspect).identifier === master.db.iModelId
-            );
-          expect(scopeProvenanceCandidates).to.have.length(1);
-          const targetScopeProvenance =
-            scopeProvenanceCandidates[0].toJSON() as ExternalSourceAspectProps;
-
-          expect(targetScopeProvenance).to.deep.subsetEqual({
-            identifier: master.db.iModelId,
-            version: `${master.db.changeset.id};${master.db.changeset.index}`,
-            jsonProperties: JSON.stringify({
-              pendingReverseSyncChangesetIndices: [1],
-              pendingSyncChangesetIndices: [],
-              reverseSyncVersion: ";0", // not synced yet
-            }),
-          });
-          targetScopeProvenanceProps = targetScopeProvenance;
-        },
-      },
-      {
-        branch: {
-          manualUpdate(branch) {
-            // Check it fails without version now.
-            withEditTxn(branch, "clear target scope provenance json", (txn) => {
-              txn.updateAspect({
-                ...targetScopeProvenanceProps!,
-                jsonProperties: undefined,
-              });
-            });
-          },
-        },
-      },
-      {
-        master: {
-          // Reverse sync passing along our unsafeReverseSyncVersion which intentionally skips the changeset that added the element with userlabel 4.
-          sync: [
-            "branch",
-            {
-              initTransformer: setBranchRelationshipDataBehaviorToUnsafeMigrate,
-            },
-          ],
-        },
-      },
-      {
-        async assert({ master, branch }) {
-          // Assert that we skipped the changeset: { branch: { 1: 2, 4: 1 } } during our reverse sync.
-          const expectedState = { 1: 1, 2: 2, 3: 1, 5: 1 };
-          expect(master.state).to.deep.equal(expectedState);
-          expect(branch.state).to.deep.equal({ ...expectedState, 1: 2, 4: 1 });
-          await assertElemState(master.db, expectedState);
-          await assertElemState(branch.db, { ...expectedState, 1: 2, 4: 1 });
-        },
-      },
-      // repeat all above for forward sync scenario!
-      { master: { 2: 4, 6: 1 } },
-      { master: { 7: 1 } },
-      // Update our targetscopeprovenanceprops
-      {
-        assert({ master, branch }) {
-          const scopeProvenanceCandidates = branch.db.elements
-            .getAspects(
-              IModelDb.rootSubjectId,
-              ExternalSourceAspect.classFullName
-            )
-            .filter(
-              (a) =>
-                (a as ExternalSourceAspect).identifier === master.db.iModelId
-            );
-          expect(scopeProvenanceCandidates).to.have.length(1);
-          const targetScopeProvenance =
-            scopeProvenanceCandidates[0].toJSON() as ExternalSourceAspectProps;
-          targetScopeProvenanceProps = targetScopeProvenance;
-        },
-      },
-      {
-        branch: {
-          manualUpdate(branch) {
-            // Check it fails without version now.
-            withEditTxn(
-              branch,
-              "clear target scope provenance version",
-              (txn) => {
-                txn.updateAspect({
-                  ...targetScopeProvenanceProps!,
-                  version: undefined,
-                } as ExternalSourceAspectProps);
-              }
-            );
-          },
-        },
-      },
-      {
-        branch: {
-          // Reverse sync passing along our unsafeReverseSyncVersion which intentionally skips the changeset that added the element with userlabel 4.
-          sync: [
-            "master",
-            {
-              initTransformer: setBranchRelationshipDataBehaviorToUnsafeMigrate,
-            },
-          ],
-        },
-      },
-      {
-        async assert({ master, branch }) {
-          // Assert that we skipped the changeset: { master: { 2: 4, 6: 1, } }, during our forward sync.. making it so those properties didn't make it to the branch.
-          const expectedMasterState = { 1: 1, 2: 4, 3: 1, 5: 1, 6: 1, 7: 1 };
-          const expectedBranchState = { 1: 2, 2: 2, 3: 1, 4: 1, 5: 1, 7: 1 };
-          expect(master.state).to.deep.equal(expectedMasterState);
-          expect(branch.state).to.deep.equal(expectedBranchState);
-          await assertElemState(master.db, expectedMasterState);
-          await assertElemState(branch.db, expectedBranchState);
-        },
-      },
-    ];
-
-    const { tearDown } = await runTimeline(timeline, {
-      iTwinId,
+    const masterIModelId = await HubWrappers.recreateIModel({
       accessToken,
+      iTwinId,
+      iModelName: IModelTransformerTestUtils.generateUniqueName(
+        "UnsafeVersionsMaster"
+      ),
+      noLocks: true,
     });
+    let masterDb: BriefcaseDb | undefined;
+    let branchDb: BriefcaseDb | undefined;
+    let branchIModelId: GuidString | undefined;
 
-    await tearDown();
+    try {
+      masterDb = await HubWrappers.downloadAndOpenBriefcase({
+        accessToken,
+        iTwinId,
+        iModelId: masterIModelId,
+      });
+      const { modelId, categoryId } = withEditTxn(
+        masterDb,
+        "populate master objects",
+        (txn) => ({
+          modelId: PhysicalModel.insert(
+            txn,
+            IModel.rootSubjectId,
+            "PhysicalModel"
+          ),
+          categoryId: SpatialCategory.insert(
+            txn,
+            IModel.dictionaryId,
+            "SpatialCategory",
+            new SubCategoryAppearance()
+          ),
+        })
+      );
+      withEditTxn(masterDb, "insert master objects", (txn) => {
+        for (const [name, updateState] of Object.entries({
+          1: 1,
+          2: 2,
+          3: 1,
+        })) {
+          txn.insertElement({
+            classFullName: PhysicalObject.classFullName,
+            model: modelId,
+            category: categoryId,
+            code: new Code({
+              spec: IModelDb.rootSubjectId,
+              scope: IModelDb.rootSubjectId,
+              value: name,
+            }),
+            userLabel: name,
+            geom: IModelTransformerTestUtils.createBox(Point3d.create(1, 1, 1)),
+            placement: {
+              origin: Point3d.create(0, 0, 0),
+              angles: YawPitchRollAngles.createDegrees(0, 0, 0),
+            },
+            jsonProperties: { updateState },
+          } as PhysicalElementProps);
+        }
+      });
+      await masterDb.pushChanges({
+        accessToken,
+        description: "populate master objects",
+      });
+      masterDb.performCheckpoint();
+
+      branchIModelId = await HubWrappers.recreateIModel({
+        accessToken,
+        iTwinId,
+        iModelName: IModelTransformerTestUtils.generateUniqueName(
+          "UnsafeVersionsBranch"
+        ),
+        noLocks: true,
+        version0: masterDb.pathName,
+      });
+      branchDb = await HubWrappers.downloadAndOpenBriefcase({
+        accessToken,
+        iTwinId,
+        iModelId: branchIModelId,
+      });
+      const branchInitEditTxn = createStartedEditTxn(branchDb);
+      const provenanceInitializer = new IModelTransformer(
+        { source: masterDb, target: branchInitEditTxn },
+        { wasSourceIModelCopiedToTarget: true }
+      );
+      await provenanceInitializer.process();
+      provenanceInitializer.dispose();
+      branchInitEditTxn.end();
+      await branchDb.pushChanges({
+        accessToken,
+        description: "initialized branch provenance",
+      });
+
+      withEditTxn(branchDb, "update branch objects", (txn) => {
+        const element1 = branchDb!.elements.getElement(
+          IModelTestUtils.queryByUserLabel(branchDb!, "1")
+        );
+        txn.updateElement({
+          ...element1.toJSON(),
+          jsonProperties: { ...element1.jsonProperties, updateState: 2 },
+        });
+        txn.insertElement({
+          classFullName: PhysicalObject.classFullName,
+          model: modelId,
+          category: categoryId,
+          code: new Code({
+            spec: IModelDb.rootSubjectId,
+            scope: IModelDb.rootSubjectId,
+            value: "4",
+          }),
+          userLabel: "4",
+          geom: IModelTransformerTestUtils.createBox(Point3d.create(1, 1, 1)),
+          placement: {
+            origin: Point3d.create(0, 0, 0),
+            angles: YawPitchRollAngles.createDegrees(0, 0, 0),
+          },
+          jsonProperties: { updateState: 1 },
+        } as PhysicalElementProps);
+      });
+      await branchDb.pushChanges({
+        accessToken,
+        description: "update branch objects",
+      });
+      withEditTxn(branchDb, "insert final branch object", (txn) => {
+        txn.insertElement({
+          classFullName: PhysicalObject.classFullName,
+          model: modelId,
+          category: categoryId,
+          code: new Code({
+            spec: IModelDb.rootSubjectId,
+            scope: IModelDb.rootSubjectId,
+            value: "5",
+          }),
+          userLabel: "5",
+          geom: IModelTransformerTestUtils.createBox(Point3d.create(1, 1, 1)),
+          placement: {
+            origin: Point3d.create(0, 0, 0),
+            angles: YawPitchRollAngles.createDegrees(0, 0, 0),
+          },
+          jsonProperties: { updateState: 1 },
+        } as PhysicalElementProps);
+      });
+      await branchDb.pushChanges({
+        accessToken,
+        description: "insert final branch object",
+      });
+
+      const initialScopeProvenance = branchDb.elements
+        .getAspects(IModelDb.rootSubjectId, ExternalSourceAspect.classFullName)
+        .filter(
+          (a) => (a as ExternalSourceAspect).identifier === masterDb!.iModelId
+        );
+      expect(initialScopeProvenance).to.have.length(1);
+      const initialScope =
+        initialScopeProvenance[0].toJSON() as ExternalSourceAspectProps;
+      expect(initialScope).to.deep.subsetEqual({
+        identifier: masterDb.iModelId,
+        version: `${masterDb.changeset.id};${masterDb.changeset.index}`,
+        jsonProperties: JSON.stringify({
+          pendingReverseSyncChangesetIndices: [1],
+          pendingSyncChangesetIndices: [],
+          reverseSyncVersion: ";0",
+        }),
+      });
+      targetScopeProvenanceProps = initialScope;
+
+      withEditTxn(branchDb, "clear target scope provenance json", (txn) => {
+        txn.updateAspect({
+          ...targetScopeProvenanceProps!,
+          jsonProperties: undefined,
+        });
+      });
+      await branchDb.pushChanges({
+        accessToken,
+        description: "clear target scope provenance json",
+      });
+
+      const reverseTargetEditTxn = createStartedEditTxn(masterDb);
+      const reverseSourceEditTxn = createStartedEditTxn(branchDb);
+      const reverseSyncer = new IModelTransformer(
+        { source: branchDb, target: reverseTargetEditTxn },
+        {
+          argsForProcessChanges: {
+            startChangeset: { index: undefined },
+          },
+          sourceEditTxn: reverseSourceEditTxn,
+        }
+      );
+      let reverseSyncSucceeded = false;
+      try {
+        setBranchRelationshipDataBehaviorToUnsafeMigrate(reverseSyncer);
+        await reverseSyncer.process();
+        reverseSyncSucceeded = true;
+      } finally {
+        reverseSyncer.dispose();
+        reverseTargetEditTxn.end(reverseSyncSucceeded ? "save" : "abandon");
+        reverseSourceEditTxn.end(reverseSyncSucceeded ? "save" : "abandon");
+      }
+      await branchDb.pushChanges({
+        accessToken,
+        description: "unsafe reverse sync",
+      });
+      await masterDb.pushChanges({
+        accessToken,
+        description: "unsafe reverse sync",
+      });
+
+      const expectedState = { 1: 1, 2: 2, 3: 1, 5: 1 };
+      await assertTestIModelState(masterDb, expectedState);
+      await assertTestIModelState(branchDb, {
+        ...expectedState,
+        1: 2,
+        4: 1,
+      });
+
+      withEditTxn(masterDb, "update master objects", (txn) => {
+        const element2 = masterDb!.elements.getElement(
+          IModelTestUtils.queryByUserLabel(masterDb!, "2")
+        );
+        txn.updateElement({
+          ...element2.toJSON(),
+          jsonProperties: { ...element2.jsonProperties, updateState: 4 },
+        });
+        txn.insertElement({
+          classFullName: PhysicalObject.classFullName,
+          model: modelId,
+          category: categoryId,
+          code: new Code({
+            spec: IModelDb.rootSubjectId,
+            scope: IModelDb.rootSubjectId,
+            value: "6",
+          }),
+          userLabel: "6",
+          geom: IModelTransformerTestUtils.createBox(Point3d.create(1, 1, 1)),
+          placement: {
+            origin: Point3d.create(0, 0, 0),
+            angles: YawPitchRollAngles.createDegrees(0, 0, 0),
+          },
+          jsonProperties: { updateState: 1 },
+        } as PhysicalElementProps);
+      });
+      await masterDb.pushChanges({
+        accessToken,
+        description: "update master objects",
+      });
+      withEditTxn(masterDb, "insert final master object", (txn) => {
+        txn.insertElement({
+          classFullName: PhysicalObject.classFullName,
+          model: modelId,
+          category: categoryId,
+          code: new Code({
+            spec: IModelDb.rootSubjectId,
+            scope: IModelDb.rootSubjectId,
+            value: "7",
+          }),
+          userLabel: "7",
+          geom: IModelTransformerTestUtils.createBox(Point3d.create(1, 1, 1)),
+          placement: {
+            origin: Point3d.create(0, 0, 0),
+            angles: YawPitchRollAngles.createDegrees(0, 0, 0),
+          },
+          jsonProperties: { updateState: 1 },
+        } as PhysicalElementProps);
+      });
+      await masterDb.pushChanges({
+        accessToken,
+        description: "insert final master object",
+      });
+
+      const updatedScopeProvenance = branchDb.elements
+        .getAspects(IModelDb.rootSubjectId, ExternalSourceAspect.classFullName)
+        .filter(
+          (a) => (a as ExternalSourceAspect).identifier === masterDb!.iModelId
+        );
+      expect(updatedScopeProvenance).to.have.length(1);
+      targetScopeProvenanceProps =
+        updatedScopeProvenance[0].toJSON() as ExternalSourceAspectProps;
+      withEditTxn(branchDb, "clear target scope provenance version", (txn) => {
+        txn.updateAspect({
+          ...targetScopeProvenanceProps!,
+          version: undefined,
+        } as ExternalSourceAspectProps);
+      });
+      await branchDb.pushChanges({
+        accessToken,
+        description: "clear target scope provenance version",
+      });
+
+      const forwardTargetEditTxn = createStartedEditTxn(branchDb);
+      const forwardSyncer = new IModelTransformer(
+        { source: masterDb, target: forwardTargetEditTxn },
+        {
+          argsForProcessChanges: {
+            startChangeset: { index: undefined },
+          },
+        }
+      );
+      let forwardSyncSucceeded = false;
+      try {
+        setBranchRelationshipDataBehaviorToUnsafeMigrate(forwardSyncer);
+        await forwardSyncer.process();
+        forwardSyncSucceeded = true;
+      } finally {
+        forwardSyncer.dispose();
+        forwardTargetEditTxn.end(forwardSyncSucceeded ? "save" : "abandon");
+      }
+      await branchDb.pushChanges({
+        accessToken,
+        description: "unsafe forward sync",
+      });
+
+      const expectedMasterState = { 1: 1, 2: 4, 3: 1, 5: 1, 6: 1, 7: 1 };
+      const expectedBranchState = { 1: 2, 2: 2, 3: 1, 4: 1, 5: 1, 7: 1 };
+      await assertTestIModelState(masterDb, expectedMasterState);
+      await assertTestIModelState(branchDb, expectedBranchState);
+    } finally {
+      if (masterDb)
+        await HubWrappers.closeAndDeleteBriefcaseDb(accessToken, masterDb);
+      if (branchDb)
+        await HubWrappers.closeAndDeleteBriefcaseDb(accessToken, branchDb);
+      await transformerTestHub.deleteIModel({
+        iTwinId,
+        iModelId: masterIModelId,
+      });
+      if (branchIModelId)
+        await transformerTestHub.deleteIModel({
+          iTwinId,
+          iModelId: branchIModelId,
+        });
+    }
   });
 
   it("reverseSyncs should not push extra changesets if the only changeset to process is one found in the pendingReverseSyncIndices, even when handleUnsafeMigrate is true", async () => {
-    const timeline: Timeline = [
-      { master: { 1: 1, 2: 2, 3: 1 } },
-      { branch: { branch: "master" } },
-      { branch: { 1: 2, 4: 1 } },
-      {
-        master: {
-          sync: ["branch"],
-        },
-      },
-      {
-        assert({ master, branch }) {
-          expect(master.db.changeset.index).to.equal(2);
-          expect(branch.db.changeset.index).to.equal(3);
-          expect(count(master.db, ExternalSourceAspect.classFullName)).to.equal(
-            0
-          );
-          const expectedProps: TestUtils.ExpectedTargetScopeProvenanceProps = {
-            pendingSyncChangesetIndices: [2],
-            pendingReverseSyncChangesetIndices: [3],
-            syncVersionIndex: "1",
-            reverseSyncVersionIndex: "2",
-          };
-          IModelTestUtils.findAndAssertTargetScopeProvenance(
-            master,
-            branch,
-            expectedProps
-          );
-        },
-      },
-      {
-        master: {
-          sync: ["branch"], // Sync again with no real changes in branch except for the ones made to update targetScopeProvenance
-        },
-      },
-      {
-        assert({ master, branch }) {
-          expect(master.db.changeset.index).to.equal(2);
-          expect(branch.db.changeset.index).to.equal(3);
-          expect(count(master.db, ExternalSourceAspect.classFullName)).to.equal(
-            0
-          );
-          const expectedProps: TestUtils.ExpectedTargetScopeProvenanceProps = {
-            pendingSyncChangesetIndices: [2],
-            pendingReverseSyncChangesetIndices: [3],
-            syncVersionIndex: "1",
-            reverseSyncVersionIndex: "2",
-          };
-          IModelTestUtils.findAndAssertTargetScopeProvenance(
-            master,
-            branch,
-            expectedProps
-          );
-        },
-      },
-      {
-        master: {
-          sync: [
-            "branch",
-            {
-              initTransformer: (transformer) =>
-                (transformer["_options"]["branchRelationshipDataBehavior"] =
-                  "unsafe-migrate"),
-            },
-          ], // Sync again with no changes except for ones which may get made by unsafe-migrate.
-        },
-      },
-      {
-        assert({ master, branch }) {
-          expect(master.db.changeset.index).to.equal(2);
-          expect(branch.db.changeset.index).to.equal(3);
-          expect(count(master.db, ExternalSourceAspect.classFullName)).to.equal(
-            0
-          );
-          const expectedProps: TestUtils.ExpectedTargetScopeProvenanceProps = {
-            pendingSyncChangesetIndices: [2],
-            pendingReverseSyncChangesetIndices: [3],
-            syncVersionIndex: "1",
-            reverseSyncVersionIndex: "2",
-          };
-          IModelTestUtils.findAndAssertTargetScopeProvenance(
-            master,
-            branch,
-            expectedProps
-          );
-        },
-      },
-    ];
-
-    const { tearDown } = await runTimeline(timeline, {
-      iTwinId,
+    const masterIModelId = await HubWrappers.recreateIModel({
       accessToken,
+      iTwinId,
+      iModelName: IModelTransformerTestUtils.generateUniqueName(
+        "PendingReverseSyncMaster"
+      ),
+      noLocks: true,
     });
+    let masterDb: BriefcaseDb | undefined;
+    let branchDb: BriefcaseDb | undefined;
+    let branchIModelId: GuidString | undefined;
 
-    await tearDown();
+    try {
+      masterDb = await HubWrappers.downloadAndOpenBriefcase({
+        accessToken,
+        iTwinId,
+        iModelId: masterIModelId,
+      });
+      const { modelId, categoryId } = withEditTxn(
+        masterDb,
+        "populate master objects",
+        (txn) => ({
+          modelId: PhysicalModel.insert(
+            txn,
+            IModel.rootSubjectId,
+            "PhysicalModel"
+          ),
+          categoryId: SpatialCategory.insert(
+            txn,
+            IModel.dictionaryId,
+            "SpatialCategory",
+            new SubCategoryAppearance()
+          ),
+        })
+      );
+      withEditTxn(masterDb, "insert master objects", (txn) => {
+        for (const [name, updateState] of Object.entries({
+          1: 1,
+          2: 2,
+          3: 1,
+        })) {
+          txn.insertElement({
+            classFullName: PhysicalObject.classFullName,
+            model: modelId,
+            category: categoryId,
+            code: new Code({
+              spec: IModelDb.rootSubjectId,
+              scope: IModelDb.rootSubjectId,
+              value: name,
+            }),
+            userLabel: name,
+            geom: IModelTransformerTestUtils.createBox(Point3d.create(1, 1, 1)),
+            placement: {
+              origin: Point3d.create(0, 0, 0),
+              angles: YawPitchRollAngles.createDegrees(0, 0, 0),
+            },
+            jsonProperties: { updateState },
+          } as PhysicalElementProps);
+        }
+      });
+      await masterDb.pushChanges({
+        accessToken,
+        description: "populate master objects",
+      });
+      masterDb.performCheckpoint();
+
+      branchIModelId = await HubWrappers.recreateIModel({
+        accessToken,
+        iTwinId,
+        iModelName: IModelTransformerTestUtils.generateUniqueName(
+          "PendingReverseSyncBranch"
+        ),
+        noLocks: true,
+        version0: masterDb.pathName,
+      });
+      branchDb = await HubWrappers.downloadAndOpenBriefcase({
+        accessToken,
+        iTwinId,
+        iModelId: branchIModelId,
+      });
+      const branchInitEditTxn = createStartedEditTxn(branchDb);
+      const provenanceInitializer = new IModelTransformer(
+        { source: masterDb, target: branchInitEditTxn },
+        { wasSourceIModelCopiedToTarget: true }
+      );
+      await provenanceInitializer.process();
+      provenanceInitializer.dispose();
+      branchInitEditTxn.end();
+      await branchDb.pushChanges({
+        accessToken,
+        description: "initialized branch provenance",
+      });
+      withEditTxn(branchDb, "update branch objects", (txn) => {
+        const element1 = branchDb!.elements.getElement(
+          IModelTestUtils.queryByUserLabel(branchDb!, "1")
+        );
+        txn.updateElement({
+          ...element1.toJSON(),
+          jsonProperties: { ...element1.jsonProperties, updateState: 2 },
+        });
+        txn.insertElement({
+          classFullName: PhysicalObject.classFullName,
+          model: modelId,
+          category: categoryId,
+          code: new Code({
+            spec: IModelDb.rootSubjectId,
+            scope: IModelDb.rootSubjectId,
+            value: "4",
+          }),
+          userLabel: "4",
+          geom: IModelTransformerTestUtils.createBox(Point3d.create(1, 1, 1)),
+          placement: {
+            origin: Point3d.create(0, 0, 0),
+            angles: YawPitchRollAngles.createDegrees(0, 0, 0),
+          },
+          jsonProperties: { updateState: 1 },
+        } as PhysicalElementProps);
+      });
+      await branchDb.pushChanges({
+        accessToken,
+        description: "update branch objects",
+      });
+
+      const reverseSync = async (unsafeMigrate: boolean) => {
+        const targetEditTxn = createStartedEditTxn(masterDb!);
+        const sourceEditTxn = createStartedEditTxn(branchDb!);
+        const syncer = new IModelTransformer(
+          { source: branchDb!, target: targetEditTxn },
+          {
+            argsForProcessChanges: {
+              startChangeset: { index: undefined },
+            },
+            sourceEditTxn,
+          }
+        );
+        let succeeded = false;
+        try {
+          if (unsafeMigrate)
+            syncer["_options"]["branchRelationshipDataBehavior"] =
+              "unsafe-migrate";
+          await syncer.process();
+          succeeded = true;
+        } finally {
+          syncer.dispose();
+          targetEditTxn.end(succeeded ? "save" : "abandon");
+          sourceEditTxn.end(succeeded ? "save" : "abandon");
+        }
+        await saveAndPushChanges(branchDb!, "reverse sync");
+        await saveAndPushChanges(masterDb!, "reverse sync");
+      };
+
+      await reverseSync(false);
+      const assertProvenance = () => {
+        expect(masterDb!.changeset.index).to.equal(2);
+        expect(branchDb!.changeset.index).to.equal(3);
+        expect(count(masterDb!, ExternalSourceAspect.classFullName)).to.equal(
+          0
+        );
+        const expectedProps: TestUtils.ExpectedTargetScopeProvenanceProps = {
+          pendingSyncChangesetIndices: [2],
+          pendingReverseSyncChangesetIndices: [3],
+          syncVersionIndex: "1",
+          reverseSyncVersionIndex: "2",
+        };
+        IModelTestUtils.findAndAssertTargetScopeProvenance(
+          { id: masterDb!.iModelId, db: masterDb!, state: {} },
+          { id: branchDb!.iModelId, db: branchDb!, state: {} },
+          expectedProps
+        );
+      };
+      assertProvenance();
+      await reverseSync(false);
+      assertProvenance();
+      await reverseSync(true);
+      assertProvenance();
+    } finally {
+      if (masterDb)
+        await HubWrappers.closeAndDeleteBriefcaseDb(accessToken, masterDb);
+      if (branchDb)
+        await HubWrappers.closeAndDeleteBriefcaseDb(accessToken, branchDb);
+      await transformerTestHub.deleteIModel({
+        iTwinId,
+        iModelId: masterIModelId,
+      });
+      if (branchIModelId)
+        await transformerTestHub.deleteIModel({
+          iTwinId,
+          iModelId: branchIModelId,
+        });
+    }
   });
 
   it("should fail processingChanges on pre-version-tracking forks unless branchRelationshipDataBehavior is 'unsafe-migrate'", async () => {
@@ -4655,371 +6080,762 @@ describe("IModelTransformerHub", () => {
     ) =>
       (transformer["_options"]["branchRelationshipDataBehavior"] =
         "unsafe-migrate");
-    const timeline: Timeline = [
-      { master: { 1: 1, 2: 2, 3: 1 } },
-      { branch: { branch: "master" } },
-      { branch: { 1: 2, 4: 1 } },
-      {
-        assert({ master, branch }) {
-          const scopeProvenanceCandidates = branch.db.elements
-            .getAspects(
-              IModelDb.rootSubjectId,
-              ExternalSourceAspect.classFullName
-            )
-            .filter(
-              (a) =>
-                (a as ExternalSourceAspect).identifier === master.db.iModelId
-            );
-          expect(scopeProvenanceCandidates).to.have.length(1);
-          const targetScopeProvenance =
-            scopeProvenanceCandidates[0].toJSON() as ExternalSourceAspectProps;
+    const masterIModelId = await HubWrappers.recreateIModel({
+      accessToken,
+      iTwinId,
+      iModelName: IModelTransformerTestUtils.generateUniqueName(
+        "PreVersionTrackingMaster"
+      ),
+      noLocks: true,
+    });
+    let masterDb: BriefcaseDb | undefined;
+    let branchDb: BriefcaseDb | undefined;
+    let branchIModelId: GuidString | undefined;
 
-          expect(targetScopeProvenance).to.deep.subsetEqual({
-            identifier: master.db.iModelId,
-            version: `${master.db.changeset.id};${master.db.changeset.index}`,
-            jsonProperties: JSON.stringify({
-              pendingReverseSyncChangesetIndices: [1],
-              pendingSyncChangesetIndices: [],
-              reverseSyncVersion: ";0", // not synced yet
+    try {
+      masterDb = await HubWrappers.downloadAndOpenBriefcase({
+        accessToken,
+        iTwinId,
+        iModelId: masterIModelId,
+      });
+      const { modelId, categoryId } = withEditTxn(
+        masterDb,
+        "populate master objects",
+        (txn) => ({
+          modelId: PhysicalModel.insert(
+            txn,
+            IModel.rootSubjectId,
+            "PhysicalModel"
+          ),
+          categoryId: SpatialCategory.insert(
+            txn,
+            IModel.dictionaryId,
+            "SpatialCategory",
+            new SubCategoryAppearance()
+          ),
+        })
+      );
+      withEditTxn(masterDb, "insert master objects", (txn) => {
+        for (const [name, updateState] of Object.entries({
+          1: 1,
+          2: 2,
+          3: 1,
+        })) {
+          txn.insertElement({
+            classFullName: PhysicalObject.classFullName,
+            model: modelId,
+            category: categoryId,
+            code: new Code({
+              spec: IModelDb.rootSubjectId,
+              scope: IModelDb.rootSubjectId,
+              value: name,
             }),
-          });
-          targetScopeProvenanceProps = targetScopeProvenance;
-        },
-      },
-      {
-        branch: {
-          manualUpdate(branch) {
-            // Check it fails without jsonprops
-            withEditTxn(branch, "clear branch target scope json", (txn) => {
-              txn.updateAspect({
-                ...targetScopeProvenanceProps!,
-                jsonProperties: undefined,
-              });
-            });
-          },
-        },
-      },
-      {
-        master: {
-          // Reverse sync and reverse sync looks for a 'reverseSyncVersion' inside of jsonProperties which will be missing so expectthrow.
-          sync: ["branch", { expectThrow: true }],
-        },
-      },
-      {
-        branch: {
-          sync: ["master", { expectThrow: false }],
-        },
-      },
-      {
-        branch: {
-          manualUpdate(branch) {
-            // Check it fails without version now.
-            withEditTxn(branch, "clear branch target scope version", (txn) => {
-              txn.updateAspect({
-                ...targetScopeProvenanceProps!,
-                version: undefined,
-              } as ExternalSourceAspectProps);
-            });
-          },
-        },
-      },
-      {
-        branch: {
-          // Forward sync and forward sync looks for a prop 'version' on the ESA which will be missing so expect to throw.
-          sync: [
-            "master",
-            {
-              expectThrow: true,
-              assert: {
-                onError(error) {
-                  assertTransformerError(
-                    error,
-                    IModelTransformerError.SynchronizationVersionMissing,
-                    "Could not find synchronization version in scope aspect. This may be due to the last successful run of the transformer being done with an older version.\n         Consider running the transformer with branchRelationshipDataBehavior set to 'unsafe-migrate'"
-                  );
-                  synchronizationVersionErrorAsserted = true;
-                },
-              },
+            userLabel: name,
+            geom: IModelTransformerTestUtils.createBox(Point3d.create(1, 1, 1)),
+            placement: {
+              origin: Point3d.create(0, 0, 0),
+              angles: YawPitchRollAngles.createDegrees(0, 0, 0),
             },
-          ],
-        },
-      },
-      {
-        master: {
-          sync: ["branch", { expectThrow: false }],
-        },
-      },
-      {
-        branch: {
-          manualUpdate(branch) {
-            // Remove both and make sure it passes with both removed + setallowNoBranchRelationshipData
-            withEditTxn(
-              branch,
-              "clear branch target scope relationship data",
-              (txn) => {
-                txn.updateAspect({
-                  ...targetScopeProvenanceProps!,
-                  jsonProperties: undefined,
-                  version: undefined,
-                } as ExternalSourceAspectProps);
-              }
-            );
+            jsonProperties: { updateState },
+          } as PhysicalElementProps);
+        }
+      });
+      await masterDb.pushChanges({
+        accessToken,
+        description: "populate master objects",
+      });
+      masterDb.performCheckpoint();
+
+      branchIModelId = await HubWrappers.recreateIModel({
+        accessToken,
+        iTwinId,
+        iModelName: IModelTransformerTestUtils.generateUniqueName(
+          "PreVersionTrackingBranch"
+        ),
+        noLocks: true,
+        version0: masterDb.pathName,
+      });
+      branchDb = await HubWrappers.downloadAndOpenBriefcase({
+        accessToken,
+        iTwinId,
+        iModelId: branchIModelId,
+      });
+      const branchInitEditTxn = createStartedEditTxn(branchDb);
+      const provenanceInitializer = new IModelTransformer(
+        { source: masterDb, target: branchInitEditTxn },
+        {
+          forceExternalSourceAspectProvenance: true,
+          wasSourceIModelCopiedToTarget: true,
+        }
+      );
+      await provenanceInitializer.process();
+      provenanceInitializer.dispose();
+      branchInitEditTxn.end();
+      await branchDb.pushChanges({
+        accessToken,
+        description: "initialized branch provenance",
+      });
+      withEditTxn(branchDb, "update branch objects", (txn) => {
+        const element1 = branchDb!.elements.getElement(
+          IModelTestUtils.queryByUserLabel(branchDb!, "1")
+        );
+        txn.updateElement({
+          ...element1.toJSON(),
+          jsonProperties: { ...element1.jsonProperties, updateState: 2 },
+        });
+        txn.insertElement({
+          classFullName: PhysicalObject.classFullName,
+          model: modelId,
+          category: categoryId,
+          code: new Code({
+            spec: IModelDb.rootSubjectId,
+            scope: IModelDb.rootSubjectId,
+            value: "4",
+          }),
+          userLabel: "4",
+          geom: IModelTransformerTestUtils.createBox(Point3d.create(1, 1, 1)),
+          placement: {
+            origin: Point3d.create(0, 0, 0),
+            angles: YawPitchRollAngles.createDegrees(0, 0, 0),
           },
-        },
-      },
-      {
-        branch: {
-          sync: [
-            "master",
-            {
-              expectThrow: false,
-              initTransformer: setBranchRelationshipDataBehaviorToUnsafeMigrate,
-            },
-          ],
-        },
-      },
-      {
-        master: {
-          sync: [
-            "branch",
-            {
-              expectThrow: false,
-              initTransformer: setBranchRelationshipDataBehaviorToUnsafeMigrate,
-            },
-          ],
-        },
-      },
-      {
-        async assert({ master, branch }) {
-          expect(master.db.changeset.index).to.equal(3);
-          expect(branch.db.changeset.index).to.equal(8);
-          expect(count(master.db, ExternalSourceAspect.classFullName)).to.equal(
-            0
-          );
-          const sql = `
+          jsonProperties: { updateState: 1 },
+        } as PhysicalElementProps);
+      });
+      await branchDb.pushChanges({
+        accessToken,
+        description: "update branch objects",
+      });
+
+      const scopeProvenanceCandidates = branchDb.elements
+        .getAspects(IModelDb.rootSubjectId, ExternalSourceAspect.classFullName)
+        .filter(
+          (a) => (a as ExternalSourceAspect).identifier === masterDb!.iModelId
+        );
+      expect(scopeProvenanceCandidates).to.have.length(1);
+      targetScopeProvenanceProps =
+        scopeProvenanceCandidates[0].toJSON() as ExternalSourceAspectProps;
+      expect(targetScopeProvenanceProps).to.deep.subsetEqual({
+        identifier: masterDb.iModelId,
+        version: `${masterDb.changeset.id};${masterDb.changeset.index}`,
+        jsonProperties: JSON.stringify({
+          pendingReverseSyncChangesetIndices: [1],
+          pendingSyncChangesetIndices: [],
+          reverseSyncVersion: ";0",
+        }),
+      });
+
+      withEditTxn(branchDb, "clear branch target scope json", (txn) => {
+        txn.updateAspect({
+          ...targetScopeProvenanceProps!,
+          jsonProperties: undefined,
+        });
+      });
+      await branchDb.pushChanges({
+        accessToken,
+        description: "clear branch target scope json",
+      });
+
+      const reverseTargetEditTxn = createStartedEditTxn(masterDb);
+      const reverseSourceEditTxn = createStartedEditTxn(branchDb);
+      const reverseSyncer = new IModelTransformer(
+        { source: branchDb, target: reverseTargetEditTxn },
+        {
+          forceExternalSourceAspectProvenance: true,
+          argsForProcessChanges: {
+            startChangeset: { index: undefined },
+          },
+          sourceEditTxn: reverseSourceEditTxn,
+        }
+      );
+      let reverseError: unknown;
+      try {
+        await reverseSyncer.process();
+      } catch (error) {
+        reverseError = error;
+      } finally {
+        reverseSyncer.dispose();
+        reverseTargetEditTxn.end(reverseError ? "abandon" : "save");
+        reverseSourceEditTxn.end(reverseError ? "abandon" : "save");
+      }
+      expect(reverseError).to.not.be.undefined;
+
+      const branchForwardInitTargetTxn = createStartedEditTxn(branchDb);
+      const branchForwardInit = new IModelTransformer(
+        { source: masterDb, target: branchForwardInitTargetTxn },
+        {
+          forceExternalSourceAspectProvenance: true,
+          argsForProcessChanges: {
+            startChangeset: { index: undefined },
+          },
+        }
+      );
+      let branchForwardInitSucceeded = false;
+      try {
+        await branchForwardInit.process();
+        branchForwardInitSucceeded = true;
+      } finally {
+        branchForwardInit.dispose();
+        branchForwardInitTargetTxn.end(
+          branchForwardInitSucceeded ? "save" : "abandon"
+        );
+      }
+      await branchDb.pushChanges({
+        accessToken,
+        description: "forward sync with missing json properties",
+      });
+
+      withEditTxn(branchDb, "clear branch target scope version", (txn) => {
+        txn.updateAspect({
+          ...targetScopeProvenanceProps!,
+          version: undefined,
+        } as ExternalSourceAspectProps);
+      });
+      await branchDb.pushChanges({
+        accessToken,
+        description: "clear branch target scope version",
+      });
+
+      const branchForwardTargetTxn = createStartedEditTxn(branchDb);
+      const branchForward = new IModelTransformer(
+        { source: masterDb, target: branchForwardTargetTxn },
+        {
+          forceExternalSourceAspectProvenance: true,
+          argsForProcessChanges: {
+            startChangeset: { index: undefined },
+          },
+        }
+      );
+      let forwardError: unknown;
+      try {
+        await branchForward.process();
+      } catch (error) {
+        forwardError = error;
+        assertTransformerError(
+          error,
+          IModelTransformerError.SynchronizationVersionMissing,
+          "Could not find synchronization version in scope aspect. This may be due to the last successful run of the transformer being done with an older version.\n         Consider running the transformer with branchRelationshipDataBehavior set to 'unsafe-migrate'"
+        );
+        synchronizationVersionErrorAsserted = true;
+      } finally {
+        branchForward.dispose();
+        branchForwardTargetTxn.end(forwardError ? "abandon" : "save");
+      }
+      expect(forwardError).to.not.be.undefined;
+
+      const masterReverseTargetTxn = createStartedEditTxn(masterDb);
+      const masterReverseSourceTxn = createStartedEditTxn(branchDb);
+      const masterReverse = new IModelTransformer(
+        { source: branchDb, target: masterReverseTargetTxn },
+        {
+          forceExternalSourceAspectProvenance: true,
+          argsForProcessChanges: {
+            startChangeset: { index: undefined },
+          },
+          sourceEditTxn: masterReverseSourceTxn,
+        }
+      );
+      let masterReverseSucceeded = false;
+      try {
+        await masterReverse.process();
+        masterReverseSucceeded = true;
+      } finally {
+        masterReverse.dispose();
+        masterReverseTargetTxn.end(masterReverseSucceeded ? "save" : "abandon");
+        masterReverseSourceTxn.end(masterReverseSucceeded ? "save" : "abandon");
+      }
+      await branchDb.pushChanges({
+        accessToken,
+        description: "reverse sync after missing version",
+      });
+      await masterDb.pushChanges({
+        accessToken,
+        description: "reverse sync after missing version",
+      });
+
+      withEditTxn(
+        branchDb,
+        "clear branch target scope relationship data",
+        (txn) => {
+          txn.updateAspect({
+            ...targetScopeProvenanceProps!,
+            jsonProperties: undefined,
+            version: undefined,
+          } as ExternalSourceAspectProps);
+        }
+      );
+      await branchDb.pushChanges({
+        accessToken,
+        description: "clear branch target scope relationship data",
+      });
+
+      const unsafeForwardTargetTxn = createStartedEditTxn(branchDb);
+      const unsafeForward = new IModelTransformer(
+        { source: masterDb, target: unsafeForwardTargetTxn },
+        {
+          forceExternalSourceAspectProvenance: true,
+          argsForProcessChanges: {
+            startChangeset: { index: undefined },
+          },
+        }
+      );
+      let unsafeForwardSucceeded = false;
+      try {
+        setBranchRelationshipDataBehaviorToUnsafeMigrate(unsafeForward);
+        await unsafeForward.process();
+        unsafeForwardSucceeded = true;
+      } finally {
+        unsafeForward.dispose();
+        unsafeForwardTargetTxn.end(unsafeForwardSucceeded ? "save" : "abandon");
+      }
+      await branchDb.pushChanges({
+        accessToken,
+        description: "unsafe forward sync",
+      });
+
+      const unsafeReverseTargetTxn = createStartedEditTxn(masterDb);
+      const unsafeReverseSourceTxn = createStartedEditTxn(branchDb);
+      const unsafeReverse = new IModelTransformer(
+        { source: branchDb, target: unsafeReverseTargetTxn },
+        {
+          forceExternalSourceAspectProvenance: true,
+          argsForProcessChanges: {
+            startChangeset: { index: undefined },
+          },
+          sourceEditTxn: unsafeReverseSourceTxn,
+        }
+      );
+      let unsafeReverseSucceeded = false;
+      try {
+        setBranchRelationshipDataBehaviorToUnsafeMigrate(unsafeReverse);
+        await unsafeReverse.process();
+        unsafeReverseSucceeded = true;
+      } finally {
+        unsafeReverse.dispose();
+        unsafeReverseTargetTxn.end(unsafeReverseSucceeded ? "save" : "abandon");
+        unsafeReverseSourceTxn.end(unsafeReverseSucceeded ? "save" : "abandon");
+      }
+      await branchDb.pushChanges({
+        accessToken,
+        description: "unsafe reverse sync",
+      });
+      await masterDb.pushChanges({
+        accessToken,
+        description: "unsafe reverse sync",
+      });
+
+      expect(masterDb.changeset.index).to.equal(3);
+      expect(branchDb.changeset.index).to.equal(8);
+      expect(count(masterDb, ExternalSourceAspect.classFullName)).to.equal(0);
+      const sql = `
           SELECT e.ECInstanceId as elementId, COUNT(*) as aspectCount FROM bis.ExternalSourceAspect esa
           JOIN bis.Element e ON e.ECInstanceId=esa.Element.Id
           GROUP BY e.ECInstanceId
           `;
-          const externalAspectCounts = async (db: IModelDb) => {
-            const results = [];
-            for await (const row of db.createQueryReader(sql)) {
-              results.push(row.toRow());
-            }
-            return results;
-          };
+      const externalAspectCounts = async (db: IModelDb) => {
+        const results = [];
+        for await (const row of db.createQueryReader(sql))
+          results.push(row.toRow());
+        return results;
+      };
+      expect(count(branchDb, "bis.ExternalSourceAspect")).to.be.equal(
+        count(masterDb, "bis.Element")
+      );
+      expect(count(branchDb, "bis.Element")).to.be.equal(
+        count(masterDb, "bis.Element")
+      );
+      (await externalAspectCounts(branchDb)).forEach((value) => {
+        expect(value.aspectCount).to.equal(1);
+      });
+      const finalScopeCandidates = branchDb.elements
+        .getAspects(IModelDb.rootSubjectId, ExternalSourceAspect.classFullName)
+        .filter(
+          (a) => (a as ExternalSourceAspect).identifier === masterDb!.iModelId
+        );
+      expect(finalScopeCandidates).to.have.length(1);
+      const finalScope =
+        finalScopeCandidates[0].toJSON() as ExternalSourceAspectProps;
+      expect(finalScope.version).to.match(/;2$/);
+      const finalScopeJsonProps = JSON.parse(finalScope.jsonProperties);
+      expect(finalScopeJsonProps).to.deep.subsetEqual({
+        pendingReverseSyncChangesetIndices: [8],
+        pendingSyncChangesetIndices: [3],
+      });
+      expect(finalScopeJsonProps.reverseSyncVersion).to.match(/;7$/);
 
-          expect(count(branch.db, "bis.ExternalSourceAspect")).to.be.equal(
-            count(master.db, "bis.Element")
-          );
-          expect(count(branch.db, "bis.Element")).to.be.equal(
-            count(master.db, "bis.Element")
-          );
-
-          // The root Subject owns scope provenance only because root elements are not transformed.
-          (await externalAspectCounts(branch.db)).forEach((value) => {
-            expect(value.aspectCount).to.equal(1);
-          });
-
-          const scopeProvenanceCandidates = branch.db.elements
-            .getAspects(
-              IModelDb.rootSubjectId,
-              ExternalSourceAspect.classFullName
-            )
-            .filter(
-              (a) =>
-                (a as ExternalSourceAspect).identifier === master.db.iModelId
-            );
-          expect(scopeProvenanceCandidates).to.have.length(1);
-          const targetScopeProvenance =
-            scopeProvenanceCandidates[0].toJSON() as ExternalSourceAspectProps;
-
-          expect(targetScopeProvenance.version).to.match(/;2$/);
-          const targetScopeJsonProps = JSON.parse(
-            targetScopeProvenance.jsonProperties
-          );
-          expect(targetScopeJsonProps).to.deep.subsetEqual({
-            pendingReverseSyncChangesetIndices: [8],
-            pendingSyncChangesetIndices: [3],
-          });
-          expect(targetScopeJsonProps.reverseSyncVersion).to.match(/;7$/);
-        },
-      },
-      { branch: { sync: ["master"] } },
-      { master: { sync: ["branch"] } },
-      { branch: { 5: 1 } },
-      { master: { sync: ["branch"] } },
-      {
-        async assert({ master, branch }) {
-          const expectedState = { 1: 2, 2: 2, 3: 1, 4: 1, 5: 1 };
-          expect(master.state).to.deep.equal(expectedState);
-          expect(branch.state).to.deep.equal(expectedState);
-          await assertElemState(master.db, expectedState);
-          await assertElemState(branch.db, expectedState);
-        },
-      },
-    ];
-
-    const { tearDown } = await runTimeline(timeline, {
-      iTwinId,
-      accessToken,
-      transformerOpts: {
-        // force aspects so that reverse sync has to edit the target
-        forceExternalSourceAspectProvenance: true,
-      },
-    });
+      const postCheckForwardTargetTxn = createStartedEditTxn(branchDb);
+      const postCheckForward = new IModelTransformer(
+        { source: masterDb, target: postCheckForwardTargetTxn },
+        {
+          forceExternalSourceAspectProvenance: true,
+          argsForProcessChanges: {
+            startChangeset: { index: undefined },
+          },
+        }
+      );
+      await postCheckForward.process();
+      postCheckForward.dispose();
+      postCheckForwardTargetTxn.end();
+      await branchDb.pushChanges({
+        accessToken,
+        description: "post-check forward sync",
+      });
+      const postCheckReverseTargetTxn = createStartedEditTxn(masterDb);
+      const postCheckReverseSourceTxn = createStartedEditTxn(branchDb);
+      const postCheckReverse = new IModelTransformer(
+        { source: branchDb, target: postCheckReverseTargetTxn },
+        {
+          forceExternalSourceAspectProvenance: true,
+          argsForProcessChanges: {
+            startChangeset: { index: undefined },
+          },
+          sourceEditTxn: postCheckReverseSourceTxn,
+        }
+      );
+      await postCheckReverse.process();
+      postCheckReverse.dispose();
+      postCheckReverseTargetTxn.end();
+      postCheckReverseSourceTxn.end();
+      await branchDb.pushChanges({
+        accessToken,
+        description: "post-check reverse sync",
+      });
+      await masterDb.pushChanges({
+        accessToken,
+        description: "post-check reverse sync",
+      });
+      withEditTxn(branchDb, "insert final branch object", (txn) => {
+        txn.insertElement({
+          classFullName: PhysicalObject.classFullName,
+          model: modelId,
+          category: categoryId,
+          code: new Code({
+            spec: IModelDb.rootSubjectId,
+            scope: IModelDb.rootSubjectId,
+            value: "5",
+          }),
+          userLabel: "5",
+          geom: IModelTransformerTestUtils.createBox(Point3d.create(1, 1, 1)),
+          placement: {
+            origin: Point3d.create(0, 0, 0),
+            angles: YawPitchRollAngles.createDegrees(0, 0, 0),
+          },
+          jsonProperties: { updateState: 1 },
+        } as PhysicalElementProps);
+      });
+      await branchDb.pushChanges({
+        accessToken,
+        description: "insert final branch object",
+      });
+      const finalReverseTargetTxn = createStartedEditTxn(masterDb);
+      const finalReverseSourceTxn = createStartedEditTxn(branchDb);
+      const finalReverse = new IModelTransformer(
+        { source: branchDb, target: finalReverseTargetTxn },
+        {
+          forceExternalSourceAspectProvenance: true,
+          argsForProcessChanges: {
+            startChangeset: { index: undefined },
+          },
+          sourceEditTxn: finalReverseSourceTxn,
+        }
+      );
+      await finalReverse.process();
+      finalReverse.dispose();
+      finalReverseTargetTxn.end();
+      finalReverseSourceTxn.end();
+      await branchDb.pushChanges({
+        accessToken,
+        description: "final reverse sync",
+      });
+      await masterDb.pushChanges({
+        accessToken,
+        description: "final reverse sync",
+      });
+      const expectedState = { 1: 2, 2: 2, 3: 1, 4: 1, 5: 1 };
+      await assertTestIModelState(masterDb, expectedState);
+      await assertTestIModelState(branchDb, expectedState);
+    } finally {
+      if (masterDb)
+        await HubWrappers.closeAndDeleteBriefcaseDb(accessToken, masterDb);
+      if (branchDb)
+        await HubWrappers.closeAndDeleteBriefcaseDb(accessToken, branchDb);
+      await transformerTestHub.deleteIModel({
+        iTwinId,
+        iModelId: masterIModelId,
+      });
+      if (branchIModelId)
+        await transformerTestHub.deleteIModel({
+          iTwinId,
+          iModelId: branchIModelId,
+        });
+    }
 
     expect(synchronizationVersionErrorAsserted).to.be.true;
-    await tearDown();
   });
 
   for (const propagateRootElems of [true, false]) {
     it(`${
       propagateRootElems ? "should" : "shouldn't"
     } propagate changes to rootSubject, repositoryModel, realityDataSourcesModel when skipPropagateChangesToRootElements is set to ${!propagateRootElems}`, async () => {
-      const timeline: Timeline = [
-        { master: { 1: 1 } },
-        { branch: { branch: "master" } },
-        { branch: { 1: 2, 4: 1 } },
-        {
-          branch: {
-            manualUpdate(branch) {
-              withEditTxn(
-                branch,
-                "update root model and element props",
-                (txn) => {
-                  // Update models
-                  const dictionaryId = IModelDb.dictionaryId;
-                  const dict = branch.models.getModelProps(dictionaryId);
-                  txn.updateModel({
-                    ...dict,
-                    jsonProperties: { test: 1 },
-                  });
-
-                  const repositoryModel = branch.models.getModelProps(
-                    IModelDb.repositoryModelId
-                  );
-                  txn.updateModel({
-                    ...repositoryModel,
-                    jsonProperties: { test: 2 },
-                  });
-
-                  const realityDataSourcesModel =
-                    branch.models.getModelProps("0xe");
-                  txn.updateModel({
-                    ...realityDataSourcesModel,
-                    jsonProperties: { test: 3 },
-                  });
-
-                  // Update Elements now.
-                  const rootSubjectFromBranch =
-                    branch.elements.getElementProps<SubjectProps>("0x1");
-                  txn.updateElement({
-                    ...rootSubjectFromBranch,
-                    description: "test description",
-                    jsonProperties: { test: 4 },
-                  });
-
-                  const realityDataSourcesElement =
-                    branch.elements.getElementProps("0xe");
-                  txn.updateElement({
-                    ...realityDataSourcesElement,
-                    jsonProperties: { test: 5 },
-                  });
-
-                  const dictionaryElement = branch.elements.getElementProps(
-                    IModelDb.dictionaryId
-                  );
-                  txn.updateElement({
-                    ...dictionaryElement,
-                    jsonProperties: { test: 6 },
-                  });
-                }
-              );
-            },
-          },
-        },
-        { master: { sync: ["branch"] } },
-        {
-          assert({ master, branch }) {
-            const dictionaryModelMaster = master.db.models.getModel(
-              IModelDb.dictionaryId
-            );
-            const dictionaryModelBranch = branch.db.models.getModel(
-              IModelDb.dictionaryId
-            );
-            expect(dictionaryModelMaster.jsonProperties.test).to.equal(
-              propagateRootElems ? 1 : undefined
-            );
-            expect(dictionaryModelBranch.jsonProperties.test).to.equal(1);
-
-            const repositoryModelMaster = master.db.models.getModel(
-              IModelDb.repositoryModelId
-            );
-            const repositoryModelBranch = branch.db.models.getModel(
-              IModelDb.repositoryModelId
-            );
-            expect(repositoryModelMaster.jsonProperties.test).to.equal(
-              propagateRootElems ? 2 : undefined
-            );
-            expect(repositoryModelBranch.jsonProperties.test).to.equal(2);
-
-            const realityDataSourcesModelMaster =
-              master.db.models.getModel("0xe");
-            const realityDataSourcesModelBranch =
-              branch.db.models.getModel("0xe");
-            expect(realityDataSourcesModelMaster.jsonProperties.test).to.equal(
-              propagateRootElems ? 3 : undefined
-            );
-            expect(realityDataSourcesModelBranch.jsonProperties.test).to.equal(
-              3
-            );
-
-            const rootSubjectMaster = master.db.elements.getRootSubject();
-            const rootSubjectBranch = branch.db.elements.getRootSubject();
-            expect(rootSubjectMaster.description).to.equal(
-              propagateRootElems ? "test description" : ""
-            );
-            expect(rootSubjectBranch.description).to.equal("test description");
-            expect(rootSubjectMaster.jsonProperties.test).to.equal(
-              propagateRootElems ? 4 : undefined
-            );
-            expect(rootSubjectBranch.jsonProperties.test).to.equal(4);
-
-            const realityDataSourcesElementMaster =
-              master.db.elements.getElementProps("0xe");
-            const realityDataSourcesElementBranch =
-              branch.db.elements.getElementProps("0xe");
-            expect(
-              realityDataSourcesElementMaster.jsonProperties?.test
-            ).to.equal(propagateRootElems ? 5 : undefined);
-            expect(
-              realityDataSourcesElementBranch.jsonProperties.test
-            ).to.equal(5);
-
-            const dictionaryElementMaster = master.db.elements.getElementProps(
-              IModelDb.dictionaryId
-            );
-            const dictionaryElementBranch = branch.db.elements.getElementProps(
-              IModelDb.dictionaryId
-            );
-            expect(dictionaryElementMaster.jsonProperties?.test).to.equal(
-              propagateRootElems ? 6 : undefined
-            );
-            expect(dictionaryElementBranch.jsonProperties.test).to.equal(6);
-          },
-        },
-      ];
-
-      const { tearDown } = await runTimeline(timeline, {
-        iTwinId,
+      const masterIModelId = await HubWrappers.recreateIModel({
         accessToken,
-        transformerOpts: {
-          skipPropagateChangesToRootElements: !propagateRootElems,
-        },
+        iTwinId,
+        iModelName: IModelTransformerTestUtils.generateUniqueName(
+          "RootPropagationMaster"
+        ),
+        noLocks: true,
       });
+      let masterDb: BriefcaseDb | undefined;
+      let branchDb: BriefcaseDb | undefined;
+      let branchIModelId: GuidString | undefined;
 
-      await tearDown();
+      try {
+        masterDb = await HubWrappers.downloadAndOpenBriefcase({
+          accessToken,
+          iTwinId,
+          iModelId: masterIModelId,
+        });
+        const { modelId, categoryId } = withEditTxn(
+          masterDb,
+          "populate master object",
+          (txn) => ({
+            modelId: PhysicalModel.insert(
+              txn,
+              IModel.rootSubjectId,
+              "PhysicalModel"
+            ),
+            categoryId: SpatialCategory.insert(
+              txn,
+              IModel.dictionaryId,
+              "SpatialCategory",
+              new SubCategoryAppearance()
+            ),
+          })
+        );
+        withEditTxn(masterDb, "insert master object", (txn) => {
+          txn.insertElement({
+            classFullName: PhysicalObject.classFullName,
+            model: modelId,
+            category: categoryId,
+            code: new Code({
+              spec: IModelDb.rootSubjectId,
+              scope: IModelDb.rootSubjectId,
+              value: "1",
+            }),
+            userLabel: "1",
+            geom: IModelTransformerTestUtils.createBox(Point3d.create(1, 1, 1)),
+            placement: {
+              origin: Point3d.create(0, 0, 0),
+              angles: YawPitchRollAngles.createDegrees(0, 0, 0),
+            },
+            jsonProperties: { updateState: 1 },
+          } as PhysicalElementProps);
+        });
+        await masterDb.pushChanges({
+          accessToken,
+          description: "populate master object",
+        });
+        masterDb.performCheckpoint();
+
+        branchIModelId = await HubWrappers.recreateIModel({
+          accessToken,
+          iTwinId,
+          iModelName: IModelTransformerTestUtils.generateUniqueName(
+            "RootPropagationBranch"
+          ),
+          noLocks: true,
+          version0: masterDb.pathName,
+        });
+        branchDb = await HubWrappers.downloadAndOpenBriefcase({
+          accessToken,
+          iTwinId,
+          iModelId: branchIModelId,
+        });
+        const branchInitEditTxn = createStartedEditTxn(branchDb);
+        const provenanceInitializer = new IModelTransformer(
+          { source: masterDb, target: branchInitEditTxn },
+          { wasSourceIModelCopiedToTarget: true }
+        );
+        await provenanceInitializer.process();
+        provenanceInitializer.dispose();
+        branchInitEditTxn.end();
+        await branchDb.pushChanges({
+          accessToken,
+          description: "initialized branch provenance",
+        });
+
+        withEditTxn(branchDb, "update branch objects", (txn) => {
+          const element1 = branchDb!.elements.getElement(
+            IModelTestUtils.queryByUserLabel(branchDb!, "1")
+          );
+          txn.updateElement({
+            ...element1.toJSON(),
+            jsonProperties: { ...element1.jsonProperties, updateState: 2 },
+          });
+          txn.insertElement({
+            classFullName: PhysicalObject.classFullName,
+            model: modelId,
+            category: categoryId,
+            code: new Code({
+              spec: IModelDb.rootSubjectId,
+              scope: IModelDb.rootSubjectId,
+              value: "4",
+            }),
+            userLabel: "4",
+            geom: IModelTransformerTestUtils.createBox(Point3d.create(1, 1, 1)),
+            placement: {
+              origin: Point3d.create(0, 0, 0),
+              angles: YawPitchRollAngles.createDegrees(0, 0, 0),
+            },
+            jsonProperties: { updateState: 1 },
+          } as PhysicalElementProps);
+        });
+        await branchDb.pushChanges({
+          accessToken,
+          description: "update branch objects",
+        });
+
+        withEditTxn(branchDb, "update root model and element props", (txn) => {
+          const dict = branchDb!.models.getModelProps(IModelDb.dictionaryId);
+          txn.updateModel({ ...dict, jsonProperties: { test: 1 } });
+          const repositoryModel = branchDb!.models.getModelProps(
+            IModelDb.repositoryModelId
+          );
+          txn.updateModel({ ...repositoryModel, jsonProperties: { test: 2 } });
+          const realityDataSourcesModel = branchDb!.models.getModelProps("0xe");
+          txn.updateModel({
+            ...realityDataSourcesModel,
+            jsonProperties: { test: 3 },
+          });
+          const rootSubjectFromBranch =
+            branchDb!.elements.getElementProps<SubjectProps>("0x1");
+          txn.updateElement({
+            ...rootSubjectFromBranch,
+            description: "test description",
+            jsonProperties: { test: 4 },
+          });
+          const realityDataSourcesElement =
+            branchDb!.elements.getElementProps("0xe");
+          txn.updateElement({
+            ...realityDataSourcesElement,
+            jsonProperties: { test: 5 },
+          });
+          const dictionaryElement = branchDb!.elements.getElementProps(
+            IModelDb.dictionaryId
+          );
+          txn.updateElement({
+            ...dictionaryElement,
+            jsonProperties: { test: 6 },
+          });
+        });
+        await branchDb.pushChanges({
+          accessToken,
+          description: "update root model and element props",
+        });
+
+        const reverseTargetEditTxn = createStartedEditTxn(masterDb);
+        const reverseSourceEditTxn = createStartedEditTxn(branchDb);
+        const reverseSyncer = new IModelTransformer(
+          { source: branchDb, target: reverseTargetEditTxn },
+          {
+            skipPropagateChangesToRootElements: !propagateRootElems,
+            argsForProcessChanges: {
+              startChangeset: { index: undefined },
+            },
+            sourceEditTxn: reverseSourceEditTxn,
+          }
+        );
+        let reverseSyncSucceeded = false;
+        try {
+          await reverseSyncer.process();
+          reverseSyncSucceeded = true;
+        } finally {
+          reverseSyncer.dispose();
+          reverseTargetEditTxn.end(reverseSyncSucceeded ? "save" : "abandon");
+          reverseSourceEditTxn.end(reverseSyncSucceeded ? "save" : "abandon");
+        }
+        await branchDb.pushChanges({
+          accessToken,
+          description: "reverse sync root changes",
+        });
+        await masterDb.pushChanges({
+          accessToken,
+          description: "reverse sync root changes",
+        });
+
+        const dictionaryModelMaster = masterDb.models.getModel(
+          IModelDb.dictionaryId
+        );
+        const dictionaryModelBranch = branchDb.models.getModel(
+          IModelDb.dictionaryId
+        );
+        expect(dictionaryModelMaster.jsonProperties.test).to.equal(
+          propagateRootElems ? 1 : undefined
+        );
+        expect(dictionaryModelBranch.jsonProperties.test).to.equal(1);
+
+        const repositoryModelMaster = masterDb.models.getModel(
+          IModelDb.repositoryModelId
+        );
+        const repositoryModelBranch = branchDb.models.getModel(
+          IModelDb.repositoryModelId
+        );
+        expect(repositoryModelMaster.jsonProperties.test).to.equal(
+          propagateRootElems ? 2 : undefined
+        );
+        expect(repositoryModelBranch.jsonProperties.test).to.equal(2);
+
+        const realityDataSourcesModelMaster = masterDb.models.getModel("0xe");
+        const realityDataSourcesModelBranch = branchDb.models.getModel("0xe");
+        expect(realityDataSourcesModelMaster.jsonProperties.test).to.equal(
+          propagateRootElems ? 3 : undefined
+        );
+        expect(realityDataSourcesModelBranch.jsonProperties.test).to.equal(3);
+
+        const rootSubjectMaster = masterDb.elements.getRootSubject();
+        const rootSubjectBranch = branchDb.elements.getRootSubject();
+        expect(rootSubjectMaster.description).to.equal(
+          propagateRootElems ? "test description" : ""
+        );
+        expect(rootSubjectBranch.description).to.equal("test description");
+        expect(rootSubjectMaster.jsonProperties.test).to.equal(
+          propagateRootElems ? 4 : undefined
+        );
+        expect(rootSubjectBranch.jsonProperties.test).to.equal(4);
+
+        const realityDataSourcesElementMaster =
+          masterDb.elements.getElementProps("0xe");
+        const realityDataSourcesElementBranch =
+          branchDb.elements.getElementProps("0xe");
+        expect(realityDataSourcesElementMaster.jsonProperties?.test).to.equal(
+          propagateRootElems ? 5 : undefined
+        );
+        expect(realityDataSourcesElementBranch.jsonProperties.test).to.equal(5);
+
+        const dictionaryElementMaster = masterDb.elements.getElementProps(
+          IModelDb.dictionaryId
+        );
+        const dictionaryElementBranch = branchDb.elements.getElementProps(
+          IModelDb.dictionaryId
+        );
+        expect(dictionaryElementMaster.jsonProperties?.test).to.equal(
+          propagateRootElems ? 6 : undefined
+        );
+        expect(dictionaryElementBranch.jsonProperties.test).to.equal(6);
+      } finally {
+        if (masterDb)
+          await HubWrappers.closeAndDeleteBriefcaseDb(accessToken, masterDb);
+        if (branchDb)
+          await HubWrappers.closeAndDeleteBriefcaseDb(accessToken, branchDb);
+        await transformerTestHub.deleteIModel({
+          iTwinId,
+          iModelId: masterIModelId,
+        });
+        if (branchIModelId)
+          await transformerTestHub.deleteIModel({
+            iTwinId,
+            iModelId: branchIModelId,
+          });
+      }
     });
   }
 
@@ -5221,153 +7037,489 @@ describe("IModelTransformerHub", () => {
   }
 
   it("should skip provenance changesets made to branch during reverse sync", async () => {
-    const timeline: Timeline = [
-      { master: { 1: 1 } },
-      { master: { 2: 2 } },
-      { master: { 3: 1 } },
-      { branch: { branch: "master" } },
-      { branch: { 1: 2, 4: 1 } },
-      // eslint-disable-next-line @typescript-eslint/no-shadow
-      {
-        assert({ master, branch }) {
-          expect(master.db.changeset.index).to.equal(3);
-          expect(branch.db.changeset.index).to.equal(2);
-          expect(count(master.db, ExternalSourceAspect.classFullName)).to.equal(
-            0
-          );
-          expect(count(branch.db, ExternalSourceAspect.classFullName)).to.equal(
-            9
-          );
-
-          const scopeProvenanceCandidates = branch.db.elements
-            .getAspects(
-              IModelDb.rootSubjectId,
-              ExternalSourceAspect.classFullName
-            )
-            .filter(
-              (a) =>
-                (a as ExternalSourceAspect).identifier === master.db.iModelId
-            );
-          expect(scopeProvenanceCandidates).to.have.length(1);
-          const targetScopeProvenance =
-            scopeProvenanceCandidates[0].toJSON() as ExternalSourceAspectProps;
-
-          expect(targetScopeProvenance).to.deep.subsetEqual({
-            identifier: master.db.iModelId,
-            version: `${master.db.changeset.id};${master.db.changeset.index}`,
-            jsonProperties: JSON.stringify({
-              pendingReverseSyncChangesetIndices: [1],
-              pendingSyncChangesetIndices: [],
-              reverseSyncVersion: ";0", // not synced yet
-            }),
-          });
-        },
-      },
-      { master: { sync: ["branch"] } },
-      // eslint-disable-next-line @typescript-eslint/no-shadow
-      {
-        assert({ master, branch }) {
-          expect(master.db.changeset.index).to.equal(4);
-          expect(branch.db.changeset.index).to.equal(3);
-          expect(count(master.db, ExternalSourceAspect.classFullName)).to.equal(
-            0
-          );
-          // added because the root was modified
-          expect(count(branch.db, ExternalSourceAspect.classFullName)).to.equal(
-            10
-          );
-
-          const scopeProvenanceCandidates = branch.db.elements
-            .getAspects(
-              IModelDb.rootSubjectId,
-              ExternalSourceAspect.classFullName
-            )
-            .filter(
-              (a) =>
-                (a as ExternalSourceAspect).identifier === master.db.iModelId
-            );
-          expect(scopeProvenanceCandidates).to.have.length(1);
-          const targetScopeProvenance =
-            scopeProvenanceCandidates[0].toJSON() as ExternalSourceAspectProps;
-
-          expect(targetScopeProvenance.version).to.match(/;3$/);
-          const targetScopeJsonProps = JSON.parse(
-            targetScopeProvenance.jsonProperties
-          );
-          expect(targetScopeJsonProps).to.deep.subsetEqual({
-            pendingReverseSyncChangesetIndices: [3],
-            pendingSyncChangesetIndices: [4],
-          });
-          expect(targetScopeJsonProps.reverseSyncVersion).to.match(/;2$/);
-        },
-      },
-      { branch: { sync: ["master"] } },
-      { branch: { 5: 1 } },
-      { master: { sync: ["branch"] } },
-      {
-        async assert({ master, branch }) {
-          const expectedState = { 1: 2, 2: 2, 3: 1, 4: 1, 5: 1 };
-          expect(master.state).to.deep.equal(expectedState);
-          expect(branch.state).to.deep.equal(expectedState);
-          await assertElemState(master.db, expectedState);
-          await assertElemState(branch.db, expectedState);
-        },
-      },
-    ];
-
-    const { tearDown } = await runTimeline(timeline, {
-      iTwinId,
+    const masterIModelId = await HubWrappers.recreateIModel({
       accessToken,
-      transformerOpts: {
-        // force aspects so that reverse sync has to edit the target
-        forceExternalSourceAspectProvenance: true,
-      },
+      iTwinId,
+      iModelName: IModelTransformerTestUtils.generateUniqueName(
+        "SkipProvenanceMaster"
+      ),
+      noLocks: true,
     });
+    let masterDb: BriefcaseDb | undefined;
+    let branchDb: BriefcaseDb | undefined;
+    let branchIModelId: GuidString | undefined;
 
-    await tearDown();
+    try {
+      masterDb = await HubWrappers.downloadAndOpenBriefcase({
+        accessToken,
+        iTwinId,
+        iModelId: masterIModelId,
+      });
+      const { modelId, categoryId } = withEditTxn(
+        masterDb,
+        "populate master objects",
+        (txn) => ({
+          modelId: PhysicalModel.insert(
+            txn,
+            IModel.rootSubjectId,
+            "PhysicalModel"
+          ),
+          categoryId: SpatialCategory.insert(
+            txn,
+            IModel.dictionaryId,
+            "SpatialCategory",
+            new SubCategoryAppearance()
+          ),
+        })
+      );
+      withEditTxn(masterDb, "insert master object 1", (txn) => {
+        txn.insertElement({
+          classFullName: PhysicalObject.classFullName,
+          model: modelId,
+          category: categoryId,
+          code: new Code({
+            spec: IModelDb.rootSubjectId,
+            scope: IModelDb.rootSubjectId,
+            value: "1",
+          }),
+          userLabel: "1",
+          geom: IModelTransformerTestUtils.createBox(Point3d.create(1, 1, 1)),
+          placement: {
+            origin: Point3d.create(0, 0, 0),
+            angles: YawPitchRollAngles.createDegrees(0, 0, 0),
+          },
+          jsonProperties: { updateState: 1 },
+        } as PhysicalElementProps);
+      });
+      await masterDb.pushChanges({
+        accessToken,
+        description: "insert master object 1",
+      });
+      withEditTxn(masterDb, "insert master object 2", (txn) => {
+        txn.insertElement({
+          classFullName: PhysicalObject.classFullName,
+          model: modelId,
+          category: categoryId,
+          code: new Code({
+            spec: IModelDb.rootSubjectId,
+            scope: IModelDb.rootSubjectId,
+            value: "2",
+          }),
+          userLabel: "2",
+          geom: IModelTransformerTestUtils.createBox(Point3d.create(1, 1, 1)),
+          placement: {
+            origin: Point3d.create(0, 0, 0),
+            angles: YawPitchRollAngles.createDegrees(0, 0, 0),
+          },
+          jsonProperties: { updateState: 2 },
+        } as PhysicalElementProps);
+      });
+      await masterDb.pushChanges({
+        accessToken,
+        description: "insert master object 2",
+      });
+      withEditTxn(masterDb, "insert master object 3", (txn) => {
+        txn.insertElement({
+          classFullName: PhysicalObject.classFullName,
+          model: modelId,
+          category: categoryId,
+          code: new Code({
+            spec: IModelDb.rootSubjectId,
+            scope: IModelDb.rootSubjectId,
+            value: "3",
+          }),
+          userLabel: "3",
+          geom: IModelTransformerTestUtils.createBox(Point3d.create(1, 1, 1)),
+          placement: {
+            origin: Point3d.create(0, 0, 0),
+            angles: YawPitchRollAngles.createDegrees(0, 0, 0),
+          },
+          jsonProperties: { updateState: 1 },
+        } as PhysicalElementProps);
+      });
+      await masterDb.pushChanges({
+        accessToken,
+        description: "insert master object 3",
+      });
+      masterDb.performCheckpoint();
+
+      branchIModelId = await HubWrappers.recreateIModel({
+        accessToken,
+        iTwinId,
+        iModelName: IModelTransformerTestUtils.generateUniqueName(
+          "SkipProvenanceBranch"
+        ),
+        noLocks: true,
+        version0: masterDb.pathName,
+      });
+      branchDb = await HubWrappers.downloadAndOpenBriefcase({
+        accessToken,
+        iTwinId,
+        iModelId: branchIModelId,
+      });
+      const branchInitEditTxn = createStartedEditTxn(branchDb);
+      const provenanceInitializer = new IModelTransformer(
+        { source: masterDb, target: branchInitEditTxn },
+        {
+          forceExternalSourceAspectProvenance: true,
+          wasSourceIModelCopiedToTarget: true,
+        }
+      );
+      await provenanceInitializer.process();
+      provenanceInitializer.dispose();
+      branchInitEditTxn.end();
+      await branchDb.pushChanges({
+        accessToken,
+        description: "initialized branch provenance",
+      });
+      withEditTxn(branchDb, "update branch objects", (txn) => {
+        const element1 = branchDb!.elements.getElement(
+          IModelTestUtils.queryByUserLabel(branchDb!, "1")
+        );
+        txn.updateElement({
+          ...element1.toJSON(),
+          jsonProperties: { ...element1.jsonProperties, updateState: 2 },
+        });
+        txn.insertElement({
+          classFullName: PhysicalObject.classFullName,
+          model: modelId,
+          category: categoryId,
+          code: new Code({
+            spec: IModelDb.rootSubjectId,
+            scope: IModelDb.rootSubjectId,
+            value: "4",
+          }),
+          userLabel: "4",
+          geom: IModelTransformerTestUtils.createBox(Point3d.create(1, 1, 1)),
+          placement: {
+            origin: Point3d.create(0, 0, 0),
+            angles: YawPitchRollAngles.createDegrees(0, 0, 0),
+          },
+          jsonProperties: { updateState: 1 },
+        } as PhysicalElementProps);
+      });
+      await branchDb.pushChanges({
+        accessToken,
+        description: "update branch objects",
+      });
+
+      expect(masterDb.changeset.index).to.equal(3);
+      expect(branchDb.changeset.index).to.equal(2);
+      expect(count(masterDb, ExternalSourceAspect.classFullName)).to.equal(0);
+      expect(count(branchDb, ExternalSourceAspect.classFullName)).to.equal(9);
+      const firstScopeCandidates = branchDb.elements
+        .getAspects(IModelDb.rootSubjectId, ExternalSourceAspect.classFullName)
+        .filter(
+          (a) => (a as ExternalSourceAspect).identifier === masterDb!.iModelId
+        );
+      expect(firstScopeCandidates).to.have.length(1);
+      const firstScope =
+        firstScopeCandidates[0].toJSON() as ExternalSourceAspectProps;
+      expect(firstScope).to.deep.subsetEqual({
+        identifier: masterDb.iModelId,
+        version: `${masterDb.changeset.id};${masterDb.changeset.index}`,
+        jsonProperties: JSON.stringify({
+          pendingReverseSyncChangesetIndices: [1],
+          pendingSyncChangesetIndices: [],
+          reverseSyncVersion: ";0",
+        }),
+      });
+
+      const reverseTargetEditTxn = createStartedEditTxn(masterDb);
+      const reverseSourceEditTxn = createStartedEditTxn(branchDb);
+      const reverseSyncer = new IModelTransformer(
+        { source: branchDb, target: reverseTargetEditTxn },
+        {
+          forceExternalSourceAspectProvenance: true,
+          argsForProcessChanges: {
+            startChangeset: { index: undefined },
+          },
+          sourceEditTxn: reverseSourceEditTxn,
+        }
+      );
+      let reverseSyncSucceeded = false;
+      try {
+        await reverseSyncer.process();
+        reverseSyncSucceeded = true;
+      } finally {
+        reverseSyncer.dispose();
+        reverseTargetEditTxn.end(reverseSyncSucceeded ? "save" : "abandon");
+        reverseSourceEditTxn.end(reverseSyncSucceeded ? "save" : "abandon");
+      }
+      await branchDb.pushChanges({
+        accessToken,
+        description: "reverse sync",
+      });
+      await masterDb.pushChanges({
+        accessToken,
+        description: "reverse sync",
+      });
+
+      expect(masterDb.changeset.index).to.equal(4);
+      expect(branchDb.changeset.index).to.equal(3);
+      expect(count(masterDb, ExternalSourceAspect.classFullName)).to.equal(0);
+      expect(count(branchDb, ExternalSourceAspect.classFullName)).to.equal(10);
+      const secondScopeCandidates = branchDb.elements
+        .getAspects(IModelDb.rootSubjectId, ExternalSourceAspect.classFullName)
+        .filter(
+          (a) => (a as ExternalSourceAspect).identifier === masterDb!.iModelId
+        );
+      expect(secondScopeCandidates).to.have.length(1);
+      const secondScope =
+        secondScopeCandidates[0].toJSON() as ExternalSourceAspectProps;
+      expect(secondScope.version).to.match(/;3$/);
+      const secondScopeJson = JSON.parse(secondScope.jsonProperties);
+      expect(secondScopeJson).to.deep.subsetEqual({
+        pendingReverseSyncChangesetIndices: [3],
+        pendingSyncChangesetIndices: [4],
+      });
+      expect(secondScopeJson.reverseSyncVersion).to.match(/;2$/);
+
+      const forwardTargetEditTxn = createStartedEditTxn(branchDb);
+      const forwardSyncer = new IModelTransformer(
+        { source: masterDb, target: forwardTargetEditTxn },
+        {
+          forceExternalSourceAspectProvenance: true,
+          argsForProcessChanges: {
+            startChangeset: { index: undefined },
+          },
+        }
+      );
+      await forwardSyncer.process();
+      forwardSyncer.dispose();
+      forwardTargetEditTxn.end();
+      await branchDb.pushChanges({
+        accessToken,
+        description: "forward sync",
+      });
+      withEditTxn(branchDb, "insert final branch object", (txn) => {
+        txn.insertElement({
+          classFullName: PhysicalObject.classFullName,
+          model: modelId,
+          category: categoryId,
+          code: new Code({
+            spec: IModelDb.rootSubjectId,
+            scope: IModelDb.rootSubjectId,
+            value: "5",
+          }),
+          userLabel: "5",
+          geom: IModelTransformerTestUtils.createBox(Point3d.create(1, 1, 1)),
+          placement: {
+            origin: Point3d.create(0, 0, 0),
+            angles: YawPitchRollAngles.createDegrees(0, 0, 0),
+          },
+          jsonProperties: { updateState: 1 },
+        } as PhysicalElementProps);
+      });
+      await branchDb.pushChanges({
+        accessToken,
+        description: "insert final branch object",
+      });
+      const finalReverseTargetTxn = createStartedEditTxn(masterDb);
+      const finalReverseSourceTxn = createStartedEditTxn(branchDb);
+      const finalReverse = new IModelTransformer(
+        { source: branchDb, target: finalReverseTargetTxn },
+        {
+          forceExternalSourceAspectProvenance: true,
+          argsForProcessChanges: {
+            startChangeset: { index: undefined },
+          },
+          sourceEditTxn: finalReverseSourceTxn,
+        }
+      );
+      await finalReverse.process();
+      finalReverse.dispose();
+      finalReverseTargetTxn.end();
+      finalReverseSourceTxn.end();
+      await branchDb.pushChanges({
+        accessToken,
+        description: "final reverse sync",
+      });
+      await masterDb.pushChanges({
+        accessToken,
+        description: "final reverse sync",
+      });
+      const expectedState = { 1: 2, 2: 2, 3: 1, 4: 1, 5: 1 };
+      await assertTestIModelState(masterDb, expectedState);
+      await assertTestIModelState(branchDb, expectedState);
+    } finally {
+      if (masterDb)
+        await HubWrappers.closeAndDeleteBriefcaseDb(accessToken, masterDb);
+      if (branchDb)
+        await HubWrappers.closeAndDeleteBriefcaseDb(accessToken, branchDb);
+      await transformerTestHub.deleteIModel({
+        iTwinId,
+        iModelId: masterIModelId,
+      });
+      if (branchIModelId)
+        await transformerTestHub.deleteIModel({
+          iTwinId,
+          iModelId: branchIModelId,
+        });
+    }
   });
 
   it("should successfully remove element in master iModel after reverse synchronization when elements have random ExternalSourceAspects", async () => {
-    const timeline: Timeline = [
-      { master: { 1: 1 } },
-      {
-        master: {
-          manualUpdate(masterDb) {
-            withEditTxn(
-              masterDb,
-              "insert random external source aspect",
-              (txn) => {
-                const elemId = IModelTestUtils.queryByUserLabel(masterDb, "1");
-                txn.insertAspect({
-                  classFullName: ExternalSourceAspect.classFullName,
-                  element: { id: elemId },
-                  scope: { id: IModel.dictionaryId },
-                  kind: "Element",
-                  identifier: "bar code",
-                } as ExternalSourceAspectProps);
-              }
-            );
-          },
-        },
-      },
-      { branch: { branch: "master" } },
-      { branch: { 1: deleted } },
-      { master: { sync: ["branch"] } },
-      {
-        assert({ master, branch }) {
-          for (const imodel of [branch, master]) {
-            const elemId = IModelTestUtils.queryByUserLabel(imodel.db, "1");
-            const name = imodel.id === master.id ? "master" : "branch";
-            expect(elemId, `db ${name} did not delete ${elemId}`).to.equal(
-              Id64.invalid
-            );
-          }
-        },
-      },
-    ];
+    const masterIModelId = await HubWrappers.recreateIModel({
+      accessToken,
+      iTwinId,
+      iModelName:
+        IModelTransformerTestUtils.generateUniqueName("RandomAspectMaster"),
+      noLocks: true,
+    });
+    let masterDb: BriefcaseDb | undefined;
+    let branchDb: BriefcaseDb | undefined;
+    let branchIModelId: GuidString | undefined;
 
-    const { tearDown } = await runTimeline(timeline, { iTwinId, accessToken });
-    await tearDown();
+    try {
+      masterDb = await HubWrappers.downloadAndOpenBriefcase({
+        accessToken,
+        iTwinId,
+        iModelId: masterIModelId,
+      });
+      const { modelId, categoryId } = withEditTxn(
+        masterDb,
+        "populate master object",
+        (txn) => ({
+          modelId: PhysicalModel.insert(
+            txn,
+            IModel.rootSubjectId,
+            "PhysicalModel"
+          ),
+          categoryId: SpatialCategory.insert(
+            txn,
+            IModel.dictionaryId,
+            "SpatialCategory",
+            new SubCategoryAppearance()
+          ),
+        })
+      );
+      withEditTxn(masterDb, "insert master object", (txn) => {
+        txn.insertElement({
+          classFullName: PhysicalObject.classFullName,
+          model: modelId,
+          category: categoryId,
+          code: new Code({
+            spec: IModelDb.rootSubjectId,
+            scope: IModelDb.rootSubjectId,
+            value: "1",
+          }),
+          userLabel: "1",
+          geom: IModelTransformerTestUtils.createBox(Point3d.create(1, 1, 1)),
+          placement: {
+            origin: Point3d.create(0, 0, 0),
+            angles: YawPitchRollAngles.createDegrees(0, 0, 0),
+          },
+          jsonProperties: { updateState: 1 },
+        } as PhysicalElementProps);
+      });
+      await masterDb.pushChanges({
+        accessToken,
+        description: "populate master object",
+      });
+      withEditTxn(masterDb, "insert random external source aspect", (txn) => {
+        const elemId = IModelTestUtils.queryByUserLabel(masterDb!, "1");
+        txn.insertAspect({
+          classFullName: ExternalSourceAspect.classFullName,
+          element: { id: elemId },
+          scope: { id: IModel.dictionaryId },
+          kind: "Element",
+          identifier: "bar code",
+        } as ExternalSourceAspectProps);
+      });
+      await masterDb.pushChanges({
+        accessToken,
+        description: "insert random external source aspect",
+      });
+      masterDb.performCheckpoint();
+
+      branchIModelId = await HubWrappers.recreateIModel({
+        accessToken,
+        iTwinId,
+        iModelName:
+          IModelTransformerTestUtils.generateUniqueName("RandomAspectBranch"),
+        noLocks: true,
+        version0: masterDb.pathName,
+      });
+      branchDb = await HubWrappers.downloadAndOpenBriefcase({
+        accessToken,
+        iTwinId,
+        iModelId: branchIModelId,
+      });
+      const branchInitEditTxn = createStartedEditTxn(branchDb);
+      const provenanceInitializer = new IModelTransformer(
+        { source: masterDb, target: branchInitEditTxn },
+        { wasSourceIModelCopiedToTarget: true }
+      );
+      await provenanceInitializer.process();
+      provenanceInitializer.dispose();
+      branchInitEditTxn.end();
+      await branchDb.pushChanges({
+        accessToken,
+        description: "initialized branch provenance",
+      });
+
+      withEditTxn(branchDb, "delete branch object", (txn) => {
+        txn.deleteElement(IModelTestUtils.queryByUserLabel(branchDb!, "1"));
+      });
+      await branchDb.pushChanges({
+        accessToken,
+        description: "delete branch object",
+      });
+
+      const reverseSyncEditTxn = createStartedEditTxn(masterDb);
+      const reverseSyncSourceEditTxn = createStartedEditTxn(branchDb);
+      const reverseSyncer = new IModelTransformer(
+        { source: branchDb, target: reverseSyncEditTxn },
+        {
+          argsForProcessChanges: {
+            startChangeset: { index: undefined },
+          },
+          sourceEditTxn: reverseSyncSourceEditTxn,
+        }
+      );
+      let reverseSyncSucceeded = false;
+      try {
+        await reverseSyncer.process();
+        reverseSyncSucceeded = true;
+      } finally {
+        reverseSyncer.dispose();
+        reverseSyncEditTxn.end(reverseSyncSucceeded ? "save" : "abandon");
+        reverseSyncSourceEditTxn.end(reverseSyncSucceeded ? "save" : "abandon");
+      }
+      await branchDb.pushChanges({
+        accessToken,
+        description: "reverse sync deleted object",
+      });
+      await masterDb.pushChanges({
+        accessToken,
+        description: "reverse sync deleted object",
+      });
+
+      for (const [db, name] of [
+        [branchDb, "branch"],
+        [masterDb, "master"],
+      ] as const) {
+        const elemId = IModelTestUtils.queryByUserLabel(db, "1");
+        expect(elemId, `db ${name} did not delete ${elemId}`).to.equal(
+          Id64.invalid
+        );
+      }
+    } finally {
+      if (masterDb)
+        await HubWrappers.closeAndDeleteBriefcaseDb(accessToken, masterDb);
+      if (branchDb)
+        await HubWrappers.closeAndDeleteBriefcaseDb(accessToken, branchDb);
+      await transformerTestHub.deleteIModel({
+        iTwinId,
+        iModelId: masterIModelId,
+      });
+      if (branchIModelId)
+        await transformerTestHub.deleteIModel({
+          iTwinId,
+          iModelId: branchIModelId,
+        });
+    }
   });
 
   it("should delete definition elements and models when processing changes", async () => {
@@ -5378,283 +7530,621 @@ describe("IModelTransformerHub", () => {
     let definitionContainerId1: string;
     let definitionContainerModelId1: string;
 
-    const timeline: Timeline = {
-      0: {
-        master: {
-          manualUpdate(db) {
-            withEditTxn(db, "create definition hierarchy", (txn) => {
-              const definitionPartitionProps: InformationPartitionElementProps =
-                {
-                  classFullName: DefinitionPartition.classFullName,
-                  model: IModel.repositoryModelId,
-                  parent: new SubjectOwnsPartitionElements(
-                    IModel.rootSubjectId
-                  ),
-                  code: Code.createEmpty(),
-                };
-              definitionPartitionId1 = txn.insertElement(
-                definitionPartitionProps
-              );
-              definitionPartitionId2 = txn.insertElement(
-                definitionPartitionProps
-              );
-
-              const definitionModelProps1: ModelProps = {
-                classFullName: DefinitionModel.classFullName,
-                modeledElement: { id: definitionPartitionId1 },
-                parentModel: IModel.repositoryModelId,
-              };
-              definitionPartitionModelId1 = txn.insertModel(
-                definitionModelProps1
-              );
-
-              const definitionModelProps2: ModelProps = {
-                classFullName: DefinitionModel.classFullName,
-                modeledElement: { id: definitionPartitionId2 },
-                parentModel: IModel.repositoryModelId,
-              };
-              definitionPartitionModelId2 = txn.insertModel(
-                definitionModelProps2
-              );
-
-              const definitionContainerProps1: DefinitionElementProps = {
-                classFullName: DefinitionContainer.classFullName,
-                model: definitionPartitionModelId1,
-                code: Code.createEmpty(),
-              };
-              definitionContainerId1 = txn.insertElement(
-                definitionContainerProps1
-              );
-
-              const definitionModelProps3: ModelProps = {
-                classFullName: DefinitionModel.classFullName,
-                modeledElement: { id: definitionContainerId1 },
-                parentModel: definitionPartitionModelId1,
-              };
-              definitionContainerModelId1 = txn.insertModel(
-                definitionModelProps3
-              );
-            });
-          },
-        },
-      },
-      1: { branch: { branch: "master" } },
-      2: {
-        master: {
-          manualUpdate(db) {
-            withEditTxn(db, "delete definition models", (txn) => {
-              txn.deleteModel(definitionContainerModelId1);
-              txn.deleteModel(definitionPartitionModelId1);
-            });
-          },
-        },
-      },
-      3: { branch: { sync: ["master"] } },
-      4: {
-        master: {
-          manualUpdate(db) {
-            withEditTxn(db, "delete second definition model", (txn) => {
-              txn.deleteModel(definitionPartitionModelId2);
-            });
-          },
-        },
-      },
-      5: { branch: { sync: ["master"] } },
-    };
-
-    const { trackedIModels, tearDown } = await runTimeline(timeline, {
-      iTwinId,
+    const masterIModelId = await HubWrappers.recreateIModel({
       accessToken,
+      iTwinId,
+      iModelName: IModelTransformerTestUtils.generateUniqueName(
+        "DefinitionHierarchyMaster"
+      ),
+      noLocks: true,
     });
+    let masterDb: BriefcaseDb | undefined;
+    let branchDb: BriefcaseDb | undefined;
+    let branchIModelId: GuidString | undefined;
 
-    const master = trackedIModels.get("master")!;
-    const branch = trackedIModels.get("branch")!;
+    try {
+      masterDb = await HubWrappers.downloadAndOpenBriefcase({
+        accessToken,
+        iTwinId,
+        iModelId: masterIModelId,
+      });
+      withEditTxn(masterDb, "create definition hierarchy", (txn) => {
+        const definitionPartitionProps: InformationPartitionElementProps = {
+          classFullName: DefinitionPartition.classFullName,
+          model: IModel.repositoryModelId,
+          parent: new SubjectOwnsPartitionElements(IModel.rootSubjectId),
+          code: Code.createEmpty(),
+        };
+        definitionPartitionId1 = txn.insertElement(definitionPartitionProps);
+        definitionPartitionId2 = txn.insertElement(definitionPartitionProps);
+        definitionPartitionModelId1 = txn.insertModel({
+          classFullName: DefinitionModel.classFullName,
+          modeledElement: { id: definitionPartitionId1 },
+          parentModel: IModel.repositoryModelId,
+        });
+        definitionPartitionModelId2 = txn.insertModel({
+          classFullName: DefinitionModel.classFullName,
+          modeledElement: { id: definitionPartitionId2 },
+          parentModel: IModel.repositoryModelId,
+        });
+        definitionContainerId1 = txn.insertElement({
+          classFullName: DefinitionContainer.classFullName,
+          model: definitionPartitionModelId1,
+          code: Code.createEmpty(),
+        });
+        definitionContainerModelId1 = txn.insertModel({
+          classFullName: DefinitionModel.classFullName,
+          modeledElement: { id: definitionContainerId1 },
+          parentModel: definitionPartitionModelId1,
+        });
+      });
+      await masterDb.pushChanges({
+        accessToken,
+        description: "create definition hierarchy",
+      });
+      masterDb.performCheckpoint();
 
-    expect(master.db.models.tryGetModel(definitionContainerModelId1!)).to.be
-      .undefined;
-    expect(master.db.elements.tryGetElement(definitionContainerId1!)).to.be
-      .undefined;
-    expect(master.db.models.tryGetModel(definitionPartitionModelId1!)).to.be
-      .undefined;
-    expect(master.db.elements.tryGetElement(definitionPartitionId2!)).to.not.be
-      .undefined;
-    expect(master.db.models.tryGetModel(definitionPartitionModelId2!)).to.be
-      .undefined;
+      branchIModelId = await HubWrappers.recreateIModel({
+        accessToken,
+        iTwinId,
+        iModelName: IModelTransformerTestUtils.generateUniqueName(
+          "DefinitionHierarchyBranch"
+        ),
+        noLocks: true,
+        version0: masterDb.pathName,
+      });
+      branchDb = await HubWrappers.downloadAndOpenBriefcase({
+        accessToken,
+        iTwinId,
+        iModelId: branchIModelId,
+      });
+      const branchInitEditTxn = createStartedEditTxn(branchDb);
+      const provenanceInitializer = new IModelTransformer(
+        { source: masterDb, target: branchInitEditTxn },
+        { wasSourceIModelCopiedToTarget: true }
+      );
+      await provenanceInitializer.process();
+      provenanceInitializer.dispose();
+      branchInitEditTxn.end();
+      await branchDb.pushChanges({
+        accessToken,
+        description: "initialized branch provenance",
+      });
 
-    expect(branch.db.models.tryGetModel(definitionContainerModelId1!)).to.be
-      .undefined;
-    expect(branch.db.elements.tryGetElement(definitionContainerId1!)).to.be
-      .undefined;
-    expect(branch.db.models.tryGetModel(definitionPartitionModelId1!)).to.be
-      .undefined;
-    expect(branch.db.elements.tryGetElement(definitionPartitionId2!)).to.not.be
-      .undefined;
-    expect(branch.db.models.tryGetModel(definitionPartitionModelId2!)).to.be
-      .undefined;
+      withEditTxn(masterDb, "delete definition models", (txn) => {
+        txn.deleteModel(definitionContainerModelId1);
+        txn.deleteModel(definitionPartitionModelId1);
+      });
+      await masterDb.pushChanges({
+        accessToken,
+        description: "delete definition models",
+      });
+      const firstSyncTxn = createStartedEditTxn(branchDb);
+      const firstSync = new IModelTransformer(
+        { source: masterDb, target: firstSyncTxn },
+        { argsForProcessChanges: { startChangeset: { index: undefined } } }
+      );
+      await firstSync.process();
+      firstSync.dispose();
+      firstSyncTxn.end();
+      await branchDb.pushChanges({
+        accessToken,
+        description: "synchronize first definition model deletion",
+      });
 
-    await tearDown();
-    vi.restoreAllMocks();
+      withEditTxn(masterDb, "delete second definition model", (txn) => {
+        txn.deleteModel(definitionPartitionModelId2);
+      });
+      await masterDb.pushChanges({
+        accessToken,
+        description: "delete second definition model",
+      });
+      const secondSyncTxn = createStartedEditTxn(branchDb);
+      const secondSync = new IModelTransformer(
+        { source: masterDb, target: secondSyncTxn },
+        { argsForProcessChanges: { startChangeset: { index: undefined } } }
+      );
+      await secondSync.process();
+      secondSync.dispose();
+      secondSyncTxn.end();
+      await branchDb.pushChanges({
+        accessToken,
+        description: "synchronize second definition model deletion",
+      });
+
+      expect(masterDb.models.tryGetModel(definitionContainerModelId1!)).to.be
+        .undefined;
+      expect(masterDb.elements.tryGetElement(definitionContainerId1!)).to.be
+        .undefined;
+      expect(masterDb.models.tryGetModel(definitionPartitionModelId1!)).to.be
+        .undefined;
+      expect(masterDb.elements.tryGetElement(definitionPartitionId2!)).to.not.be
+        .undefined;
+      expect(masterDb.models.tryGetModel(definitionPartitionModelId2!)).to.be
+        .undefined;
+      expect(branchDb.models.tryGetModel(definitionContainerModelId1!)).to.be
+        .undefined;
+      expect(branchDb.elements.tryGetElement(definitionContainerId1!)).to.be
+        .undefined;
+      expect(branchDb.models.tryGetModel(definitionPartitionModelId1!)).to.be
+        .undefined;
+      expect(branchDb.elements.tryGetElement(definitionPartitionId2!)).to.not.be
+        .undefined;
+      expect(branchDb.models.tryGetModel(definitionPartitionModelId2!)).to.be
+        .undefined;
+    } finally {
+      if (masterDb)
+        await HubWrappers.closeAndDeleteBriefcaseDb(accessToken, masterDb);
+      if (branchDb)
+        await HubWrappers.closeAndDeleteBriefcaseDb(accessToken, branchDb);
+      await transformerTestHub.deleteIModel({
+        iTwinId,
+        iModelId: masterIModelId,
+      });
+      if (branchIModelId)
+        await transformerTestHub.deleteIModel({
+          iTwinId,
+          iModelId: branchIModelId,
+        });
+      vi.restoreAllMocks();
+    }
   });
 
   it("should use the lastMod of provenanceDb's element as the provenance aspect version", async () => {
-    const timeline: Timeline = [
-      { master: { 1: 1 } },
-      { branch: { branch: "master" } },
-      { branch: { 1: 2 } },
-      { master: { sync: ["branch"] } },
-      {
-        assert({ master, branch }) {
-          const elem1InMaster = TestUtils.IModelTestUtils.queryByUserLabel(
-            master.db,
-            "1"
-          );
-          expect(elem1InMaster).not.to.be.undefined;
-          const elem1InBranch = TestUtils.IModelTestUtils.queryByUserLabel(
-            branch.db,
-            "1"
-          );
-          expect(elem1InBranch).not.to.be.undefined;
-          const lastModInMaster =
-            master.db.elements.queryLastModifiedTime(elem1InMaster);
-
-          const physElem1Esas = branch.db.elements.getAspects(
-            elem1InBranch,
-            ExternalSourceAspect.classFullName
-          ) as ExternalSourceAspect[];
-          expect(physElem1Esas).to.have.lengthOf(1);
-          expect(physElem1Esas[0].version).to.equal(lastModInMaster);
-        },
-      },
-    ];
-
-    const { tearDown } = await runTimeline(timeline, {
-      iTwinId,
+    const masterIModelId = await HubWrappers.recreateIModel({
       accessToken,
-      transformerOpts: { forceExternalSourceAspectProvenance: true },
+      iTwinId,
+      iModelName: IModelTransformerTestUtils.generateUniqueName(
+        "LastModProvenanceMaster"
+      ),
+      noLocks: true,
     });
+    let masterDb: BriefcaseDb | undefined;
+    let branchDb: BriefcaseDb | undefined;
+    let branchIModelId: GuidString | undefined;
 
-    await tearDown();
-    vi.restoreAllMocks();
+    try {
+      masterDb = await HubWrappers.downloadAndOpenBriefcase({
+        accessToken,
+        iTwinId,
+        iModelId: masterIModelId,
+      });
+      const { modelId, categoryId } = withEditTxn(
+        masterDb,
+        "populate master object",
+        (txn) => ({
+          modelId: PhysicalModel.insert(
+            txn,
+            IModel.rootSubjectId,
+            "PhysicalModel"
+          ),
+          categoryId: SpatialCategory.insert(
+            txn,
+            IModel.dictionaryId,
+            "SpatialCategory",
+            new SubCategoryAppearance()
+          ),
+        })
+      );
+      withEditTxn(masterDb, "insert master object", (txn) => {
+        txn.insertElement({
+          classFullName: PhysicalObject.classFullName,
+          model: modelId,
+          category: categoryId,
+          code: new Code({
+            spec: IModelDb.rootSubjectId,
+            scope: IModelDb.rootSubjectId,
+            value: "1",
+          }),
+          userLabel: "1",
+          geom: IModelTransformerTestUtils.createBox(Point3d.create(1, 1, 1)),
+          placement: {
+            origin: Point3d.create(0, 0, 0),
+            angles: YawPitchRollAngles.createDegrees(0, 0, 0),
+          },
+          jsonProperties: { updateState: 1 },
+        } as PhysicalElementProps);
+      });
+      await masterDb.pushChanges({
+        accessToken,
+        description: "populate master object",
+      });
+      masterDb.performCheckpoint();
+
+      branchIModelId = await HubWrappers.recreateIModel({
+        accessToken,
+        iTwinId,
+        iModelName: IModelTransformerTestUtils.generateUniqueName(
+          "LastModProvenanceBranch"
+        ),
+        noLocks: true,
+        version0: masterDb.pathName,
+      });
+      branchDb = await HubWrappers.downloadAndOpenBriefcase({
+        accessToken,
+        iTwinId,
+        iModelId: branchIModelId,
+      });
+      const branchInitEditTxn = createStartedEditTxn(branchDb);
+      const provenanceInitializer = new IModelTransformer(
+        { source: masterDb, target: branchInitEditTxn },
+        {
+          forceExternalSourceAspectProvenance: true,
+          wasSourceIModelCopiedToTarget: true,
+        }
+      );
+      await provenanceInitializer.process();
+      provenanceInitializer.dispose();
+      branchInitEditTxn.end();
+      await branchDb.pushChanges({
+        accessToken,
+        description: "initialized branch provenance",
+      });
+
+      withEditTxn(branchDb, "update branch object", (txn) => {
+        const element = branchDb!.elements.getElement(
+          IModelTestUtils.queryByUserLabel(branchDb!, "1")
+        );
+        txn.updateElement({
+          ...element.toJSON(),
+          jsonProperties: { ...element.jsonProperties, updateState: 2 },
+        });
+      });
+      await branchDb.pushChanges({
+        accessToken,
+        description: "update branch object",
+      });
+
+      const reverseSyncEditTxn = createStartedEditTxn(masterDb);
+      const reverseSyncSourceEditTxn = createStartedEditTxn(branchDb);
+      const reverseSyncer = new IModelTransformer(
+        { source: branchDb, target: reverseSyncEditTxn },
+        {
+          forceExternalSourceAspectProvenance: true,
+          argsForProcessChanges: {
+            startChangeset: { index: undefined },
+          },
+          sourceEditTxn: reverseSyncSourceEditTxn,
+        }
+      );
+      let reverseSyncSucceeded = false;
+      try {
+        await reverseSyncer.process();
+        reverseSyncSucceeded = true;
+      } finally {
+        reverseSyncer.dispose();
+        reverseSyncEditTxn.end(reverseSyncSucceeded ? "save" : "abandon");
+        reverseSyncSourceEditTxn.end(reverseSyncSucceeded ? "save" : "abandon");
+      }
+      await branchDb.pushChanges({
+        accessToken,
+        description: "reverse sync",
+      });
+      await masterDb.pushChanges({
+        accessToken,
+        description: "reverse sync",
+      });
+
+      const elem1InMaster = IModelTestUtils.queryByUserLabel(masterDb, "1");
+      expect(elem1InMaster).not.to.be.undefined;
+      const elem1InBranch = IModelTestUtils.queryByUserLabel(branchDb, "1");
+      expect(elem1InBranch).not.to.be.undefined;
+      const lastModInMaster =
+        masterDb.elements.queryLastModifiedTime(elem1InMaster);
+      const physElem1Esas = branchDb.elements.getAspects(
+        elem1InBranch,
+        ExternalSourceAspect.classFullName
+      ) as ExternalSourceAspect[];
+      expect(physElem1Esas).to.have.lengthOf(1);
+      expect(physElem1Esas[0].version).to.equal(lastModInMaster);
+    } finally {
+      if (masterDb)
+        await HubWrappers.closeAndDeleteBriefcaseDb(accessToken, masterDb);
+      if (branchDb)
+        await HubWrappers.closeAndDeleteBriefcaseDb(accessToken, branchDb);
+      await transformerTestHub.deleteIModel({
+        iTwinId,
+        iModelId: masterIModelId,
+      });
+      if (branchIModelId)
+        await transformerTestHub.deleteIModel({
+          iTwinId,
+          iModelId: branchIModelId,
+        });
+      vi.restoreAllMocks();
+    }
   });
 
   it("should successfully process changes when codeValues are switched around between elements", async () => {
-    const timeline: Timeline = [
-      { master: { 1: 1, 2: 2, 3: 3 } },
-      { branch: { branch: "master" } },
-      {
-        master: {
-          manualUpdate(masterDb) {
-            withEditTxn(masterDb, "swap element code values", (txn) => {
-              const elem1Id = IModelTestUtils.queryByCodeValue(masterDb, "1");
-              const elem2Id = IModelTestUtils.queryByCodeValue(masterDb, "2");
-              const elem3Id = IModelTestUtils.queryByCodeValue(masterDb, "3");
-              const elem1 = masterDb.elements.getElement(elem1Id);
-              const elem2 = masterDb.elements.getElement(elem2Id);
-              const elem3 = masterDb.elements.getElement(elem3Id);
-              elem1.code.value = "tempValue"; // need a temp value to avoid conflicts
-              txn.updateElement(elem1.toJSON());
-              elem2.code.value = "1";
-              txn.updateElement(elem2.toJSON());
-              elem3.code.value = "2";
-              txn.updateElement(elem3.toJSON());
-              elem1.code.value = "3";
-              txn.updateElement(elem1.toJSON());
-            });
-          },
-        },
-      },
-      { branch: { sync: ["master"] } },
-      {
-        assert({ master, branch }) {
-          for (const iModel of [branch, master]) {
-            const elem1Id = IModelTestUtils.queryByCodeValue(iModel.db, "1");
-            const elem2Id = IModelTestUtils.queryByCodeValue(iModel.db, "2");
-            const elem3Id = IModelTestUtils.queryByCodeValue(iModel.db, "3");
-            const elem1 = iModel.db.elements.getElement(elem1Id);
-            const elem2 = iModel.db.elements.getElement(elem2Id);
-            const elem3 = iModel.db.elements.getElement(elem3Id);
-            expect(elem1.userLabel).to.equal("2");
-            expect(elem2.userLabel).to.equal("3");
-            expect(elem3.userLabel).to.equal("1");
-          }
-        },
-      },
-    ];
+    const masterIModelId = await HubWrappers.recreateIModel({
+      accessToken,
+      iTwinId,
+      iModelName: IModelTransformerTestUtils.generateUniqueName(
+        "SwitchedCodeValuesMaster"
+      ),
+      noLocks: true,
+    });
+    let masterDb: BriefcaseDb | undefined;
+    let branchDb: BriefcaseDb | undefined;
+    let branchIModelId: GuidString | undefined;
 
-    const { tearDown } = await runTimeline(timeline, { iTwinId, accessToken });
-    await tearDown();
+    try {
+      masterDb = await HubWrappers.downloadAndOpenBriefcase({
+        accessToken,
+        iTwinId,
+        iModelId: masterIModelId,
+      });
+      const { modelId, categoryId } = withEditTxn(
+        masterDb,
+        "populate master objects",
+        (txn) => ({
+          modelId: PhysicalModel.insert(
+            txn,
+            IModel.rootSubjectId,
+            "PhysicalModel"
+          ),
+          categoryId: SpatialCategory.insert(
+            txn,
+            IModel.dictionaryId,
+            "SpatialCategory",
+            new SubCategoryAppearance()
+          ),
+        })
+      );
+      withEditTxn(masterDb, "insert master objects", (txn) => {
+        for (const [name, updateState] of Object.entries({
+          1: 1,
+          2: 2,
+          3: 3,
+        })) {
+          txn.insertElement({
+            classFullName: PhysicalObject.classFullName,
+            model: modelId,
+            category: categoryId,
+            code: new Code({
+              spec: IModelDb.rootSubjectId,
+              scope: IModelDb.rootSubjectId,
+              value: name,
+            }),
+            userLabel: name,
+            geom: IModelTransformerTestUtils.createBox(Point3d.create(1, 1, 1)),
+            placement: {
+              origin: Point3d.create(0, 0, 0),
+              angles: YawPitchRollAngles.createDegrees(0, 0, 0),
+            },
+            jsonProperties: { updateState },
+          } as PhysicalElementProps);
+        }
+      });
+      await masterDb.pushChanges({
+        accessToken,
+        description: "populate master objects",
+      });
+      masterDb.performCheckpoint();
+
+      branchIModelId = await HubWrappers.recreateIModel({
+        accessToken,
+        iTwinId,
+        iModelName: IModelTransformerTestUtils.generateUniqueName(
+          "SwitchedCodeValuesBranch"
+        ),
+        noLocks: true,
+        version0: masterDb.pathName,
+      });
+      branchDb = await HubWrappers.downloadAndOpenBriefcase({
+        accessToken,
+        iTwinId,
+        iModelId: branchIModelId,
+      });
+      const branchInitEditTxn = createStartedEditTxn(branchDb);
+      const provenanceInitializer = new IModelTransformer(
+        { source: masterDb, target: branchInitEditTxn },
+        { wasSourceIModelCopiedToTarget: true }
+      );
+      await provenanceInitializer.process();
+      provenanceInitializer.dispose();
+      branchInitEditTxn.end();
+      await branchDb.pushChanges({
+        accessToken,
+        description: "initialized branch provenance",
+      });
+
+      withEditTxn(masterDb, "swap element code values", (txn) => {
+        const elem1 = masterDb!.elements.getElement(
+          IModelTransformerTestUtils.queryByCodeValue(masterDb!, "1")
+        );
+        const elem2 = masterDb!.elements.getElement(
+          IModelTransformerTestUtils.queryByCodeValue(masterDb!, "2")
+        );
+        const elem3 = masterDb!.elements.getElement(
+          IModelTransformerTestUtils.queryByCodeValue(masterDb!, "3")
+        );
+        elem1.code.value = "tempValue";
+        txn.updateElement(elem1.toJSON());
+        elem2.code.value = "1";
+        txn.updateElement(elem2.toJSON());
+        elem3.code.value = "2";
+        txn.updateElement(elem3.toJSON());
+        elem1.code.value = "3";
+        txn.updateElement(elem1.toJSON());
+      });
+      await masterDb.pushChanges({
+        accessToken,
+        description: "swap element code values",
+      });
+
+      const branchSyncEditTxn = createStartedEditTxn(branchDb);
+      const branchSyncer = new IModelTransformer(
+        { source: masterDb, target: branchSyncEditTxn },
+        { argsForProcessChanges: { startChangeset: { index: undefined } } }
+      );
+      await branchSyncer.process();
+      branchSyncer.dispose();
+      branchSyncEditTxn.end();
+      await branchDb.pushChanges({
+        accessToken,
+        description: "synchronize swapped element code values",
+      });
+
+      for (const db of [branchDb, masterDb]) {
+        const elem1Id = IModelTestUtils.queryByCodeValue(db, "1");
+        const elem2Id = IModelTestUtils.queryByCodeValue(db, "2");
+        const elem3Id = IModelTestUtils.queryByCodeValue(db, "3");
+        const elem1 = db.elements.getElement(elem1Id);
+        const elem2 = db.elements.getElement(elem2Id);
+        const elem3 = db.elements.getElement(elem3Id);
+        expect(elem1.userLabel).to.equal("2");
+        expect(elem2.userLabel).to.equal("3");
+        expect(elem3.userLabel).to.equal("1");
+      }
+    } finally {
+      if (masterDb)
+        await HubWrappers.closeAndDeleteBriefcaseDb(accessToken, masterDb);
+      if (branchDb)
+        await HubWrappers.closeAndDeleteBriefcaseDb(accessToken, branchDb);
+      await transformerTestHub.deleteIModel({
+        iTwinId,
+        iModelId: masterIModelId,
+      });
+      if (branchIModelId)
+        await transformerTestHub.deleteIModel({
+          iTwinId,
+          iModelId: branchIModelId,
+        });
+    }
   });
 
   it("should successfully process changes when Definition Elements' codeValues are switched around", async () => {
-    const timeline: Timeline = [
-      {
-        master: {
-          manualUpdate(masterDb) {
-            withEditTxn(masterDb, "insert definition categories", (txn) => {
-              const categoryA = SpatialCategory.create(
-                masterDb,
-                IModel.dictionaryId,
-                "A"
-              );
-              const categoryB = SpatialCategory.create(
-                masterDb,
-                IModel.dictionaryId,
-                "B"
-              );
-              categoryA.userLabel = "A";
-              categoryB.userLabel = "B";
-              txn.insertElement(categoryA.toJSON());
-              txn.insertElement(categoryB.toJSON());
-            });
-          },
-        },
-      },
-      { branch: { branch: "master" } },
-      {
-        master: {
-          manualUpdate(masterDb) {
-            withEditTxn(masterDb, "swap definition category codes", (txn) => {
-              const categoryA = masterDb.elements.getElement(
-                SpatialCategory.createCode(masterDb, IModel.dictionaryId, "A")
-              );
-              const categoryB = masterDb.elements.getElement(
-                SpatialCategory.createCode(masterDb, IModel.dictionaryId, "B")
-              );
-              categoryA.code.value = "temp";
-              txn.updateElement(categoryA.toJSON());
-              categoryB.code.value = "A";
-              txn.updateElement(categoryB.toJSON());
-              categoryA.code.value = "B";
-              txn.updateElement(categoryA.toJSON());
-            });
-          },
-        },
-      },
-      { branch: { sync: ["master"] } },
-      {
-        assert({ master, branch }) {
-          for (const iModel of [branch, master]) {
-            const categoryA = iModel.db.elements.getElement(
-              SpatialCategory.createCode(iModel.db, IModel.dictionaryId, "A")
-            );
-            const categoryB = iModel.db.elements.getElement(
-              SpatialCategory.createCode(iModel.db, IModel.dictionaryId, "B")
-            );
-            expect(categoryA.userLabel).to.equal(
-              "B",
-              `categoryA.userlabel mismatch in ${iModel.db.name}`
-            );
-            expect(categoryB.userLabel).to.equal(
-              "A",
-              `categoryB.userlabel mismatch in ${iModel.db.name}`
-            );
-          }
-        },
-      },
-    ];
+    const masterIModelId = await HubWrappers.recreateIModel({
+      accessToken,
+      iTwinId,
+      iModelName: IModelTransformerTestUtils.generateUniqueName(
+        "SwitchedDefinitionCodesMaster"
+      ),
+      noLocks: true,
+    });
+    let masterDb: BriefcaseDb | undefined;
+    let branchDb: BriefcaseDb | undefined;
+    let branchIModelId: GuidString | undefined;
 
-    const { tearDown } = await runTimeline(timeline, { iTwinId, accessToken });
-    await tearDown();
+    try {
+      masterDb = await HubWrappers.downloadAndOpenBriefcase({
+        accessToken,
+        iTwinId,
+        iModelId: masterIModelId,
+      });
+      withEditTxn(masterDb, "insert definition categories", (txn) => {
+        const categoryA = SpatialCategory.create(
+          masterDb!,
+          IModel.dictionaryId,
+          "A"
+        );
+        const categoryB = SpatialCategory.create(
+          masterDb!,
+          IModel.dictionaryId,
+          "B"
+        );
+        categoryA.userLabel = "A";
+        categoryB.userLabel = "B";
+        txn.insertElement(categoryA.toJSON());
+        txn.insertElement(categoryB.toJSON());
+      });
+      await masterDb.pushChanges({
+        accessToken,
+        description: "insert definition categories",
+      });
+      masterDb.performCheckpoint();
+
+      branchIModelId = await HubWrappers.recreateIModel({
+        accessToken,
+        iTwinId,
+        iModelName: IModelTransformerTestUtils.generateUniqueName(
+          "SwitchedDefinitionCodesBranch"
+        ),
+        noLocks: true,
+        version0: masterDb.pathName,
+      });
+      branchDb = await HubWrappers.downloadAndOpenBriefcase({
+        accessToken,
+        iTwinId,
+        iModelId: branchIModelId,
+      });
+      const branchInitEditTxn = createStartedEditTxn(branchDb);
+      const provenanceInitializer = new IModelTransformer(
+        { source: masterDb, target: branchInitEditTxn },
+        { wasSourceIModelCopiedToTarget: true }
+      );
+      await provenanceInitializer.process();
+      provenanceInitializer.dispose();
+      branchInitEditTxn.end();
+      await branchDb.pushChanges({
+        accessToken,
+        description: "initialized branch provenance",
+      });
+
+      withEditTxn(masterDb, "swap definition category codes", (txn) => {
+        const categoryA = masterDb!.elements.getElement(
+          SpatialCategory.createCode(masterDb!, IModel.dictionaryId, "A")
+        );
+        const categoryB = masterDb!.elements.getElement(
+          SpatialCategory.createCode(masterDb!, IModel.dictionaryId, "B")
+        );
+        categoryA.code.value = "temp";
+        txn.updateElement(categoryA.toJSON());
+        categoryB.code.value = "A";
+        txn.updateElement(categoryB.toJSON());
+        categoryA.code.value = "B";
+        txn.updateElement(categoryA.toJSON());
+      });
+      await masterDb.pushChanges({
+        accessToken,
+        description: "swap definition category codes",
+      });
+
+      const branchSyncEditTxn = createStartedEditTxn(branchDb);
+      const branchSyncer = new IModelTransformer(
+        { source: masterDb, target: branchSyncEditTxn },
+        { argsForProcessChanges: { startChangeset: { index: undefined } } }
+      );
+      await branchSyncer.process();
+      branchSyncer.dispose();
+      branchSyncEditTxn.end();
+      await branchDb.pushChanges({
+        accessToken,
+        description: "synchronize swapped definition category codes",
+      });
+
+      for (const db of [branchDb, masterDb]) {
+        const categoryA = db.elements.getElement(
+          SpatialCategory.createCode(db, IModel.dictionaryId, "A")
+        );
+        const categoryB = db.elements.getElement(
+          SpatialCategory.createCode(db, IModel.dictionaryId, "B")
+        );
+        expect(categoryA.userLabel).to.equal(
+          "B",
+          `categoryA.userlabel mismatch in ${db.name}`
+        );
+        expect(categoryB.userLabel).to.equal(
+          "A",
+          `categoryB.userlabel mismatch in ${db.name}`
+        );
+      }
+    } finally {
+      if (masterDb)
+        await HubWrappers.closeAndDeleteBriefcaseDb(accessToken, masterDb);
+      if (branchDb)
+        await HubWrappers.closeAndDeleteBriefcaseDb(accessToken, branchDb);
+      await transformerTestHub.deleteIModel({
+        iTwinId,
+        iModelId: masterIModelId,
+      });
+      if (branchIModelId)
+        await transformerTestHub.deleteIModel({
+          iTwinId,
+          iModelId: branchIModelId,
+        });
+    }
   });
 
   it("should successfully process changes when some parent and child elements have no changes in source and were deleted in target", async () => {
