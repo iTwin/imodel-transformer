@@ -941,10 +941,11 @@ export class IModelExporter {
    * SQLite's recursive-CTE queue into a priority queue that always continues down the
    * current branch before moving to the next sibling, yielding exactly the traversal
    * order of the legacy recursion (roots and siblings in ECInstanceId order, parents
-   * before descendants) without materializing the hierarchy in memory.
+   * before descendants) without materializing the hierarchy in JavaScript.
    *
-   * Subtrees are pruned dynamically: when an element is rejected, every subsequent row
-   * deeper than it belongs to its subtree (pre-order contiguity) and is skipped.
+   * Rows from rejected subtrees are skipped in the exporter: when an element is rejected,
+   * every subsequent row deeper than it belongs to its subtree (pre-order contiguity) and
+   * is skipped without loading the descendant or invoking its callbacks.
    *
    * @param anchorSelect a SELECT producing `(ECInstanceId, 0)` rows for the tree roots
    */
@@ -968,7 +969,11 @@ export class IModelExporter {
       const elementId: Id64String = row[0];
       const depth: number = row[1];
       if (pruneDepth !== undefined) {
-        if (depth > pruneDepth) continue; // still inside a pruned subtree
+        if (depth > pruneDepth) {
+          // Keep the streamed loop responsive while consuming a rejected subtree.
+          await this._yieldManager.allowYield();
+          continue;
+        }
         pruneDepth = undefined;
       }
       const visitChildren = await this.exportElementShallow(elementId);
