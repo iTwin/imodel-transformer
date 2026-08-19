@@ -6045,8 +6045,8 @@ describe("IModelTransformerHub", () => {
           reverseSyncVersionIndex: "2",
         };
         IModelTestUtils.findAndAssertTargetScopeProvenance(
-          { id: masterDb!.iModelId, db: masterDb!, state: {} },
-          { id: branchDb!.iModelId, db: branchDb!, state: {} },
+          masterDb!,
+          branchDb!,
           expectedProps
         );
       };
