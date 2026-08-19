@@ -12,6 +12,7 @@ on:
         type: choice
         options:
           - incremental-synchronization
+          - large-base-incremental-synchronization
           - changeset-scanning
           - schema-processing
           - standalone-full-transformation
