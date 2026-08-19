@@ -125,3 +125,25 @@ Synchronization conflicts are not to be confused with concurrent edit conflicts 
 ### Synchronization workflow examples
 
 More in depth samples exist in the [tests](https://github.com/iTwin/imodel-transformer/blob/main/packages/transformer/src/test/standalone/IModelTransformerHub.test.ts) for the `@itwin/imodel-transformer` package.
+
+### Preserving editing channels
+
+[Editing channels](/learning/backend/Channel/) identify application-owned element and model hierarchies through
+[ChannelRootAspect]($backend) instances. They are separate from transformer provenance: provenance correlates source and target entities,
+while channel roots control how applications recognize and edit data in an iModel.
+
+By default, `IModelTransformer` does not copy source channel roots because source channel boundaries are not relevant to many transformed
+targets. A synchronization that must preserve the source's channel ownership can opt in:
+
+```ts
+const transformer = new IModelTransformer(
+  { source: branchDb, target: masterEditTxn },
+  {
+    argsForProcessChanges: {},
+    includeSourceChannelRootAspects: true,
+    sourceEditTxn: branchEditTxn,
+  }
+);
+```
+
+Use this option when a branch may introduce channel-owned data that should remain in the same editing channel after it is merged.
