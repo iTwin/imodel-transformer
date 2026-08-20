@@ -1,6 +1,6 @@
 {
   "type": "minor",
-  "comment": "exportChanges builds one ancestor forest per run from changed and explicitly excluded elements, avoiding recursive queries across every element in each changed model",
+  "comment": "Speed up exportChanges by visiting changed or excluded elements and only the parent paths needed to reach them, instead of checking every element in each changed model",
   "packageName": "@itwin/imodel-transformer",
   "email": "DanRod1999@users.noreply.github.com",
   "dependentChangeType": "patch"
