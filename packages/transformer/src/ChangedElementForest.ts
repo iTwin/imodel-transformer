@@ -26,9 +26,10 @@ export class ChangedElementForest {
 
   public static async create(
     sourceDb: IModelDb,
-    candidateIds: ReadonlySet<Id64String>
-  ): Promise<ChangedElementForest> {
-    if (candidateIds.size === 0) {
+    ownedCandidateIds: Id64String[],
+    maximumElementCount: number
+  ): Promise<ChangedElementForest | undefined> {
+    if (ownedCandidateIds.length === 0) {
       return new ChangedElementForest(new Map(), new Map());
     }
 
@@ -45,15 +46,21 @@ export class ChangedElementForest {
       SELECT ECInstanceId, ParentId, ModelId FROM ChangedElementHierarchy
       OPTIONS ENABLE_EXPERIMENTAL_FEATURES
     `;
+    OrderedId64Iterable.sortArray(ownedCandidateIds);
     const params = new QueryBinder().bindIdSet(
       "candidateIds",
-      OrderedId64Iterable.sortArray([...candidateIds])
+      ownedCandidateIds
     );
+    // QueryBinder serializes the IdSet synchronously, so release this temporary copy before retaining the hierarchy.
+    ownedCandidateIds.length = 0;
     const rootsByModel = new Map<Id64String, Id64String[]>();
     const childrenByParent = new Map<Id64String, Id64String[]>();
+    let elementCount = 0;
     for await (const row of sourceDb.createQueryReader(sql, params, {
       usePrimaryConn: true,
     })) {
+      if (elementCount >= maximumElementCount) return undefined;
+      elementCount++;
       const elementId: Id64String = row[0];
       const parentId: Id64String | undefined = row[1] ?? undefined;
       const modelId: Id64String = row[2];
