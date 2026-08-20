@@ -16,7 +16,7 @@ import {
   Subject,
   withEditTxn,
 } from "@itwin/core-backend";
-import { Id64String } from "@itwin/core-bentley";
+import { Id64String, Logger } from "@itwin/core-bentley";
 import { Code, IModel, PhysicalElementProps } from "@itwin/core-common";
 import { expect, vi } from "vitest";
 import * as path from "node:path";
@@ -600,6 +600,92 @@ describe("IModelExporter changed-element traversal", () => {
         isBriefcaseDb.mockRestore();
       }
     } finally {
+      sourceDb.close();
+    }
+  });
+
+  it("logs once when a subclass override requires full traversal", async () => {
+    const sourceDb = createSourceDb("SubclassFallbackLog");
+    const logInfo = vi.spyOn(Logger, "logInfo").mockImplementation(() => {});
+    try {
+      const ids = insertSubjectTree(sourceDb, mixedSpec);
+      const handler = new RecordingHandler();
+      const exporter = new LegacyTraversalExporter(sourceDb);
+      exporter.registerHandler(handler);
+      const changes = new ChangedInstanceIds(sourceDb);
+      changes.model.updateIds.add(IModel.repositoryModelId);
+      changes.element.insertIds.add(ids.get("A1a")!);
+      exporter["_sourceDbChanges"] = changes;
+
+      await exporter.exportModelContents(IModel.repositoryModelId);
+
+      const fallbackLogs = logInfo.mock.calls.filter(([, message]) =>
+        String(message).includes(
+          "Using full element traversal for change processing"
+        )
+      );
+      expect(fallbackLogs).to.have.lengthOf(1);
+      expect(String(fallbackLogs[0][1])).to.include(
+        "exportElement is overridden"
+      );
+    } finally {
+      logInfo.mockRestore();
+      sourceDb.close();
+    }
+  });
+
+  it("falls back before building an oversized candidate index", async () => {
+    const { sourceDb, ids, handler, exporter, changes } = setupChangesMode(
+      "CandidateLimitFallback"
+    );
+    const logInfo = vi.spyOn(Logger, "logInfo").mockImplementation(() => {});
+    const queryChildren = vi.spyOn(sourceDb.elements, "queryChildren");
+    try {
+      changes.element.insertIds.add(ids.get("A1a")!);
+      changes.element.updateIds.add(ids.get("B")!);
+      exporter["_changedElementForestElementLimit"] = 1;
+
+      await exporter.exportModelContents(IModel.repositoryModelId);
+
+      expect(handler.exportedIds).to.have.members([
+        ids.get("A1a")!,
+        ids.get("B")!,
+      ]);
+      expect(queryChildren).toHaveBeenCalled();
+      expect(
+        logInfo.mock.calls.some(([, message]) =>
+          String(message).includes("candidate element references exceed")
+        )
+      ).to.be.true;
+    } finally {
+      queryChildren.mockRestore();
+      logInfo.mockRestore();
+      sourceDb.close();
+    }
+  });
+
+  it("falls back when the required parent hierarchy exceeds the index limit", async () => {
+    const { sourceDb, ids, handler, exporter, changes } = setupChangesMode(
+      "HierarchyLimitFallback"
+    );
+    const createQueryReader = vi.spyOn(sourceDb, "createQueryReader");
+    const queryChildren = vi.spyOn(sourceDb.elements, "queryChildren");
+    try {
+      changes.element.insertIds.add(ids.get("A1a")!);
+      exporter["_changedElementForestElementLimit"] = 2;
+
+      await exporter.exportModelContents(IModel.repositoryModelId);
+
+      expect(handler.exportedIds).to.deep.equal([ids.get("A1a")!]);
+      expect(
+        createQueryReader.mock.calls.some(([query]) =>
+          String(query).includes("WITH RECURSIVE ChangedElementHierarchy")
+        )
+      ).to.be.true;
+      expect(queryChildren).toHaveBeenCalled();
+    } finally {
+      queryChildren.mockRestore();
+      createQueryReader.mockRestore();
       sourceDb.close();
     }
   });

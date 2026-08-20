@@ -332,9 +332,13 @@ export class IModelExporter {
   private _progressCounter: number = 0;
   /** Optionally cached entity change information */
   private _sourceDbChanges?: ChangedInstanceIds;
-  /** Reused only while one exportChanges element traversal is active. */
-  private _changedElementForest?: Promise<ChangedElementForest>;
-  private _reuseChangedElementForest = false;
+  /** State shared by nested calls in one change-processing element traversal. */
+  private _changedElementTraversal?: {
+    forest?: Promise<ChangedElementForest | undefined>;
+    useForest: boolean;
+  };
+  /** Bounds the additional hierarchy retained by the sparse changed-element path. */
+  private _changedElementForestElementLimit = 100_000;
 
   /**
    * Retrieve the cached entity change information.
@@ -450,7 +454,9 @@ export class IModelExporter {
     this._excludedCodeSpecNames.add(codeSpecName);
   }
 
-  /** Add a rule to exclude a specific Element. */
+  /** Add a rule to exclude a specific Element.
+   * @note Configure exclusions before starting an export operation. Changing exclusions while an export is in progress is unsupported.
+   */
   public excludeElement(elementId: Id64String): void {
     this._excludedElementIds.add(elementId);
   }
@@ -549,8 +555,10 @@ export class IModelExporter {
 
     await this.exportCodeSpecs();
     await this.exportFonts();
-    this._changedElementForest = undefined;
-    this._reuseChangedElementForest = true;
+    nodeAssert(
+      this.beginChangedElementTraversalScope(),
+      "exportChanges must own its changed-element traversal scope"
+    );
     try {
       await this._elementAspectExportCoordinator.run(async () => {
         if (initOpts.skipPropagateChangesToRootElements) {
@@ -568,22 +576,24 @@ export class IModelExporter {
           await this.exportModel(IModel.repositoryModelId);
         }
       });
+
+      const aspectOnlyOwnerElementIds = new Set(
+        this._sourceDbChanges.aspectOwnerElementIds
+      );
+      for (const elementId of this._sourceDbChanges.element.insertIds) {
+        aspectOnlyOwnerElementIds.delete(elementId);
+      }
+      for (const elementId of this._sourceDbChanges.element.updateIds) {
+        aspectOnlyOwnerElementIds.delete(elementId);
+      }
+      await this.exportAspectsForOwners(
+        await this.filterOwnerElementIdsForAspectExport(
+          aspectOnlyOwnerElementIds
+        )
+      );
     } finally {
-      this._reuseChangedElementForest = false;
-      this._changedElementForest = undefined;
+      this.endChangedElementTraversalScope();
     }
-    const aspectOnlyOwnerElementIds = new Set(
-      this._sourceDbChanges.aspectOwnerElementIds
-    );
-    for (const elementId of this._sourceDbChanges.element.insertIds) {
-      aspectOnlyOwnerElementIds.delete(elementId);
-    }
-    for (const elementId of this._sourceDbChanges.element.updateIds) {
-      aspectOnlyOwnerElementIds.delete(elementId);
-    }
-    await this.exportAspectsForOwners(
-      await this.filterOwnerElementIdsForAspectExport(aspectOnlyOwnerElementIds)
-    );
     await this.exportRelationships(ElementRefersToElements.classFullName);
 
     // handle deletes
@@ -897,14 +907,22 @@ export class IModelExporter {
         return; // this optimization assumes that the Model changes (LastMod) any time an Element in the Model changes
       }
       if (
-        this.canUseDirectChangedElementExport() &&
+        this.canUseChangedElementForest() &&
         elementClassFullName === Element.classFullName
       ) {
-        Logger.logTrace(
-          loggerCategory,
-          `exportModelContents(${modelId}) via changed-element trees`
-        );
-        return this.exportChangedElementTrees({ modelId, skipRootSubject });
+        const forest = await this.getChangedElementForest();
+        if (forest !== undefined) {
+          Logger.logTrace(
+            loggerCategory,
+            `exportModelContents(${modelId}) via changed-element index`
+          );
+          for (const rootId of forest.getModelRoots(modelId)) {
+            if (skipRootSubject && rootId === IModel.rootSubjectId) continue;
+            await this.exportElement(rootId);
+            await this._yieldManager.allowYield();
+          }
+          return;
+        }
       }
     }
     Logger.logTrace(loggerCategory, `exportModelContents(${modelId})`);
@@ -1025,33 +1043,22 @@ export class IModelExporter {
       return;
     }
 
-    const visitChildren = await this.exportElementShallow(elementId);
-    if (visitChildren) {
-      return this.exportChildElements(elementId);
-    }
-  }
-
-  /** Runs the export callbacks for a single element without visiting its children.
-   * @returns `true` if the element's children should be visited afterwards.
-   */
-  private async exportElementShallow(elementId: Id64String): Promise<boolean> {
-    // Return early if the elementId is already in the excludedElementIds, that way we don't need to load the element from the db.
+    // Return early if the elementId is already excluded so it does not need to be loaded.
     if (this._excludedElementIds.has(elementId)) {
       Logger.logInfo(loggerCategory, `Excluded element ${elementId} by Id`);
       await this.handler.onSkipElement(elementId);
-      return false;
+      return;
     }
 
-    // are we processing changes?
     const isUpdate = this._sourceDbChanges?.element.insertIds.has(elementId)
       ? false
       : this._sourceDbChanges?.element.updateIds.has(elementId)
         ? true
         : undefined;
 
-    // Short-circuit: element is not in the changeset, skip its own export but still visit children
-    if (undefined !== this._sourceDbChanges && undefined === isUpdate) {
-      return true;
+    // An unchanged element may still connect a changed descendant to its model root.
+    if (this._sourceDbChanges !== undefined && isUpdate === undefined) {
+      return this.exportChildElements(elementId);
     }
 
     const element = this.sourceDb.elements.getElement({
@@ -1071,11 +1078,9 @@ export class IModelExporter {
       await this.handler.onExportElement(element, isUpdate);
       await this.trackProgress();
       await this._elementAspectExportCoordinator.addAcceptedOwner(elementId);
-      return true;
-    } else {
-      await this.handler.onSkipElement(element.id);
-      return false;
+      return this.exportChildElements(elementId);
     }
+    await this.handler.onSkipElement(element.id);
   }
 
   /** Export the child elements of the specified element from the source iModel.
@@ -1095,15 +1100,20 @@ export class IModelExporter {
       );
       return;
     }
-    if (this.canUseDirectChangedElementExport()) {
-      Logger.logTrace(
-        loggerCategory,
-        `exportChildElements(${elementId}) via changed-element trees`
-      );
-      return this.exportChangedElementTrees({ rootElementId: elementId });
+
+    let childElementIds: readonly Id64String[] | undefined;
+    if (this.canUseChangedElementForest()) {
+      const forest = await this.getChangedElementForest();
+      if (forest !== undefined) {
+        Logger.logTrace(
+          loggerCategory,
+          `exportChildElements(${elementId}) via changed-element index`
+        );
+        childElementIds = forest.getChildren(elementId);
+      }
     }
-    const childElementIds: Id64String[] =
-      this.sourceDb.elements.queryChildren(elementId);
+    childElementIds ??= this.sourceDb.elements.queryChildren(elementId);
+
     if (childElementIds.length > 0) {
       Logger.logTrace(loggerCategory, `exportChildElements(${elementId})`);
       for (const childElementId of childElementIds) {
@@ -1112,70 +1122,83 @@ export class IModelExporter {
     }
   }
 
-  /** Whether changes-mode traversal may export the changed-element set directly
-   * instead of recursing through every element of each changed model.
-   *
-   * The direct export only replaces the exporter's own recursion, so it must not be
-   * used when a subclass overrides [[exportElement]] or [[exportChildElements]]
-   * (those overrides rely on per-element dispatch).
+  /** Whether change processing may use the sparse hierarchy as the child-id source.
+   * Custom traversal overrides retain the previous full element dispatch.
    */
-  private canUseDirectChangedElementExport(): boolean {
+  private canUseChangedElementForest(): boolean {
     return (
       this._sourceDbChanges !== undefined &&
+      this._changedElementTraversal?.useForest === true &&
       this.exportElement === IModelExporter.prototype.exportElement &&
       this.exportChildElements === IModelExporter.prototype.exportChildElements
     );
   }
 
-  private async createChangedElementForest(): Promise<ChangedElementForest> {
+  private getOverriddenElementTraversalMethods(): string[] {
+    const methods: string[] = [];
+    if (this.exportElement !== IModelExporter.prototype.exportElement)
+      methods.push("exportElement");
+    if (
+      this.exportChildElements !== IModelExporter.prototype.exportChildElements
+    )
+      methods.push("exportChildElements");
+    return methods;
+  }
+
+  private disableChangedElementForest(reason: string): void {
+    if (!this._changedElementTraversal?.useForest) return;
+    this._changedElementTraversal.useForest = false;
+    Logger.logInfo(
+      loggerCategory,
+      `Using full element traversal for change processing because ${reason}.`
+    );
+  }
+
+  private async createChangedElementForest(): Promise<
+    ChangedElementForest | undefined
+  > {
     nodeAssert(
       this._sourceDbChanges !== undefined,
-      "direct changed-element export requires sourceDbChanges"
+      "changed-element traversal requires sourceDbChanges"
     );
-    return ChangedElementForest.create(
+    const excludedElementIds = this._excludedElementIds;
+    const candidateCountUpperBound =
+      this._sourceDbChanges.element.insertIds.size +
+      this._sourceDbChanges.element.updateIds.size +
+      excludedElementIds.size;
+    if (candidateCountUpperBound > this._changedElementForestElementLimit) {
+      this.disableChangedElementForest(
+        `${candidateCountUpperBound} candidate element references exceed the ${this._changedElementForestElementLimit}-element in-memory index limit`
+      );
+      return undefined;
+    }
+
+    const forest = await ChangedElementForest.create(
       this.sourceDb,
-      new Set([
+      [
         ...this._sourceDbChanges.element.insertIds,
         ...this._sourceDbChanges.element.updateIds,
-        ...this._excludedElementIds,
-      ])
+        ...excludedElementIds,
+      ],
+      this._changedElementForestElementLimit
     );
+    if (forest === undefined) {
+      this.disableChangedElementForest(
+        `the required parent hierarchy exceeds the ${this._changedElementForestElementLimit}-element in-memory index limit`
+      );
+    }
+    return forest;
   }
 
-  private async getChangedElementForest(): Promise<ChangedElementForest> {
-    if (!this._reuseChangedElementForest) {
-      return this.createChangedElementForest();
-    }
-    return (this._changedElementForest ??= this.createChangedElementForest());
-  }
-
-  /** Exports one model or child scope from the changed-element ancestor forest. */
-  private async exportChangedElementTrees(
-    scope:
-      | { modelId: Id64String; skipRootSubject?: boolean }
-      | { rootElementId: Id64String }
-  ): Promise<void> {
-    const forest = await this.getChangedElementForest();
-    const visit = async (elementId: Id64String): Promise<void> => {
-      const visitChildren = await this.exportElementShallow(elementId);
-      await this._yieldManager.allowYield();
-      if (!visitChildren) return;
-      for (const childId of forest.getChildren(elementId)) {
-        await visit(childId);
-      }
-    };
-
-    if ("rootElementId" in scope) {
-      for (const rootId of forest.getChildren(scope.rootElementId)) {
-        await visit(rootId);
-      }
-      return;
-    }
-
-    for (const rootId of forest.getModelRoots(scope.modelId)) {
-      if (scope.skipRootSubject && rootId === IModel.rootSubjectId) continue;
-      await visit(rootId);
-    }
+  private async getChangedElementForest(): Promise<
+    ChangedElementForest | undefined
+  > {
+    const traversal = this._changedElementTraversal;
+    nodeAssert(
+      traversal !== undefined,
+      "changed-element index requires an active traversal scope"
+    );
+    return (traversal.forest ??= this.createChangedElementForest());
   }
 
   /** Exports all aspects owned by the supplied elements. */
@@ -1291,10 +1314,39 @@ export class IModelExporter {
     );
   }
 
+  private beginChangedElementTraversalScope(): boolean {
+    if (
+      this._sourceDbChanges === undefined ||
+      this._changedElementTraversal !== undefined
+    ) {
+      return false;
+    }
+
+    this._changedElementTraversal = { useForest: true };
+
+    const overriddenMethods = this.getOverriddenElementTraversalMethods();
+    if (this.visitElements && overriddenMethods.length > 0) {
+      this.disableChangedElementForest(
+        `${overriddenMethods.join(" and ")} ${overriddenMethods.length === 1 ? "is" : "are"} overridden by the exporter subclass`
+      );
+    }
+    return true;
+  }
+
+  private endChangedElementTraversalScope(): void {
+    this._changedElementTraversal = undefined;
+  }
+
   private async runScopedElementExport(
     exportElements: () => Promise<void>
   ): Promise<void> {
-    await this._elementAspectExportCoordinator.run(exportElements);
+    const ownsChangedElementTraversal =
+      this.beginChangedElementTraversalScope();
+    try {
+      await this._elementAspectExportCoordinator.run(exportElements);
+    } finally {
+      if (ownsChangedElementTraversal) this.endChangedElementTraversalScope();
+    }
   }
 
   /** Apply the element export filter when deciding whether to process an aspect owner. @internal */
