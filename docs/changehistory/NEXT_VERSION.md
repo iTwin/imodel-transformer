@@ -1,5 +1,13 @@
 # Next release notes
 
+## Faster element traversal during change processing
+
+`IModelExporter.exportChanges()` now finds elements marked as inserted or updated, elements excluded by ID, and the parents needed to reach them in one query. It visits only those paths instead of checking every element in each changed model. `IModelTransformer.process()` uses the same behavior when `argsForProcessChanges` is set. This reduces traversal work when changes affect a small part of a large iModel. Model discovery and other export phases are unchanged.
+
+Existing export callbacks keep the same arguments and parent-before-child order. Unchanged parents needed only to reach changed descendants do not trigger callbacks. Unchanged elements excluded by ID still trigger `onSkipElement`, and modeled elements continue through the existing model filters. Custom `IModelExporter` subclasses that override `exportElement` or `exportChildElements` use the previous traversal so those overrides continue to receive every element.
+
+See [Incremental exports](../learning/transformer/index.md#incremental-exports) for callback and customization details.
+
 ## Breaking change: batched incremental element deletion
 
 Incremental synchronization now processes element deletions as one batch. `IModelExporter.exportChanges()` passes the deleted source IDs to `IModelExportHandler.onDeleteElements()`. `IModelTransformer` maps the IDs once, and `IModelImporter.deleteElements()` submits the target roots through the native bulk-delete API. Bulk deletion preserves the previous behavior for child elements, modeled contents, and elements whose codes are scoped by a deleted tree.
