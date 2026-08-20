@@ -24,6 +24,14 @@ While it is possible to export data from an iModel using the standard [IModelDb]
 - Easily exclude certain entity types to filter the export content using [IModelExporter.excludeElementsInCategory]($transformer), [IModelExporter.excludeElementClass]($transformer), or [IModelExporter.excludeElementAspectClass]($transformer)
 - Integration with [IModelTransformer]($transformer)
 
+### Incremental exports
+
+[IModelExporter.exportChanges]($transformer) exports changes collected from the selected changesets or supplied through `ExportChangesOptions.changedInstanceIds`. For inserted and updated elements, the exporter finds each changed element and the parents needed to reach it. It visits only those paths instead of checking every element in each changed model. Deleted element IDs are passed together to [IModelExportHandler.onDeleteElements]($transformer).
+
+Changed elements are visited parent before child. The exporter can pass through an unchanged parent without calling element callbacks for that parent, then processes each changed descendant normally. An element excluded by ID still triggers `onSkipElement`, even when unchanged, and its descendants are skipped. A changed element rejected by `shouldExportElement` also causes its descendants to be skipped.
+
+A custom `IModelExporter` subclass that overrides `exportElement` or `exportChildElements` uses the previous per-element traversal. This preserves calls to those overrides, but the subclass does not receive the faster changed-element traversal.
+
 Learn how `IModelExporter` filters, batches, and exports ElementAspects in the [Processing ElementAspects guide](./element-aspect-processing.md). The guide also covers change handling and the owner metadata required for custom deleted aspect changes.
 
 Below is an example of using [IModelExporter]($transformer) and [IModelExportHandler]($transformer) to export all [Code]($common) values from an iModel:

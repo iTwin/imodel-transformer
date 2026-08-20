@@ -1,10 +1,12 @@
 # Next release notes
 
-## Change processing avoids full element-hierarchy traversal
+## Faster element traversal during change processing
 
-During `IModelExporter.exportChanges()` (and therefore `IModelTransformer.process()` with `argsForProcessChanges`), one ancestor-closure query builds a forest from the changeset's inserted and updated element ids plus explicitly excluded ids. The exporter walks that forest instead of recursively querying every element of each changed model. Element traversal work therefore depends on those candidate elements and their required ancestry; model discovery and other export phases retain their existing costs.
+`IModelExporter.exportChanges()` now finds elements marked as inserted or updated, elements excluded by ID, and the parents needed to reach them in one query. It visits only those paths instead of checking every element in each changed model. `IModelTransformer.process()` uses the same behavior when `argsForProcessChanges` is set. This reduces traversal work when changes affect a small part of a large iModel. Model discovery and other export phases are unchanged.
 
-Export-handler callbacks (`shouldExportElement`, `preExportElement`, `onExportElement`, `onSkipElement`) retain their previous arguments and depth-first parent-before-child order. Unchanged ancestors in the forest remain silent, while explicitly excluded unchanged elements still receive `onSkipElement`; modeled elements continue through the existing model-filtering path. Subclasses of `IModelExporter` that override `exportElement` or `exportChildElements` automatically fall back to the previous per-element traversal so overridden dispatch continues to see every element.
+Existing export callbacks keep the same arguments and parent-before-child order. Unchanged parents needed only to reach changed descendants do not trigger callbacks. Unchanged elements excluded by ID still trigger `onSkipElement`, and modeled elements continue through the existing model filters. Custom `IModelExporter` subclasses that override `exportElement` or `exportChildElements` use the previous traversal so those overrides continue to receive every element.
+
+See [Incremental exports](../learning/transformer/index.md#incremental-exports) for callback and customization details.
 
 ## Breaking change: batched incremental element deletion
 
