@@ -44,22 +44,26 @@ export class ChangedElementForest {
         INNER JOIN ChangedElementHierarchy c ON p.ECInstanceId = c.ParentId
       )
       SELECT ECInstanceId, ParentId, ModelId FROM ChangedElementHierarchy
-      OPTIONS ENABLE_EXPERIMENTAL_FEATURES
+      LIMIT :resultLimit
     `;
     OrderedId64Iterable.sortArray(ownedCandidateIds);
-    const params = new QueryBinder().bindIdSet(
-      "candidateIds",
-      ownedCandidateIds
-    );
+    const params = new QueryBinder()
+      .bindIdSet("candidateIds", ownedCandidateIds)
+      .bindInt("resultLimit", maximumElementCount + 1);
     // QueryBinder serializes the IdSet synchronously, so release this temporary copy before retaining the hierarchy.
     ownedCandidateIds.length = 0;
     const rootsByModel = new Map<Id64String, Id64String[]>();
     const childrenByParent = new Map<Id64String, Id64String[]>();
     let elementCount = 0;
+    let elementLimitExceeded = false;
     for await (const row of sourceDb.createQueryReader(sql, params, {
       usePrimaryConn: true,
     })) {
-      if (elementCount >= maximumElementCount) return undefined;
+      if (elementCount >= maximumElementCount) {
+        // Consume the single overflow row so the ECSqlReader reaches done; it has no disposal API.
+        elementLimitExceeded = true;
+        continue;
+      }
       elementCount++;
       const elementId: Id64String = row[0];
       const parentId: Id64String | undefined = row[1] ?? undefined;
@@ -71,6 +75,8 @@ export class ChangedElementForest {
       else siblings.push(elementId);
     }
 
+    if (elementLimitExceeded) return undefined;
+
     for (const siblings of rootsByModel.values()) {
       OrderedId64Iterable.sortArray(siblings);
     }
@@ -80,10 +86,12 @@ export class ChangedElementForest {
     return new ChangedElementForest(rootsByModel, childrenByParent);
   }
 
+  /** Gets the indexed root element IDs for a model. */
   public getModelRoots(modelId: Id64String): readonly Id64String[] {
     return this._rootsByModel.get(modelId) ?? [];
   }
 
+  /** Gets the indexed child element IDs for a parent element. */
   public getChildren(parentId: Id64String): readonly Id64String[] {
     return this._childrenByParent.get(parentId) ?? [];
   }

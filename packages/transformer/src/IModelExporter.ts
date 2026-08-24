@@ -338,7 +338,7 @@ export class IModelExporter {
     useForest: boolean;
   };
   /** Bounds the additional hierarchy retained by the sparse changed-element path. */
-  private _changedElementForestElementLimit = 100_000;
+  private readonly _changedElementForestElementLimit = 100_000;
 
   /**
    * Retrieve the cached entity change information.

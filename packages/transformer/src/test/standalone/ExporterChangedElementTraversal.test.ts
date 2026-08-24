@@ -25,6 +25,7 @@ import {
   IModelExporter,
   IModelExportHandler,
 } from "../../IModelExporter";
+import { ChangedElementForest } from "../../ChangedElementForest";
 import { IModelTransformerTestUtils } from "../IModelTransformerUtils";
 import { KnownTestLocations } from "../TestUtils/KnownTestLocations";
 
@@ -642,15 +643,13 @@ describe("IModelExporter changed-element traversal", () => {
     const queryChildren = vi.spyOn(sourceDb.elements, "queryChildren");
     try {
       changes.element.insertIds.add(ids.get("A1a")!);
-      changes.element.updateIds.add(ids.get("B")!);
-      exporter["_changedElementForestElementLimit"] = 1;
+      Object.defineProperty(changes.element.insertIds, "size", {
+        value: 100_001,
+      });
 
       await exporter.exportModelContents(IModel.repositoryModelId);
 
-      expect(handler.exportedIds).to.have.members([
-        ids.get("A1a")!,
-        ids.get("B")!,
-      ]);
+      expect(handler.exportedIds).to.deep.equal([ids.get("A1a")!]);
       expect(queryChildren).toHaveBeenCalled();
       expect(
         logInfo.mock.calls.some(([, message]) =>
@@ -670,20 +669,32 @@ describe("IModelExporter changed-element traversal", () => {
     );
     const createQueryReader = vi.spyOn(sourceDb, "createQueryReader");
     const queryChildren = vi.spyOn(sourceDb.elements, "queryChildren");
+    const createForest = ChangedElementForest.create.bind(ChangedElementForest);
+    const createForestSpy = vi
+      .spyOn(ChangedElementForest, "create")
+      .mockImplementation(async (db, candidateIds) =>
+        createForest(db, candidateIds, 2)
+      );
     try {
       changes.element.insertIds.add(ids.get("A1a")!);
-      exporter["_changedElementForestElementLimit"] = 2;
 
       await exporter.exportModelContents(IModel.repositoryModelId);
 
       expect(handler.exportedIds).to.deep.equal([ids.get("A1a")!]);
-      expect(
-        createQueryReader.mock.calls.some(([query]) =>
+      const hierarchyQueryIndex = createQueryReader.mock.calls.findIndex(
+        ([query]) =>
           String(query).includes("WITH RECURSIVE ChangedElementHierarchy")
-        )
-      ).to.be.true;
+      );
+      expect(hierarchyQueryIndex).to.be.greaterThanOrEqual(0);
+      const hierarchyQuery = String(
+        createQueryReader.mock.calls[hierarchyQueryIndex][0]
+      );
+      expect(hierarchyQuery).to.include("LIMIT :resultLimit");
+      expect(createQueryReader.mock.results[hierarchyQueryIndex].value.done).to
+        .be.true;
       expect(queryChildren).toHaveBeenCalled();
     } finally {
+      createForestSpy.mockRestore();
       queryChildren.mockRestore();
       createQueryReader.mockRestore();
       sourceDb.close();
