@@ -8,7 +8,6 @@ import {
   Element,
   ElementOwnsChildElements,
   IModelDb,
-  IModelJsFs,
   PhysicalModel,
   PhysicalObject,
   SnapshotDb,
@@ -25,14 +24,16 @@ import {
   SubCategoryAppearance,
 } from "@itwin/core-common";
 import { expect, vi } from "vitest";
-import * as path from "node:path";
 import {
   ChangedInstanceIds,
   IModelExporter,
   IModelExportHandler,
 } from "../../IModelExporter";
 import { IModelTransformerTestUtils } from "../IModelTransformerUtils";
-import { KnownTestLocations } from "../TestUtils/KnownTestLocations";
+import {
+  insertSubjectTree,
+  TreeSpec,
+} from "../TestUtils/ExporterTraversalTestUtils";
 
 /** Recorded traversal event: callback kind plus the element id it concerned. */
 type TraversalEvent = [kind: "pre" | "export" | "skip", id: Id64String];
@@ -108,40 +109,7 @@ async function expectEventLoopYield(run: () => Promise<void>): Promise<void> {
   expect(yieldedBeforeCompletion).to.be.true;
 }
 
-/** Inserts a subject tree below the root Subject. Node arrays are child specs. */
-interface TreeSpec {
-  name: string;
-  children?: TreeSpec[];
-}
-
-function insertSubjectTree(
-  db: IModelDb,
-  specs: TreeSpec[]
-): Map<string, Id64String> {
-  return withEditTxn(db, "insert subject tree", (txn) => {
-    const ids = new Map<string, Id64String>();
-    const insertNode = (spec: TreeSpec, parentId: Id64String) => {
-      const id = Subject.insert(txn, parentId, spec.name);
-      ids.set(spec.name, id);
-      for (const child of spec.children ?? []) insertNode(child, id);
-    };
-    for (const spec of specs) insertNode(spec, IModel.rootSubjectId);
-    return ids;
-  });
-}
-
 describe("IModelExporter hierarchy traversal", () => {
-  const outputDir = path.join(
-    KnownTestLocations.outputDir,
-    "ExporterHierarchyTraversal"
-  );
-
-  beforeAll(() => {
-    if (!IModelJsFs.existsSync(KnownTestLocations.outputDir))
-      IModelJsFs.mkdirSync(KnownTestLocations.outputDir);
-    if (!IModelJsFs.existsSync(outputDir)) IModelJsFs.mkdirSync(outputDir);
-  });
-
   function createSourceDb(testName: string): SnapshotDb {
     const sourceDbPath = IModelTransformerTestUtils.prepareOutputFile(
       "ExporterHierarchyTraversal",

@@ -948,16 +948,22 @@ export class IModelExporter {
     }
   }
 
+  /** Whether the public element traversal methods still have their base implementations. */
+  private hasDefaultElementTraversal(): boolean {
+    // The optimized helpers bypass these public overridable methods. Compare function
+    // identity so subclass, bound, wrapped, or instrumented methods retain legacy dispatch.
+    return (
+      this.exportElement === IModelExporter.prototype.exportElement &&
+      this.exportChildElements === IModelExporter.prototype.exportChildElements
+    );
+  }
+
   /** Whether hierarchy traversal can use the streamed query.
    * Changes mode and overrides of the public traversal methods require legacy dispatch.
    */
   private canUseSetBasedTraversal(): boolean {
-    // The streamed helper bypasses these public overridable methods. Compare function
-    // identity so subclass, bound, wrapped, or instrumented methods retain legacy dispatch.
     return (
-      this._sourceDbChanges === undefined &&
-      this.exportElement === IModelExporter.prototype.exportElement &&
-      this.exportChildElements === IModelExporter.prototype.exportChildElements
+      this._sourceDbChanges === undefined && this.hasDefaultElementTraversal()
     );
   }
 
@@ -1201,8 +1207,7 @@ export class IModelExporter {
     return (
       this._sourceDbChanges !== undefined &&
       this._changedElementTraversal?.useForest === true &&
-      this.exportElement === IModelExporter.prototype.exportElement &&
-      this.exportChildElements === IModelExporter.prototype.exportChildElements
+      this.hasDefaultElementTraversal()
     );
   }
 
