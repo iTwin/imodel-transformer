@@ -21,6 +21,7 @@ import {
 } from "../FixtureRecipe.js";
 import { FixtureDistribution } from "../FixtureDescriptor.js";
 import { quickPath } from "../../support/paths.js";
+import { queryCount } from "../validation/validateFixture.js";
 
 /**
  * Big-base/tiny-delta shape of the large-base incremental recipe.
@@ -194,15 +195,6 @@ export async function applyLargeBaseChangesets(
     accessToken,
     description: "large-base delta 2: element updates",
   });
-}
-
-async function queryCount(db: IModelDb, ecsql: string): Promise<number> {
-  const reader = db.createQueryReader(ecsql, undefined, {
-    usePrimaryConn: true,
-  });
-  if (!(await reader.step()))
-    throw new Error(`Count query returned no rows: ${ecsql}`);
-  return reader.current.cnt as number;
 }
 
 export async function assertLargeBaseDistribution(
