@@ -107,7 +107,7 @@ async function queryGeometryRecords(db: IModelDb): Promise<unknown[]> {
   return values;
 }
 
-async function queryCount(db: IModelDb, ecsql: string): Promise<number> {
+export async function queryCount(db: IModelDb, ecsql: string): Promise<number> {
   const reader = db.createQueryReader(ecsql, undefined, {
     usePrimaryConn: true,
   });
