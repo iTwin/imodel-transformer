@@ -14,13 +14,16 @@ import {
   QueryBinder,
 } from "@itwin/core-common";
 import {
-  IModelHost,
   PhysicalModel,
   PhysicalObject,
   SnapshotDb,
   SpatialCategory,
   withEditTxn,
 } from "@itwin/core-backend";
+import {
+  shutdownQuickIModelHost as shutdownIsolatedHost,
+  startQuickIModelHost as startIsolatedHost,
+} from "../../src/framework/QuickIModelHost.js";
 import { IModelTransformer } from "@itwin/imodel-transformer";
 import { BenchmarkReporter } from "../../src/reporting/BenchmarkReporter.js";
 import { BenchmarkScenarioDefinition } from "../../src/framework/BenchmarkScenario.js";
@@ -96,11 +99,11 @@ describe("LocalHubFixture reconstruction", () => {
     outputDir = fs.mkdtempSync(
       path.join(os.tmpdir(), "quick-perf-reconstruct-")
     );
-    await IModelHost.startup({ hubAccess: quickTestHub });
+    await startIsolatedHost();
   });
 
   afterAll(async () => {
-    await IModelHost.shutdown();
+    await shutdownIsolatedHost();
     fs.rmSync(outputDir, { recursive: true, force: true });
   });
 

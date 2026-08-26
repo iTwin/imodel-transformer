@@ -74,10 +74,10 @@ delivered to each scenario sample. It owns database, Hub, changeset, and cleanup
 resources. The scenario constructs `IModelTransformer` from those resources and
 chooses its options and measured operation.
 
-| Provider                    | Data delivered to the scenario                                                                     | Hub availability during the scenario | Stage-one behavior                                                                  |
-| --------------------------- | -------------------------------------------------------------------------------------------------- | ------------------------------------ | ----------------------------------------------------------------------------------- |
-| `liveHubProvider`           | Open source and target `BriefcaseDb`s backed by `HubMock`                                          | Available                            | Captures prepared briefcases, seeds, and local-hub timelines once                   |
-| `detachedBriefcaseProvider` | Read-only source `BriefcaseDb`, local changeset files, artifact metadata, and optional recipe data | Not available                        | Uses `HubMock` once to generate changesets, then captures a reusable local artifact |
+| Provider                    | Data delivered to the scenario                                                                     | Hub availability during the scenario | Stage-one behavior                                                                     |
+| --------------------------- | -------------------------------------------------------------------------------------------------- | ------------------------------------ | -------------------------------------------------------------------------------------- |
+| `liveHubProvider`           | Open source and target `BriefcaseDb`s backed by `HubMock`                                          | Available                            | Captures prepared briefcases, seeds, and local-hub timelines once                      |
+| `detachedBriefcaseProvider` | Read-only source `BriefcaseDb`, local changeset files, artifact metadata, and optional recipe data | Not available                        | Uses `HubMock` once to generate changesets, then captures a reusable local artifact    |
 | `standaloneProvider`        | Read-only source `SnapshotDb`, newly empty target `SnapshotDb`, and artifact metadata              | Not available                        | Generates or ingests one standalone source artifact; creates targets only in stage two |
 
 Both providers are credential-free and use local `HubMock` when they need
@@ -204,6 +204,13 @@ sequenceDiagram
 The runner wraps scenario, sample, fixture-build, and `IModelHost` lifecycles in
 cleanup tasks. It attempts all applicable cleanup and preserves both originating
 and cleanup errors when more than one operation fails.
+
+Every quick-harness process starts `IModelHost` with a profile name derived from
+its process ID. Baseline, candidate, fixture, benchmark, and integration-test
+processes therefore never contend for the default profile. The harness disables
+base GCS workspaces before opening any iModel, then shuts down the host and
+removes the resolved private profile directory. It does not redirect
+OS-specific home-directory environment variables.
 
 ### Isolated pull request A/B flow
 
@@ -385,7 +392,7 @@ excluded from aggregate performance statistics.
 | ---------------------------- | ------------------------------------------------------ |
 | `wallMilliseconds`           | Only `BenchmarkScenario.measure()`                     |
 | CPU and RSS delta            | The same measured region                               |
-| `workerPeakRssBytes`         | Complete isolated A/B worker lifetime                 |
+| `workerPeakRssBytes`         | Complete isolated A/B worker lifetime                  |
 | `fixtureBuildMilliseconds`   | Stage-one provider build, once per job                 |
 | `reconstructionMilliseconds` | Creation or copying of one prepared sample             |
 | `verificationMilliseconds`   | `BenchmarkScenario.finish()`                           |

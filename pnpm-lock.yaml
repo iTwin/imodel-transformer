@@ -190,6 +190,9 @@ importers:
       '@itwin/eslint-plugin':
         specifier: ^6.1.0
         version: 6.1.0(@typescript/typescript6@6.0.2)(eslint@9.38.0)
+      '@itwin/imodel-transformer-test-utils':
+        specifier: workspace:*
+        version: link:../test-utils
       '@itwin/projects-client':
         specifier: ^0.6.0
         version: 0.6.0

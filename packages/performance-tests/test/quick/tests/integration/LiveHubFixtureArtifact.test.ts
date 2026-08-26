@@ -24,9 +24,9 @@ import { liveHubFixtureProvider } from "../../src/fixtures/providers/liveHubProv
 import { quickTestHub } from "../../src/fixtures/QuickTestHub.js";
 import { incrementalSynchronization } from "../../src/scenarios/incrementalSynchronization.js";
 import {
-  shutdownIsolatedHost,
-  startIsolatedHost,
-} from "../support/isolatedHost.js";
+  shutdownQuickIModelHost as shutdownIsolatedHost,
+  startQuickIModelHost as startIsolatedHost,
+} from "../../src/framework/QuickIModelHost.js";
 
 describe("live hub fixture artifact", () => {
   let buildCount = 0;

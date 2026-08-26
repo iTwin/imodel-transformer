@@ -35,9 +35,9 @@ import {
 import { detachedBriefcaseFixtureProvider } from "../../src/fixtures/providers/detachedBriefcaseProvider.js";
 import { quickTestHub } from "../../src/fixtures/QuickTestHub.js";
 import {
-  shutdownIsolatedHost,
-  startIsolatedHost,
-} from "../support/isolatedHost.js";
+  shutdownQuickIModelHost as shutdownIsolatedHost,
+  startQuickIModelHost as startIsolatedHost,
+} from "../../src/framework/QuickIModelHost.js";
 
 describe("detached fixture artifact", () => {
   const fixture = balancedIncrementalSourceOnlyFixture;

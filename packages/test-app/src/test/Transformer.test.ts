@@ -29,6 +29,7 @@ import {
   QueryRowFormat,
 } from "@itwin/core-common";
 import { TransformerLoggerCategory } from "@itwin/imodel-transformer";
+import { disableGcsWorkspacesForTests } from "@itwin/imodel-transformer-test-utils";
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 import { loggerCategory, Transformer } from "../Transformer";
 
@@ -40,6 +41,7 @@ describe("imodel-transformer", () => {
 
   before(async () => {
     await IModelHost.startup();
+    disableGcsWorkspacesForTests();
 
     if (false) {
       // set to true to enable logging

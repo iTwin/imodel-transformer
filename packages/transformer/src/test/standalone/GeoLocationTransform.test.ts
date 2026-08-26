@@ -39,8 +39,9 @@ import {
   IModelTransformer,
   IModelTransformOptions,
 } from "../../IModelTransformer";
-import { expect } from "vitest";
+import { beforeAll, expect } from "vitest";
 import { Logger } from "@itwin/core-bentley";
+import { allowGcsWorkspacesForTests } from "@itwin/imodel-transformer-test-utils";
 import { TransformerLoggerCategory } from "../../TransformerLoggerCategory";
 import {
   createStartedEditTxn,
@@ -53,6 +54,10 @@ interface GeolocationData {
   ecefLocation: EcefLocation | undefined;
   geographicCRS: GeographicCRS | undefined;
 }
+
+beforeAll(() => {
+  allowGcsWorkspacesForTests();
+});
 
 // Create a test iModel with a specified ECEF location and number of spherical elements
 // Elements are of radius 1, placed in 2 by 2 by x grids 5 meters apart, and first eleement is inserted at origin

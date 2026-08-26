@@ -30,9 +30,9 @@ import {
 import { standaloneFixtureProvider } from "../../src/fixtures/providers/standaloneProvider.js";
 import { standaloneFullTransformation } from "../../src/scenarios/standaloneFullTransformation.js";
 import {
-  shutdownIsolatedHost,
-  startIsolatedHost,
-} from "../support/isolatedHost.js";
+  shutdownQuickIModelHost as shutdownIsolatedHost,
+  startQuickIModelHost as startIsolatedHost,
+} from "../../src/framework/QuickIModelHost.js";
 
 function sha256(fileName: string): string {
   return createHash("sha256").update(fs.readFileSync(fileName)).digest("hex");
