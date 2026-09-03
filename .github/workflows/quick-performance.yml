@@ -1,0 +1,104 @@
+name: Quick performance
+
+on:
+  workflow_dispatch:
+    inputs:
+      scenario:
+        description: Quick performance scenario
+        required: true
+        default: incremental-synchronization
+        type: choice
+        options:
+          - incremental-synchronization
+          - changeset-scanning
+          - schema-processing
+      scenario_override:
+        description: Optional scenario id override for feature branches
+        required: false
+        type: string
+      fixture:
+        description: Fixture id (blank uses the scenario's default)
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  quick-performance:
+    name: ${{ inputs.scenario_override || inputs.scenario || 'incremental-synchronization' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          persist-credentials: false
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@0e279bb959325dab635dd2c09392533439d90093
+
+      - name: Use Node.js 24
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e
+        with:
+          node-version: 24.18.0
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build transformer
+        run: pnpm --dir packages/transformer build:cjs
+
+      - name: Validate quick harness
+        run: |
+          pnpm --dir packages/performance-tests test:quick-harness \
+            2>&1 | sed \
+              -e "s#${GITHUB_WORKSPACE}#<workspace>#g" \
+              -e "s#${RUNNER_TEMP}#<runner-temp>#g"
+
+      - name: Run quick performance suite
+        run: |
+          pnpm --dir packages/performance-tests test:quick \
+            2>&1 | sed \
+              -e "s#${GITHUB_WORKSPACE}#<workspace>#g" \
+              -e "s#${RUNNER_TEMP}#<runner-temp>#g"
+        env:
+          QUICK_PERF_OUTPUT: ${{ runner.temp }}/quick-performance
+          QUICK_PERF_SAMPLES: 8
+          QUICK_PERF_SCENARIO: ${{ inputs.scenario_override || inputs.scenario || 'incremental-synchronization' }}
+          QUICK_PERF_FIXTURE: ${{ inputs.fixture }}
+
+      - name: Report variance reliability
+        if: always()
+        shell: bash
+        run: |
+          node <<'NODE'
+          const fs = require("node:fs");
+          const path = require("node:path");
+          const report = path.join(process.env.RUNNER_TEMP, "quick-performance", "summary.json");
+          if (!fs.existsSync(report))
+            process.exit(0);
+          const summary = JSON.parse(fs.readFileSync(report, "utf8"));
+          fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, [
+            "### Quick performance reliability",
+            `Scenario: **${summary.scenarioId}**`,
+            `Status: **${summary.varianceStatus}**`,
+            `CV: ${summary.wallMilliseconds.coefficientOfVariation}`,
+            `Normalized MAD: ${summary.wallMilliseconds.normalizedMad}`,
+            `Unstable samples: ${summary.unstableSamples.join(", ")}`,
+            "",
+          ].join("\n"));
+          if (summary.varianceStatus !== "stable")
+            console.log("::warning title=Unstable quick performance variance::Do not use this run as regression evidence.");
+          NODE
+
+      - name: Publish report
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: QuickPerformanceReport
+          path: |
+            ${{ runner.temp }}/quick-performance/samples.jsonl
+            ${{ runner.temp }}/quick-performance/summary.json
+            ${{ runner.temp }}/quick-performance/summary.csv
