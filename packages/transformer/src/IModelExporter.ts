@@ -976,7 +976,10 @@ export class IModelExporter {
     params: QueryBinder
   ): Promise<void> {
     // The anchor seeds roots at depth 0; the recursive term follows parent links.
-    // Deeper pending rows continue the current branch before ascending IDs break ties.
+    // SQLite's documented recursive-CTE queue behavior makes this ORDER BY a
+    // depth-first priority queue, with ascending IDs breaking ties. Supported
+    // iModel databases use SQLite, so the outer SELECT intentionally consumes
+    // the CTE rows in this queue order.
     const sql = `
       WITH RECURSIVE ElementTree (ECInstanceId, Depth) AS (
         ${anchorSelect}
