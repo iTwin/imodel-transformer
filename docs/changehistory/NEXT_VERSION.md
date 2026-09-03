@@ -1,5 +1,13 @@
 # Next release notes
 
+## Set-based element hierarchy traversal in full exports
+
+`IModelExporter` now discovers element hierarchies during full exports (`exportAll()`, `exportModelContents()`, `exportChildElements()`) with a single streamed recursive ECSQL query per traversal root instead of one `queryChildren()` round trip per visited element. Observable export behavior is unchanged for root order, sibling order (ECInstanceId ascending), depth-first pre-order, element filtering, subtree suppression, and exporter callbacks. The streamed loop yields while consuming every result row, including descendants skipped inside rejected subtrees, so large exports remain responsive.
+
+Changes-mode exports can use the separate sparse changed-element traversal described below. The legacy per-element path remains the fallback for incompatible cases, including subclasses that override `exportElement` or `exportChildElements`, so subclass dispatch semantics are preserved.
+
+The streamed traversal relies on SQLite's documented recursive-CTE queue behavior — an `ORDER BY` inside the recursive member turns the queue into a priority queue, yielding depth-first pre-order — via ECSQL `WITH RECURSIVE`, which is supported across the package's supported `@itwin/core-backend` range. Exporter-level traversal tests exercise the resulting order through the production query.
+
 ## Faster element traversal during change processing
 
 `IModelExporter.exportChanges()` now finds elements marked as inserted or updated, elements excluded by ID, and the parents needed to reach them in one query. It visits only those paths instead of checking every element in each changed model. `IModelTransformer.process()` uses the same behavior when `argsForProcessChanges` is set. This reduces traversal work when changes affect a small part of a large iModel. Model discovery and other export phases are unchanged.

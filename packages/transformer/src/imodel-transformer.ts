@@ -89,6 +89,10 @@ if (
  * Internal source queries, filtering, and export callbacks for ElementAspects owned by accepted elements.
  */
 /**
+ * @docs-group-description ChangedElementForest
+ * Internal index of changed elements and their ancestors for incremental traversal.
+ */
+/**
  * @docs-group-description IModelTransformerError
  * Stable identifiers for errors originating from this package.
  */

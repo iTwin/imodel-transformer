@@ -7,8 +7,6 @@ import {
   // eslint-disable-next-line @typescript-eslint/no-redeclare
   Element,
   ElementOwnsChildElements,
-  IModelDb,
-  IModelJsFs,
   PhysicalModel,
   PhysicalObject,
   SnapshotDb,
@@ -19,7 +17,6 @@ import {
 import { Id64String, Logger } from "@itwin/core-bentley";
 import { Code, IModel, PhysicalElementProps } from "@itwin/core-common";
 import { expect, vi } from "vitest";
-import * as path from "node:path";
 import {
   ChangedInstanceIds,
   IModelExporter,
@@ -27,7 +24,10 @@ import {
 } from "../../IModelExporter";
 import { ChangedElementForest } from "../../ChangedElementForest";
 import { IModelTransformerTestUtils } from "../IModelTransformerUtils";
-import { KnownTestLocations } from "../TestUtils/KnownTestLocations";
+import {
+  insertSubjectTree,
+  TreeSpec,
+} from "../TestUtils/ExporterTraversalTestUtils";
 
 /** Recorded traversal event: callback kind, element id, and the isUpdate flag for exports. */
 type ChangeTraversalEvent =
@@ -69,40 +69,7 @@ class RecordingHandler extends IModelExportHandler {
   }
 }
 
-/** Inserts a subject tree below the root Subject. Node arrays are child specs. */
-interface TreeSpec {
-  name: string;
-  children?: TreeSpec[];
-}
-
-function insertSubjectTree(
-  db: IModelDb,
-  specs: TreeSpec[]
-): Map<string, Id64String> {
-  return withEditTxn(db, "insert subject tree", (txn) => {
-    const ids = new Map<string, Id64String>();
-    const insertNode = (spec: TreeSpec, parentId: Id64String) => {
-      const id = Subject.insert(txn, parentId, spec.name);
-      ids.set(spec.name, id);
-      for (const child of spec.children ?? []) insertNode(child, id);
-    };
-    for (const spec of specs) insertNode(spec, IModel.rootSubjectId);
-    return ids;
-  });
-}
-
 describe("IModelExporter changed-element traversal", () => {
-  const outputDir = path.join(
-    KnownTestLocations.outputDir,
-    "ExporterChangedElementTraversal"
-  );
-
-  beforeAll(() => {
-    if (!IModelJsFs.existsSync(KnownTestLocations.outputDir))
-      IModelJsFs.mkdirSync(KnownTestLocations.outputDir);
-    if (!IModelJsFs.existsSync(outputDir)) IModelJsFs.mkdirSync(outputDir);
-  });
-
   function createSourceDb(testName: string): SnapshotDb {
     const sourceDbPath = IModelTransformerTestUtils.prepareOutputFile(
       "ExporterChangedElementTraversal",
