@@ -1,0 +1,7 @@
+{
+  "type": "patch",
+  "comment": "Use the iTwin.js batched ElementAspect query API instead of Transformer-owned instance materialization.",
+  "packageName": "@itwin/imodel-transformer",
+  "email": "50554904+hl662@users.noreply.github.com",
+  "dependentChangeType": "patch"
+}
