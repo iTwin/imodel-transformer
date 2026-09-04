@@ -18,10 +18,10 @@
   },
   "repository": {},
   "dependencies": {
-    "@itwin/core-backend": "^5.10.3",
-    "@itwin/core-bentley": "^5.10.3",
-    "@itwin/core-common": "^5.10.3",
-    "@itwin/core-geometry": "^5.10.3",
+    "@itwin/core-backend": "^5.13.0",
+    "@itwin/core-bentley": "^5.13.0",
+    "@itwin/core-common": "^5.13.0",
+    "@itwin/core-geometry": "^5.13.0",
     "@itwin/imodel-transformer": "workspace:*",
     "@itwin/imodels-access-backend": "^6.0.2",
     "@itwin/imodels-access-common": "^6.0.2",
@@ -33,7 +33,7 @@
     "yargs": "^17.7.2"
   },
   "devDependencies": {
-    "@itwin/build-tools": "^5.10.3",
+    "@itwin/build-tools": "^5.13.0",
     "@itwin/eslint-plugin": "^6.1.0",
     "@itwin/projects-client": "^0.6.0",
     "@types/chai": "4.3.1",
