@@ -156,6 +156,8 @@ function isBenchmarkSample(value: unknown): value is BenchmarkSample {
     typeof (sample.transformerProvenance as Record<string, unknown>)
       .contentHash === "string" &&
     typeof (sample.transformerProvenance as Record<string, unknown>)
+      .coreBackendVersion === "string" &&
+    typeof (sample.transformerProvenance as Record<string, unknown>)
       .entryPoint === "string" &&
     typeof (sample.transformerProvenance as Record<string, unknown>).version ===
       "string"

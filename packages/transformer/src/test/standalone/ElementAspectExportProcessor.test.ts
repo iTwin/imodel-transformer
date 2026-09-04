@@ -137,6 +137,10 @@ describe("ElementAspectExportProcessor", () => {
                 });
               }
             }
+            txn.insertAspect({
+              classFullName: "ExporterAspectTest:UniqueAspect",
+              element: new ElementOwnsUniqueAspect(id),
+            });
           }
           return ids;
         }
@@ -150,6 +154,7 @@ describe("ElementAspectExportProcessor", () => {
           },
         })
       );
+      const queryAspects = vi.spyOn(sourceDb.elements, "queryAspects");
 
       await processor.exportAllElementAspects(new Set<Id64String>(ownerIds));
 
@@ -166,7 +171,23 @@ describe("ElementAspectExportProcessor", () => {
       expect(new Set(groups.map((group) => group[0].element.id))).to.deep.equal(
         new Set(ownerIds)
       );
+
+      groups.length = 0;
+      queryAspects.mockClear();
+      processor.excludeElementAspectClass("ExporterAspectTest:MultiAspectBase");
+      await processor.exportAllElementAspects(new Set<Id64String>(ownerIds));
+
+      expect(groups).to.be.empty;
+      expect(queryAspects).toHaveBeenCalledOnce();
+      const excludedClassFullNames =
+        queryAspects.mock.calls[0][0].excludedAspectClassFullNames;
+      expect(excludedClassFullNames).to.include.members([
+        "ExporterAspectTest:MultiAspectBase",
+        "ExporterAspectTest:MultiAspectA",
+        "ExporterAspectTest:MultiAspectB",
+      ]);
     } finally {
+      vi.restoreAllMocks();
       sourceDb.close();
     }
   });
