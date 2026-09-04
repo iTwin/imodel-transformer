@@ -51,6 +51,7 @@ export function benchmarkSample(
     teardownMilliseconds: 5,
     topology: "source-only",
     transformerProvenance: {
+      coreBackendVersion: "5.10.3",
       contentHash: "transformer-content-hash",
       entryPoint: "transformer-entry-point",
       version: "0.6.0",

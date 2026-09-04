@@ -245,13 +245,31 @@ candidate sample 2, baseline sample 2
 baseline sample 3, candidate sample 3
 ```
 
-Each worker also proves that its resolved transformer entry point is below the
-checkout assigned to its arm and records the transformer version and a content
-hash of the complete compiled output. That execution provenance is excluded from workload identity:
-different transformer builds are the intended independent variable. Before
-reporting, the coordinator requires one baseline-authored artifact content hash,
-identical scenario and fixture identity fields, and one semantic digest across
-both arms. It reports the fixture-authoring baseline revision and transformer version, arm medians, measured wall times and peak worker RSS values, candidate percentage delta, and an explicitly informational threshold status. Peak worker RSS comes from each worker's `process.resourceUsage().maxRSS` after the normal sample lifecycle and covers the complete isolated worker lifetime. The threshold applies only to wall time; peak RSS is reported for independent interpretation. The threshold is not a confidence interval, significance test, or merge gate.
+Each worker proves that its resolved transformer entry point is below the
+checkout assigned to its arm. It records the transformer version, a content hash
+of the complete compiled transformer output, and the Core backend version
+resolved from that transformer package. That execution provenance is excluded
+from workload identity: different transformer builds or Core versions can be the
+intended independent variable.
+
+The artifact descriptor and recipe hash describe the baseline authoring
+environment. A consuming arm may have a different recipe hash or dependency
+versions because it does not regenerate the fixture. Every arm verifies the
+baseline-authored artifact content hash, consumes a private copy of those exact
+bytes, and must produce the same semantic digest. Failure to open or process the
+artifact with the arm's Core version fails that worker.
+
+Before reporting, the coordinator requires one baseline-authored artifact
+content hash, identical scenario and fixture identity fields, and one semantic
+digest across both arms. It reports the fixture-authoring baseline revision,
+per-arm transformer and Core runtime provenance, arm medians, measured wall times
+and peak worker RSS values, candidate percentage delta, and an explicitly
+informational threshold status.
+Peak worker RSS comes from each worker's `process.resourceUsage().maxRSS` after
+the normal sample lifecycle and covers the complete isolated worker lifetime.
+The threshold applies only to wall time; peak RSS is reported for independent
+interpretation. The threshold is not a confidence interval, significance test,
+or merge gate.
 
 ## Current incremental-synchronization run
 

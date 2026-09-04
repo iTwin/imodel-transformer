@@ -228,9 +228,15 @@ its private sample.
 Each execution still gets a fresh Node process and module graph. Before running,
 the worker proves that Node resolved `@itwin/imodel-transformer` to the entry
 point below its assigned baseline or candidate checkout and records that build's
-version and complete compiled-output content hash. Transformer build provenance is intentionally separate
+version and complete compiled-output content hash. It also resolves and records
+the Core backend version from that transformer package. Runtime provenance is intentionally separate
 from fixture identity, so an expected baseline/candidate transformer difference
-does not masquerade as a workload mismatch.
+or Core upgrade does not masquerade as a workload mismatch.
+
+The artifact descriptor records the baseline authoring environment. A consuming
+arm may use different dependency versions because it never regenerates the
+fixture: it must open a private copy of the baseline-authored bytes, validate the
+artifact content hash, and produce the same semantic digest.
 
 Before any execution, one baseline worker builds the immutable fixture artifact.
 Its manifest records a SHA-256 over every captured briefcase, seed, changeset,
@@ -256,7 +262,7 @@ duplicating source-to-target correctness assertions from the transformer test su
 
 Successful runs publish:
 
-- `comparison.json`: baseline and candidate medians, percentage delta, raw measured wall times and peak worker RSS values, arm transformer versions, baseline fixture-authoring revision and transformer version, shared fixture content hash, execution order, and informational threshold status.
+- `comparison.json`: baseline and candidate medians, percentage delta, raw measured wall times and peak worker RSS values, arm transformer and Core versions, baseline fixture-authoring revision and transformer version, shared fixture content hash, execution order, and informational threshold status.
 - `comparison.md`: the same small result set for the Actions job summary.
 - `comparison-samples.jsonl`: all warm-up and measured sample records with arm
   and revision labels.
@@ -353,8 +359,9 @@ The three fixture authoring stages are intentionally distinct:
 
 The generated recipe hash includes fixture metadata, parameters, derived
 distribution, seed, topology, declared implementation/schema files,
-`pnpm-lock.yaml`, Node, and core backend versions. Transformer provenance is
-reported separately because it is the intentional variable in an A/B run. Identity file
+`pnpm-lock.yaml`, Node, and core backend versions. Transformer provenance and
+each A/B arm's runtime Core version are reported separately because either can
+be an intentional variable in an A/B run. Identity file
 contents are newline-normalized so the same commit has the same identity across
 platforms. Declare every helper file whose implementation affects generation.
 Validation is optional and runs only when the recipe supplies it. Recipes remain

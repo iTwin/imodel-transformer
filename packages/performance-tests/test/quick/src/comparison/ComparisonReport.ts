@@ -43,7 +43,7 @@ export type InformationalComparisonStatus =
   | "within-informational-threshold";
 
 export interface ComparisonSummary {
-  readonly reportSchemaVersion: 2;
+  readonly reportSchemaVersion: 3;
   readonly scenarioId: string;
   readonly fixtureId: string;
   readonly fixtureVersion: number;
@@ -261,7 +261,7 @@ export function createComparisonSummary(
   const identity = allSamples[0];
 
   return {
-    reportSchemaVersion: 2,
+    reportSchemaVersion: 3,
     scenarioId: identity.scenarioId,
     fixtureId: identity.fixtureId,
     fixtureVersion: identity.fixtureVersion,
@@ -372,6 +372,14 @@ function markdown(summary: ComparisonSummary): string {
     markdownCode(value)
   );
   const threshold = summary.policy.informationalThresholdPercent;
+  const baselineCore =
+    summary.baseline.transformerProvenance.coreBackendVersion;
+  const candidateCore =
+    summary.candidate.transformerProvenance.coreBackendVersion;
+  const coreBackendSummary =
+    baselineCore === candidateCore
+      ? `Core backend: both arms use ${markdownCode(baselineCore)}.`
+      : `Core backend: baseline ${markdownCode(baselineCore)}, candidate ${markdownCode(candidateCore)}.`;
   return [
     "# Quick performance A/B comparison",
     "",
@@ -387,6 +395,8 @@ function markdown(summary: ComparisonSummary): string {
     `Prepared target: baseline ${markdownCode(formatRevision(summary.fixtureAuthoring.revision))} with transformer ${markdownCode(summary.fixtureAuthoring.transformerVersion)}.`,
     "",
     "## Result",
+    "",
+    coreBackendSummary,
     "",
     "| Arm | Revision | Transformer | Median | P90 | Range | Peak worker RSS |",
     "| --- | --- | --- | ---: | ---: | ---: | ---: |",
