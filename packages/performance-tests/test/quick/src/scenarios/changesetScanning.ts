@@ -36,10 +36,8 @@ function scanDigest(result: ScanResult): string {
       },
     ])
   );
-  return canonicalSha256({
-    ...normalized,
-    aspectOwnerElementIds: [...result.aspectOwnerElementIds].sort(),
-  });
+  // The candidate harness also runs against older baselines, so digest only the shared result shape.
+  return canonicalSha256(normalized);
 }
 
 function changedIdCount(result: ScanResult): number {
