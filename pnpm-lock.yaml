@@ -33,11 +33,11 @@ importers:
   packages/performance-scripts:
     devDependencies:
       '@itwin/build-tools':
-        specifier: ^5.10.3
-        version: 5.10.3(@types/node@22.18.12)(supports-color@8.1.1)
+        specifier: ^5.13.0
+        version: 5.13.0(@types/node@22.18.12)(mocha@11.7.6)
       '@itwin/core-backend':
-        specifier: ^5.10.3
-        version: 5.10.3(@itwin/core-bentley@5.10.3)(@itwin/core-common@5.10.3(@itwin/core-bentley@5.10.3)(@itwin/core-geometry@5.10.3))(@itwin/core-geometry@5.10.3)(@itwin/ecschema-metadata@5.10.3(@itwin/core-bentley@5.10.3)(@itwin/core-quantity@5.10.3(@itwin/core-bentley@5.10.3)))
+        specifier: ^5.13.0
+        version: 5.13.0(@itwin/core-bentley@5.13.0)(@itwin/core-common@5.13.0(@itwin/core-bentley@5.13.0)(@itwin/core-geometry@5.13.0))(@itwin/core-geometry@5.13.0)(@itwin/ecschema-metadata@5.13.0(@itwin/core-bentley@5.13.0)(@itwin/core-quantity@5.13.0(@itwin/core-bentley@5.13.0)))
       '@types/node':
         specifier: ^22
         version: 22.18.12
