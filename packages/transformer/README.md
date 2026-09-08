@@ -34,3 +34,11 @@ Set this variable to `1` to disable strict dependency checks in `packages/transf
 ```dotenv
 TRANSFORMER_NO_STRICT_DEP_CHECK=1
 ```
+
+### IMODEL_TRANSFORMER_MAX_ESA_CACHE_SIZE
+
+The transformer preloads per-Kind in-memory indexes of the scope's `ExternalSourceAspect` provenance rows (one query per Kind per run) instead of querying per entity. Set this variable to override the maximum number of rows (per Kind) that may be cached; when a scope has more rows than this limit, the transformer falls back to per-row queries to bound memory usage. Defaults to `4000000`. Set to `0` to disable the cache entirely.
+
+```dotenv
+IMODEL_TRANSFORMER_MAX_ESA_CACHE_SIZE=1000000
+```
