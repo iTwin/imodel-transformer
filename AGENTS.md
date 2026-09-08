@@ -35,6 +35,7 @@ The edit-transaction migration is a breaking-change area tracked by #305 and #30
 ### Transformer test authoring
 - Write hub scenarios with direct `SnapshotDb`/`BriefcaseDb` setup and explicit `withEditTxn` or `createStartedEditTxn` ownership.
 - Keep branch creation, synchronization options, transaction finalization, changeset pushes, and cleanup visible in the test; use a focused local helper only when it does not hide those ownership boundaries.
+- Use `withTransformerLifecycle` from `IModelTransformerUtils` for standard transformer operations so disposal and edit-transaction finalization are exception-safe; keep transformer construction, options, and changeset pushes at the scenario call site.
 - Prefer a small case matrix over duplicated tests when cases differ only by an explicit setup or option, and preserve each case's assertions.
 
 ## Validation and release
