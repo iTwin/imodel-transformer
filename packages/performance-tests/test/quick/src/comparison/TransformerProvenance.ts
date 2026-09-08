@@ -11,6 +11,8 @@ import * as path from "node:path";
 const localRequire = createRequire(import.meta.url);
 
 export interface TransformerProvenance {
+  /** Core backend runtime loaded by this arm. */
+  readonly coreBackendVersion: string;
   readonly contentHash: string;
   readonly entryPoint: string;
   readonly version: string;
@@ -79,7 +81,22 @@ export function resolveTransformerProvenance(
       `Worker resolved @itwin/imodel-transformer from ${resolvedEntryPoint}; expected ${expectedEntryPoint}`
     );
 
+  const transformerRequire = createRequire(
+    path.join(packageDirectory, "package.json")
+  );
+  const coreBackendPackageJson = JSON.parse(
+    fs.readFileSync(
+      transformerRequire.resolve("@itwin/core-backend/package.json"),
+      "utf8"
+    )
+  ) as { version?: string };
+  if (typeof coreBackendPackageJson.version !== "string")
+    throw new Error(
+      `Core backend package metadata is invalid below ${expectedRootDirectory}`
+    );
+
   return {
+    coreBackendVersion: coreBackendPackageJson.version,
     contentHash: transformerBuildContentHash(resolvedEntryPoint),
     entryPoint: resolvedEntryPoint,
     version: packageJson.version,

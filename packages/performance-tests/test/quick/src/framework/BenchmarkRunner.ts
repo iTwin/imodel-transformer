@@ -160,6 +160,15 @@ interface BenchmarkExecution {
   readonly sample: number;
 }
 
+export function reusableFixtureIdentity(descriptor: FixtureDescriptor): string {
+  const {
+    generator: _generator,
+    recipeHash: _recipeHash,
+    ...configuredFixture
+  } = descriptor;
+  return JSON.stringify(configuredFixture);
+}
+
 export class BenchmarkRunner {
   public constructor(
     private readonly _fixture: ConfiguredFixture,
@@ -294,20 +303,12 @@ export class BenchmarkRunner {
                 this._fixture,
                 artifact.manifest.descriptor.source
               );
-        const localIdentity = JSON.stringify({
-          ...expectedFixture.descriptor,
-          generator: {
-            coreBackend: expectedFixture.descriptor.generator.coreBackend,
-            node: expectedFixture.descriptor.generator.node,
-          },
-        });
-        const artifactIdentity = JSON.stringify({
-          ...artifact.manifest.descriptor,
-          generator: {
-            coreBackend: artifact.manifest.descriptor.generator.coreBackend,
-            node: artifact.manifest.descriptor.generator.node,
-          },
-        });
+        const localIdentity = reusableFixtureIdentity(
+          expectedFixture.descriptor
+        );
+        const artifactIdentity = reusableFixtureIdentity(
+          artifact.manifest.descriptor
+        );
         if (localIdentity !== artifactIdentity)
           throw new Error(
             "Reusable fixture artifact does not match the configured candidate workload"

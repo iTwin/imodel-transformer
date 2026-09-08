@@ -12,13 +12,13 @@
     "format": "prettier \"./src/**/*.ts\" --write"
   },
   "peerDependencies": {
-    "@itwin/core-backend": "^5.10.3",
-    "@itwin/core-bentley": "^5.10.3"
+    "@itwin/core-backend": "^5.13.0",
+    "@itwin/core-bentley": "^5.13.0"
   },
   "devDependencies": {
-    "@itwin/build-tools": "^5.10.3",
-    "@itwin/core-backend": "^5.10.3",
-    "@itwin/core-bentley": "^5.10.3",
+    "@itwin/build-tools": "^5.13.0",
+    "@itwin/core-backend": "^5.13.0",
+    "@itwin/core-bentley": "^5.13.0",
     "@itwin/eslint-plugin": "^6.1.0",
     "@types/node": "22.18.12",
     "@typescript/native": "npm:typescript@~7.0.2",
