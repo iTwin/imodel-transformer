@@ -155,11 +155,45 @@ describe("A/B comparison reporting", () => {
     );
     expect(markdown).to.contain("| Arm | Revision | Transformer | Median |");
     expect(markdown).to.contain(
+      "**Relative performance:** Candidate is 1.10× slower than baseline."
+    );
+    expect(markdown).to.contain(
       "How to interpret <code>candidate-slower-than-threshold</code>"
     );
     expect(markdown).to.contain("Where are the individual measurements?");
     expect(markdown).not.to.contain("90.00 ms, 100.00 ms, 110.00 ms");
     expect(records).to.have.length(8);
+  });
+
+  it("describes faster and equal candidate medians", () => {
+    const cases = [
+      {
+        candidateMilliseconds: [45, 50, 55],
+        expected:
+          "**Relative performance:** Candidate is 2.00× faster than baseline.",
+      },
+      {
+        candidateMilliseconds: [90, 100, 110],
+        expected:
+          "**Relative performance:** Candidate and baseline have equal median duration.",
+      },
+    ];
+
+    for (const testCase of cases) {
+      const outputDir = fs.mkdtempSync(
+        path.join(os.tmpdir(), "quick-ab-report-relative-")
+      );
+      temporaryDirectories.push(outputDir);
+      const comparison = input();
+      comparison.candidate.samples = armSamples(testCase.candidateMilliseconds);
+
+      ComparisonReporter.write(outputDir, comparison);
+      const markdown = fs.readFileSync(
+        path.join(outputDir, "comparison.md"),
+        "utf8"
+      );
+      expect(markdown).to.contain(testCase.expected);
+    }
   });
 
   it("escapes scenario configuration in Markdown tables", () => {
