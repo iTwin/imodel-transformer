@@ -174,7 +174,7 @@ describe("ElementAspectExportProcessor", () => {
 
       groups.length = 0;
       queryAspects.mockClear();
-      processor.excludeElementAspectClass("ExporterAspectTest:MultiAspectBase");
+      processor.excludeElementAspectClass("ExporterAspectTest.MultiAspectBase");
       await processor.exportAllElementAspects(new Set<Id64String>(ownerIds));
 
       expect(groups).to.be.empty;

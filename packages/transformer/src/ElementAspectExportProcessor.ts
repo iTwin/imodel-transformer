@@ -127,8 +127,10 @@ export class ElementAspectExportProcessor {
 
   /** Excludes an ElementAspect class from subsequent queries and export callbacks. */
   public excludeElementAspectClass(classFullName: string): void {
-    if (this._excludedElementAspectClassFullNames.has(classFullName)) return;
-    this._excludedElementAspectClassFullNames.add(classFullName);
+    const normalizedClassFullName = classFullName.replace(".", ":");
+    if (this._excludedElementAspectClassFullNames.has(normalizedClassFullName))
+      return;
+    this._excludedElementAspectClassFullNames.add(normalizedClassFullName);
     this.resetCaches();
   }
 
@@ -138,7 +140,7 @@ export class ElementAspectExportProcessor {
     for (const classFullName of this._excludedElementAspectClassFullNames) {
       const parameterName = `excludedAspectClass${excludedClassIndex++}`;
       excludedClassParameters.push(`ec_classid(:${parameterName})`);
-      queryParams.bindString(parameterName, classFullName.replace(".", ":"));
+      queryParams.bindString(parameterName, classFullName);
     }
 
     return excludedClassParameters.length === 0
