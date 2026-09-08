@@ -257,7 +257,8 @@ duplicating source-to-target correctness assertions from the transformer test su
 Successful runs publish:
 
 - `comparison.json`: baseline and candidate medians, percentage delta, raw measured wall times and peak worker RSS values, arm transformer versions, baseline fixture-authoring revision and transformer version, shared fixture content hash, execution order, and informational threshold status.
-- `comparison.md`: the same small result set for the Actions job summary.
+- `comparison.md`: the same small result set for the Actions job summary, plus
+  a reader-friendly relative median-performance ratio.
 - `comparison-samples.jsonl`: all warm-up and measured sample records with arm
   and revision labels.
 
