@@ -263,7 +263,7 @@ Before reporting, the coordinator requires one baseline-authored artifact
 content hash, identical scenario and fixture identity fields, and one semantic
 digest across both arms. It reports the fixture-authoring baseline revision,
 per-arm transformer and Core runtime provenance, arm medians, measured wall times
-and peak worker RSS values, candidate percentage delta, and an explicitly
+and peak worker RSS values, candidate percentage delta, a reader-friendly relative median-performance ratio, and an explicitly
 informational threshold status.
 Peak worker RSS comes from each worker's `process.resourceUsage().maxRSS` after
 the normal sample lifecycle and covers the complete isolated worker lifetime.

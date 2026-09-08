@@ -362,6 +362,16 @@ function currentStatusMeaning(summary: ComparisonSummary): string {
   }
 }
 
+function relativePerformance(summary: ComparisonSummary): string {
+  const baseline = summary.baseline.medianMilliseconds;
+  const candidate = summary.candidate.medianMilliseconds;
+  if (candidate < baseline)
+    return `Candidate is ${(baseline / candidate).toFixed(2)}× faster than baseline.`;
+  if (candidate > baseline)
+    return `Candidate is ${(candidate / baseline).toFixed(2)}× slower than baseline.`;
+  return "Candidate and baseline have equal median duration.";
+}
+
 function markdown(summary: ComparisonSummary): string {
   const signedDelta = `${summary.percentageDelta >= 0 ? "+" : ""}${summary.percentageDelta.toFixed(2)}%`;
   const configuration = Object.entries(summary.scenarioConfiguration ?? {});
@@ -406,6 +416,7 @@ function markdown(summary: ComparisonSummary): string {
     "Peak worker RSS is reported by the isolated worker's process resource usage across its complete lifetime, including setup and teardown.",
     "",
     `**Candidate delta:** ${signedDelta}  `,
+    `**Relative performance:** ${relativePerformance(summary)}  `,
     `**Status:** \`${summary.informationalStatus}\``,
     "",
     "<details>",
