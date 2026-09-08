@@ -32,6 +32,11 @@ const id = withEditTxn(db, "insert PhysicalObject", (txn) => {
 
 The edit-transaction migration is a breaking-change area tracked by #305 and #306. Flag semantic changes as major rather than silently folding them into unrelated work.
 
+### Transformer test authoring
+- Write hub scenarios with direct `SnapshotDb`/`BriefcaseDb` setup and explicit `withEditTxn` or `createStartedEditTxn` ownership.
+- Keep branch creation, synchronization options, transaction finalization, changeset pushes, and cleanup visible in the test; use a focused local helper only when it does not hide those ownership boundaries.
+- Prefer a small case matrix over duplicated tests when cases differ only by an explicit setup or option, and preserve each case's assertions.
+
 ## Validation and release
 
 - Use the Node version from `.github/workflows/ci.yml`; `package.json` defines the supported range.
