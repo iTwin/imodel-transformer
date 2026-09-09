@@ -149,7 +149,7 @@ export function hasEntityChanged(entity: Entity, entityProps: EntityProps, names
 
 // @beta
 export class IModelExporter {
-    constructor(sourceDb: IModelDb);
+    constructor(sourceDb: IModelDb, elementAspectsStrategy?: new (source: IModelDb, handler: ElementAspectsHandler) => ExportElementAspectsStrategy);
     // @internal
     get elementAspectExportCoordinator(): ElementAspectExportCoordinator;
     enumerateSchemas(): AsyncIterable<Schema>;

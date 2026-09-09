@@ -567,10 +567,6 @@ export class IModelTransformer extends IModelExportHandler {
         this.shouldExportSchema(schemaKey),
       serializeSourceSchema: async (schema) => this.onExportSchema(schema),
     });
-    this.exporter.elementAspectExportCoordinator.setPreparation(
-      async (excludedClasses, elementIds) =>
-        this.prepareElementAspects(excludedClasses, elementIds)
-    );
     // create the IModelCloneContext, it must be initialized later
     this._cloneContext = new IModelCloneContext(this.sourceDb, this.targetDb);
     this.importer.registerEntityExistenceCache(
@@ -1202,7 +1198,7 @@ export class IModelTransformer extends IModelExportHandler {
   private async processScopedElementExport(
     exportElements: () => Promise<void>
   ): Promise<void> {
-    await this.exporter.elementAspectExportCoordinator.run(exportElements);
+    await exportElements();
   }
 
   /** Override of [IModelExportHandler.shouldExportElement]($transformer) that is called to determine if an element should be exported from the source iModel.
@@ -1937,9 +1933,7 @@ export class IModelTransformer extends IModelExportHandler {
     excludedElementAspectClassFullNames: ReadonlySet<string>,
     elementIds?: ReadonlySet<Id64String>
   ): Promise<void> {
-    if (!this.exporter.visitElements) return;
-
-    if (elementIds === undefined) return;
+    if (!this.exporter.visitElements || elementIds === undefined) return;
 
     const targetElementIds = new Set<Id64String>();
     for (const sourceElementId of elementIds) {
@@ -2626,21 +2620,20 @@ export class IModelTransformer extends IModelExportHandler {
     await this.exporter.exportCodeSpecs();
     await this.exporter.exportFonts();
 
-    await this.exporter.elementAspectExportCoordinator.run(async () => {
-      if (this._options.skipPropagateChangesToRootElements) {
-        // The RepositoryModel and root Subject of the target iModel should not be transformed.
-        await this.exporter.exportChildElements(IModel.rootSubjectId); // start below the root Subject
-        await this.exporter.exportModelContents(
-          IModel.repositoryModelId,
-          Element.classFullName,
-          true
-        ); // after the Subject hierarchy, process the other elements of the RepositoryModel
-        await this.exporter.exportSubModels(IModel.repositoryModelId); // start below the RepositoryModel
-      } else {
-        await this.exporter.exportModel(IModel.repositoryModelId);
-      }
-      await this.completePartiallyCommittedElements();
-    });
+    if (this._options.skipPropagateChangesToRootElements) {
+      // The RepositoryModel and root Subject of the target iModel should not be transformed.
+      await this.exporter.exportChildElements(IModel.rootSubjectId); // start below the root Subject
+      await this.exporter.exportModelContents(
+        IModel.repositoryModelId,
+        Element.classFullName,
+        true
+      ); // after the Subject hierarchy, process the other elements of the RepositoryModel
+      await this.exporter.exportSubModels(IModel.repositoryModelId); // start below the RepositoryModel
+    } else {
+      await this.exporter.exportModel(IModel.repositoryModelId);
+    }
+    await this.completePartiallyCommittedElements();
+    await this.exporter["exportAllAspects"](); // eslint-disable-line @typescript-eslint/dot-notation
     await this.completePartiallyCommittedAspects();
     await this.exporter.exportRelationships(
       ElementRefersToElements.classFullName

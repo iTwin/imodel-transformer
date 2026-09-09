@@ -57,6 +57,11 @@ import { strict as nodeAssert } from "node:assert";
 import { ElementAspectExportProcessor } from "./ElementAspectExportProcessor";
 import { ElementAspectExportCoordinator } from "./ElementAspectExportCoordinator";
 import {
+  ElementAspectsHandler,
+  ExportElementAspectsStrategy,
+} from "./ExportElementAspectsStrategy";
+import { ExportElementAspectsWithElementsStrategy } from "./ExportElementAspectsWithElementsStrategy";
+import {
   IModelTransformerError,
   IModelTransformerErrorScope,
 } from "./IModelTransformerError";
@@ -379,6 +384,8 @@ export class IModelExporter {
   private _elementAspectExportProcessor: ElementAspectExportProcessor;
   /** Coordinates accepted-owner scopes and bounded group processing. */
   private readonly _elementAspectExportCoordinator: ElementAspectExportCoordinator;
+  /** Pre-#338 ElementAspect export behavior used by the performance comparison branch. */
+  private readonly _exportElementAspectsStrategy: ExportElementAspectsStrategy;
 
   /** Coordinates accepted ElementAspect owners and bounded group processing.
    * @internal
@@ -399,8 +406,26 @@ export class IModelExporter {
    * @param sourceDb The source IModelDb
    * @see registerHandler
    */
-  public constructor(sourceDb: IModelDb) {
+  public constructor(
+    sourceDb: IModelDb,
+    elementAspectsStrategy: new (
+      source: IModelDb,
+      handler: ElementAspectsHandler
+    ) => ExportElementAspectsStrategy = ExportElementAspectsWithElementsStrategy
+  ) {
     this.sourceDb = sourceDb;
+    this._exportElementAspectsStrategy = new elementAspectsStrategy(
+      this.sourceDb,
+      {
+        onExportElementMultiAspects: async (aspects) =>
+          this.handler.onExportElementMultiAspects(aspects),
+        onExportElementUniqueAspect: async (aspect, isUpdate) =>
+          this.handler.onExportElementUniqueAspect(aspect, isUpdate),
+        shouldExportElementAspect: async (aspect) =>
+          this.handler.shouldExportElementAspect(aspect),
+        trackProgress: async () => this.trackProgress(),
+      }
+    );
     this._elementAspectExportProcessor = new ElementAspectExportProcessor(
       this.sourceDb,
       {
@@ -442,6 +467,9 @@ export class IModelExporter {
     this._elementAspectExportProcessor.setAspectChanges(
       this._sourceDbChanges.aspect
     );
+    this._exportElementAspectsStrategy.setAspectChanges(
+      this._sourceDbChanges.aspect
+    );
   }
 
   /** Register the handler that will be called by IModelExporter. */
@@ -476,6 +504,7 @@ export class IModelExporter {
   /** Add a rule to exclude all ElementAspects of a specified class. */
   public excludeElementAspectClass(classFullName: string): void {
     this._elementAspectExportProcessor.excludeElementAspectClass(classFullName);
+    this._exportElementAspectsStrategy.excludeElementAspectClass(classFullName);
   }
 
   /** Add a rule to exclude all Relationships of a specified class. */
@@ -493,9 +522,8 @@ export class IModelExporter {
 
     await this.exportCodeSpecs();
     await this.exportFonts();
-    await this._elementAspectExportCoordinator.run(async () =>
-      this.exportModel(IModel.repositoryModelId)
-    );
+    await this.exportModel(IModel.repositoryModelId);
+    await this.exportAllAspects();
     await this.exportRelationships(ElementRefersToElements.classFullName);
   }
 
@@ -560,37 +588,21 @@ export class IModelExporter {
       "exportChanges must own its changed-element traversal scope"
     );
     try {
-      await this._elementAspectExportCoordinator.run(async () => {
-        if (initOpts.skipPropagateChangesToRootElements) {
-          // The root Subject is in the RepositoryModel. Traverse its children
-          // separately, then export other top-level repository elements while
-          // excluding the root so no element is visited twice.
-          await this.exportChildElements(IModel.rootSubjectId);
-          await this.exportModelContents(
-            IModel.repositoryModelId,
-            Element.classFullName,
-            true
-          );
-          await this.exportSubModels(IModel.repositoryModelId);
-        } else {
-          await this.exportModel(IModel.repositoryModelId);
-        }
-      });
-
-      const aspectOnlyOwnerElementIds = new Set(
-        this._sourceDbChanges.aspectOwnerElementIds
-      );
-      for (const elementId of this._sourceDbChanges.element.insertIds) {
-        aspectOnlyOwnerElementIds.delete(elementId);
+      if (initOpts.skipPropagateChangesToRootElements) {
+        // The root Subject is in the RepositoryModel. Traverse its children
+        // separately, then export other top-level repository elements while
+        // excluding the root so no element is visited twice.
+        await this.exportChildElements(IModel.rootSubjectId);
+        await this.exportModelContents(
+          IModel.repositoryModelId,
+          Element.classFullName,
+          true
+        );
+        await this.exportSubModels(IModel.repositoryModelId);
+      } else {
+        await this.exportModel(IModel.repositoryModelId);
       }
-      for (const elementId of this._sourceDbChanges.element.updateIds) {
-        aspectOnlyOwnerElementIds.delete(elementId);
-      }
-      await this.exportAspectsForOwners(
-        await this.filterOwnerElementIdsForAspectExport(
-          aspectOnlyOwnerElementIds
-        )
-      );
+      await this.exportAllAspects();
     } finally {
       this.endChangedElementTraversalScope();
     }
@@ -623,6 +635,7 @@ export class IModelExporter {
     if (this._resetChangeDataOnExport) {
       this._sourceDbChanges = undefined;
       this._elementAspectExportProcessor.setAspectChanges(undefined);
+      this._exportElementAspectsStrategy.setAspectChanges(undefined);
     }
   }
 
@@ -1149,7 +1162,9 @@ export class IModelExporter {
       await this.handler.preExportElement(element);
       await this.handler.onExportElement(element, isUpdate);
       await this.trackProgress();
-      await this._elementAspectExportCoordinator.addAcceptedOwner(elementId);
+      await this._exportElementAspectsStrategy.exportElementAspectsForElement(
+        elementId
+      );
       return true;
     }
     await this.handler.onSkipElement(element.id);
@@ -1423,10 +1438,15 @@ export class IModelExporter {
     const ownsChangedElementTraversal =
       this.beginChangedElementTraversalScope();
     try {
-      await this._elementAspectExportCoordinator.run(exportElements);
+      await exportElements();
     } finally {
       if (ownsChangedElementTraversal) this.endChangedElementTraversalScope();
     }
+  }
+
+  /** Exports all aspects present in the iModel. */
+  private async exportAllAspects(): Promise<void> {
+    return this._exportElementAspectsStrategy.exportAllElementAspects();
   }
 
   /** Apply the element export filter when deciding whether to process an aspect owner. @internal */
