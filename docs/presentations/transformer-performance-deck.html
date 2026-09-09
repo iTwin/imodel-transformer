@@ -1,0 +1,1113 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>iModel Transformer Performance Briefing</title>
+  <style>
+    :root {
+      --ink: #0b1830;
+      --ink-soft: #44536c;
+      --paper: #f7f9fc;
+      --white: #ffffff;
+      --blue: #0f65d8;
+      --cyan: #13b8c8;
+      --green: #20a56a;
+      --green-soft: #dff7ed;
+      --amber: #e39a19;
+      --amber-soft: #fff3d7;
+      --red: #d9465f;
+      --red-soft: #ffebef;
+      --line: #dce3ed;
+      --shadow: 0 24px 80px rgba(10, 31, 68, 0.18);
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    html,
+    body {
+      width: 100%;
+      height: 100%;
+      margin: 0;
+      overflow: hidden;
+      background:
+        radial-gradient(circle at 10% 10%, rgba(19, 184, 200, 0.15), transparent 25rem),
+        radial-gradient(circle at 90% 90%, rgba(15, 101, 216, 0.16), transparent 32rem),
+        #dfe7f2;
+      color: var(--ink);
+      font-family: Inter, Aptos, "Segoe UI", Arial, sans-serif;
+    }
+
+    body {
+      display: grid;
+      place-items: center;
+    }
+
+    a {
+      color: inherit;
+      text-decoration-thickness: 0.08em;
+      text-underline-offset: 0.15em;
+    }
+
+    .deck {
+      position: relative;
+      width: min(100vw, calc(100vh * 16 / 9));
+      height: min(100vh, calc(100vw * 9 / 16));
+      overflow: hidden;
+      background: var(--paper);
+      box-shadow: var(--shadow);
+      container-type: size;
+    }
+
+    .slide {
+      position: absolute;
+      inset: 0;
+      display: none;
+      grid-template-rows: auto 1fr auto;
+      gap: 2.5cqh;
+      padding: 5.8cqh 5.8cqw 3.4cqh;
+      overflow: hidden;
+      background:
+        linear-gradient(135deg, rgba(255, 255, 255, 0.94), rgba(247, 249, 252, 0.98)),
+        var(--paper);
+    }
+
+    .slide.active {
+      display: grid;
+      animation: enter 260ms ease-out both;
+    }
+
+    @keyframes enter {
+      from {
+        opacity: 0;
+        transform: translateX(1.5%);
+      }
+      to {
+        opacity: 1;
+        transform: translateX(0);
+      }
+    }
+
+    .slide::before {
+      content: "";
+      position: absolute;
+      width: 22cqw;
+      height: 22cqw;
+      right: -10cqw;
+      top: -14cqw;
+      border: 3.5cqw solid rgba(15, 101, 216, 0.055);
+      border-radius: 50%;
+      pointer-events: none;
+    }
+
+    .slide.dark {
+      color: var(--white);
+      background:
+        radial-gradient(circle at 82% 28%, rgba(19, 184, 200, 0.22), transparent 23cqw),
+        linear-gradient(135deg, #08152b 0%, #10284c 58%, #0b4260 100%);
+    }
+
+    .slide.dark::before {
+      border-color: rgba(255, 255, 255, 0.06);
+    }
+
+    .slide.green {
+      background:
+        radial-gradient(circle at 90% 0%, rgba(32, 165, 106, 0.17), transparent 28cqw),
+        linear-gradient(135deg, #f7fffb 0%, #eefaf5 100%);
+    }
+
+    .slide.red {
+      background:
+        radial-gradient(circle at 100% 0%, rgba(217, 70, 95, 0.15), transparent 30cqw),
+        linear-gradient(135deg, #fffafb 0%, #f9f5f6 100%);
+    }
+
+    header {
+      position: relative;
+      z-index: 1;
+    }
+
+    .eyebrow {
+      display: flex;
+      align-items: center;
+      gap: 0.75cqw;
+      margin-bottom: 1.3cqh;
+      color: var(--blue);
+      font-size: 1.35cqw;
+      font-weight: 750;
+      letter-spacing: 0.09em;
+      text-transform: uppercase;
+    }
+
+    .dark .eyebrow {
+      color: #79e4ed;
+    }
+
+    .eyebrow::before {
+      content: "";
+      width: 2.8cqw;
+      height: 0.5cqh;
+      border-radius: 99px;
+      background: currentColor;
+    }
+
+    h1,
+    h2,
+    h3,
+    p {
+      margin-top: 0;
+    }
+
+    h1 {
+      max-width: 13ch;
+      margin-bottom: 2.2cqh;
+      font-size: 5.6cqw;
+      line-height: 0.98;
+      letter-spacing: -0.055em;
+    }
+
+    h2 {
+      max-width: 22ch;
+      margin-bottom: 0;
+      font-size: 3.4cqw;
+      line-height: 1.03;
+      letter-spacing: -0.04em;
+    }
+
+    h3 {
+      margin-bottom: 1cqh;
+      font-size: 1.55cqw;
+      line-height: 1.15;
+    }
+
+    .subtitle {
+      max-width: 31em;
+      margin-bottom: 0;
+      color: var(--ink-soft);
+      font-size: 1.72cqw;
+      line-height: 1.42;
+    }
+
+    .dark .subtitle {
+      color: #ccdaec;
+    }
+
+    .content {
+      position: relative;
+      z-index: 1;
+      min-height: 0;
+    }
+
+    .grid-2,
+    .grid-3,
+    .grid-4 {
+      display: grid;
+      align-items: stretch;
+      gap: 1.5cqw;
+      height: 100%;
+    }
+
+    .grid-2 {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .grid-3 {
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+
+    .grid-4 {
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+    }
+
+    .card {
+      position: relative;
+      overflow: hidden;
+      padding: 2.4cqh 1.6cqw;
+      border: 1px solid rgba(196, 207, 222, 0.75);
+      border-radius: 1.1cqw;
+      background: rgba(255, 255, 255, 0.84);
+      box-shadow: 0 0.7cqw 2cqw rgba(22, 48, 89, 0.07);
+    }
+
+    .card.accent {
+      border-top: 0.55cqh solid var(--blue);
+    }
+
+    .card.good {
+      border-top: 0.55cqh solid var(--green);
+      background: linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(238, 252, 246, 0.93));
+    }
+
+    .card.warn {
+      border-top: 0.55cqh solid var(--amber);
+      background: linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(255, 248, 231, 0.93));
+    }
+
+    .card.bad {
+      border-top: 0.55cqh solid var(--red);
+      background: linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(255, 239, 242, 0.93));
+    }
+
+    .card p {
+      margin-bottom: 0;
+      color: var(--ink-soft);
+      font-size: 1.22cqw;
+      line-height: 1.42;
+    }
+
+    .metric {
+      display: block;
+      margin-bottom: 0.9cqh;
+      font-size: 3.75cqw;
+      font-weight: 820;
+      line-height: 0.95;
+      letter-spacing: -0.055em;
+    }
+
+    .metric.good-text {
+      color: var(--green);
+    }
+
+    .metric.bad-text {
+      color: var(--red);
+    }
+
+    .metric.blue-text {
+      color: var(--blue);
+    }
+
+    .metric-label {
+      display: block;
+      margin-bottom: 1.5cqh;
+      color: var(--ink-soft);
+      font-size: 1.14cqw;
+      font-weight: 650;
+      line-height: 1.25;
+    }
+
+    .pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.45cqw;
+      padding: 0.55cqh 0.65cqw;
+      border-radius: 99px;
+      background: #edf3fb;
+      color: var(--blue);
+      font-size: 0.9cqw;
+      font-weight: 760;
+      line-height: 1;
+      white-space: nowrap;
+    }
+
+    .pill.good {
+      background: var(--green-soft);
+      color: #117a4a;
+    }
+
+    .pill.bad {
+      background: var(--red-soft);
+      color: #b72e48;
+    }
+
+    .pill.warn {
+      background: var(--amber-soft);
+      color: #9c6200;
+    }
+
+    .result-row {
+      display: grid;
+      grid-template-columns: 1.65fr 1fr 1fr 0.85fr;
+      align-items: center;
+      gap: 1.2cqw;
+      padding: 1.25cqh 1.1cqw;
+      border-bottom: 1px solid var(--line);
+      font-size: 1.05cqw;
+    }
+
+    .result-row:last-child {
+      border-bottom: 0;
+    }
+
+    .result-row.header {
+      padding-top: 0;
+      color: #6a7890;
+      font-size: 0.82cqw;
+      font-weight: 760;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+    }
+
+    .result-name {
+      font-weight: 720;
+    }
+
+    .delta {
+      font-weight: 820;
+    }
+
+    .delta.positive {
+      color: var(--green);
+    }
+
+    .delta.negative {
+      color: var(--red);
+    }
+
+    .bar-compare {
+      display: grid;
+      gap: 1.2cqh;
+      margin: 2cqh 0;
+    }
+
+    .bar-line {
+      display: grid;
+      grid-template-columns: 5.5cqw 1fr 5cqw;
+      align-items: center;
+      gap: 0.8cqw;
+      font-size: 1cqw;
+      font-weight: 700;
+    }
+
+    .bar-track {
+      height: 2.7cqh;
+      overflow: hidden;
+      border-radius: 99px;
+      background: #e6ebf2;
+    }
+
+    .bar {
+      height: 100%;
+      border-radius: inherit;
+      background: #95a4b8;
+    }
+
+    .bar.candidate {
+      background: linear-gradient(90deg, var(--cyan), var(--green));
+    }
+
+    .bar.regression {
+      background: linear-gradient(90deg, #ef7b8e, var(--red));
+    }
+
+    .callout {
+      display: flex;
+      align-items: center;
+      gap: 1cqw;
+      padding: 1.3cqh 1.2cqw;
+      border-left: 0.45cqw solid var(--blue);
+      border-radius: 0.7cqw;
+      background: #edf5ff;
+      color: #234361;
+      font-size: 1.1cqw;
+      line-height: 1.35;
+    }
+
+    .callout strong {
+      color: var(--ink);
+    }
+
+    .callout.good {
+      border-left-color: var(--green);
+      background: var(--green-soft);
+    }
+
+    .callout.warn {
+      border-left-color: var(--amber);
+      background: var(--amber-soft);
+    }
+
+    .callout.bad {
+      border-left-color: var(--red);
+      background: var(--red-soft);
+    }
+
+    .plain-list {
+      display: grid;
+      gap: 1.4cqh;
+      margin: 0;
+      padding: 0;
+      list-style: none;
+    }
+
+    .plain-list li {
+      display: grid;
+      grid-template-columns: 2.2cqw 1fr;
+      align-items: start;
+      gap: 0.8cqw;
+      color: var(--ink-soft);
+      font-size: 1.18cqw;
+      line-height: 1.36;
+    }
+
+    .plain-list .number {
+      display: grid;
+      width: 2cqw;
+      height: 2cqw;
+      place-items: center;
+      border-radius: 50%;
+      background: var(--ink);
+      color: var(--white);
+      font-size: 0.9cqw;
+      font-weight: 800;
+    }
+
+    .experiment {
+      display: grid;
+      grid-template-rows: auto auto 1fr;
+      gap: 1cqh;
+    }
+
+    .experiment .signal {
+      align-self: end;
+      padding-top: 1.3cqh;
+      border-top: 1px solid var(--line);
+      color: var(--green);
+      font-size: 1.24cqw;
+      font-weight: 800;
+    }
+
+    .process {
+      display: grid;
+      grid-template-columns: repeat(5, 1fr);
+      align-items: stretch;
+      gap: 1.2cqw;
+      height: 100%;
+    }
+
+    .process-step {
+      position: relative;
+      display: grid;
+      align-content: center;
+      min-width: 0;
+      padding: 1.8cqh 1.15cqw;
+      border-radius: 1cqw;
+      background: rgba(255, 255, 255, 0.1);
+      box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.16);
+    }
+
+    .process-step:not(:last-child)::after {
+      content: "";
+      position: absolute;
+      z-index: 2;
+      width: 1.2cqw;
+      height: 1.2cqw;
+      right: -1.2cqw;
+      top: 50%;
+      border-top: 0.28cqw solid #7ce2e8;
+      border-right: 0.28cqw solid #7ce2e8;
+      transform: translate(-20%, -50%) rotate(45deg);
+    }
+
+    .process-step .step {
+      margin-bottom: 1cqh;
+      color: #7ce2e8;
+      font-size: 0.85cqw;
+      font-weight: 800;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+
+    .process-step h3 {
+      font-size: 1.35cqw;
+    }
+
+    .process-step p {
+      margin-bottom: 0;
+      color: #c7d5e7;
+      font-size: 0.98cqw;
+      line-height: 1.38;
+    }
+
+    .split-emphasis {
+      display: grid;
+      grid-template-columns: 0.88fr 1.12fr;
+      align-items: center;
+      gap: 4cqw;
+      height: 100%;
+    }
+
+    .hero-metric {
+      padding-right: 3cqw;
+      border-right: 1px solid rgba(255, 255, 255, 0.18);
+    }
+
+    .hero-metric .metric {
+      color: #68e2b1;
+      font-size: 8.5cqw;
+    }
+
+    .hero-metric .metric-label {
+      color: #d3deeb;
+      font-size: 1.7cqw;
+    }
+
+    .tradeoff {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 1.6cqw;
+    }
+
+    .tradeoff > div {
+      padding: 2.2cqh 1.6cqw;
+      border-radius: 1cqw;
+    }
+
+    .tradeoff .strength {
+      background: var(--green-soft);
+    }
+
+    .tradeoff .limit {
+      background: var(--amber-soft);
+    }
+
+    .mini-tag {
+      display: block;
+      margin-bottom: 0.8cqh;
+      color: var(--blue);
+      font-size: 0.85cqw;
+      font-weight: 800;
+      letter-spacing: 0.07em;
+      text-transform: uppercase;
+    }
+
+    footer {
+      position: relative;
+      z-index: 1;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      color: #758298;
+      font-size: 0.85cqw;
+      font-weight: 600;
+    }
+
+    .dark footer {
+      color: #9eb0c7;
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 0.6cqw;
+    }
+
+    .brand-mark {
+      display: inline-grid;
+      width: 1.55cqw;
+      height: 1.55cqw;
+      place-items: center;
+      border-radius: 0.38cqw;
+      background: linear-gradient(135deg, var(--cyan), var(--blue));
+      color: white;
+      font-size: 0.75cqw;
+      font-weight: 900;
+    }
+
+    .controls {
+      position: fixed;
+      z-index: 20;
+      right: 1rem;
+      bottom: 1rem;
+      display: flex;
+      align-items: center;
+      gap: 0.45rem;
+      padding: 0.45rem;
+      border: 1px solid rgba(255, 255, 255, 0.6);
+      border-radius: 999px;
+      background: rgba(8, 21, 43, 0.78);
+      box-shadow: 0 8px 32px rgba(0, 0, 0, 0.18);
+      backdrop-filter: blur(12px);
+    }
+
+    .controls button {
+      display: grid;
+      width: 2rem;
+      height: 2rem;
+      padding: 0;
+      place-items: center;
+      border: 0;
+      border-radius: 50%;
+      background: transparent;
+      color: white;
+      cursor: pointer;
+      font-size: 1rem;
+    }
+
+    .controls button:hover {
+      background: rgba(255, 255, 255, 0.16);
+    }
+
+    .counter {
+      min-width: 3.4rem;
+      color: white;
+      font-size: 0.78rem;
+      font-weight: 700;
+      text-align: center;
+    }
+
+    .progress {
+      position: absolute;
+      z-index: 10;
+      left: 0;
+      bottom: 0;
+      width: 0;
+      height: 0.55cqh;
+      background: linear-gradient(90deg, var(--cyan), var(--blue));
+      transition: width 220ms ease;
+    }
+
+    .speaker-notes {
+      position: absolute;
+      z-index: 15;
+      right: 2cqw;
+      bottom: 3.6cqh;
+      display: none;
+      width: 37cqw;
+      max-height: 30cqh;
+      overflow: auto;
+      padding: 1.4cqh 1.15cqw;
+      border: 1px solid rgba(255, 255, 255, 0.35);
+      border-radius: 0.8cqw;
+      background: rgba(6, 17, 35, 0.93);
+      box-shadow: 0 12px 50px rgba(0, 0, 0, 0.28);
+      color: #eef5ff;
+      font-size: 0.95cqw;
+      line-height: 1.42;
+    }
+
+    .deck.notes-visible .active .speaker-notes {
+      display: block;
+    }
+
+    .speaker-notes strong {
+      color: #7ce2e8;
+    }
+
+    .small {
+      font-size: 0.95cqw !important;
+    }
+
+    .muted {
+      color: var(--ink-soft);
+    }
+
+    .nowrap {
+      white-space: nowrap;
+    }
+
+    @media (max-width: 700px) {
+      .controls {
+        right: 0.4rem;
+        bottom: 0.4rem;
+        transform: scale(0.82);
+        transform-origin: right bottom;
+      }
+    }
+
+    @media print {
+      html,
+      body {
+        width: auto;
+        height: auto;
+        overflow: visible;
+        background: white;
+      }
+
+      .deck {
+        display: block;
+        width: auto;
+        height: auto;
+        overflow: visible;
+        box-shadow: none;
+      }
+
+      .slide,
+      .slide.active {
+        position: relative;
+        display: grid;
+        width: 13.333in;
+        height: 7.5in;
+        break-after: page;
+        animation: none;
+      }
+
+      .controls,
+      .progress,
+      .speaker-notes {
+        display: none !important;
+      }
+    }
+  </style>
+</head>
+<body>
+  <main class="deck" id="deck" aria-live="polite">
+    <section class="slide dark active" data-duration="0:35" aria-label="Title slide">
+      <header>
+        <div class="eyebrow">iModel Transformer</div>
+        <h1>Performance results &amp; learnings</h1>
+        <p class="subtitle">Tracking improvements, detecting regressions, and a new A/B testing suite to support rapid development.</p>
+      </header>
+      <div class="content split-emphasis">
+        <div class="hero-metric">
+          <span class="metric" style="font-size: 4.8cqw;">September</span>
+          <span class="metric-label">2026 performance briefing</span>
+        </div>
+        <div>
+          <span class="pill good">Presented by</span>
+          <h3 style="font-size: 2.1cqw; margin-top: 2cqh;">Nam Le &amp; Daniel Rodriguez</h3>
+        </div>
+      </div>
+      <footer>
+        <div class="brand"><span class="brand-mark">iT</span> iTwin / iModel Transformer</div>
+        <span>1</span>
+      </footer>
+      <aside class="speaker-notes">
+        <strong>~35 seconds.</strong> We set out to make the Transformer faster in the places that matter, while building a safer way to experiment. This is not only a story about wins. It is also about catching a serious regression and rejecting an attractive idea when the measurements said no.
+      </aside>
+    </section>
+
+    <section class="slide" data-duration="0:45" aria-label="Results at a glance">
+      <header>
+        <div class="eyebrow">The scorecard</div>
+        <h2>Meaningful gains without broad slowdowns</h2>
+      </header>
+      <div class="content grid-4">
+        <article class="card good">
+          <span class="metric good-text">4</span>
+          <span class="metric-label">material improvements</span>
+          <p>Targeted workloads finished between <strong>6% and 60% faster</strong>.</p>
+        </article>
+        <article class="card good">
+          <span class="metric good-text">2.52&times;</span>
+          <span class="metric-label">best observed speedup</span>
+          <p>Delete-heavy incremental synchronization benefited most.</p>
+        </article>
+        <article class="card accent">
+          <span class="metric blue-text">2</span>
+          <span class="metric-label">stable guardrail tests</span>
+          <p>Balanced sync and schema processing stayed within our &plusmn;5% signal threshold.</p>
+        </article>
+        <article class="card bad">
+          <span class="metric bad-text">1</span>
+          <span class="metric-label">major regression caught</span>
+          <p>Update-heavy change scanning was <strong>3.25&times; slower</strong> in the candidate.</p>
+        </article>
+      </div>
+      <footer>
+        <div class="brand"><span class="brand-mark">iT</span> Cumulative candidate vs. baseline</div>
+        <span>2</span>
+      </footer>
+      <aside class="speaker-notes">
+        <strong>~45 seconds.</strong> Across seven focused scenarios, four showed material gains and two stayed effectively flat. Most importantly, the suite caught one major regression. We use a five-percent threshold as an investigation signal, not as proof of statistical significance.
+      </aside>
+    </section>
+
+    <section class="slide green" data-duration="1:20" aria-label="Completed performance gains">
+      <header>
+        <div class="eyebrow">Completed performance gains</div>
+        <h2>Targeted improvements, measured with focused tests</h2>
+      </header>
+      <div class="content grid-4">
+        <article class="card good">
+          <span class="pill good">PR <a href="https://github.com/iTwin/imodel-transformer/pull/378">#378</a> &middot; merged</span>
+          <span class="metric good-text" style="margin-top: 2cqh;">60%</span>
+          <span class="metric-label">faster on delete-heavy synchronization</span>
+          <p><strong>Idea:</strong> delete many elements as a group instead of repeating the same setup for every deletion.</p>
+          <div class="callout good small" style="margin-top: 1.7cqh;">Purpose-built stress case with many independent deletes; not a 60% promise for every sync.</div>
+        </article>
+        <article class="card good">
+          <span class="pill good">PR <a href="https://github.com/iTwin/imodel-transformer/pull/399">#399</a></span>
+          <span class="metric good-text" style="margin-top: 2cqh;">43%</span>
+          <span class="metric-label">faster on a large model with a tiny update</span>
+          <p><strong>Idea:</strong> when only a few elements changed, visit those elements instead of walking the entire model.</p>
+          <div class="callout good small" style="margin-top: 1.7cqh;">50,000-element base; only 25 inserts and 25 updates.</div>
+        </article>
+        <article class="card good">
+          <span class="pill good">PR <a href="https://github.com/iTwin/imodel-transformer/pull/390">#390</a></span>
+          <span class="metric good-text" style="margin-top: 2cqh;">6%</span>
+          <span class="metric-label">faster in the cumulative relationship-heavy run</span>
+          <p><strong>Idea:</strong> read relationships in batches instead of issuing a separate lookup for each one.</p>
+          <div class="callout good small" style="margin-top: 1.7cqh;">A focused stress case with 30,000 relationships.</div>
+        </article>
+        <article class="card accent">
+          <span class="pill">PRs <a href="https://github.com/iTwin/imodel-transformer/pull/389">#389</a>, <a href="https://github.com/iTwin/imodel-transformer/pull/365">#365</a>, <a href="https://github.com/iTwin/imodel-transformer/pull/395">#395</a></span>
+          <span class="metric blue-text" style="margin-top: 2cqh;">35%</span>
+          <span class="metric-label">faster for full transformation overall</span>
+          <p><strong>Ideas:</strong> cache repeated checks, batch aspect reads, and stream hierarchy traversal.</p>
+          <div class="callout small" style="margin-top: 1.7cqh;">Cumulative result; individual PR tests isolate each contribution.</div>
+        </article>
+      </div>
+      <footer>
+        <div class="brand"><span class="brand-mark">iT</span> Each result reflects a focused workload designed to expose a specific bottleneck</div>
+        <span>3</span>
+      </footer>
+      <aside class="speaker-notes">
+        <strong>~80 seconds.</strong> Four focused results show the pattern behind the completed work: remove unnecessary traversal, group database operations, and reuse answers we already found. The largest measured gain is bulk deletion, where the old path repeated setup for each deleted element and the new path handles the set together. That fixture deliberately contains many deletes, so it makes the improvement visible but does not predict a 60-percent gain for every synchronization. The large-base test similarly emphasizes a tiny change within a 50,000-element model, while the relationship test contains 30,000 relationships. The full-transformation number is cumulative, so the linked PR benchmarks provide the clearest evidence for individual contributions.
+      </aside>
+    </section>
+
+    <section class="slide red" data-duration="1:10" aria-label="Regressions caught before shipping">
+      <header>
+        <div class="eyebrow">The guardrails worked</div>
+        <h2>Catching regressions before they ship</h2>
+      </header>
+      <div class="content grid-3">
+        <article class="card bad">
+          <span class="pill bad">Regression caught &middot; PR <a href="https://github.com/iTwin/imodel-transformer/pull/342">#342</a></span>
+          <span class="metric bad-text" style="margin-top: 2cqh;">3.25&times;</span>
+          <span class="metric-label">and 26% more peak memory in update-heavy change scanning</span>
+          <p><strong>What we learned:</strong> the path introduced around <a href="https://github.com/iTwin/imodel-transformer/pull/342">PR #342</a> needs investigation. The candidate also upgraded Core, so the full delta cannot be assigned to one change.</p>
+          <div class="callout bad small" style="margin-top: 1.7cqh;"><a href="https://github.com/iTwin/imodel-transformer/actions/runs/34248395328">View the A/B regression run</a></div>
+        </article>
+        <article class="card bad">
+          <span class="pill bad">Experiment rejected &middot; PR <a href="https://github.com/iTwin/imodel-transformer/pull/392">#392</a></span>
+          <span class="metric bad-text" style="margin-top: 2cqh;">2&ndash;2.5&times;</span>
+          <span class="metric-label">slower than the existing element-loading path</span>
+          <p><strong>What we learned:</strong> the proposed bulk query reduced round trips but added expensive data serialization. Even the raw query was slower.</p>
+          <div class="callout warn small" style="margin-top: 1.7cqh;"><strong>Outcome:</strong> close the implementation and redirect effort before adding complexity or a regression.</div>
+        </article>
+        <article class="card accent">
+          <span class="pill">Guardrail results</span>
+          <span class="metric blue-text" style="margin-top: 2cqh;">Stable</span>
+          <span class="metric-label">two broader workloads remained within the &plusmn;5% signal threshold</span>
+          <h3>Balanced incremental sync</h3>
+          <p><strong>1.7% faster</strong> across a broad mixed workload.</p>
+          <h3 style="margin-top: 2cqh;">Schema processing</h3>
+          <p><strong>3.1% slower</strong>, with no material difference flagged.</p>
+        </article>
+      </div>
+      <footer>
+        <div class="brand"><span class="brand-mark">iT</span> Fast feedback exposed one regression and stopped one unproductive direction</div>
+        <span>4</span>
+      </footer>
+      <aside class="speaker-notes">
+        <strong>~70 seconds.</strong> The same suite protected us in two ways. First, it exposed an update-heavy changeset-scanning regression: the candidate was more than three times slower and used more memory. PR #342 is the main related Transformer change, but the candidate also upgraded Core, so the result identifies the path to investigate without assigning the full regression to one PR. Second, the suite disproved the bulk-element-loading experiment in PR #392. It sounded promising because it reduced round trips, but serialization made it two to two-and-a-half times slower. We closed that direction before adding complexity. Meanwhile, balanced synchronization and schema processing stayed within our five-percent signal threshold.
+      </aside>
+    </section>
+
+    <section class="slide" data-duration="0:45" aria-label="Ongoing performance experiments">
+      <header>
+        <div class="eyebrow">Still in the lab</div>
+        <h2>Four promising experiments</h2>
+      </header>
+      <div class="content grid-4">
+        <article class="card experiment">
+          <span class="pill">PR <a href="https://github.com/iTwin/imodel-transformer/pull/393">#393</a></span>
+          <div>
+            <h3>Linear full-export traversal</h3>
+            <p>Visit elements in a simpler order to avoid repeated hierarchy queries.</p>
+          </div>
+          <div class="signal">~6&ndash;11% faster</div>
+        </article>
+        <article class="card experiment">
+          <span class="pill">PR <a href="https://github.com/iTwin/imodel-transformer/pull/391">#391</a></span>
+          <div>
+            <h3>Preload provenance indexes</h3>
+            <p>Replace per-entity provenance lookups with a reusable in-memory index.</p>
+          </div>
+          <div class="signal">~5% faster</div>
+        </article>
+        <article class="card experiment">
+          <span class="pill warn">Draft <a href="https://github.com/iTwin/imodel-transformer/pull/397">#397</a></span>
+          <div>
+            <h3>Prefetch source elements</h3>
+            <p>Read upcoming source data while the current batch is being written.</p>
+          </div>
+          <div class="signal">~6&ndash;9% faster</div>
+        </article>
+        <article class="card experiment">
+          <span class="pill warn">Draft <a href="https://github.com/iTwin/imodel-transformer/pull/394">#394</a></span>
+          <div>
+            <h3>Filter before loading</h3>
+            <p>Avoid loading heavy elements when we already know they will be excluded.</p>
+          </div>
+          <div class="signal">~6&ndash;24% faster</div>
+        </article>
+      </div>
+      <footer>
+        <div class="brand"><span class="brand-mark">iT</span> Early signals, not shipped commitments</div>
+        <span>5</span>
+      </footer>
+      <aside class="speaker-notes">
+        <strong>~45 seconds.</strong> These are active experiments, not shipped promises. Each explores a different way to remove waiting or unnecessary work: simpler traversal, preloaded indexes, overlapping reads and writes, and filtering before expensive loads. The focused harness lets us get directional evidence early, then decide which ideas deserve production hardening.
+      </aside>
+    </section>
+
+    <section class="slide dark" data-duration="1:00" aria-label="A/B testing process">
+      <header>
+        <div class="eyebrow">How we moved quickly</div>
+        <h2>A/B testing turns an idea into evidence</h2>
+      </header>
+      <div class="content process">
+        <article class="process-step">
+          <span class="step">Step 1</span>
+          <h3>Build a focused model</h3>
+          <p>Generate exactly the data shape that exposes the suspected bottleneck.</p>
+        </article>
+        <article class="process-step">
+          <span class="step">Step 2</span>
+          <h3>Build both branches</h3>
+          <p>Prepare baseline and candidate from known revisions.</p>
+        </article>
+        <article class="process-step">
+          <span class="step">Step 3</span>
+          <h3>Use one runner</h3>
+          <p>Both versions execute on the same GitHub Actions machine.</p>
+        </article>
+        <article class="process-step">
+          <span class="step">Step 4</span>
+          <h3>Alternate samples</h3>
+          <p>Run baseline and candidate repeatedly in isolated processes.</p>
+        </article>
+        <article class="process-step">
+          <span class="step">Step 5</span>
+          <h3>Compare medians</h3>
+          <p>Use 40 measured samples per arm so outliers do not drive the story.</p>
+        </article>
+      </div>
+      <footer>
+        <div class="brand"><span class="brand-mark">iT</span> Same machine &middot; alternating order &middot; repeatable fixtures</div>
+        <span>6</span>
+      </footer>
+      <aside class="speaker-notes">
+        <strong>~60 seconds.</strong> Every quick test begins with generated data tailored to a question. The workflow builds both revisions, then runs them on the same machine. Baseline and candidate samples alternate, each in an isolated process, reducing machine drift and cross-test contamination. We take the median of 40 measured samples per branch&mdash;not a single run and not a simple average that can be distorted by an outlier.
+      </aside>
+    </section>
+
+    <section class="slide" data-duration="0:55" aria-label="Testing suite strengths and tradeoffs">
+      <header>
+        <div class="eyebrow">Why the quick suite works</div>
+        <h2>Fast, controlled, and intentionally focused</h2>
+      </header>
+      <div class="content tradeoff">
+        <div class="strength">
+          <span class="pill good">Strengths</span>
+          <ul class="plain-list" style="margin-top: 2cqh;">
+            <li><span class="number">1</span><span><strong>Minutes, not hours:</strong> small targeted fixtures make iteration practical during development.</span></li>
+            <li><span class="number">2</span><span><strong>Precise control:</strong> generate delete-heavy, relationship-heavy, or large-base/tiny-change data on demand.</span></li>
+            <li><span class="number">3</span><span><strong>Reproducible comparisons:</strong> the fixture recipe and branch revisions are captured with the result.</span></li>
+          </ul>
+        </div>
+        <div class="limit">
+          <span class="pill warn">Tradeoffs</span>
+          <ul class="plain-list" style="margin-top: 2cqh;">
+            <li><span class="number">1</span><span><strong>Synthetic data is small:</strong> it may not reproduce every real-world model characteristic.</span></li>
+            <li><span class="number">2</span><span><strong>Focused tests amplify one shape:</strong> a 60% delete-heavy win is not a 60% promise everywhere.</span></li>
+            <li><span class="number">3</span><span><strong>Thresholds are signals:</strong> important decisions still deserve repetition and real-model validation.</span></li>
+          </ul>
+        </div>
+      </div>
+      <footer>
+        <div class="brand"><span class="brand-mark">iT</span> Quick suite for iteration; comprehensive suite for broader confidence</div>
+        <span>7</span>
+      </footer>
+      <aside class="speaker-notes">
+        <strong>~55 seconds.</strong> The old performance suites are comprehensive but can take hours because they use large models and many cases. This suite trades breadth for speed and control. Generated fixtures let us amplify one behavior and iterate quickly. The tradeoff is realism: synthetic models are smaller and cleaner than customer data. We use the quick suite to learn and screen ideas, then use broader testing when the decision requires it.
+      </aside>
+    </section>
+
+    <section class="slide dark" data-duration="0:35" aria-label="Closing summary">
+      <header>
+        <div class="eyebrow">The takeaway</div>
+        <h2 style="max-width: 20ch;">Measure quickly. Improve deliberately. Catch regressions early.</h2>
+      </header>
+      <div class="content grid-3">
+        <article class="process-step">
+          <span class="metric" style="color: #68e2b1;">2.52&times;</span>
+          <h3>faster where deletes dominate</h3>
+          <p>Targeted optimizations delivered large gains in the workloads they address.</p>
+        </article>
+        <article class="process-step">
+          <span class="metric" style="color: #ff879b;">3.25&times;</span>
+          <h3>slower regression caught</h3>
+          <p>The same suite kept a serious change-scanning slowdown visible.</p>
+        </article>
+        <article class="process-step">
+          <span class="metric" style="color: #7ce2e8;">5</span>
+          <h3>additional ideas measured</h3>
+          <p>Four are advancing; one was rejected based on evidence.</p>
+        </article>
+      </div>
+      <footer>
+        <div class="brand"><span class="brand-mark">iT</span> Performance work is now a repeatable feedback loop</div>
+        <span>8</span>
+      </footer>
+      <aside class="speaker-notes">
+        <strong>~35 seconds.</strong> The result is more than a set of faster code paths. We now have a repeatable feedback loop: create a focused question, compare both branches fairly, ship measured wins, investigate regressions, and stop weak ideas early. That is what allowed this performance program to move quickly without guessing.
+      </aside>
+    </section>
+
+    <div class="progress" id="progress" aria-hidden="true"></div>
+  </main>
+
+  <nav class="controls" aria-label="Presentation controls">
+    <button id="previous" type="button" title="Previous slide (Left arrow)" aria-label="Previous slide">&#8592;</button>
+    <span class="counter" id="counter">1 / 8</span>
+    <button id="next" type="button" title="Next slide (Right arrow or Space)" aria-label="Next slide">&#8594;</button>
+    <button id="notes" type="button" title="Toggle speaker notes (N)" aria-label="Toggle speaker notes">N</button>
+    <button id="fullscreen" type="button" title="Toggle fullscreen (F)" aria-label="Toggle fullscreen">&#x26F6;</button>
+  </nav>
+
+  <script>
+    (() => {
+      const deck = document.getElementById("deck");
+      const slides = [...document.querySelectorAll(".slide")];
+      const counter = document.getElementById("counter");
+      const progress = document.getElementById("progress");
+      let current = Math.max(0, Math.min(slides.length - 1, Number(location.hash.slice(1)) - 1 || 0));
+
+      function show(index) {
+        current = Math.max(0, Math.min(slides.length - 1, index));
+        slides.forEach((slide, slideIndex) => slide.classList.toggle("active", slideIndex === current));
+        counter.textContent = `${current + 1} / ${slides.length}`;
+        progress.style.width = `${((current + 1) / slides.length) * 100}%`;
+        history.replaceState(null, "", `#${current + 1}`);
+        document.title = `${current + 1}/${slides.length} | Transformer Performance Briefing`;
+      }
+
+      function toggleFullscreen() {
+        if (document.fullscreenElement) {
+          document.exitFullscreen();
+        } else {
+          document.documentElement.requestFullscreen();
+        }
+      }
+
+      document.getElementById("previous").addEventListener("click", () => show(current - 1));
+      document.getElementById("next").addEventListener("click", () => show(current + 1));
+      document.getElementById("notes").addEventListener("click", () => deck.classList.toggle("notes-visible"));
+      document.getElementById("fullscreen").addEventListener("click", toggleFullscreen);
+
+      document.addEventListener("keydown", (event) => {
+        if (["ArrowRight", "PageDown", " "].includes(event.key)) {
+          event.preventDefault();
+          show(current + 1);
+        } else if (["ArrowLeft", "PageUp"].includes(event.key)) {
+          event.preventDefault();
+          show(current - 1);
+        } else if (event.key === "Home") {
+          show(0);
+        } else if (event.key === "End") {
+          show(slides.length - 1);
+        } else if (event.key.toLowerCase() === "n") {
+          deck.classList.toggle("notes-visible");
+        } else if (event.key.toLowerCase() === "f") {
+          toggleFullscreen();
+        }
+      });
+
+      window.addEventListener("hashchange", () => {
+        const requested = Number(location.hash.slice(1)) - 1;
+        if (Number.isFinite(requested)) {
+          show(requested);
+        }
+      });
+
+      show(current);
+    })();
+  </script>
+</body>
+</html>
