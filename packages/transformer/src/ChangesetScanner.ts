@@ -77,6 +77,18 @@ export class ChangesetScanner {
     options: { populateChangedInstanceIds?: boolean } = {}
   ): Promise<ChangesetDeletionRecordsByChangeset> {
     const deletionRecordsByChangeset: ChangesetDeletionRecord[][] = [];
+    await changedInstanceIds.addChanges(
+      this.readChanges(iModel, csFileProps, deletionRecordsByChangeset, options)
+    );
+    return deletionRecordsByChangeset;
+  }
+
+  private static *readChanges(
+    iModel: IModelDb,
+    csFileProps: ChangesetFileProps[],
+    deletionRecordsByChangeset: ChangesetDeletionRecordsByChangeset,
+    options: { populateChangedInstanceIds?: boolean }
+  ): Generator<ChangeInstance> {
     for (const csFile of csFileProps) {
       const csReader = ChangesetReader.openFile({
         fileName: csFile.pathname,
@@ -107,8 +119,7 @@ export class ChangesetScanner {
             change.$meta.op = "Updated";
           }
 
-          if (options.populateChangedInstanceIds !== false)
-            await changedInstanceIds.addChange(change);
+          if (options.populateChangedInstanceIds !== false) yield change;
           if (change.$meta.op === "Deleted") {
             deletionRecords.push(this.toDeletionRecord(iModel, change));
           }
@@ -122,8 +133,6 @@ export class ChangesetScanner {
         }
       }
     }
-
-    return deletionRecordsByChangeset;
   }
 
   private static toDeletionRecord(

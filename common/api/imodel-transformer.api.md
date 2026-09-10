@@ -50,6 +50,8 @@ import { Transform } from '@itwin/core-geometry';
 export class ChangedInstanceIds {
     constructor(db: IModelDb);
     addChange(change: ChangeInstance): Promise<void>;
+    // @internal
+    addChanges(changes: Iterable<ChangeInstance>): Promise<void>;
     // @beta
     addCustomAspectChange(changeType: SqliteChangeOp, ids: Id64Arg, elementIds?: Id64Arg): void;
     // @beta
