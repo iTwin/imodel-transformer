@@ -1998,6 +1998,7 @@ export class ChangedInstanceIds {
   private _relationshipSubclassIds?: Set<string>;
   private _relationshipSubclassIdsToSkip?: Set<string>;
   private readonly _aspectOwnerElementIds = new Set<Id64String>();
+  private _unresolvedAspectOwnerIds?: Set<Id64String>;
 
   /** Element IDs that own the aspects represented by `aspect` changes.
    * @internal
@@ -2130,9 +2131,13 @@ export class ChangedInstanceIds {
     else if (this.isCodeSpec(ecClassId))
       this.handleChange(this.codeSpec, changeType, change.ECInstanceId);
     else if (this.isAspect(ecClassId)) {
-      const ownerElementId =
-        change.Element?.Id ??
-        this.tryGetAspectOwnerElementId(change.ECInstanceId);
+      let ownerElementId = change.Element?.Id;
+      if (ownerElementId === undefined) {
+        if (this._unresolvedAspectOwnerIds !== undefined)
+          this._unresolvedAspectOwnerIds.add(change.ECInstanceId);
+        else
+          ownerElementId = this.tryGetAspectOwnerElementId(change.ECInstanceId);
+      }
       if (ownerElementId !== undefined) {
         this._aspectOwnerElementIds.add(ownerElementId);
       }
@@ -2452,7 +2457,46 @@ export class ChangedInstanceIds {
     if (csFileProps === undefined) return undefined;
 
     const changedInstanceIds = new ChangedInstanceIds(opts.iModel);
-    await ChangesetScanner.scan(opts.iModel, csFileProps, changedInstanceIds);
+    await changedInstanceIds.scanChangesets(csFileProps);
     return changedInstanceIds;
+  }
+
+  /** Scan changesets and resolve missing aspect owners once against current source state.
+   * @internal
+   */
+  public async scanChangesets(
+    csFileProps: ChangesetFileProps[],
+    options: { populateChangedInstanceIds?: boolean } = {}
+  ) {
+    const unresolvedAspectIds = new Set<Id64String>();
+    this._unresolvedAspectOwnerIds = unresolvedAspectIds;
+    try {
+      const deletionRecords = await ChangesetScanner.scan(
+        this._db,
+        csFileProps,
+        this,
+        options
+      );
+      // Only resolve missing owners from current source state. Changeset-provided
+      // owners, including historical owners, have already been retained by addChange.
+      if (unresolvedAspectIds.size > 0) {
+        this._db.withQueryReader(
+          `WITH AspectIds AS (SELECT id FROM IdSet(:aspectIds))
+           SELECT Element.Id FROM BisCore.ElementMultiAspect
+           WHERE ECInstanceId IN (SELECT id FROM AspectIds)
+           UNION ALL
+           SELECT Element.Id FROM BisCore.ElementUniqueAspect
+           WHERE ECInstanceId IN (SELECT id FROM AspectIds)`,
+          (reader) => {
+            while (reader.step())
+              this._aspectOwnerElementIds.add(reader.current[0]);
+          },
+          new QueryBinder().bindIdSet("aspectIds", unresolvedAspectIds)
+        );
+      }
+      return deletionRecords;
+    } finally {
+      this._unresolvedAspectOwnerIds = undefined;
+    }
   }
 }

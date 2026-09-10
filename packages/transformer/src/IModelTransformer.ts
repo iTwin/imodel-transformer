@@ -111,7 +111,6 @@ import { SchemaProcessingCoordinator } from "./schema-processing/SchemaProcessin
 import {
   ChangesetDeletionRecord,
   ChangesetDeletionRecordsByChangeset,
-  ChangesetScanner,
 } from "./ChangesetScanner";
 import {
   IModelTransformerError,
@@ -2174,16 +2173,12 @@ export class IModelTransformer extends IModelExportHandler {
         ("changedInstanceIds" in exporterInitOptions
           ? exporterInitOptions.changedInstanceIds
           : new ChangedInstanceIds(this.sourceDb));
-      this._deletionRecordsByChangeset = await ChangesetScanner.scan(
-        this.sourceDb,
-        this._csFileProps,
-        changedInstanceIds,
-        {
+      this._deletionRecordsByChangeset =
+        await changedInstanceIds.scanChangesets(this._csFileProps, {
           populateChangedInstanceIds:
             this.exporter.sourceDbChanges === undefined &&
             !("changedInstanceIds" in exporterInitOptions),
-        }
-      );
+        });
       await this.exporter.initialize({
         changedInstanceIds,
         skipPropagateChangesToRootElements:

@@ -72,6 +72,10 @@ export class ChangedInstanceIds {
     model: ChangedInstanceOps;
     // (undocumented)
     relationship: ChangedInstanceOps;
+    // @internal
+    scanChangesets(csFileProps: ChangesetFileProps[], options?: {
+        populateChangedInstanceIds?: boolean;
+    }): Promise<ChangesetDeletionRecordsByChangeset>;
 }
 
 // @public
