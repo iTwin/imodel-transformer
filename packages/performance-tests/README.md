@@ -78,11 +78,12 @@ The `standalone-full-transformation` scenario uses
 source copy and a newly-created empty target. Untimed `prepare()` imports
 schemas, `measure()` contains only `IModelTransformer.process()`, and
 `finish()` computes the target output-shape digest used for A/B comparability.
-Three configured fixtures support it: `standalone-full-transform`
+Four configured fixtures support it: `standalone-full-transform`
 (element-heavy, no relationships), `relationship-heavy-transform` (5,000
 elements with 30,000 `ElementGroupsMembers` relationships, exercising the
 relationship export path including federation-guid lookups), and the opt-in
-`realistic-building-transform` fixture described below.
+`realistic-building-transform` and `realistic-building-transform-large`
+fixtures described below.
 
 `realistic-building-transform` is a deterministic synthetic workload modeled
 only from aggregate transformer-relevant characteristics of a representative
@@ -97,6 +98,26 @@ relationships are generated from scratch with a fixed seed. This fixture models
 aggregate transformation structure, not source file bytes or any specific real
 iModel; in particular, it does not reproduce embedded font blobs or proprietary
 geometry.
+
+`realistic-building-transform-large` is a separate deterministic synthetic
+profile for larger accepted-owner and excluded-source-aspect workloads. Its
+source contains 46,715 elements, including 25,467 geometric elements (15,000
+carrying geometry) and 18,626 definition elements, plus 32 models, 17,547
+geometry parts, 64 spatial categories, 128 render materials, and 3,140
+relationships. The source has 43,757 aspects: 2,640 included synthetic aspects
+distributed evenly across 34 classes and 41,117 synthetic
+`ExternalSourceAspect` rows across 40,661 owners. Normal standalone
+transformation excludes those external source aspects, so the expected target
+contains the 2,640 included aspects and no `ExternalSourceAspect` rows. The
+fixture uses shared, lightweight deterministic geometry (2,872,124 bytes
+across non-null source element and GeometryPart streams, approximately 2.74
+MiB) and independently configurable geometry-bearing element, geometry-part,
+included-aspect, external-source-aspect, and relationship counts.
+
+Like the smaller profile, the large fixture models only aggregate
+transformer-relevant cardinality and shape. It is not a byte-size model and
+does not reproduce any real iModel's schemas, labels, identifiers, placements,
+geometry, topology, or embedded payloads.
 
 ## Running the quick suite
 
@@ -145,12 +166,12 @@ pnpm test:quick
 
 Registered fixtures per scenario:
 
-| Scenario ID                      | Fixture IDs                                                                                 | Default                     |
-| -------------------------------- | ------------------------------------------------------------------------------------------- | --------------------------- |
-| `incremental-synchronization`    | `balanced-incremental`                                                                      | `balanced-incremental`      |
-| `standalone-full-transformation` | `standalone-full-transform`, `relationship-heavy-transform`, `realistic-building-transform` | `standalone-full-transform` |
-| `schema-processing`              | `schema-processing-large`                                                                   | `schema-processing-large`   |
-| `changeset-scanning`             | `update-heavy-scan`                                                                         | `update-heavy-scan`         |
+| Scenario ID                      | Fixture IDs                                                                                                                       | Default                     |
+| -------------------------------- | --------------------------------------------------------------------------------------------------------------------------------- | --------------------------- |
+| `incremental-synchronization`    | `balanced-incremental`                                                                                                            | `balanced-incremental`      |
+| `standalone-full-transformation` | `standalone-full-transform`, `relationship-heavy-transform`, `realistic-building-transform`, `realistic-building-transform-large` | `standalone-full-transform` |
+| `schema-processing`              | `schema-processing-large`                                                                                                         | `schema-processing-large`   |
+| `changeset-scanning`             | `update-heavy-scan`                                                                                                               | `update-heavy-scan`         |
 
 Example in a POSIX shell:
 
@@ -191,6 +212,22 @@ The equivalent POSIX selection is:
 ```sh
 QUICK_PERF_SCENARIO=standalone-full-transformation \
 QUICK_PERF_FIXTURE=realistic-building-transform \
+pnpm test:quick
+```
+
+Run the opt-in large realistic synthetic workload in PowerShell:
+
+```powershell
+$env:QUICK_PERF_SCENARIO = "standalone-full-transformation"
+$env:QUICK_PERF_FIXTURE = "realistic-building-transform-large"
+pnpm test:quick
+```
+
+The equivalent POSIX selection is:
+
+```sh
+QUICK_PERF_SCENARIO=standalone-full-transformation \
+QUICK_PERF_FIXTURE=realistic-building-transform-large \
 pnpm test:quick
 ```
 
