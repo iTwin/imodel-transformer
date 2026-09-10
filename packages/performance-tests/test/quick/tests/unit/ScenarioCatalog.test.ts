@@ -16,6 +16,11 @@ import {
 import { validateFixtureDescriptor } from "../../src/fixtures/FixtureDescriptor.js";
 import { largeBaseIncrementalRecipe } from "../../src/fixtures/recipes/largeBaseIncremental.js";
 import {
+  realisticBuildingExpectedCounts,
+  realisticBuildingTransformParameters,
+  realisticBuildingTransformRecipe,
+} from "../../src/fixtures/recipes/realisticBuildingTransform.js";
+import {
   assertScenarioSupportsFixture,
   resolveBenchmarkRun,
 } from "../../src/framework/BenchmarkResolution.js";
@@ -68,6 +73,48 @@ describe("quick performance scenario catalog", () => {
     const changed = operations.elements.inserts + operations.elements.updates;
     expect(changed).to.be.greaterThan(0);
     expect(base.elements / changed).to.equal(1_000);
+  });
+
+  it("registers the realistic synthetic building fixture as an opt-in full transform", () => {
+    const resolved = resolveBenchmarkRun(
+      "standalone-full-transformation",
+      "realistic-building-transform"
+    );
+    expect(resolved.descriptor.layout.topology).to.equal(
+      "standalone-source-and-empty-target"
+    );
+    expect(resolved.descriptor.scenarioClaims).to.include(
+      "full transformation"
+    );
+    expect(resolved.descriptor.distribution.base).to.deep.equal({
+      aspects:
+        realisticBuildingTransformParameters.multiAspectCount +
+        realisticBuildingTransformParameters.uniqueAspectCount,
+      elements: realisticBuildingExpectedCounts.elements,
+      geometricElements: realisticBuildingExpectedCounts.geometricElements,
+      relationships:
+        realisticBuildingExpectedCounts.refersToRelationships +
+        realisticBuildingExpectedCounts.drivesRelationships,
+    });
+  });
+
+  it("keeps realistic-building geometry, aspects, and relationships independently configurable", () => {
+    const distribution = realisticBuildingTransformRecipe.distribution({
+      ...realisticBuildingTransformParameters,
+      geometryBearingElementCount: 0,
+      geometryPartCount: 0,
+      multiAspectCount: 0,
+      uniqueAspectCount: 0,
+      refersToRelationshipCount: 0,
+      drivesRelationshipCount: 0,
+    });
+    expect(distribution.base).to.deep.equal({
+      aspects: 0,
+      elements: realisticBuildingTransformParameters.elementCount,
+      geometricElements:
+        realisticBuildingTransformParameters.geometricElementCount,
+      relationships: 0,
+    });
   });
 
   it("derives the large-base workload from scale", () => {

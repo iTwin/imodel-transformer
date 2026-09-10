@@ -3,13 +3,14 @@
  * See LICENSE.md in the project root for license terms and full copyright notice.
  *--------------------------------------------------------------------------------------------*/
 
-import { EditTxn, SnapshotDb } from "@itwin/core-backend";
+import { EditTxn, ElementDrivesElement, SnapshotDb } from "@itwin/core-backend";
 import { IModelTransformer } from "@itwin/imodel-transformer";
 import { canonicalSha256 } from "../fixtures/FixtureDescriptor.js";
 import {
   PreparedDataset,
   requireStandaloneDataset,
 } from "../fixtures/FixtureProvider.js";
+import { realisticBuildingTransformFixture } from "../fixtures/recipes/realisticBuildingTransform.js";
 import { standaloneFullTransformFixture } from "../fixtures/recipes/standaloneFullTransform.js";
 import { relationshipHeavyTransformFixture } from "../fixtures/recipes/relationshipHeavyTransform.js";
 import { defineBenchmark } from "../framework/BenchmarkRegistration.js";
@@ -40,17 +41,46 @@ async function classDistribution(
 }
 
 async function structuralIdentity(db: SnapshotDb): Promise<unknown> {
-  const [aspects, elements, models, relationships] = await Promise.all([
+  const [
+    aspects,
+    drives,
+    elements,
+    geometricElementsWithGeometry,
+    geometryPartsWithGeometry,
+    models,
+    relationships,
+  ] = await Promise.all([
     classDistribution(db, "bis.ElementAspect"),
+    classDistribution(db, "bis.ElementDrivesElement"),
     classDistribution(db, "bis.Element"),
+    classDistribution(
+      db,
+      "bis.GeometricElement3d WHERE GeometryStream IS NOT NULL"
+    ),
+    classDistribution(db, "bis.GeometryPart WHERE GeometryStream IS NOT NULL"),
     classDistribution(db, "bis.Model"),
     classDistribution(db, "bis.ElementRefersToElements"),
   ]);
-  return { aspects, elements, models, relationships };
+  return {
+    aspects,
+    drives,
+    elements,
+    geometricElementsWithGeometry,
+    geometryPartsWithGeometry,
+    models,
+    relationships,
+  };
 }
 
 async function outputShapeDigest(targetDb: SnapshotDb): Promise<string> {
   return canonicalSha256(await structuralIdentity(targetDb));
+}
+
+class StandaloneFullTransformer extends IModelTransformer {
+  public override async process(): Promise<void> {
+    await super.process();
+    await this.processRelationships(ElementDrivesElement.classFullName);
+  }
 }
 
 export function standaloneFullTransformation(
@@ -59,7 +89,7 @@ export function standaloneFullTransformation(
   const { sourceDb, targetDb } = requireStandaloneDataset(dataset);
   const editTxn = new EditTxn(targetDb, "Quick standalone full transformation");
   editTxn.start();
-  const transformer = new IModelTransformer(
+  const transformer = new StandaloneFullTransformer(
     { source: sourceDb, target: editTxn },
     { loadSourceGeometry: true, noProvenance: true }
   );
@@ -114,5 +144,9 @@ export const standaloneFullTransformationScenario: BenchmarkScenarioDefinition =
 
 export const standaloneFullTransformationBenchmark = defineBenchmark({
   scenario: standaloneFullTransformationScenario,
-  fixtures: [standaloneFullTransformFixture, relationshipHeavyTransformFixture],
+  fixtures: [
+    standaloneFullTransformFixture,
+    relationshipHeavyTransformFixture,
+    realisticBuildingTransformFixture,
+  ],
 });

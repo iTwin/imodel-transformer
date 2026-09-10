@@ -78,10 +78,25 @@ The `standalone-full-transformation` scenario uses
 source copy and a newly-created empty target. Untimed `prepare()` imports
 schemas, `measure()` contains only `IModelTransformer.process()`, and
 `finish()` computes the target output-shape digest used for A/B comparability.
-Two configured fixtures support it: `standalone-full-transform` (element-heavy,
-no relationships) and `relationship-heavy-transform` (5,000 elements with
-30,000 `ElementGroupsMembers` relationships, exercising the relationship export
-path including federation-guid lookups).
+Three configured fixtures support it: `standalone-full-transform`
+(element-heavy, no relationships), `relationship-heavy-transform` (5,000
+elements with 30,000 `ElementGroupsMembers` relationships, exercising the
+relationship export path including federation-guid lookups), and the opt-in
+`realistic-building-transform` fixture described below.
+
+`realistic-building-transform` is a deterministic synthetic workload modeled
+only from aggregate transformer-relevant characteristics of a representative
+building iModel at approximately twice its structural scale. It contains 3,440
+elements, including 1,608 geometric elements (1,064 carrying geometry) and
+1,812 definition elements, plus 14 models, 2,424 multi-aspects, 2,538 unique
+aspects across seven synthetic classes, 2,672 refers-to relationships, and 276
+drives relationships. Its definition mix includes 24 spatial categories, 64
+render materials, 64 geometry parts, and three synthetic definition classes.
+The varied lightweight geometry, names, schema, identifiers, placements, and
+relationships are generated from scratch with a fixed seed. This fixture models
+aggregate transformation structure, not source file bytes or any specific real
+iModel; in particular, it does not reproduce embedded font blobs or proprietary
+geometry.
 
 ## Running the quick suite
 
@@ -130,12 +145,12 @@ pnpm test:quick
 
 Registered fixtures per scenario:
 
-| Scenario ID                      | Fixture IDs                                                 | Default                     |
-| -------------------------------- | ----------------------------------------------------------- | --------------------------- |
-| `incremental-synchronization`    | `balanced-incremental`                                      | `balanced-incremental`      |
-| `standalone-full-transformation` | `standalone-full-transform`, `relationship-heavy-transform` | `standalone-full-transform` |
-| `schema-processing`              | `schema-processing-large`                                   | `schema-processing-large`   |
-| `changeset-scanning`             | `update-heavy-scan`                                         | `update-heavy-scan`         |
+| Scenario ID                      | Fixture IDs                                                                                 | Default                     |
+| -------------------------------- | ------------------------------------------------------------------------------------------- | --------------------------- |
+| `incremental-synchronization`    | `balanced-incremental`                                                                      | `balanced-incremental`      |
+| `standalone-full-transformation` | `standalone-full-transform`, `relationship-heavy-transform`, `realistic-building-transform` | `standalone-full-transform` |
+| `schema-processing`              | `schema-processing-large`                                                                   | `schema-processing-large`   |
+| `changeset-scanning`             | `update-heavy-scan`                                                                         | `update-heavy-scan`         |
 
 Example in a POSIX shell:
 
@@ -160,6 +175,22 @@ Run the generated standalone full-transform workload in a POSIX shell:
 ```sh
 QUICK_PERF_SCENARIO=standalone-full-transformation \
 QUICK_PERF_SAMPLES=3 \
+pnpm test:quick
+```
+
+Run the opt-in realistic synthetic building workload in PowerShell:
+
+```powershell
+$env:QUICK_PERF_SCENARIO = "standalone-full-transformation"
+$env:QUICK_PERF_FIXTURE = "realistic-building-transform"
+pnpm test:quick
+```
+
+The equivalent POSIX selection is:
+
+```sh
+QUICK_PERF_SCENARIO=standalone-full-transformation \
+QUICK_PERF_FIXTURE=realistic-building-transform \
 pnpm test:quick
 ```
 
