@@ -1,5 +1,17 @@
 # Next release notes
 
+## Breaking change: automatic bulk element reservations
+
+`IModelTransformer` now prepares eligible target inserts and reserves them in one bulk request before executing each outermost processing call on a server-reservation target without a held schema lock. Nested dependency processing joins that call. Existing target matches, updates, and deletes are not reserved; a source update with no target match is reserved as a target insert if its transformed target identity has a federation GUID. Ordinary insertion assigns the reserved IDs. No opt-in flag is required, and local/no-op reservation targets retain their previous behavior.
+
+Reservation-enabled workflows now run identity-affecting `onCloned` and `onTransformElement` hooks during preparation, before earlier elements have been inserted, and again during execution. When the target model does not yet exist, those hooks receive an identity-only target view; reading unavailable target props or enumerating that view fails explicitly. Migrate hooks to derive stable identities from source/configuration inputs rather than earlier target writes, and keep custom importers from changing the prepared identity. This is a callback-timing and target-property-availability change, not merely a batching optimization.
+
+The caller must ensure that all briefcases sharing a reserved identity insert identical contents. Backend class/code checks do not establish full-content equality. Preparation and reservation failures prevent the operation's element/provenance modifications, but earlier setup writes may remain. Execution failures can leave pending target edits and committed reservations. The transformer neither retries with singleton requests nor abandons caller transactions automatically.
+
+The new transformer error keys are `ElementReservationUnsupported` for unsupported preparation and `ElementReservationPlanChanged` for execution-time identity drift or detected unplanned inserts. Backend reservation and insertion errors retain their original contract. Subset calls still require caller finalization/saving; schema processing remains a separate prerequisite.
+
+See [Automatic element reservations](../learning/transformer/element-reservations.md) for operation boundaries, supported customization, code scopes, and failure handling.
+
 ## Set-based element hierarchy traversal in full exports
 
 `IModelExporter` now discovers element hierarchies during full exports (`exportAll()`, `exportModelContents()`, `exportChildElements()`) with a single streamed recursive ECSQL query per traversal root instead of one `queryChildren()` round trip per visited element. Observable export behavior is unchanged for root order, sibling order (ECInstanceId ascending), depth-first pre-order, element filtering, subtree suppression, and exporter callbacks. The streamed loop yields while consuming every result row, including descendants skipped inside rejected subtrees, so large exports remain responsive.
@@ -417,6 +429,8 @@ protected async onInsertElement(elementProps: ElementProps): Promise<Id64String>
   return super.onInsertElement(elementProps);
 }
 ```
+
+For reservation-enabled transformer operations, `onInsertElement` runs after [bulk identity preparation and reservation](../learning/transformer/element-reservations.md). Keep the prepared GUID/class/code unchanged in this hook, and call `super.onInsertElement()` for ordinary backend insertion. Do not implement automatic transformer reservations as one request per insertion hook. Direct importer users remain responsible for their own reservations.
 
 ### 2. Await calls to these methods
 

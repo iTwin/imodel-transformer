@@ -389,6 +389,8 @@ export enum IModelTransformerError {
     ElementBulkDeleteFailed = "element-bulk-delete-failed",
     ElementIdNotPreservable = "element-id-not-preservable",
     ElementIdRequired = "element-id-required",
+    ElementReservationPlanChanged = "element-reservation-plan-changed",
+    ElementReservationUnsupported = "element-reservation-unsupported",
     ExportChangesRequiresBriefcase = "export-changes-requires-briefcase",
     ExportHandlerNotRegistered = "export-handler-not-registered",
     GeographicCoordinateSystemMismatch = "geographic-coordinate-system-mismatch",

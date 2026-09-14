@@ -10,6 +10,7 @@ import {
 } from "@itwin/core-backend";
 import { Id64String, OrderedId64Iterable } from "@itwin/core-bentley";
 import { QueryBinder } from "@itwin/core-common";
+import { elementIdSetSource } from "./ElementIdSet";
 
 /** The minimal parent-child forest containing changed or excluded elements and their ancestors. */
 export class ChangedElementForest {
@@ -37,7 +38,7 @@ export class ChangedElementForest {
       WITH RECURSIVE ChangedElementHierarchy (ECInstanceId, ParentId, ModelId) AS (
         SELECT e.ECInstanceId, e.Parent.Id, e.Model.Id
         FROM ${Element.classFullName} e
-        INNER JOIN IdSet(:candidateIds) ids ON ids.id = e.ECInstanceId
+        INNER JOIN ${elementIdSetSource("candidateIds", ownedCandidateIds)} ids ON ids.id = e.ECInstanceId
         UNION
         SELECT p.ECInstanceId, p.Parent.Id, p.Model.Id
         FROM ${Element.classFullName} p

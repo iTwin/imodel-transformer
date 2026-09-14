@@ -13,6 +13,8 @@ An iModel schema defines the classes, properties, relationships, and other metad
 
 Call `processSchemas()` before `process()`. The transformer does not process schemas automatically because a target may need a different schema policy from its data transformation policy.
 
+[Automatic element reservations](./element-reservations.md) apply to eligible target inserts during data processing, after schema preparation. They do not enable SchemaSync, change the target's lock policy, or replace `processSchemas()`. A held schema lock bypasses automatic reservation handling, matching the backend's reservation-enforcement policy.
+
 ```mermaid
 flowchart LR
   A["Enumerate source schemas"] --> B["Order dependencies"]

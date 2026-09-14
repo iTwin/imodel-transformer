@@ -12,6 +12,7 @@ import {
 import { Id64String } from "@itwin/core-bentley";
 import { ensureECSqlReaderIsAsyncIterableIterator } from "./ECSqlReaderAsyncIterableIteratorAdapter";
 import { QueryBinder } from "@itwin/core-common";
+import { elementIdSetSource, hasReservedElementIds } from "./ElementIdSet";
 
 interface AspectChanges {
   readonly insertIds: ReadonlySet<Id64String>;
@@ -78,12 +79,10 @@ export class ElementAspectExportProcessor {
 
     const excludedAspectClassFullNames =
       await this.getExpandedExcludedElementAspectClassFullNames();
-    for await (const aspect of this._sourceDb.elements.queryAspects({
-      elementIds: new Set(ownerElementIds),
-      excludedAspectClassFullNames,
-      groupByOwner: true,
-      usePrimaryConn: true,
-    })) {
+    for await (const aspect of this.queryOwnerAspects(
+      ownerElementIds,
+      excludedAspectClassFullNames
+    )) {
       if (!(await this._handler.shouldExportElementAspect(aspect))) continue;
 
       if (
@@ -112,6 +111,39 @@ export class ElementAspectExportProcessor {
     }
 
     await exportMultiAspects();
+  }
+
+  private async *queryOwnerAspects(
+    ownerElementIds: ReadonlySet<Id64String>,
+    excludedAspectClassFullNames: ReadonlySet<string>
+  ): AsyncIterableIterator<ElementAspect> {
+    if (!hasReservedElementIds(ownerElementIds)) {
+      yield* this._sourceDb.elements.queryAspects({
+        elementIds: new Set(ownerElementIds),
+        excludedAspectClassFullNames,
+        groupByOwner: true,
+        usePrimaryConn: true,
+      });
+      return;
+    }
+    // queryAspects uses native IdSet internally. For reserved owners, stream the
+    // same ordered IDs and let the backend hydrate each aspect, including blobs.
+    const params = new QueryBinder().bindIdSet("elementIds", ownerElementIds);
+    const excluded = this.getExcludedClassFilter(params);
+    const sql = `WITH OwnerIds AS (SELECT id FROM ${elementIdSetSource("elementIds", ownerElementIds)})
+      SELECT ECInstanceId AS id FROM (
+        SELECT aspect.ECInstanceId, aspect.ECClassId, aspect.Element.Id AS OwnerId, 0 AS AspectKind
+        FROM OwnerIds owners CROSS JOIN Bis.ElementMultiAspect aspect ON aspect.Element.Id=owners.id
+        WHERE TRUE ${excluded}
+        UNION ALL
+        SELECT aspect.ECInstanceId, aspect.ECClassId, aspect.Element.Id AS OwnerId, 1 AS AspectKind
+        FROM OwnerIds owners CROSS JOIN Bis.ElementUniqueAspect aspect ON aspect.Element.Id=owners.id
+        WHERE TRUE ${excluded}
+      ) ORDER BY OwnerId, AspectKind, ECClassId, ECInstanceId`;
+    for await (const row of this._sourceDb.createQueryReader(sql, params, {
+      usePrimaryConn: true,
+    }))
+      yield this._sourceDb.elements.getAspect(row.id);
   }
 
   /** Sets the aspect changes used to distinguish inserted and updated unique aspects during change export. */

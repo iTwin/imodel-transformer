@@ -13,6 +13,7 @@ import {
 } from "@itwin/core-backend";
 import { Id64String } from "@itwin/core-bentley";
 import { QueryBinder } from "@itwin/core-common";
+import { elementIdSetSource } from "./ElementIdSet";
 
 /** Deletes replaceable ElementAspects for target owners while preserving excluded classes and transformer provenance aspects.
  * @internal
@@ -46,6 +47,7 @@ export class ElementAspectCleanup {
     if (targetElementIds.size === 0) return;
 
     const ids = new Set<Id64String>(targetElementIds);
+    const ownerIdsSource = elementIdSetSource("elementIds", ids);
     const targetExcludedElementAspectClassFullNames = [
       ...excludedElementAspectClassFullNames,
     ].filter((classFullName) => this._targetDb.containsClass(classFullName));
@@ -58,13 +60,13 @@ export class ElementAspectCleanup {
         let whereClause = "TRUE";
         if (provenanceScopeId !== undefined) {
           params.bindId("provenanceScopeId", provenanceScopeId);
-          whereClause += ` AND ECInstanceId NOT IN (
+          whereClause += ` AND aspect.ECInstanceId NOT IN (
             SELECT ECInstanceId FROM ${ExternalSourceAspect.classFullName}
             WHERE Element.Id = :provenanceScopeId OR Scope.Id = :provenanceScopeId
           )`;
         }
         if (targetExcludedElementAspectClassFullNames.length > 0) {
-          whereClause += ` AND ECInstanceId NOT IN (
+          whereClause += ` AND aspect.ECInstanceId NOT IN (
             SELECT ECInstanceId FROM ${aspectClassFullName}
             WHERE ECClassId IS (${[
               ...targetExcludedElementAspectClassFullNames,
@@ -74,7 +76,7 @@ export class ElementAspectCleanup {
 
         const query = `SELECT aspect.ECInstanceId as id
           FROM ${aspectClassFullName} aspect
-          INNER JOIN IdSet(:elementIds) ids ON ids.id = aspect.Element.Id
+          INNER JOIN ${ownerIdsSource} ids ON ids.id = aspect.Element.Id
           WHERE ${whereClause}
           LIMIT ${pageSize}`;
         // Drain the full page before deleting: mutating a table while a reader is still

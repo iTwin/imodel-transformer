@@ -6,6 +6,7 @@
 import { Id64Set, Id64String } from "@itwin/core-bentley";
 import { QueryBinder } from "@itwin/core-common";
 import { IModelDb } from "@itwin/core-backend";
+import { elementIdSetSource } from "./ElementIdSet";
 
 /** Finds the target roots required for native bulk deletion.
  *
@@ -28,7 +29,7 @@ export async function findBulkDeleteRoots(
     WITH RECURSIVE CascadeIds(Id, DeleteRootId) AS (
       SELECT element.ECInstanceId, element.ECInstanceId
       FROM bis.Element element
-      INNER JOIN IdSet(:elementIds) ids ON ids.id = element.ECInstanceId
+      INNER JOIN ${elementIdSetSource("elementIds", elementIds)} ids ON ids.id = element.ECInstanceId
       UNION
       SELECT child.ECInstanceId, deletionParent.DeleteRootId
       FROM bis.Element child

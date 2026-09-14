@@ -55,6 +55,7 @@ import {
 } from "./IModelTransformerError";
 import { findBulkDeleteRoots } from "./ElementBulkDelete";
 import { EntityExistenceCache } from "./EntityExistenceCache";
+import { getElementReservationInsertionGuard } from "./ElementReservationState";
 
 const loggerCategory: string = TransformerLoggerCategory.IModelImporter;
 
@@ -414,6 +415,7 @@ export class IModelImporter {
   protected async onInsertElement(
     elementProps: ElementProps
   ): Promise<Id64String> {
+    getElementReservationInsertionGuard(this)?.(elementProps);
     try {
       const elementId = this._editTxn.insertElement(elementProps, {
         forceUseId: this.options.preserveElementIdsForFiltering,
