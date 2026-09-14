@@ -1677,6 +1677,115 @@ describe("element reservation preparation", () => {
     }
   });
 
+  it.each([false, true])(
+    "defers nested subject repairs and resets them after success or failure (%s)",
+    async (failReservation) => {
+      const source = createDb("nested-subjects-source.bim");
+      const target = createDb("nested-subjects-target.bim");
+      const subjects = withEditTxn(source, "source subjects", (txn) =>
+        ["first", "second"].map((name) => {
+          const parent = Subject.insert(txn, IModel.rootSubjectId, name);
+          const child = Subject.insert(txn, parent, `${name}-child`);
+          return { parent, child };
+        })
+      );
+      const destinations = withEditTxn(target, "target subjects", (txn) =>
+        subjects.map((_, index) =>
+          Subject.insert(txn, IModel.rootSubjectId, `destination-${index}`)
+        )
+      );
+      const reservations = await useLocalReservations(
+        target,
+        IModelTransformerTestUtils.prepareOutputFile(
+          "ElementReservations",
+          "nested-subjects-sync.db"
+        )
+      );
+      const targetTxn = createStartedEditTxn(target);
+      const insert = vi.spyOn(targetTxn, "insertElement");
+      const trace: string[] = [];
+      class NestedSubjectsTransformer extends IModelTransformer {
+        private _subjectsInitialized = false;
+        public override async initialize(): Promise<void> {
+          await super.initialize();
+          if (this._subjectsInitialized) return;
+          this._subjectsInitialized = true;
+          for (const [index, subject] of subjects.entries()) {
+            await this.processSubject(subject.parent, destinations[index]);
+            expect(insert).not.toHaveBeenCalled();
+          }
+        }
+        public override async onExportElement(element: Element): Promise<void> {
+          trace.push("element");
+          await super.onExportElement(element);
+        }
+        protected override async completePartiallyCommittedElements(): Promise<void> {
+          expect(insert).toHaveBeenCalledTimes(subjects.length);
+          trace.push("repair-elements");
+          await super.completePartiallyCommittedElements();
+        }
+        protected override async completePartiallyCommittedAspects(): Promise<void> {
+          expect(insert).toHaveBeenCalledTimes(subjects.length);
+          trace.push("repair-aspects");
+          await super.completePartiallyCommittedAspects();
+        }
+      }
+      const transformer = new NestedSubjectsTransformer(
+        { source, target: targetTxn },
+        { noProvenance: true }
+      );
+      const finalize = vi.spyOn(transformer.importer, "finalize");
+      const save = vi.spyOn(targetTxn, "saveChanges");
+      const failure = new Error("nested subject reservation failure");
+      if (failReservation)
+        vi.spyOn(target.reservations, "reserveElements").mockRejectedValueOnce(
+          failure
+        );
+      try {
+        if (failReservation) {
+          await expect(
+            transformer.processRelationships(ElementGroupsMembers.classFullName)
+          ).rejects.toBe(failure);
+          expect(trace).toEqual([]);
+          expect(insert).not.toHaveBeenCalled();
+        } else {
+          await transformer.processRelationships(
+            ElementGroupsMembers.classFullName
+          );
+          expect(trace).toEqual([
+            "element",
+            "element",
+            "repair-elements",
+            "repair-aspects",
+            "repair-elements",
+            "repair-aspects",
+          ]);
+          for (const [index, subject] of subjects.entries()) {
+            const childId = transformer.context.findTargetElementId(
+              subject.child
+            );
+            expect(target.elements.getElement(childId).parent?.id).toBe(
+              destinations[index]
+            );
+          }
+        }
+        const previousTrace = [...trace];
+        await transformer.processRelationships(
+          ElementGroupsMembers.classFullName
+        );
+        expect(trace).toEqual(previousTrace);
+        expect(reservations.calls).toBe(failReservation ? 0 : 1);
+        expect(finalize).not.toHaveBeenCalled();
+        expect(save).not.toHaveBeenCalled();
+      } finally {
+        transformer.dispose();
+        targetTxn.end();
+        source.close();
+        reservations.dispose();
+      }
+    }
+  );
+
   it("keeps the ordinary path when the target is not server-based", async () => {
     const source = createDb("noop-source.bim");
     const target = createDb("noop-target.bim");

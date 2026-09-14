@@ -51,6 +51,8 @@ export interface PreparedElementIdentity {
   sourceId: Id64String;
   identity: ElementReservationIdentity;
   codeBeforeHooks: CodeProps;
+  /** Preserve hook output separately when target matching rewrites its code. */
+  codeBeforeMatch?: CodeProps;
 }
 
 const loggerCategory: string = TransformerLoggerCategory.IModelCloneContext;
@@ -65,10 +67,6 @@ export class IModelCloneContext
   private _refTypesCache = new ECReferenceTypesCache();
   private _aspectRemapTable = new BigMap<Id64String>();
   private readonly _elementClassRemaps = new Map<string, string>();
-  private readonly _preparedMatchCodes = new WeakMap<
-    PreparedElementIdentity,
-    { before: CodeProps; after: CodeProps }
-  >();
   private _preparedCode: { sourceId: Id64String; code: CodeProps } | undefined;
   private _identityPreparation:
     | { sourceId: Id64String; identityOnly: boolean }
@@ -158,17 +156,6 @@ export class IModelCloneContext
     });
   }
 
-  /** Preserve a target-matcher code rewrite (for example, conflicting-class code clearing) for replay. @internal */
-  public recordPreparedMatch(
-    prepared: PreparedElementIdentity,
-    code: CodeProps
-  ): void {
-    this._preparedMatchCodes.set(prepared, {
-      before: { ...prepared.identity.code },
-      after: { ...code },
-    });
-  }
-
   /** Re-run ordinary transformation with the same code input and check the reserved identity. @internal */
   public async transformPreparedElement(
     prepared: PreparedElementIdentity,
@@ -179,9 +166,8 @@ export class IModelCloneContext
       prepared.codeBeforeHooks,
       async () => {
         const props = await transform();
-        const matchedCode = this._preparedMatchCodes.get(prepared);
         const expected = prepared.identity;
-        const expectedCode = matchedCode?.before ?? expected.code;
+        const expectedCode = prepared.codeBeforeMatch ?? expected.code;
         if (
           props.classFullName !== expected.classFullName ||
           props.federationGuid !== expected.federationGuid ||
@@ -197,7 +183,8 @@ export class IModelCloneContext
             message: `Reservation identity changed during execution for ${prepared.sourceId}. Transform callbacks must preserve the prepared GUID, class, and code.`,
           });
         }
-        if (matchedCode !== undefined) props.code = { ...matchedCode.after };
+        if (prepared.codeBeforeMatch !== undefined)
+          props.code = { ...expected.code };
         return props;
       }
     );

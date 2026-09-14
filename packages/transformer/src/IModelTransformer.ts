@@ -444,7 +444,7 @@ export class IModelTransformer extends IModelExportHandler {
   private _syncTypeResolver!: SyncTypeResolver;
   protected _provenanceManager!: ProvenanceManager;
   private _elementReservationOperation?: ElementReservationOperation;
-  private _reservationPostReplayTasks: Array<() => Promise<void>> = [];
+  private _pendingSubjectRepairs = 0;
 
   /** The Id of the Element in the **target** iModel that represents the **source** repository as a whole and scopes its [ExternalSourceAspect]($backend) instances. */
   public get targetScopeElementId(): Id64String {
@@ -659,28 +659,30 @@ export class IModelTransformer extends IModelExportHandler {
             : this.completePartiallyCommittedAspects(),
         persistProvenance: async () =>
           this._provenanceManager.persistDeferredScopeInitialization(),
-        discardPreparation: () => this.discardReservationPreparation(),
         rejectUnsupported: (sourceId, reason) =>
           this.throwReservationUnsupported(sourceId, reason),
       }
     );
     this._elementReservationOperation = operation;
-    this._reservationPostReplayTasks = [];
     try {
       this._provenanceManager.beginDeferredScopeInitialization();
       operation.install();
       await action();
       await operation.flush();
-      for (const task of this._reservationPostReplayTasks) await task();
+      for (let i = 0; i < this._pendingSubjectRepairs; i++) {
+        await this.completePartiallyCommittedElements();
+        await this.completePartiallyCommittedAspects();
+      }
     } catch (error) {
       if (operation.isCollecting) this._initialized = wasInitialized;
-      if (!operation.isDone) operation.abort();
+      if (!operation.isDone) this.discardReservationPreparation();
       throw error;
     } finally {
       operation.release();
-      if (operation.isDone) this.releaseReservationPreparationTracking();
+      this._reservationAddedMappings = [];
+      this._reservationAddedCodeRemaps.clear();
       this._elementReservationOperation = undefined;
-      this._reservationPostReplayTasks = [];
+      this._pendingSubjectRepairs = 0;
       this._provenanceManager.discardDeferredScopeInitialization();
     }
   }
@@ -718,17 +720,10 @@ export class IModelTransformer extends IModelExportHandler {
     }
     for (const targetId of this._reservationAddedCodeRemaps)
       this._targetElementIdsRemappedByCode.delete(targetId);
-    this._reservationAddedMappings = [];
-    this._reservationAddedCodeRemaps.clear();
   }
 
   private _reservationAddedMappings: Array<[Id64String, Id64String]> = [];
   private _reservationAddedCodeRemaps = new Set<Id64String>();
-
-  private releaseReservationPreparationTracking(): void {
-    this._reservationAddedMappings = [];
-    this._reservationAddedCodeRemaps.clear();
-  }
 
   private async resolveReservationCodeScope(
     sourceElement: Element
@@ -875,10 +870,9 @@ export class IModelTransformer extends IModelExportHandler {
         (targetProps.code.value ?? "") !==
           (preparedIdentity.identity.code.value ?? "")
       ) {
-        this._cloneContext.recordPreparedMatch(
-          preparedIdentity,
-          targetProps.code
-        );
+        preparedIdentity.codeBeforeMatch = {
+          ...preparedIdentity.identity.code,
+        };
       }
       preparedIdentity.identity.code = { ...targetProps.code };
       identity = preparedIdentity.identity;
@@ -915,16 +909,6 @@ export class IModelTransformer extends IModelExportHandler {
       prepared,
       identity,
     };
-  }
-
-  private deferReservationPostReplay(task: () => Promise<void>): void {
-    if (this._elementReservationOperation?.isCollecting) {
-      this._reservationPostReplayTasks.push(task);
-      return;
-    }
-    throw new Error(
-      "Reservation post-replay work was scheduled outside collection."
-    );
   }
 
   /** validates that the importer set on the transformer has the same values for its shared options as the transformer.
@@ -2573,10 +2557,7 @@ export class IModelTransformer extends IModelExportHandler {
         await this.processSubjectSubModels(sourceSubjectId);
       });
       if (this._elementReservationOperation?.isCollecting) {
-        this.deferReservationPostReplay(async () => {
-          await this.completePartiallyCommittedElements();
-          await this.completePartiallyCommittedAspects();
-        });
+        this._pendingSubjectRepairs++;
       } else {
         await this.completePartiallyCommittedElements();
         await this.completePartiallyCommittedAspects();
@@ -3081,53 +3062,46 @@ export class IModelTransformer extends IModelExportHandler {
     // processAll always has changes to process, so mark it as such for version tracking
     this._sourceChangeDataState = "has-changes";
 
-    const exportElements = async () => {
-      await this.exporter.exportCodeSpecs();
-      await this.exporter.exportFonts();
+    await this.exporter.exportCodeSpecs();
+    await this.exporter.exportFonts();
 
-      await this.exporter.elementAspectExportCoordinator.run(async () => {
-        if (this._options.skipPropagateChangesToRootElements) {
-          // The RepositoryModel and root Subject of the target iModel should not be transformed.
-          await this.exporter.exportChildElements(IModel.rootSubjectId); // start below the root Subject
-          await this.exporter.exportModelContents(
-            IModel.repositoryModelId,
-            Element.classFullName,
-            true
-          ); // after the Subject hierarchy, process the other elements of the RepositoryModel
-          await this.exporter.exportSubModels(IModel.repositoryModelId); // start below the RepositoryModel
-        } else {
-          await this.exporter.exportModel(IModel.repositoryModelId);
-        }
-        if (this._elementReservationOperation === undefined)
-          await this.completePartiallyCommittedElements();
-        else
-          this._elementReservationOperation.recordReferenceRepair(
-            "repair-elements"
-          );
-      });
+    await this.exporter.elementAspectExportCoordinator.run(async () => {
+      if (this._options.skipPropagateChangesToRootElements) {
+        // The RepositoryModel and root Subject of the target iModel should not be transformed.
+        await this.exporter.exportChildElements(IModel.rootSubjectId); // start below the root Subject
+        await this.exporter.exportModelContents(
+          IModel.repositoryModelId,
+          Element.classFullName,
+          true
+        ); // after the Subject hierarchy, process the other elements of the RepositoryModel
+        await this.exporter.exportSubModels(IModel.repositoryModelId); // start below the RepositoryModel
+      } else {
+        await this.exporter.exportModel(IModel.repositoryModelId);
+      }
       if (this._elementReservationOperation === undefined)
-        await this.completePartiallyCommittedAspects();
+        await this.completePartiallyCommittedElements();
       else
         this._elementReservationOperation.recordReferenceRepair(
-          "repair-aspects"
+          "repair-elements"
         );
-      await this.exporter.exportRelationships(
-        ElementRefersToElements.classFullName
+    });
+    if (this._elementReservationOperation === undefined)
+      await this.completePartiallyCommittedAspects();
+    else
+      this._elementReservationOperation.recordReferenceRepair("repair-aspects");
+    await this.exporter.exportRelationships(
+      ElementRefersToElements.classFullName
+    );
+    if (
+      this._options.forceExternalSourceAspectProvenance &&
+      (await this.shouldDetectDeletes())
+    ) {
+      Logger.logWarning(
+        loggerCategory,
+        "This workflows was deprecated in v1 and is no longer supported"
       );
-      if (
-        this._options.forceExternalSourceAspectProvenance &&
-        (await this.shouldDetectDeletes())
-      ) {
-        Logger.logWarning(
-          loggerCategory,
-          "This workflows was deprecated in v1 and is no longer supported"
-        );
-      }
-    };
-
-    if (this._elementReservationOperation !== undefined)
-      await this._elementReservationOperation.flush(exportElements);
-    else await exportElements();
+    }
+    await this._elementReservationOperation?.flush();
 
     if (this._options.optimizeGeometry)
       this.importer.optimizeGeometry(this._options.optimizeGeometry);
@@ -3148,13 +3122,9 @@ export class IModelTransformer extends IModelExportHandler {
   private async processChanges(options: ProcessChangesOptions): Promise<void> {
     this._targetElementIdsRemappedByCode.clear();
     this._targetModelsImportedInCurrentTransform.clear();
-    const exportChanges = async () => {
-      // must wait for initialization of synchronization provenance data
-      await this.exporter.exportChanges(await this.getExportInitOpts(options));
-    };
-    if (this._elementReservationOperation !== undefined)
-      await this._elementReservationOperation.flush(exportChanges);
-    else await exportChanges();
+    // must wait for initialization of synchronization provenance data
+    await this.exporter.exportChanges(await this.getExportInitOpts(options));
+    await this._elementReservationOperation?.flush();
 
     await this.completePartiallyCommittedElements();
     await this.completePartiallyCommittedAspects();

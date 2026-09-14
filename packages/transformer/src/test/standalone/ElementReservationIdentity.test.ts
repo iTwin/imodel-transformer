@@ -446,6 +446,7 @@ describe("TypeScript reservation identity preparation", () => {
           element: Element
         ): Promise<ElementProps> {
           const props = await super.onTransformElement(element);
+          props.code.value = `${props.code.value}:transformed`;
           if (this.drift) props.code.value = "changed-after-reservation";
           return props;
         }
@@ -460,7 +461,7 @@ describe("TypeScript reservation identity preparation", () => {
         code: {
           spec: scenario.targetIds.spec,
           scope: scenario.targetIds.existingModel,
-          value: "object",
+          value: "object:transformed",
         },
       };
       await scenario.target.reservations.reserveElements({
@@ -511,7 +512,7 @@ describe("TypeScript reservation identity preparation", () => {
       }
       expect(
         scenario.target.elements.getElementProps(conflictingId).code.value
-      ).toBe("object");
+      ).toBe("object:transformed");
     }
   );
 
@@ -1190,6 +1191,55 @@ describe("TypeScript reservation identity preparation", () => {
     expect(
       scenario.context.findTargetElementId(scenario.sourceIds.object)
     ).not.toBe(Id64.invalid);
+  });
+
+  it("cleans up preparation mappings, the handler, and insertion guard after a replay failure", async () => {
+    const failure = new Error("replay model failure");
+    let replayedElements = 0;
+    class FailingModelTransformer extends IModelTransformer {
+      public override async onExportElement(element: Element): Promise<void> {
+        await super.onExportElement(element);
+        replayedElements++;
+      }
+      public override async onExportModel(): Promise<void> {
+        throw failure;
+      }
+    }
+    using scenario = await createScenario(
+      "replay-cleanup",
+      FailingModelTransformer
+    );
+    withEditTxn(scenario.source, "match the existing target model", (txn) => {
+      txn.updateElement({
+        ...scenario.partition.toJSON(),
+        code: { ...scenario.partition.toJSON().code, value: "existing-model" },
+      });
+    });
+    await expect(
+      scenario.transformer.processModel(scenario.sourceIds.model)
+    ).rejects.toBe(failure);
+    expect(scenario.reservations.calls).toBe(1);
+    expect(replayedElements).toBe(1);
+    expect(scenario.context.findTargetElementId(scenario.sourceIds.model)).toBe(
+      Id64.invalid
+    );
+    expect(
+      scenario.context.findTargetElementId(scenario.sourceIds.category)
+    ).toBe(scenario.targetIds.category);
+    expect(scenario.transformer.exporter["handler"]).toBe(scenario.transformer);
+    // Caller-owned writes remain; only preparation's mapping bookkeeping is undone.
+    expect(
+      scenario.target.elements.getElement(scenario.targetIds.existingModel)
+        .federationGuid
+    ).toBe(scenario.partition.federationGuid);
+    const unreservedProps = Subject.create(
+      scenario.target,
+      IModel.rootSubjectId,
+      "after-replay-failure"
+    ).toJSON();
+    unreservedProps.federationGuid = undefined;
+    await scenario.transformer.importer.importElement(unreservedProps);
+    expect(Id64.isValidId64(unreservedProps.id ?? Id64.invalid)).toBe(true);
   });
 
   it("preserves a hook error and permits preparation to be retried", async () => {

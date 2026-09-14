@@ -124,8 +124,6 @@ export interface ElementReservationOperationCallbacks {
   repairReferences(kind: "repair-elements" | "repair-aspects"): Promise<void>;
   /** Persists deferred scope provenance after reservation succeeds. */
   persistProvenance(): Promise<void>;
-  /** Discards deferred scope provenance and preparation-only mappings. */
-  discardPreparation(): void;
   /** Rejects a known unsupported preparation or identity case. */
   rejectUnsupported(sourceId: Id64String, reason: string): never;
 }
@@ -146,10 +144,8 @@ export class ElementReservationOperation extends IModelExportHandler {
     replaying: false,
   };
   private readonly _modeledPartitionDeletes = new Set<Id64String>();
-  private _phase: "collecting" | "replaying" | "done" | "aborted" =
-    "collecting";
+  private _phase: "collecting" | "replaying" | "done" = "collecting";
   private _installed = false;
-  private _flushed = false;
   private _currentInsertPlan: ElementReservationElementPlan | undefined;
   private _insertWasObserved = false;
 
@@ -174,7 +170,7 @@ export class ElementReservationOperation extends IModelExportHandler {
   }
 
   public get isDone(): boolean {
-    return this._flushed;
+    return this._phase === "done";
   }
 
   public install(): void {
@@ -194,6 +190,15 @@ export class ElementReservationOperation extends IModelExportHandler {
     this.restoreDelegate();
     setElementReservationInsertionGuard(this._importer, undefined);
     setReservationExportContext(this._exporter, undefined);
+    this._exportContext.changes = undefined;
+    this._modeledPartitionDeletes.clear();
+    this._events.length = 0;
+    this._elementPlans.clear();
+    this._seenElements.clear();
+    this._visitingElements.clear();
+    this._scheduledModels.clear();
+    this._journaledModels.clear();
+    this._checkedRequiredDependencies.clear();
   }
 
   /** True if the source element is already a real target mapping or a prepared logical identity. */
@@ -325,7 +330,6 @@ export class ElementReservationOperation extends IModelExportHandler {
 
   /** Called by IModelImporter immediately before its native insertElement call. */
   public guardElementInsertion(elementProps: ElementProps): void {
-    if (this._phase === "collecting" || this._phase === "aborted") return;
     const plan = this._currentInsertPlan;
     if (plan === undefined || Id64.isValidId64(plan.targetElementId)) {
       this.throwPlanChanged(
@@ -373,20 +377,13 @@ export class ElementReservationOperation extends IModelExportHandler {
     });
   }
 
-  /** Collect a complete exporter callback and replay the journal once reservation succeeds. */
-  public async flush(exportElements?: () => Promise<void>): Promise<void> {
-    if (this._flushed) {
-      if (exportElements !== undefined) await exportElements();
-      return;
-    }
+  /** Reserve and replay the completed journal, at most once per outer operation. */
+  public async flush(): Promise<void> {
+    if (this.isDone) return;
 
-    this._phase = "collecting";
     this._exportContext.changes =
       this._exporter.sourceDbChanges ?? this._exportContext.changes;
     try {
-      if (exportElements !== undefined) await exportElements();
-      this._exportContext.changes =
-        this._exporter.sourceDbChanges ?? this._exportContext.changes;
       // Model deletion can schedule a partition only during execution. Ensure
       // an element-delete boundary exists even if discovery had no element deletes.
       let lastModelDelete = -1;
@@ -415,32 +412,11 @@ export class ElementReservationOperation extends IModelExportHandler {
       );
       for (const event of this._events) await this.replayEvent(event);
       this._phase = "done";
-      this._flushed = true;
-    } catch (error) {
-      if (this._phase === "collecting") this._callbacks.discardPreparation();
-      throw error;
     } finally {
       setReservationExportContext(this._exporter, undefined);
       this._exportContext.changes = undefined;
       this._exportContext.replaying = false;
     }
-  }
-
-  public abort(): void {
-    if (this._flushed) return;
-    this.release();
-    this._phase = "aborted";
-    setReservationExportContext(this._exporter, undefined);
-    this._exportContext.changes = undefined;
-    this._modeledPartitionDeletes.clear();
-    this._callbacks.discardPreparation();
-    this._events.length = 0;
-    this._elementPlans.clear();
-    this._seenElements.clear();
-    this._visitingElements.clear();
-    this._scheduledModels.clear();
-    this._journaledModels.clear();
-    this._checkedRequiredDependencies.clear();
   }
 
   private async reservePreparedElements(): Promise<void> {

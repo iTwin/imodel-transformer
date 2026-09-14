@@ -1,6 +1,6 @@
 # Automatic bulk element reservations: implementation spec
 
-Status: automatic TS-only reservation handling is implemented across the processing entry points, including deferred provenance, ordinary insertion, callback metadata, deletion fallback, and finalization boundaries. Public-entry-point acceptance fixtures, learning documentation, a major change file, and generated error API entries are present. Final validation is recorded below. The accepted design and deferred upstream questions are recorded in Obsidian at `iModel Transformations/ADRs/0001-automatic-bulk-element-reservations.md`.
+Status: automatic TS-only reservation handling is implemented across the processing entry points, including deferred provenance, ordinary insertion, callback metadata, deletion fallback, and finalization boundaries. Public-entry-point acceptance fixtures, learning documentation, a major change file, and generated error API entries are present. Implementation and subsequent simplification validation are recorded below. The accepted design and deferred upstream questions are recorded in Obsidian at `iModel Transformations/ADRs/0001-automatic-bulk-element-reservations.md`.
 
 ## Outcome and completion check
 
@@ -216,14 +216,14 @@ git diff --check
 
 Run Prettier `--check` on every changed TS/Markdown/change file using the workspace version. If the implementation does not need to modify a listed integration file, omit it from targeted lint rather than making a gratuitous change. `build` includes API extraction. Validate generated API changes are limited to intended errors/documentation, not a new preparation extension surface. Resolve baseline failures explicitly; do not count historical investigation test passes as current integration validation.
 
-## Final local validation (2026-09-10)
+## Implementation validation (2026-09-10)
 
 - Package suite and V8 coverage: **335 passed, 5 skipped**. The 57 focused reservation tests are included. The old untracked `ElementReservation.investigation.test.ts` is explicitly excluded and remains untouched.
 - Coverage thresholds pass: **91.60% statements, 85.35% branches, 91.30% functions, 92.54% lines**.
 - `pnpm build` passes typecheck, production compilation, and API extraction. The generated API diff contains only `ElementReservationUnsupported` and `ElementReservationPlanChanged`.
 - Targeted ESLint passes without errors. Existing/internal-API warnings remain; no warning suppression was added to hide reservation API use.
 - The new guide's transaction example typechecks against the installed backend and built public transformer declarations. Relative guide links resolve. Newcomer review identified and corrected GUID-eligibility wording and the clean-transaction prerequisite.
-- A major beachball file and linked release/learning documentation are included. `pnpm check` passes; it warns that untracked files do not participate in changed-file detection. Changes remain local and uncommitted.
+- A major beachball file and linked release/learning documentation are included. `pnpm check` passes; it warns that untracked files do not participate in changed-file detection. The implementation was uncommitted at this validation point; subsequent local commits are recorded below.
 - No manifest, lockfile, core/native implementation, or strict-dependency-policy change was made. Node is CI's `24.18.0`, with core `5.13.0` and native `5.13.28`.
 
 Final suite command, from `packages/transformer`:
@@ -242,6 +242,18 @@ R18 diagnostic sample from that coverage-enabled run:
 The timer starts just before mapping/setup and `processElement`, and preparation ends when the reservation API is entered. Heap deltas include runtime caches, instrumentation, and garbage collection; the negative sample is not a claim of negative allocation or retained-state size. There are no timing/memory CI thresholds or cloud speedup claims. Journal/identity types and geometry fixtures establish that the operation retains IDs and compact identity/event metadata rather than a full geometry snapshot.
 
 Cloud locking, uploads, cache coherence, competing briefcases, service performance, and arbitrary custom-hook purity remain outside the demonstrated evidence. These are unchanged validation limits, not pending local implementation gates.
+
+## Simplification validation (2026-09-14)
+
+The validated implementation was checkpointed as `0db31537` before changing its structure. Mechanical cuts were committed separately as `76b4170c`: unused plan/callback metadata and the unused event getter were removed, single-caller recording/model/aspect shims were collapsed, and the outer wrapper became void-only. This removed **92 net production lines** without changing tests or lifecycle boundaries. All 335 tests and coverage/build/lint/format checks passed before that commit.
+
+The second pass removed another **67 net production lines**. `flush()` now only reserves and replays; discovery stays in its existing processing methods. Completion derives from the single phase field. The outer transformer boundary owns mapping rollback and final cleanup, while exporter change metadata remains available through replay and the importer guard remains installed through finalization/save and subject repair. The only post-replay work previously queued by `processSubject` is represented by a repair count, preserving one repair pair per nested invocation. A prepared identity's optional `codeBeforeMatch` replaces the clone-context side map; hook output is still validated before applying a matcher's code rewrite.
+
+Three additional cases passed both before and after the second-pass changes: nested subjects retain all repair calls after replay and reset after success; the same bookkeeping resets after reservation failure; replay failure preserves the original error and caller-owned writes while restoring preparation mappings, the exporter handler, and importer guard. The existing two conflict-code cases now also customize the pre-match code, distinguishing it from both the original hook input and the final cleared code.
+
+Final validation: **338 tests passed, 5 skipped**, including **60 reservation tests**. V8 thresholds passed at **91.80% statements, 85.44% branches, 91.68% functions, and 92.68% lines**. Transformer build/typecheck/API extraction, targeted lint, formatting, and `git diff --check` passed. API extraction produced no further public API changes. The original investigation probe remains untracked, excluded, and byte-for-byte unchanged.
+
+Total production reduction is **159 lines**, from **1,818 to 1,659 net added production lines** relative to `ac497bc4`. This is below the review's estimated 200–350-line reduction; the typed journal, identity checks, dependency handling, provenance semantics, and native query workaround were retained rather than replaced merely to meet a size target. No acceptance case was removed, and the cloud-validation limits are unchanged.
 
 ## Documentation and release requirements
 
