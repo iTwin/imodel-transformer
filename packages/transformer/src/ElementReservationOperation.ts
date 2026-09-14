@@ -43,7 +43,6 @@ const loggerCategory = TransformerLoggerCategory.IModelTransformer;
 /** The identity of an element which is allowed to reach ordinary insertion. @internal */
 export interface ElementReservationElementPlan {
   readonly sourceId: Id64String;
-  readonly isUpdate: boolean | undefined;
   readonly targetElementId: Id64String;
   /** Only unreserved preserve-ID inserts may supply an ID. */
   readonly insertId?: Id64String;
@@ -114,14 +113,8 @@ export type ElementReservationEvent =
 export interface ElementReservationOperationCallbacks {
   /** Classifies one accepted source element without importing it. */
   collectElement(
-    sourceElement: Element,
-    isUpdate: boolean | undefined
+    sourceElement: Element
   ): Promise<ElementReservationElementPlan | undefined>;
-  /** Performs any model-only preparation needed before the model event is journaled. */
-  collectModel(
-    sourceModel: Model,
-    isUpdate: boolean | undefined
-  ): Promise<void>;
   /** Replays an aspect cleanup event after target identities exist. */
   replayAspectCleanup(
     excludedClassFullNames: ReadonlySet<string>,
@@ -182,10 +175,6 @@ export class ElementReservationOperation extends IModelExportHandler {
 
   public get isDone(): boolean {
     return this._flushed;
-  }
-
-  public get events(): readonly ElementReservationEvent[] {
-    return this._events;
   }
 
   public install(): void {
@@ -297,64 +286,8 @@ export class ElementReservationOperation extends IModelExportHandler {
     return this._elementPlans.get(sourceScopeId)?.identity.federationGuid;
   }
 
-  /** Ensure that a source element is classified once, even when dependency traversal revisits it. */
-  public async collectElement(
-    sourceElement: Element,
-    isUpdate: boolean | undefined
-  ): Promise<void> {
-    if (this._seenElements.has(sourceElement.id)) return;
-    if (this._visitingElements.has(sourceElement.id)) return;
-
-    this._visitingElements.add(sourceElement.id);
-    try {
-      const plan = await this._callbacks.collectElement(
-        sourceElement,
-        isUpdate
-      );
-      this._seenElements.add(sourceElement.id);
-      if (plan === undefined) return;
-      this._elementPlans.set(sourceElement.id, plan);
-      this._events.push({
-        kind: "element",
-        sourceId: sourceElement.id,
-        isUpdate,
-        plan,
-      });
-    } finally {
-      this._visitingElements.delete(sourceElement.id);
-    }
-  }
-
-  /** Journal a model after ensuring its modeled element has a logical identity. */
-  public async collectModel(
-    sourceModel: Model,
-    isUpdate: boolean | undefined
-  ): Promise<void> {
-    if (this._journaledModels.has(sourceModel.id)) return;
-    this._scheduledModels.add(sourceModel.id);
-    await this._callbacks.collectModel(sourceModel, isUpdate);
-    this._journaledModels.add(sourceModel.id);
-    this._events.push({
-      kind: "model",
-      sourceId: sourceModel.id,
-      isUpdate,
-    });
-  }
-
-  public recordDeleteModel(sourceId: Id64String): void {
-    this._events.push({ kind: "delete-model", sourceId });
-  }
-
   public scheduleModeledPartitionDeletion(sourceId: Id64String): void {
     this._modeledPartitionDeletes.add(sourceId);
-  }
-
-  public recordDeleteElements(sourceIds: ReadonlySet<Id64String>): void {
-    if (sourceIds.size === 0) return;
-    this._events.push({
-      kind: "delete-elements",
-      sourceIds: [...sourceIds],
-    });
   }
 
   public recordAspectCleanup(
@@ -369,55 +302,10 @@ export class ElementReservationOperation extends IModelExportHandler {
     });
   }
 
-  public recordUniqueAspect(
-    sourceAspect: ElementUniqueAspect,
-    isUpdate: boolean | undefined
-  ): void {
-    this._events.push({
-      kind: "unique-aspect",
-      sourceId: sourceAspect.id,
-      isUpdate,
-    });
-  }
-
-  public recordMultiAspects(
-    sourceAspects: readonly ElementMultiAspect[]
-  ): void {
-    if (sourceAspects.length === 0) return;
-    this._events.push({
-      kind: "multi-aspects",
-      sourceIds: sourceAspects.map((aspect) => aspect.id),
-    });
-  }
-
-  public recordRelationship(
-    sourceRelationship: Relationship,
-    isUpdate: boolean | undefined,
-    sourceFedGuid?: string,
-    targetFedGuid?: string
-  ): void {
-    this._events.push({
-      kind: "relationship",
-      sourceId: sourceRelationship.id,
-      classFullName: sourceRelationship.classFullName,
-      isUpdate,
-      sourceFedGuid,
-      targetFedGuid,
-    });
-  }
-
-  public recordDeleteRelationship(sourceId: Id64String): void {
-    this._events.push({ kind: "delete-relationship", sourceId });
-  }
-
   public recordReferenceRepair(
     kind: "repair-elements" | "repair-aspects"
   ): void {
     this._events.push({ kind });
-  }
-
-  public recordProgress(): void {
-    this._events.push({ kind: "progress" });
   }
 
   /** Mark the ordinary importer insertion currently being performed. */
@@ -749,30 +637,75 @@ export class ElementReservationOperation extends IModelExportHandler {
     return this._delegate.preExportElement(sourceElement);
   }
 
+  /** Classify each source element once, even when dependency traversal revisits it. */
   public override async onExportElement(
     sourceElement: Element,
     isUpdate?: boolean
   ): Promise<void> {
-    return this.collectElement(sourceElement, isUpdate);
+    if (this._seenElements.has(sourceElement.id)) return;
+    if (this._visitingElements.has(sourceElement.id)) return;
+
+    this._visitingElements.add(sourceElement.id);
+    try {
+      const plan = await this._callbacks.collectElement(sourceElement);
+      this._seenElements.add(sourceElement.id);
+      if (plan === undefined) return;
+      this._elementPlans.set(sourceElement.id, plan);
+      this._events.push({
+        kind: "element",
+        sourceId: sourceElement.id,
+        isUpdate,
+        plan,
+      });
+    } finally {
+      this._visitingElements.delete(sourceElement.id);
+    }
   }
 
+  /** Journal a model after ensuring its modeled element has a logical identity. */
   public override async onExportModel(
     sourceModel: Model,
     isUpdate?: boolean
   ): Promise<void> {
-    return this.collectModel(sourceModel, isUpdate);
+    if (this._journaledModels.has(sourceModel.id)) return;
+    this._scheduledModels.add(sourceModel.id);
+    if (
+      sourceModel.id !== IModel.repositoryModelId &&
+      !this.hasElementIdentity(sourceModel.id)
+    ) {
+      await this._exporter.exportElement(sourceModel.id);
+    }
+    if (
+      sourceModel.id !== IModel.repositoryModelId &&
+      !this.hasElementIdentity(sourceModel.id)
+    ) {
+      this._callbacks.rejectUnsupported(
+        sourceModel.id,
+        "the model's modeled element was not accepted by the exporter"
+      );
+    }
+    this._journaledModels.add(sourceModel.id);
+    this._events.push({
+      kind: "model",
+      sourceId: sourceModel.id,
+      isUpdate,
+    });
   }
 
   public override async onDeleteModel(
     sourceModelId: Id64String
   ): Promise<void> {
-    this.recordDeleteModel(sourceModelId);
+    this._events.push({ kind: "delete-model", sourceId: sourceModelId });
   }
 
   public override async onDeleteElements(
     sourceElementIds: ReadonlySet<Id64String>
   ): Promise<void> {
-    this.recordDeleteElements(sourceElementIds);
+    if (sourceElementIds.size === 0) return;
+    this._events.push({
+      kind: "delete-elements",
+      sourceIds: [...sourceElementIds],
+    });
   }
 
   public override async shouldExportElementAspect(
@@ -785,13 +718,21 @@ export class ElementReservationOperation extends IModelExportHandler {
     aspect: ElementUniqueAspect,
     isUpdate?: boolean
   ): Promise<void> {
-    this.recordUniqueAspect(aspect, isUpdate);
+    this._events.push({
+      kind: "unique-aspect",
+      sourceId: aspect.id,
+      isUpdate,
+    });
   }
 
   public override async onExportElementMultiAspects(
     aspects: ElementMultiAspect[]
   ): Promise<void> {
-    this.recordMultiAspects(aspects);
+    if (aspects.length === 0) return;
+    this._events.push({
+      kind: "multi-aspects",
+      sourceIds: aspects.map((aspect) => aspect.id),
+    });
   }
 
   public override async shouldExportRelationship(
@@ -806,22 +747,27 @@ export class ElementReservationOperation extends IModelExportHandler {
     sourceFedGuid?: string,
     targetFedGuid?: string
   ): Promise<void> {
-    this.recordRelationship(
-      relationship,
+    this._events.push({
+      kind: "relationship",
+      sourceId: relationship.id,
+      classFullName: relationship.classFullName,
       isUpdate,
       sourceFedGuid,
-      targetFedGuid
-    );
+      targetFedGuid,
+    });
   }
 
   public override async onDeleteRelationship(
     sourceRelationshipId: Id64String
   ): Promise<void> {
-    this.recordDeleteRelationship(sourceRelationshipId);
+    this._events.push({
+      kind: "delete-relationship",
+      sourceId: sourceRelationshipId,
+    });
   }
 
   public override async onProgress(): Promise<void> {
-    this.recordProgress();
+    this._events.push({ kind: "progress" });
   }
 
   public override async shouldExportSchema(

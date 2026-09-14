@@ -633,9 +633,9 @@ export class IModelTransformer extends IModelExportHandler {
     );
   }
 
-  private async runWithElementReservationOperation<T>(
-    action: () => Promise<T>
-  ): Promise<T> {
+  private async runWithElementReservationOperation(
+    action: () => Promise<void>
+  ): Promise<void> {
     const activeOperation = this._elementReservationOperation;
     if (activeOperation !== undefined) return action();
     if (!this.shouldUseAutomaticElementReservations()) return action();
@@ -649,15 +649,10 @@ export class IModelTransformer extends IModelExportHandler {
       this,
       this._cloneContext,
       {
-        collectElement: async (sourceElement, isUpdate) =>
-          this.collectReservationElement(sourceElement, isUpdate),
-        collectModel: async (sourceModel, isUpdate) =>
-          this.collectReservationModel(sourceModel, isUpdate),
+        collectElement: async (sourceElement) =>
+          this.collectReservationElement(sourceElement),
         replayAspectCleanup: async (excludedClassFullNames, sourceIds) =>
-          this.replayReservationAspectCleanup(
-            excludedClassFullNames,
-            sourceIds
-          ),
+          this.prepareElementAspects(excludedClassFullNames, sourceIds),
         repairReferences: async (kind) =>
           kind === "repair-elements"
             ? this.completePartiallyCommittedElements()
@@ -674,10 +669,9 @@ export class IModelTransformer extends IModelExportHandler {
     try {
       this._provenanceManager.beginDeferredScopeInitialization();
       operation.install();
-      const result = await action();
+      await action();
       await operation.flush();
       for (const task of this._reservationPostReplayTasks) await task();
-      return result;
     } catch (error) {
       if (operation.isCollecting) this._initialized = wasInitialized;
       if (!operation.isDone) operation.abort();
@@ -788,8 +782,7 @@ export class IModelTransformer extends IModelExportHandler {
   }
 
   private async collectReservationElement(
-    sourceElement: Element,
-    isUpdate: boolean | undefined
+    sourceElement: Element
   ): Promise<ElementReservationElementPlan | undefined> {
     const operation = this._elementReservationOperation;
     nodeAssert(operation !== undefined);
@@ -912,7 +905,6 @@ export class IModelTransformer extends IModelExportHandler {
 
     return {
       sourceId: sourceElement.id,
-      isUpdate,
       targetElementId,
       autoInsertedForCategory,
       insertId:
@@ -923,36 +915,6 @@ export class IModelTransformer extends IModelExportHandler {
       prepared,
       identity,
     };
-  }
-
-  private async collectReservationModel(
-    sourceModel: Model,
-    _isUpdate: boolean | undefined
-  ): Promise<void> {
-    const operation = this._elementReservationOperation;
-    nodeAssert(operation !== undefined);
-    if (
-      sourceModel.id !== IModel.repositoryModelId &&
-      !operation.hasElementIdentity(sourceModel.id)
-    ) {
-      await this.exporter.exportElement(sourceModel.id);
-    }
-    if (
-      sourceModel.id !== IModel.repositoryModelId &&
-      !operation.hasElementIdentity(sourceModel.id)
-    ) {
-      this.throwReservationUnsupported(
-        sourceModel.id,
-        "the model's modeled element was not accepted by the exporter"
-      );
-    }
-  }
-
-  private async replayReservationAspectCleanup(
-    excludedClassFullNames: ReadonlySet<string>,
-    sourceIds: ReadonlySet<Id64String>
-  ): Promise<void> {
-    await this.prepareElementAspects(excludedClassFullNames, sourceIds);
   }
 
   private deferReservationPostReplay(task: () => Promise<void>): void {
