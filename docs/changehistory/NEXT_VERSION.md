@@ -6,6 +6,71 @@
 
 The default (`"hierarchy"`) is unchanged. The linear traversal exports the same set of entities — including subtree pruning for excluded elements and template-model handling — but in a different order, and `IModelExportHandler.shouldExportElement` is consulted exactly once per element (the hierarchy traversal consults it twice for sub-modeled elements). Handlers that depend on visit order (for example, definition models being exported first) should not opt in without verifying their assumptions; the `IModelTransformer` resolves out-of-order references through its usual partially-committed-element handling. `exportAllTraversal` has no effect when processing changes. A future change of the default traversal would be a breaking (major) change.
 
+## Set-based element hierarchy traversal in full exports
+
+`IModelExporter` now discovers element hierarchies during full exports (`exportAll()`, `exportModelContents()`, `exportChildElements()`) with a single streamed recursive ECSQL query per traversal root instead of one `queryChildren()` round trip per visited element. Observable export behavior is unchanged for root order, sibling order (ECInstanceId ascending), depth-first pre-order, element filtering, subtree suppression, and exporter callbacks. The streamed loop yields while consuming every result row, including descendants skipped inside rejected subtrees, so large exports remain responsive.
+
+Changes-mode exports can use the separate sparse changed-element traversal described below. The legacy per-element path remains the fallback for incompatible cases, including subclasses that override `exportElement` or `exportChildElements`, so subclass dispatch semantics are preserved.
+
+The streamed traversal relies on SQLite's documented recursive-CTE queue behavior — an `ORDER BY` inside the recursive member turns the queue into a priority queue, yielding depth-first pre-order — via ECSQL `WITH RECURSIVE`, which is supported across the package's supported `@itwin/core-backend` range. Exporter-level traversal tests exercise the resulting order through the production query.
+
+## Faster element traversal during change processing
+
+`IModelExporter.exportChanges()` now finds elements marked as inserted or updated, elements excluded by ID, and the parents needed to reach them in one query. It visits only those paths instead of checking every element in each changed model. `IModelTransformer.process()` uses the same behavior when `argsForProcessChanges` is set. This reduces traversal work when changes affect a small part of a large iModel. Model discovery and other export phases are unchanged.
+
+Existing export callbacks keep the same arguments and parent-before-child order. Unchanged parents needed only to reach changed descendants do not trigger callbacks. Unchanged elements excluded by ID still trigger `onSkipElement`, and modeled elements continue through the existing model filters. Custom `IModelExporter` subclasses that override `exportElement` or `exportChildElements` use the previous traversal so those overrides continue to receive every element.
+
+See [Incremental exports](../learning/transformer/index.md#incremental-exports) for callback and customization details.
+
+## Breaking change: batched incremental element deletion
+
+Incremental synchronization now processes element deletions as one batch. `IModelExporter.exportChanges()` passes the deleted source IDs to `IModelExportHandler.onDeleteElements()`. `IModelTransformer` maps the IDs once, and `IModelImporter.deleteElements()` submits the target roots through the native bulk-delete API. Bulk deletion preserves the previous behavior for child elements, modeled contents, and elements whose codes are scoped by a deleted tree.
+
+The following callbacks have been removed:
+
+- `IModelExportHandler.onDeleteElement()`
+- `IModelTransformer.onDeleteElement()`
+- The protected `IModelImporter.onDeleteElement()` hook
+
+Move custom per-element behavior to `onDeleteElements(elementIds: ReadonlySet<Id64String>)`. For example, migrate a custom transformer from the singular callback:
+
+```ts
+// Before
+public override async onDeleteElement(sourceElementId: Id64String): Promise<void> {
+  this.recordDeletion(sourceElementId);
+  await super.onDeleteElement(sourceElementId);
+}
+```
+
+The batch callback receives all deleted source IDs:
+
+```ts
+// After
+public override async onDeleteElements(
+  sourceElementIds: ReadonlySet<Id64String>
+): Promise<void> {
+  for (const sourceElementId of sourceElementIds)
+    this.recordDeletion(sourceElementId);
+  await super.onDeleteElements(sourceElementIds);
+}
+```
+
+Custom importers receive target roots through the same collection contract. If custom work reads an element before deletion, complete that work before calling `super.onDeleteElements()`. The call to `super` performs the bulk deletion:
+
+```ts
+protected override async onDeleteElements(
+  targetElementIds: ReadonlySet<Id64String>
+): Promise<void> {
+  for (const targetElementId of targetElementIds)
+    this.insertDeleteAuditRecord(targetElementId);
+  await super.onDeleteElements(targetElementIds);
+}
+```
+
+Calls to the public `IModelImporter.deleteElement(elementId)` method do not need to change. The method passes its target ID to the batch extension point as a one-element set.
+
+If native deletion fails for any root, `IModelImporter.deleteElements()` throws an `ElementBulkDeleteError` with scope `IModelTransformerErrorScope` and key `IModelTransformerError.ElementBulkDeleteFailed`. The error reports `status`, `sqlDeleteStatus`, and `failedIds`. A partial failure leaves successful deletions pending in the caller-owned target transaction. Abandon that transaction before correcting the dependency and retrying.
+
 ## Schema-processing strategies
 
 `IModelTransformer.processSchemas()` now accepts a `SchemaProcessingStrategy`. Calls without options use `NewerVersionSchemaImportStrategy`, which preserves the existing newer-version selection and schema hooks. `DynamicSchemaUnionStrategy`, imported from `@itwin/imodel-transformer/schema-processing`, is available for iModels that may contain different compatible additions to the same schema marked with `CoreCustomAttributes.DynamicSchema`. See [Schema processing in a transformation](../learning/transformer/schema-processing.md) for strategy selection, compatibility rules, extension points, and failure handling.

@@ -35,6 +35,7 @@ import {
   balancedIncrementalRecipe,
 } from "../../src/fixtures/recipes/balancedIncremental.js";
 import { configureFixture } from "../../src/fixtures/FixtureRecipe.js";
+import { deletionHeavyIncrementalRecipe } from "../../src/fixtures/recipes/deletionHeavyIncremental.js";
 import { materializeLiveHubFixture } from "../../src/fixtures/providers/liveHubProvider.js";
 import {
   createStartedEditTxn,
@@ -313,6 +314,42 @@ describe("BenchmarkRunner scenario injection", () => {
     parameters: { scale: 1 },
   });
   const { descriptor: testDescriptor } = testFixture;
+
+  it("runs the deletion-heavy fixture end to end", async () => {
+    const outputDir = fs.mkdtempSync(
+      path.join(os.tmpdir(), "quick-perf-deletion-heavy-")
+    );
+    const fixture = configureFixture(deletionHeavyIncrementalRecipe, {
+      id: "deletion-heavy-integration-test",
+      version: 1,
+      label: "deletion-heavy integration test",
+      scenarioClaims: ["incremental synchronization", "element deletion"],
+      topology: "source-and-empty-target",
+      seed: 662,
+      parameters: { scale: 25 },
+    });
+    try {
+      const samples = await new BenchmarkRunner(
+        fixture,
+        outputDir,
+        incrementalSynchronizationScenario
+      ).run(1);
+      expect(samples).to.have.length(2);
+      expect(
+        samples.map((sample) => sample.operations.elements.deletes)
+      ).to.deep.equal([25, 25]);
+      expect(
+        new Set(samples.map((sample) => sample.semanticDigest)).size
+      ).to.equal(1);
+      expect(
+        samples.every(
+          (sample) => sample.fixtureRecipeHash === fixture.descriptor.recipeHash
+        )
+      ).to.be.true;
+    } finally {
+      fs.rmSync(outputDir, { recursive: true, force: true });
+    }
+  });
 
   it("uses the injected factory, propagates its identity, and cleans every sample", async () => {
     const outputDir = fs.mkdtempSync(

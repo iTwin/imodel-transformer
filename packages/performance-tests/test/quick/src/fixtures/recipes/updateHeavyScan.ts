@@ -313,7 +313,7 @@ export async function applyScanChangesets(
           `${region}-updated-${changeset}-${index}`
         ),
         id,
-      } as PhysicalElementProps)
+      })
     );
   };
 

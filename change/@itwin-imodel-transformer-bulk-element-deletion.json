@@ -1,0 +1,7 @@
+{
+  "type": "major",
+  "comment": "Process incremental element deletions in one native bulk operation while preserving child, model-content, and code-scope dependencies",
+  "packageName": "@itwin/imodel-transformer",
+  "email": "50554904+hl662@users.noreply.github.com",
+  "dependentChangeType": "patch"
+}

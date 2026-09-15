@@ -1,0 +1,7 @@
+{
+  "type": "minor",
+  "comment": "Full exports now discover element hierarchies with a streamed recursive ECSQL query per traversal instead of one queryChildren call per element. Change exports and overridden traversal methods retain the legacy path.",
+  "packageName": "@itwin/imodel-transformer",
+  "email": "DanRod1999@users.noreply.github.com",
+  "dependentChangeType": "minor"
+}

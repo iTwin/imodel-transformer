@@ -12,9 +12,14 @@ on:
         type: choice
         options:
           - incremental-synchronization
+          - large-base-incremental-synchronization
           - changeset-scanning
           - schema-processing
           - standalone-full-transformation
+      fixture:
+        description: Fixture id (blank uses the scenario's default)
+        required: false
+        type: string
       baseline_ref:
         description: Baseline branch, tag, or commit
         required: true
@@ -117,6 +122,7 @@ jobs:
           QUICK_PERF_COMPARISON_THRESHOLD_PERCENT: 5
           QUICK_PERF_COMPARISON_WORKER_TIMEOUT_SECONDS: 600
           QUICK_PERF_SCENARIO: ${{ inputs.scenario || 'incremental-synchronization' }}
+          QUICK_PERF_FIXTURE: ${{ inputs.fixture }}
 
       - name: Annotate concerning performance
         shell: bash

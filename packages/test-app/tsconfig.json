@@ -2,7 +2,13 @@
   "extends": "./node_modules/@itwin/build-tools/tsconfig-base.json",
   "compilerOptions": {
     "skipLibCheck": true,
-    "outDir": "./lib"
+    "outDir": "./lib",
+    "rootDir": "./src",
+    "esModuleInterop": true,
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "resolvePackageJsonExports": true,
+    "types": ["node", "mocha"]
   },
   "include": ["./src/**/*.ts"]
 }

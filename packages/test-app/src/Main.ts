@@ -5,7 +5,8 @@
 
 import * as path from "node:path";
 import * as fs from "node:fs";
-import * as Yargs from "yargs";
+import { loadEnvFile } from "node:process";
+import Yargs from "yargs";
 import { assert, Guid, Logger, LogLevel } from "@itwin/core-bentley";
 import { ProjectsAccessClient } from "@itwin/projects-client";
 import {
@@ -28,9 +29,6 @@ import { ElementUtils } from "./ElementUtils";
 import { IModelHubUtils, IModelTransformerTestAppHost } from "./IModelHubUtils";
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 import { loggerCategory, Transformer, TransformerOptions } from "./Transformer";
-import * as dotenv from "dotenv";
-import * as dotenvExpand from "dotenv-expand";
-
 import "source-map-support/register";
 
 const acquireAccessToken = async () =>
@@ -40,11 +38,11 @@ void (async () => {
   let targetDb: IModelDb | undefined;
   let sourceDb: IModelDb | undefined;
   try {
-    const envResult = dotenv.config({
-      path: path.resolve(__dirname, "../.env"),
-    });
-    if (!envResult.error) {
-      dotenvExpand(envResult);
+    try {
+      loadEnvFile(path.resolve(__dirname, "../.env"));
+    } catch (error) {
+      // The .env file is optional for offline/local runs.
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
     }
 
     const args = Yargs(process.argv.slice(2))

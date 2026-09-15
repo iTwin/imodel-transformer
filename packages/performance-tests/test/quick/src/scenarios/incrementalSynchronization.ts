@@ -18,6 +18,7 @@ import {
   assertSynchronizationProvenance,
 } from "../fixtures/validation/validateFixture.js";
 import { balancedIncrementalFixture } from "../fixtures/recipes/balancedIncremental.js";
+import { deletionHeavyIncrementalFixture } from "../fixtures/recipes/deletionHeavyIncremental.js";
 import { defineBenchmark } from "../framework/BenchmarkRegistration.js";
 
 export function incrementalSynchronization(
@@ -61,5 +62,5 @@ export const incrementalSynchronizationScenario: BenchmarkScenarioDefinition = {
 
 export const incrementalSynchronizationBenchmark = defineBenchmark({
   scenario: incrementalSynchronizationScenario,
-  fixtures: [balancedIncrementalFixture],
+  fixtures: [balancedIncrementalFixture, deletionHeavyIncrementalFixture],
 });

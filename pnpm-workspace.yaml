@@ -26,3 +26,14 @@ allowBuilds:
   '@itwin/certa': false
   '@itwin/oidc-signin-tool': false
   protobufjs: false
+
+minimumReleaseAgeExclude:
+  - '@itwin/build-tools@5.13.0'
+  - '@itwin/core-backend@5.13.0'
+  - '@itwin/core-bentley@5.13.0'
+  - '@itwin/core-common@5.13.0'
+  - '@itwin/core-geometry@5.13.0'
+  - '@itwin/core-quantity@5.13.0'
+  - '@itwin/ecschema-editing@5.13.0'
+  - '@itwin/ecschema-locaters@5.13.0'
+  - '@itwin/ecschema-metadata@5.13.0'

@@ -104,7 +104,21 @@ describe("A/B comparison reporting", () => {
       path.join(os.tmpdir(), "quick-ab-report-")
     );
     temporaryDirectories.push(outputDir);
-    const summary = ComparisonReporter.write(outputDir, input());
+    const reportInput = input();
+    reportInput.candidate.samples = reportInput.candidate.samples.map(
+      (sample) => {
+        if (sample.transformerProvenance === undefined)
+          throw new Error("Test sample is missing transformer provenance");
+        return {
+          ...sample,
+          transformerProvenance: {
+            ...sample.transformerProvenance,
+            coreBackendVersion: "5.13.0",
+          },
+        };
+      }
+    );
+    const summary = ComparisonReporter.write(outputDir, reportInput);
     const report = JSON.parse(
       fs.readFileSync(path.join(outputDir, "comparison.json"), "utf8")
     ) as typeof summary;
@@ -137,11 +151,49 @@ describe("A/B comparison reporting", () => {
     );
     expect(markdown).to.contain("## Result");
     expect(markdown).to.contain(
+      "Core backend: baseline <code>5.10.3</code>, candidate <code>5.13.0</code>."
+    );
+    expect(markdown).to.contain("| Arm | Revision | Transformer | Median |");
+    expect(markdown).to.contain(
+      "**Relative performance:** Candidate is 1.10× slower than baseline."
+    );
+    expect(markdown).to.contain(
       "How to interpret <code>candidate-slower-than-threshold</code>"
     );
     expect(markdown).to.contain("Where are the individual measurements?");
     expect(markdown).not.to.contain("90.00 ms, 100.00 ms, 110.00 ms");
     expect(records).to.have.length(8);
+  });
+
+  it("describes faster and equal candidate medians", () => {
+    const cases = [
+      {
+        candidateMilliseconds: [45, 50, 55],
+        expected:
+          "**Relative performance:** Candidate is 2.00× faster than baseline.",
+      },
+      {
+        candidateMilliseconds: [90, 100, 110],
+        expected:
+          "**Relative performance:** Candidate and baseline have equal median duration.",
+      },
+    ];
+
+    for (const testCase of cases) {
+      const outputDir = fs.mkdtempSync(
+        path.join(os.tmpdir(), "quick-ab-report-relative-")
+      );
+      temporaryDirectories.push(outputDir);
+      const comparison = input();
+      comparison.candidate.samples = armSamples(testCase.candidateMilliseconds);
+
+      ComparisonReporter.write(outputDir, comparison);
+      const markdown = fs.readFileSync(
+        path.join(outputDir, "comparison.md"),
+        "utf8"
+      );
+      expect(markdown).to.contain(testCase.expected);
+    }
   });
 
   it("escapes scenario configuration in Markdown tables", () => {
@@ -219,15 +271,12 @@ describe("A/B comparison reporting", () => {
     );
   });
 
-  it("keeps arm transformer provenance outside workload identity", () => {
+  it("reports different transformer and Core runtime provenance per arm", () => {
     const versioned = input();
     versioned.baseline.samples = armSamples([90, 100, 110]).map((sample) => ({
       ...sample,
-      fixtureGenerator: {
-        ...sample.fixtureGenerator,
-        transformer: "baseline-author-version",
-      },
       transformerProvenance: {
+        coreBackendVersion: "5.10.3",
         contentHash: "baseline-transformer-hash",
         entryPoint: "baseline/transformer.js",
         version: "baseline-version",
@@ -235,11 +284,8 @@ describe("A/B comparison reporting", () => {
     }));
     versioned.candidate.samples = armSamples([99, 110, 121]).map((sample) => ({
       ...sample,
-      fixtureGenerator: {
-        ...sample.fixtureGenerator,
-        transformer: "candidate-author-version",
-      },
       transformerProvenance: {
+        coreBackendVersion: "5.13.0",
         contentHash: "candidate-transformer-hash",
         entryPoint: "candidate/transformer.js",
         version: "candidate-version",
@@ -253,6 +299,12 @@ describe("A/B comparison reporting", () => {
     );
     expect(summary.candidate.transformerProvenance.version).to.equal(
       "candidate-version"
+    );
+    expect(summary.baseline.transformerProvenance.coreBackendVersion).to.equal(
+      "5.10.3"
+    );
+    expect(summary.candidate.transformerProvenance.coreBackendVersion).to.equal(
+      "5.13.0"
     );
   });
 

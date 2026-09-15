@@ -4,7 +4,11 @@
     "declaration": true,
     "incremental": false,
     "outDir": "lib",
-    "rootDir": "src"
+    "rootDir": "src",
+    "esModuleInterop": true,
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "types": ["node"]
   },
   "include": ["./src/**/*.ts"]
 }

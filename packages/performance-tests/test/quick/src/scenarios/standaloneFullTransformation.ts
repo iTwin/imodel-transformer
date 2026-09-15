@@ -11,6 +11,7 @@ import {
   requireStandaloneDataset,
 } from "../fixtures/FixtureProvider.js";
 import { standaloneFullTransformFixture } from "../fixtures/recipes/standaloneFullTransform.js";
+import { relationshipHeavyTransformFixture } from "../fixtures/recipes/relationshipHeavyTransform.js";
 import { defineBenchmark } from "../framework/BenchmarkRegistration.js";
 import {
   BenchmarkScenario,
@@ -113,5 +114,5 @@ export const standaloneFullTransformationScenario: BenchmarkScenarioDefinition =
 
 export const standaloneFullTransformationBenchmark = defineBenchmark({
   scenario: standaloneFullTransformationScenario,
-  fixtures: [standaloneFullTransformFixture],
+  fixtures: [standaloneFullTransformFixture, relationshipHeavyTransformFixture],
 });
