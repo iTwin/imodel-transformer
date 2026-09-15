@@ -155,6 +155,96 @@ describe("A/B comparison orchestration", () => {
     });
   });
 
+  it("routes per-arm scenarios into the fixture build and executions", async () => {
+    const outputDir = temporaryDirectory("quick-ab-scenario-");
+    const requests: ArmExecutionRequest[] = [];
+    const buildRequests: FixtureArtifactBuildRequest[] = [];
+    const summary = await runComparison(
+      {
+        baseline: {
+          revision: "same-sha",
+          rootDirectory: "shared-root",
+          scenarioId: "export-only-hierarchy-traversal",
+        },
+        candidate: {
+          revision: "same-sha",
+          rootDirectory: "shared-root",
+          scenarioId: "export-only-linear-traversal",
+        },
+        measuredSamplesPerArm: 3,
+        outputDir,
+      },
+      async (request) => {
+        requests.push(request);
+        if (request.scenarioId === undefined)
+          throw new Error("Arm execution is missing its scenario");
+        return benchmarkSample({
+          measured: request.measured,
+          sample: request.sample,
+          scenarioId: request.scenarioId,
+          wallMilliseconds:
+            (request.arm === "baseline" ? 100 : 90) + request.sample,
+        });
+      },
+      async (request) => {
+        buildRequests.push(request);
+        return fixtureArtifactManifest();
+      }
+    );
+
+    expect(buildRequests).to.have.length(1);
+    expect(buildRequests[0].scenarioId).to.equal(
+      "export-only-hierarchy-traversal"
+    );
+    expect(
+      new Set(
+        requests
+          .filter((request) => request.arm === "baseline")
+          .map((request) => request.scenarioId)
+      )
+    ).to.deep.equal(new Set(["export-only-hierarchy-traversal"]));
+    expect(
+      new Set(
+        requests
+          .filter((request) => request.arm === "candidate")
+          .map((request) => request.scenarioId)
+      )
+    ).to.deep.equal(new Set(["export-only-linear-traversal"]));
+    expect(summary.baseline.scenarioId).to.equal(
+      "export-only-hierarchy-traversal"
+    );
+    expect(summary.candidate.scenarioId).to.equal(
+      "export-only-linear-traversal"
+    );
+  });
+
+  it("rejects per-arm scenarios that resolve to different fixtures before building", async () => {
+    let buildStarted = false;
+    await expect(
+      runComparison(
+        {
+          baseline: {
+            revision: "same-sha",
+            rootDirectory: "shared-root",
+            scenarioId: "changeset-scanning",
+          },
+          candidate: {
+            revision: "same-sha",
+            rootDirectory: "shared-root",
+            scenarioId: "schema-processing",
+          },
+          outputDir: temporaryDirectory("quick-ab-scenario-mismatch-"),
+        },
+        async () => benchmarkSample(),
+        async () => {
+          buildStarted = true;
+          return fixtureArtifactManifest();
+        }
+      )
+    ).rejects.toThrow(/requires one shared fixture/);
+    expect(buildStarted).to.equal(false);
+  });
+
   it("runs the arm worker as a child process and reads its result", async () => {
     const rootDirectory = temporaryDirectory("quick-ab-process-");
     const workerPath = comparisonArmWorkerPath(rootDirectory);
