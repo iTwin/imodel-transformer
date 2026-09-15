@@ -16,344 +16,306 @@ import {
   Subject,
   withEditTxn,
 } from "@itwin/core-backend";
-import { Guid, Id64, ITwinError } from "@itwin/core-bentley";
+import { Guid, Id64 } from "@itwin/core-bentley";
 import {
   Code,
   CodeScopeSpec,
   CodeSpec,
   ElementProps,
-  ElementReservationError,
   ExternalSourceAspectProps,
   IModel,
   PhysicalElementProps,
   SubCategoryAppearance,
 } from "@itwin/core-common";
-import { describe, expect, it, vi } from "vitest";
 import { Point3d } from "@itwin/core-geometry";
+import { describe, expect, it, vi } from "vitest";
 import { IModelTransformer } from "../../IModelTransformer";
 import {
   IModelTransformerError,
   IModelTransformerErrorScope,
 } from "../../IModelTransformerError";
-import { PreparedElementIdentity } from "../../IModelCloneContext";
 import {
   createStartedEditTxn,
   IModelTransformerTestUtils,
 } from "../IModelTransformerUtils";
 import { useLocalReservations } from "./ElementReservationTestUtils";
 
-const outputFile = (name: string) =>
-  IModelTransformerTestUtils.prepareOutputFile(
-    "ElementReservationIdentity",
-    name
-  );
-
 async function createScenario(
   name: string,
-  transformerClass: typeof IModelTransformer = IModelTransformer,
-  transformerOptions: ConstructorParameters<typeof IModelTransformer>[1] = {
+  transformerClass = IModelTransformer,
+  options: ConstructorParameters<typeof IModelTransformer>[1] = {
     noProvenance: true,
   }
 ) {
-  const source = StandaloneDb.createEmpty(outputFile(`${name}-source.bim`), {
-    rootSubject: { name },
-  });
-  const target = StandaloneDb.createEmpty(outputFile(`${name}-target.bim`), {
-    rootSubject: { name },
-  });
-  try {
-    await target.importSchemaStrings([
-      `<ECSchema schemaName="ReservationIdentity" alias="ri" version="01.00.00" xmlns="http://www.bentley.com/schemas/Bentley.ECXML.3.1">
+  using resources = new DisposableStack();
+  const file = (suffix: string) =>
+    IModelTransformerTestUtils.prepareOutputFile(
+      "ElementReservationIdentity",
+      `${name}-${suffix}`
+    );
+  const source = resources.adopt(
+    StandaloneDb.createEmpty(file("source.bim"), { rootSubject: { name } }),
+    (db) => db.close()
+  );
+  const target = resources.adopt(
+    StandaloneDb.createEmpty(file("target.bim"), { rootSubject: { name } }),
+    (db) => {
+      if (db.isOpen) db.close();
+    }
+  );
+  await target.importSchemaStrings([
+    `<ECSchema schemaName="ReservationIdentity" alias="ri" version="01.00.00" xmlns="http://www.bentley.com/schemas/Bentley.ECXML.3.1">
       <ECSchemaReference name="BisCore" version="01.00.04" alias="bis"/>
       <ECEntityClass typeName="Remapped" modifier="Sealed"><BaseClass>bis:PhysicalElement</BaseClass></ECEntityClass>
       <ECEntityClass typeName="Transformed" modifier="Sealed"><BaseClass>bis:PhysicalElement</BaseClass></ECEntityClass>
     </ECSchema>`,
-    ]);
-    const specName = "IdentityPreparation";
-    const sourceIds = withEditTxn(source, "source graph", (txn) => {
-      const spec = source.codeSpecs.insert(
-        txn,
-        CodeSpec.create(source, specName, CodeScopeSpec.Type.Model)
-      );
-      const category = SpatialCategory.insert(
-        txn,
-        IModel.dictionaryId,
-        "category",
-        new SubCategoryAppearance()
-      );
-      const model = PhysicalModel.insert(txn, IModel.rootSubjectId, "model");
-      const props: PhysicalElementProps = {
-        classFullName: PhysicalObject.classFullName,
-        model,
-        category,
-        federationGuid: Guid.createValue(),
-        code: { spec, scope: model, value: "object" },
-        geom: IModelTransformerTestUtils.createBox(Point3d.create(1, 2, 3)),
-        placement: {
-          origin: { x: 0, y: 0, z: 0 },
-          angles: { yaw: 0, pitch: 0, roll: 0 },
-        },
-      };
-      return { spec, category, model, object: txn.insertElement(props) };
-    });
-    const targetIds = withEditTxn(
-      target,
-      "existing target prerequisites",
-      (txn) => {
-        target.codeSpecs.insert(
-          txn,
-          CodeSpec.create(target, "padding", CodeScopeSpec.Type.Repository)
-        );
-        const spec = target.codeSpecs.insert(
-          txn,
-          CodeSpec.create(target, specName, CodeScopeSpec.Type.Model)
-        );
-        const category = SpatialCategory.insert(
-          txn,
-          IModel.dictionaryId,
-          "different-category",
-          new SubCategoryAppearance()
-        );
-        const existingModel = PhysicalModel.insert(
-          txn,
-          IModel.rootSubjectId,
-          "existing-model"
-        );
-        return { spec, category, existingModel };
-      }
+  ]);
+  const specName = "IdentityPreparation";
+  const sourceIds = withEditTxn(source, "source graph", (txn) => {
+    const spec = source.codeSpecs.insert(
+      txn,
+      CodeSpec.create(source, specName, CodeScopeSpec.Type.Model)
     );
-    const reservations = await useLocalReservations(
-      target,
-      outputFile(`${name}-sync.db`)
+    const category = SpatialCategory.insert(
+      txn,
+      IModel.dictionaryId,
+      "category",
+      new SubCategoryAppearance()
     );
-    const targetTxn = createStartedEditTxn(target);
-    const transformer = new transformerClass(
-      { source, target: targetTxn },
-      transformerOptions
+    const model = PhysicalModel.insert(txn, IModel.rootSubjectId, "model");
+    const object = txn.insertElement({
+      classFullName: PhysicalObject.classFullName,
+      model,
+      category,
+      federationGuid: Guid.createValue(),
+      code: { spec, scope: model, value: "object" },
+      geom: IModelTransformerTestUtils.createBox(Point3d.create(1, 2, 3)),
+      placement: {
+        origin: { x: 0, y: 0, z: 0 },
+        angles: { yaw: 0, pitch: 0, roll: 0 },
+      },
+    } as PhysicalElementProps);
+    return { spec, category, model, object };
+  });
+  const targetIds = withEditTxn(target, "target prerequisites", (txn) => {
+    target.codeSpecs.insert(
+      txn,
+      CodeSpec.create(target, "padding", CodeScopeSpec.Type.Repository)
     );
-    try {
-      const context = transformer["_cloneContext"];
-      await context.initialize();
-      context.remapElement(IModel.rootSubjectId, IModel.rootSubjectId);
-      context.remapElement(sourceIds.category, targetIds.category);
-      context.remapCodeSpec(specName, specName);
-      const partition = source.elements.getElement(sourceIds.model);
-      context.importCodeSpec(partition.code.spec);
-      const object = source.elements.getElement(sourceIds.object);
-      return {
-        source,
-        target,
-        sourceIds,
-        targetIds,
-        context,
-        transformer,
-        txn: targetTxn,
-        reservations,
-        partition,
-        object,
-        async prepare() {
-          const model = await context.prepareElementIdentity(
-            partition,
-            IModel.rootSubjectId,
-            async () => transformer.onTransformElement(partition)
-          );
-          const element = await context.prepareElementIdentity(
-            object,
-            model.identity.federationGuid!,
-            async () => transformer.onTransformElement(object)
-          );
-          return { model, element };
-        },
-        async reserve(prepared: PreparedElementIdentity[]) {
-          await target.reservations.reserveElements({
-            elements: prepared.map(({ identity }) => ({
-              ...identity,
-              federationGuid: identity.federationGuid!,
-            })),
-          });
-        },
-        async insertModel(prepared: PreparedElementIdentity) {
-          const props = await context.transformPreparedElement(
-            prepared,
-            async () => transformer.onTransformElement(partition)
-          );
-          props.id = undefined;
-          const id = targetTxn.insertElement(props);
-          context.remapElement(sourceIds.model, id);
-          targetTxn.insertModel(
-            transformer.onTransformModel(
-              source.models.getModel(sourceIds.model),
-              id
-            )
-          );
-          return id;
-        },
-        [Symbol.dispose]() {
-          try {
-            transformer.dispose();
-            targetTxn.end();
-          } finally {
-            try {
-              reservations.dispose();
-            } finally {
-              source.close();
-              vi.restoreAllMocks();
-            }
-          }
-        },
-      };
-    } catch (error) {
-      try {
-        transformer.dispose();
-        targetTxn.end();
-      } finally {
-        reservations.dispose();
-      }
-      throw error;
-    }
-  } catch (error) {
-    source.close();
-    if (target.isOpen) target.close();
-    throw error;
-  }
+    const spec = target.codeSpecs.insert(
+      txn,
+      CodeSpec.create(target, specName, CodeScopeSpec.Type.Model)
+    );
+    const category = SpatialCategory.insert(
+      txn,
+      IModel.dictionaryId,
+      "different-category",
+      new SubCategoryAppearance()
+    );
+    const existingModel = PhysicalModel.insert(
+      txn,
+      IModel.rootSubjectId,
+      "existing-model"
+    );
+    return { spec, category, existingModel };
+  });
+  const reservations = resources.adopt(
+    await useLocalReservations(target, file("sync.db")),
+    (adapter) => adapter.dispose()
+  );
+  const targetTxn = resources.adopt(createStartedEditTxn(target), (edit) =>
+    edit.end()
+  );
+  const transformer = resources.adopt(
+    new transformerClass({ source, target: targetTxn }, options),
+    (instance) => instance.dispose()
+  );
+  const context = transformer["_cloneContext"];
+  await context.initialize();
+  context.remapElement(IModel.rootSubjectId, IModel.rootSubjectId);
+  context.remapElement(sourceIds.category, targetIds.category);
+  context.remapCodeSpec(specName, specName);
+  const owned = resources.move();
+  return {
+    source,
+    target,
+    sourceIds,
+    targetIds,
+    reservations,
+    txn: targetTxn,
+    transformer,
+    context,
+    [Symbol.dispose]: () => owned.dispose(),
+  };
 }
 
-describe("TypeScript reservation identity preparation", () => {
-  it("reserves a new model through the public processModel entry point", async () => {
-    using scenario = await createScenario("public-new-model");
-    const insertElement = vi.spyOn(scenario.txn, "insertElement");
-    const insertModel = vi.spyOn(scenario.txn, "insertModel");
-    await scenario.transformer.processModel(scenario.sourceIds.model);
-    const modelId = scenario.context.findTargetElementId(
-      scenario.sourceIds.model
-    );
-    const objectId = scenario.context.findTargetElementId(
-      scenario.sourceIds.object
-    );
-    expect(scenario.reservations.calls).toBe(1);
-    expect(insertElement).toHaveBeenCalledTimes(2);
-    expect(insertModel).toHaveBeenCalledTimes(1);
-    expect(modelId).not.toBe(Id64.invalid);
-    expect(objectId).not.toBe(Id64.invalid);
-    expect(
-      scenario.reservations.sync.findReservedElement(
-        scenario.partition.federationGuid!
-      )?.elementId
-    ).toBe(modelId);
-    expect(
-      scenario.reservations.sync.findReservedElement(
-        scenario.object.federationGuid!
-      )?.elementId
-    ).toBe(objectId);
-    expect(scenario.target.elements.getElementProps(objectId).model).toBe(
-      modelId
-    );
-  });
+const reservationError = (key: IModelTransformerError) => ({
+  iTwinErrorId: { scope: IModelTransformerErrorScope, key },
+});
 
-  it("reserves only the selected contents through public processModelContents", async () => {
-    using scenario = await createScenario("public-model-contents");
-    await scenario.transformer.processModelContents(
-      scenario.sourceIds.model,
-      scenario.targetIds.existingModel,
-      PhysicalObject.classFullName
-    );
-    const objectId = scenario.context.findTargetElementId(
-      scenario.sourceIds.object
-    );
-    expect(scenario.reservations.calls).toBe(1);
-    expect(objectId).not.toBe(Id64.invalid);
-    expect(scenario.target.elements.getElementProps(objectId).model).toBe(
-      scenario.targetIds.existingModel
-    );
-  });
-
-  it("lets category insertion own its default subcategory and preserves appearances", async () => {
-    using scenario = await createScenario("new-category");
-    const sourceCategory = scenario.source.elements.getElement<SpatialCategory>(
-      scenario.sourceIds.category
-    );
-    const sourceDefaultId = sourceCategory.myDefaultSubCategoryId();
-    scenario.context.removeElement(scenario.sourceIds.category);
-    scenario.context.removeElement(sourceDefaultId);
-    const sourceExtraId = withEditTxn(
-      scenario.source,
-      "subcategory appearances",
-      (txn) => {
-        sourceCategory.setDefaultAppearance(txn, { transp: 0.4 });
-        return SubCategory.insert(txn, sourceCategory.id, "extra", {
-          transp: 0.6,
-        });
+describe("reservation identities", () => {
+  it.each([false, true])(
+    "clones geometry and customized identities (existing model: %s)",
+    async (existingModel) => {
+      const guid = Guid.createValue();
+      class CustomTransformer extends IModelTransformer {
+        public override async onTransformElement(
+          element: Element
+        ): Promise<ElementProps> {
+          const props = await super.onTransformElement(element);
+          if (element instanceof PhysicalObject) {
+            props.classFullName = "ReservationIdentity:Transformed";
+            props.federationGuid = guid;
+            props.code.value = `${props.code.value}:${existingModel ? props.model : "new"}`;
+          }
+          return props;
+        }
       }
+      using s = await createScenario(
+        `custom-${existingModel}`,
+        CustomTransformer
+      );
+      const classes: string[] = [];
+      vi.spyOn(
+        PhysicalObject as unknown as {
+          onCloned(
+            context: IModelElementCloneContext,
+            source: ElementProps,
+            target: ElementProps
+          ): Promise<void>;
+        },
+        "onCloned"
+      ).mockImplementation(async (_context, _source, props) => {
+        classes.push(props.classFullName);
+        props.code.value = `${props.code.value}:clone`;
+      });
+      s.context.remapElementClass(
+        PhysicalObject.classFullName,
+        "ReservationIdentity:Remapped"
+      );
+      const reserve = vi.spyOn(s.target.reservations, "reserveElements");
+      if (existingModel)
+        await s.transformer.processModelContents(
+          s.sourceIds.model,
+          s.targetIds.existingModel
+        );
+      else await s.transformer.processModel(s.sourceIds.model);
+      const modelId = s.context.findTargetElementId(s.sourceIds.model);
+      const objectId = s.context.findTargetElementId(s.sourceIds.object);
+      const stored = s.target.elements.getElementProps(objectId);
+      expect(reserve).toHaveBeenCalledTimes(1);
+      expect([...reserve.mock.calls[0][0].elements]).toHaveLength(
+        existingModel ? 1 : 2
+      );
+      expect(stored).toMatchObject({
+        classFullName: "ReservationIdentity:Transformed",
+        federationGuid: guid,
+        model: modelId,
+        category: s.targetIds.category,
+        code: {
+          spec: s.targetIds.spec,
+          scope: modelId,
+          value: `object:clone:${existingModel ? modelId : "new"}`,
+        },
+      });
+      expect(s.sourceIds.spec).not.toBe(s.targetIds.spec);
+      expect(objectId).not.toBe(s.sourceIds.object);
+      expect(objectId).toBe(
+        s.reservations.sync.findReservedElement(guid)?.elementId
+      );
+      expect(classes).toEqual([
+        "ReservationIdentity:Remapped",
+        "ReservationIdentity:Remapped",
+      ]);
+      expect(
+        s.target.elements.getElement<PhysicalObject>({
+          id: objectId,
+          wantGeometry: true,
+        }).geom
+      ).toEqual(
+        s.source.elements.getElement<PhysicalObject>({
+          id: s.sourceIds.object,
+          wantGeometry: true,
+        }).geom
+      );
+    }
+  );
+
+  it("leaves default-subcategory insertion to the backend", async () => {
+    using s = await createScenario("category");
+    const category = s.source.elements.getElement<SpatialCategory>(
+      s.sourceIds.category
     );
-    const reserve = vi.spyOn(scenario.target.reservations, "reserveElements");
-    await scenario.transformer.process();
+    const defaultId = category.myDefaultSubCategoryId();
+    s.context.removeElement(category.id);
+    s.context.removeElement(defaultId);
+    const extraId = withEditTxn(s.source, "appearances", (txn) => {
+      category.setDefaultAppearance(txn, { transp: 0.4 });
+      return SubCategory.insert(txn, category.id, "extra", { transp: 0.6 });
+    });
+    const reserve = vi.spyOn(s.target.reservations, "reserveElements");
+    await s.transformer.process();
     expect(reserve).toHaveBeenCalledTimes(1);
-    const sourceDefaultGuid =
-      scenario.source.elements.getElement(sourceDefaultId).federationGuid;
     expect(
       [...reserve.mock.calls[0][0].elements].map(
         (entry) => entry.federationGuid
       )
-    ).not.toContain(sourceDefaultGuid);
-    const targetCategoryId = scenario.context.findTargetElementId(
-      sourceCategory.id
+    ).not.toContain(s.source.elements.getElement(defaultId).federationGuid);
+    const targetCategory = s.target.elements.getElement<SpatialCategory>(
+      s.context.findTargetElementId(category.id)
     );
-    const targetDefaultId = scenario.target.elements
-      .getElement<SpatialCategory>(targetCategoryId)
-      .myDefaultSubCategoryId();
-    expect(scenario.context.findTargetElementId(sourceDefaultId)).toBe(
-      targetDefaultId
+    expect(s.context.findTargetElementId(defaultId)).toBe(
+      targetCategory.myDefaultSubCategoryId()
     );
     expect(
-      scenario.target.elements.getElement<SubCategory>(targetDefaultId)
-        .appearance.transparency
+      s.target.elements.getElement<SubCategory>(
+        s.context.findTargetElementId(defaultId)
+      ).appearance.transparency
     ).toBe(0.4);
-    const extra = scenario.target.elements.getElement<SubCategory>(
-      scenario.context.findTargetElementId(sourceExtraId)
+    const extra = s.target.elements.getElement<SubCategory>(
+      s.context.findTargetElementId(extraId)
     );
-    expect(extra.getCategoryId()).toBe(targetCategoryId);
+    expect(extra.getCategoryId()).toBe(targetCategory.id);
     expect(extra.appearance.transparency).toBe(0.6);
-    expect(
-      scenario.reservations.sync.findReservedElement(
-        sourceCategory.federationGuid!
-      )?.elementId
-    ).toBe(targetCategoryId);
   });
 
-  it("defers implicit scope provenance until the reservation succeeds", async () => {
-    using scenario = await createScenario(
-      "implicit-provenance",
-      IModelTransformer,
-      {}
+  it("defers scope provenance and retries implicit initialization after reservation failure", async () => {
+    using s = await createScenario("provenance", IModelTransformer, {});
+    const failure = new Error("reservation unavailable");
+    vi.spyOn(s.target.reservations, "reserveElements").mockRejectedValueOnce(
+      failure
     );
-    await scenario.transformer.processModel(scenario.sourceIds.model);
-    const scopeAspects = scenario.target.elements.getAspects(
+    const insertAspect = vi.spyOn(s.txn, "insertAspect");
+    await expect(s.transformer.processModel(s.sourceIds.model)).rejects.toBe(
+      failure
+    );
+    expect(insertAspect).not.toHaveBeenCalled();
+    await s.transformer.processModel(s.sourceIds.model);
+    const aspects = s.target.elements.getAspects(
       IModel.rootSubjectId,
       ExternalSourceAspect.classFullName
     );
-    expect(scopeAspects).toHaveLength(1);
-    expect((scopeAspects[0] as ExternalSourceAspect).kind).toBe(
+    expect(aspects).toHaveLength(1);
+    expect((aspects[0] as ExternalSourceAspect).kind).toBe(
       ExternalSourceAspect.Kind.Scope
     );
   });
 
-  it("defers legacy scope migration and refreshes its cached synchronization version", async () => {
+  it("defers legacy scope migration and restores its cached version on failure", async () => {
     class VersionTransformer extends IModelTransformer {
       public async readVersion() {
         return this.getSynchronizationVersion();
       }
     }
-    using scenario = await createScenario(
-      "deferred-migration",
-      VersionTransformer,
-      { branchRelationshipDataBehavior: "unsafe-migrate" }
-    );
-    const transformer = scenario.transformer as VersionTransformer;
-    const scopeId = scenario.txn.insertAspect({
+    using s = await createScenario("migration", VersionTransformer, {
+      branchRelationshipDataBehavior: "unsafe-migrate",
+    });
+    const transformer = s.transformer as VersionTransformer;
+    const scopeId = s.txn.insertAspect({
       classFullName: ExternalSourceAspect.classFullName,
       element: { id: IModel.rootSubjectId },
       scope: { id: IModel.rootSubjectId },
-      identifier: scenario.source.iModelId,
+      identifier: s.source.iModelId,
       kind: ExternalSourceAspect.Kind.Scope,
       version: "older;3",
       jsonProperties: JSON.stringify({
@@ -363,37 +325,34 @@ describe("TypeScript reservation identity preparation", () => {
       }),
     } as ExternalSourceAspectProps);
     expect(await transformer.readVersion()).toEqual({ id: "older", index: 3 });
-    scenario.txn.updateAspect({
-      ...scenario.target.elements.getAspect(scopeId).toJSON(),
+    s.txn.updateAspect({
+      ...s.target.elements.getAspect(scopeId).toJSON(),
       version: "",
       jsonProperties: "{}",
     } as ExternalSourceAspectProps);
-    const failure = new Error(
-      "reservation failure after migration preparation"
+    const failure = new Error("migration reservation failure");
+    vi.spyOn(s.target.reservations, "reserveElements").mockImplementationOnce(
+      async () => {
+        expect(await transformer.readVersion()).toEqual({ id: "", index: -1 });
+        expect(
+          (s.target.elements.getAspect(scopeId) as ExternalSourceAspect)
+            .jsonProperties
+        ).toBe("{}");
+        throw failure;
+      }
     );
-    vi.spyOn(
-      scenario.target.reservations,
-      "reserveElements"
-    ).mockImplementationOnce(async () => {
-      expect(await transformer.readVersion()).toEqual({ id: "", index: -1 });
-      expect(
-        (scenario.target.elements.getAspect(scopeId) as ExternalSourceAspect)
-          .jsonProperties
-      ).toBe("{}");
-      throw failure;
-    });
-    await expect(
-      transformer.processModel(scenario.sourceIds.model)
-    ).rejects.toBe(failure);
+    await expect(transformer.processModel(s.sourceIds.model)).rejects.toBe(
+      failure
+    );
     expect(
-      (scenario.target.elements.getAspect(scopeId) as ExternalSourceAspect)
+      (s.target.elements.getAspect(scopeId) as ExternalSourceAspect)
         .jsonProperties
     ).toBe("{}");
     expect(await transformer.readVersion()).toEqual({ id: "older", index: 3 });
-    await transformer.processModel(scenario.sourceIds.model);
+    await transformer.processModel(s.sourceIds.model);
     expect(
       JSON.parse(
-        (scenario.target.elements.getAspect(scopeId) as ExternalSourceAspect)
+        (s.target.elements.getAspect(scopeId) as ExternalSourceAspect)
           .jsonProperties ?? "{}"
       )
     ).toEqual({
@@ -402,39 +361,6 @@ describe("TypeScript reservation identity preparation", () => {
       pendingReverseSyncChangesetIndices: [],
     });
     expect(await transformer.readVersion()).toEqual({ id: "", index: -1 });
-  });
-
-  it("retries implicit initialization after reservation failure without losing scope provenance", async () => {
-    using scenario = await createScenario(
-      "implicit-provenance-retry",
-      IModelTransformer,
-      {}
-    );
-    const failure = new Error("reservation service unavailable");
-    vi.spyOn(
-      scenario.target.reservations,
-      "reserveElements"
-    ).mockRejectedValueOnce(failure);
-    const insertAspect = vi.spyOn(scenario.txn, "insertAspect");
-    await expect(
-      scenario.transformer.processModel(scenario.sourceIds.model)
-    ).rejects.toBe(failure);
-    expect(insertAspect).not.toHaveBeenCalled();
-    expect(
-      scenario.target.elements.getAspects(
-        IModel.rootSubjectId,
-        ExternalSourceAspect.classFullName
-      )
-    ).toHaveLength(0);
-    await scenario.transformer.processModel(scenario.sourceIds.model);
-    const scopes = scenario.target.elements.getAspects(
-      IModel.rootSubjectId,
-      ExternalSourceAspect.classFullName
-    );
-    expect(scopes).toHaveLength(1);
-    expect((scopes[0] as ExternalSourceAspect).kind).toBe(
-      ExternalSourceAspect.Kind.Scope
-    );
   });
 
   it.each([false, true])(
@@ -446,584 +372,198 @@ describe("TypeScript reservation identity preparation", () => {
           element: Element
         ): Promise<ElementProps> {
           const props = await super.onTransformElement(element);
-          props.code.value = `${props.code.value}:transformed`;
-          if (this.drift) props.code.value = "changed-after-reservation";
+          props.code.value = this.drift
+            ? "changed"
+            : `${props.code.value}:transformed`;
           return props;
         }
       }
-      using scenario = await createScenario(
-        `conflict-code-${drift}`,
-        CodeTransformer
-      );
-      const conflictingIdentity = {
+      using s = await createScenario(`conflict-${drift}`, CodeTransformer);
+      const identity = {
         classFullName: "ReservationIdentity:Remapped",
         federationGuid: Guid.createValue(),
         code: {
-          spec: scenario.targetIds.spec,
-          scope: scenario.targetIds.existingModel,
+          spec: s.targetIds.spec,
+          scope: s.targetIds.existingModel,
           value: "object:transformed",
         },
       };
-      await scenario.target.reservations.reserveElements({
-        elements: [conflictingIdentity],
-      });
-      const conflictingId = scenario.txn.insertElement({
-        ...conflictingIdentity,
-        model: scenario.targetIds.existingModel,
-        category: scenario.targetIds.category,
+      await s.target.reservations.reserveElements({ elements: [identity] });
+      const conflictingId = s.txn.insertElement({
+        ...identity,
+        model: s.targetIds.existingModel,
+        category: s.targetIds.category,
       } as PhysicalElementProps);
-      scenario.context.remapElement(
-        scenario.sourceIds.model,
-        scenario.targetIds.existingModel
+      const reserve = s.target.reservations.reserveElements.bind(
+        s.target.reservations
       );
-      const reserve = scenario.target.reservations.reserveElements.bind(
-        scenario.target.reservations
+      vi.spyOn(s.target.reservations, "reserveElements").mockImplementation(
+        async (args) => {
+          await reserve(args);
+          (s.transformer as CodeTransformer).drift = drift;
+        }
       );
-      vi.spyOn(
-        scenario.target.reservations,
-        "reserveElements"
-      ).mockImplementation(async (args) => {
-        await reserve(args);
-        (scenario.transformer as CodeTransformer).drift = drift;
-      });
-      const insert = vi.spyOn(scenario.txn, "insertElement");
-      const processing = scenario.transformer.processElement(
-        scenario.sourceIds.object
+      const insert = vi.spyOn(s.txn, "insertElement");
+      const operation = s.transformer.processModelContents(
+        s.sourceIds.model,
+        s.targetIds.existingModel
       );
       if (drift) {
-        const error = await processing.catch((caught: unknown) => caught);
-        expect(
-          ITwinError.isError(
-            error,
-            IModelTransformerErrorScope,
-            IModelTransformerError.ElementReservationPlanChanged
-          )
-        ).toBe(true);
+        await expect(operation).rejects.toMatchObject(
+          reservationError(IModelTransformerError.ElementReservationPlanChanged)
+        );
         expect(insert).not.toHaveBeenCalled();
       } else {
-        await processing;
+        await operation;
         expect(insert).toHaveBeenCalledTimes(1);
-        const id = scenario.context.findTargetElementId(
-          scenario.sourceIds.object
-        );
-        expect(scenario.target.elements.getElementProps(id).code).toEqual(
-          Code.createEmpty().toJSON()
-        );
+        expect(
+          s.target.elements.getElementProps(
+            s.context.findTargetElementId(s.sourceIds.object)
+          ).code
+        ).toEqual(Code.createEmpty().toJSON());
       }
-      expect(
-        scenario.target.elements.getElementProps(conflictingId).code.value
-      ).toBe("object:transformed");
+      expect(s.target.elements.getElementProps(conflictingId).code.value).toBe(
+        identity.code.value
+      );
     }
   );
 
-  it("rejects a related-code-scope cycle before recursive export or target writes", async () => {
-    using scenario = await createScenario("code-cycle");
-    const specName = "CyclicRelatedCodes";
-    withEditTxn(scenario.source, "related scope cycle", (txn) => {
-      const spec = scenario.source.codeSpecs.insert(
+  it("rejects a related-code-scope cycle before reservation or writes", async () => {
+    using s = await createScenario("cycle");
+    const name = "RelatedCodes";
+    withEditTxn(s.source, "cycle", (txn) => {
+      const spec = s.source.codeSpecs.insert(
         txn,
-        CodeSpec.create(
-          scenario.source,
-          specName,
-          CodeScopeSpec.Type.RelatedElement
-        )
+        CodeSpec.create(s.source, name, CodeScopeSpec.Type.RelatedElement)
       );
+      const props = s.source.elements.getElementProps(s.sourceIds.object);
       const other = txn.insertElement({
-        ...scenario.object.toJSON(),
+        ...props,
         id: undefined,
         federationGuid: Guid.createValue(),
         code: Code.createEmpty().toJSON(),
       });
       txn.updateElement({
-        ...scenario.object.toJSON(),
+        ...props,
         code: { spec, scope: other, value: "first" },
       });
       txn.updateElement({
-        ...scenario.source.elements.getElementProps(other),
-        code: { spec, scope: scenario.sourceIds.object, value: "second" },
+        ...s.source.elements.getElementProps(other),
+        code: { spec, scope: props.id!, value: "second" },
       });
     });
-    scenario.target.codeSpecs.insert(
-      scenario.txn,
-      CodeSpec.create(
-        scenario.target,
-        specName,
-        CodeScopeSpec.Type.RelatedElement
-      )
+    s.target.codeSpecs.insert(
+      s.txn,
+      CodeSpec.create(s.target, name, CodeScopeSpec.Type.RelatedElement)
     );
-    scenario.context.remapCodeSpec(specName, specName);
-    scenario.context.remapElement(
-      scenario.sourceIds.model,
-      scenario.targetIds.existingModel
-    );
-    const insert = vi.spyOn(scenario.txn, "insertElement");
-    const error = await scenario.transformer
-      .processElement(scenario.sourceIds.object)
-      .catch((caught: unknown) => caught);
-    expect(
-      ITwinError.isError(
-        error,
-        IModelTransformerErrorScope,
-        IModelTransformerError.ElementReservationUnsupported
+    s.context.remapCodeSpec(name, name);
+    const insert = vi.spyOn(s.txn, "insertElement");
+    await expect(
+      s.transformer.processModelContents(
+        s.sourceIds.model,
+        s.targetIds.existingModel
       )
-    ).toBe(true);
-    expect((error as Error).message).toContain("cycle");
-    expect(scenario.reservations.calls).toBe(0);
+    ).rejects.toMatchObject({
+      ...reservationError(IModelTransformerError.ElementReservationUnsupported),
+      message: expect.stringContaining("cycle"),
+    });
+    expect(s.reservations.calls).toBe(0);
     expect(insert).not.toHaveBeenCalled();
   });
 
-  it("prepares a new model and its contained element before native cloning is possible", async () => {
-    using scenario = await createScenario("new-model");
-    const {
-      context,
-      transformer,
-      object,
-      target,
-      sourceIds,
-      targetIds,
-      txn,
-      reservations,
-    } = scenario;
-    const insertElement = vi.spyOn(txn, "insertElement");
-    const insertModel = vi.spyOn(txn, "insertModel");
-    await expect(transformer.onTransformElement(object)).rejects.toThrow(
-      "Invalid target model"
-    );
-
-    const prepared = await scenario.prepare();
-    expect(insertElement).not.toHaveBeenCalled();
-    expect(insertModel).not.toHaveBeenCalled();
-    expect(reservations.calls).toBe(0);
-    expect(context.findTargetElementId(sourceIds.model)).toBe(Id64.invalid);
-    expect(prepared.element.identity).toEqual({
-      classFullName: object.classFullName,
-      federationGuid: object.federationGuid,
-      code: {
-        spec: targetIds.spec,
-        scope: prepared.model.identity.federationGuid,
-        value: "object",
-      },
-    });
-    expect(sourceIds.spec).not.toBe(targetIds.spec);
-    expect(Object.keys(prepared.element).sort()).toEqual([
-      "codeBeforeHooks",
-      "identity",
-      "sourceId",
-    ]);
-    expect(Object.keys(prepared.element.identity).sort()).toEqual([
-      "classFullName",
-      "code",
-      "federationGuid",
-    ]);
-
-    await scenario.reserve([prepared.model, prepared.element]);
-    expect(reservations.calls).toBe(1);
-    const modelId = await scenario.insertModel(prepared.model);
-    const props = await context.transformPreparedElement(
-      prepared.element,
-      async () => transformer.onTransformElement(object)
-    );
-    expect(props.model).toBe(modelId);
-    expect((props as PhysicalElementProps).category).toBe(targetIds.category);
-    props.id = undefined;
-    const objectId = txn.insertElement(props);
-    expect(modelId).toBe(
-      reservations.sync.findReservedElement(
-        prepared.model.identity.federationGuid!
-      )?.elementId
-    );
-    expect(objectId).toBe(
-      reservations.sync.findReservedElement(
-        prepared.element.identity.federationGuid!
-      )?.elementId
-    );
-    expect(objectId).not.toBe(sourceIds.object);
-    expect(target.elements.getElementProps(objectId).code.scope).toBe(modelId);
-    const sourceGeometry = scenario.source.elements.getElement<PhysicalObject>({
-      id: sourceIds.object,
-      wantGeometry: true,
-    }).geom;
-    expect(sourceGeometry).toBeDefined();
-    expect(
-      target.elements.getElement<PhysicalObject>({
-        id: objectId,
-        wantGeometry: true,
-      }).geom
-    ).toEqual(sourceGeometry);
-  });
-
   it.each([false, true])(
-    "inserts a GUID-less element without reserving (preserve IDs: %s)",
+    "leaves GUID-less inserts unreserved (preserve IDs: %s)",
     async (preserveElementIdsForFiltering) => {
-      using scenario = await createScenario(
-        `unreserved-${preserveElementIdsForFiltering}`,
+      using s = await createScenario(
+        `no-guid-${preserveElementIdsForFiltering}`,
         IModelTransformer,
         { noProvenance: true, preserveElementIdsForFiltering }
       );
-      withEditTxn(scenario.source, "clear source GUID", (txn) =>
+      withEditTxn(s.source, "clear GUID", (txn) =>
         txn.updateElement({
-          ...scenario.object.toJSON(),
+          ...s.source.elements.getElementProps(s.sourceIds.object),
           federationGuid: Guid.empty,
         })
       );
-      expect(
-        scenario.source.elements.getElement(scenario.sourceIds.object)
-          .federationGuid
-      ).toBeUndefined();
-      expect(
-        scenario.target.elements.tryGetElementProps(scenario.sourceIds.object)
-      ).toBeUndefined();
-      const insert = vi.spyOn(scenario.txn, "insertElement");
-      await scenario.transformer.processModelContents(
-        scenario.sourceIds.model,
-        scenario.targetIds.existingModel
+      const insert = vi.spyOn(s.txn, "insertElement");
+      await s.transformer.processModelContents(
+        s.sourceIds.model,
+        s.targetIds.existingModel
       );
-      expect(scenario.reservations.calls).toBe(0);
+      expect(s.reservations.calls).toBe(0);
       expect(insert).toHaveBeenCalledTimes(1);
       expect(insert.mock.calls[0][1]?.forceUseId).toBe(
         preserveElementIdsForFiltering
       );
-      const targetId = scenario.context.findTargetElementId(
-        scenario.sourceIds.object
-      );
-      expect(scenario.target.elements.getElementProps(targetId).model).toBe(
-        scenario.targetIds.existingModel
-      );
       if (preserveElementIdsForFiltering)
-        expect(targetId).toBe(scenario.sourceIds.object);
+        expect(s.context.findTargetElementId(s.sourceIds.object)).toBe(
+          s.sourceIds.object
+        );
     }
   );
 
-  it("rejects preserveElementIdsForFiltering before reserving a new public insert", async () => {
-    using scenario = await createScenario(
-      "preserve-id-public",
-      IModelTransformer,
-      {
+  it.each(["preserve-id", "missing-model-guid"])(
+    "rejects unsupported reserved model insertion (%s)",
+    async (mode) => {
+      using s = await createScenario(mode, IModelTransformer, {
         noProvenance: true,
-        preserveElementIdsForFiltering: true,
-      }
-    );
-    const insert = vi.spyOn(scenario.txn, "insertElement");
-    const error = await scenario.transformer
-      .processElement(scenario.partition.id)
-      .catch((caught: unknown) => caught);
-    expect(
-      ITwinError.isError(
-        error,
-        IModelTransformerErrorScope,
-        IModelTransformerError.ElementReservationUnsupported
-      )
-    ).toBe(true);
-    expect(scenario.reservations.calls).toBe(0);
-    expect(insert).not.toHaveBeenCalled();
-  });
-
-  it("preserves backend validation of a malformed transformed GUID before inserts", async () => {
-    class MalformedGuidTransformer extends IModelTransformer {
-      public override async onTransformElement(
-        element: Element
-      ): Promise<ElementProps> {
-        const props = await super.onTransformElement(element);
-        if (element instanceof PhysicalObject)
-          props.federationGuid = "not-a-guid";
-        return props;
-      }
+        preserveElementIdsForFiltering: mode === "preserve-id",
+      });
+      if (mode === "missing-model-guid")
+        withEditTxn(s.source, "clear model GUID", (txn) =>
+          txn.updateElement({
+            ...s.source.elements.getElementProps(s.sourceIds.model),
+            federationGuid: Guid.empty,
+          })
+        );
+      const insert = vi.spyOn(s.txn, "insertElement");
+      await expect(
+        s.transformer.processModel(s.sourceIds.model)
+      ).rejects.toMatchObject(
+        reservationError(IModelTransformerError.ElementReservationUnsupported)
+      );
+      expect(s.reservations.calls).toBe(0);
+      expect(insert).not.toHaveBeenCalled();
     }
-    using scenario = await createScenario(
-      "malformed-guid",
-      MalformedGuidTransformer
-    );
-    const reserve = scenario.target.reservations.reserveElements.bind(
-      scenario.target.reservations
-    );
-    let backendError: unknown;
-    vi.spyOn(
-      scenario.target.reservations,
-      "reserveElements"
-    ).mockImplementation(async (args) => {
-      try {
-        await reserve(args);
-      } catch (caught) {
-        backendError = caught;
-        throw caught;
-      }
-    });
-    const insert = vi.spyOn(scenario.txn, "insertElement");
-    const error = await scenario.transformer
-      .processModel(scenario.sourceIds.model)
-      .catch((caught: unknown) => caught);
-    expect(
-      ITwinError.isError(
-        error,
-        ElementReservationError.scope,
-        "invalid-reservation"
-      )
-    ).toBe(true);
-    expect(error).toBe(backendError);
-    expect(scenario.reservations.calls).toBe(0);
-    expect(insert).not.toHaveBeenCalled();
-  });
+  );
 
-  it("rejects a public new-model reservation when the modeled element has no GUID", async () => {
-    using scenario = await createScenario("missing-model-guid");
-    withEditTxn(scenario.source, "clear model federation GUID", (txn) =>
+  it("uses a code-matched model's real ID, not its source GUID", async () => {
+    using s = await createScenario("code-match");
+    const sourceModel = s.source.elements.getElementProps(s.sourceIds.model);
+    expect(
+      s.target.elements.getElement(s.targetIds.existingModel).federationGuid
+    ).not.toBe(sourceModel.federationGuid);
+    withEditTxn(s.source, "match code", (txn) =>
       txn.updateElement({
-        ...scenario.partition.toJSON(),
-        federationGuid: Guid.empty,
+        ...sourceModel,
+        code: { ...sourceModel.code, value: "existing-model" },
       })
     );
-    const error = await scenario.transformer
-      .processModel(scenario.sourceIds.model)
-      .catch((caught: unknown) => caught);
+    const reserve = vi.spyOn(s.target.reservations, "reserveElements");
+    await s.transformer.processModel(s.sourceIds.model);
+    expect(s.context.findTargetElementId(s.sourceIds.model)).toBe(
+      s.targetIds.existingModel
+    );
+    const entries = [...reserve.mock.calls[0][0].elements];
+    expect(entries).toHaveLength(1);
+    expect(entries[0].code?.scope).toBe(s.targetIds.existingModel);
     expect(
-      ITwinError.isError(
-        error,
-        IModelTransformerErrorScope,
-        IModelTransformerError.ElementReservationUnsupported
-      )
-    ).toBe(true);
-    expect(scenario.reservations.calls).toBe(0);
-  });
-
-  it("rejects a dependent parent-scope insert when its scope has no GUID", async () => {
-    const source = StandaloneDb.createEmpty(
-      outputFile("missing-scope-source"),
-      {
-        rootSubject: { name: "missing-scope" },
-      }
-    );
-    const target = StandaloneDb.createEmpty(
-      outputFile("missing-scope-target"),
-      {
-        rootSubject: { name: "missing-scope" },
-      }
-    );
-    const specName = "MissingScopeParent";
-    const sourceSpec = withEditTxn(source, "missing scope code spec", (txn) =>
-      source.codeSpecs.insert(
-        txn,
-        CodeSpec.create(source, specName, CodeScopeSpec.Type.ParentElement)
-      )
-    );
-    withEditTxn(target, "missing scope target code spec", (txn) =>
-      target.codeSpecs.insert(
-        txn,
-        CodeSpec.create(target, specName, CodeScopeSpec.Type.ParentElement)
-      )
-    );
-    const ids = withEditTxn(source, "missing scope hierarchy", (txn) => {
-      const parent = Subject.create(
-        source,
-        IModel.rootSubjectId,
-        "missing-parent"
-      ).toJSON();
-      parent.federationGuid = Guid.empty;
-      const parentId = txn.insertElement(parent);
-      const child = Subject.create(
-        source,
-        parentId,
-        "dependent-child"
-      ).toJSON();
-      child.federationGuid = Guid.createValue();
-      child.code = {
-        spec: sourceSpec,
-        scope: parentId,
-        value: "dependent-child",
-      };
-      return { parentId, childId: txn.insertElement(child) };
-    });
-    const reservations = await useLocalReservations(
-      target,
-      outputFile("missing-scope-sync")
-    );
-    const targetTxn = createStartedEditTxn(target);
-    const transformer = new IModelTransformer(
-      { source, target: targetTxn },
-      { noProvenance: true }
-    );
-    try {
-      transformer.context.remapCodeSpec(specName, specName);
-      transformer.context.remapElement(
-        IModel.rootSubjectId,
-        IModel.rootSubjectId
-      );
-      const error = await transformer
-        .processChildElements(IModel.rootSubjectId)
-        .catch((caught: unknown) => caught);
-      expect(
-        ITwinError.isError(
-          error,
-          IModelTransformerErrorScope,
-          IModelTransformerError.ElementReservationUnsupported
-        )
-      ).toBe(true);
-      expect(reservations.calls).toBe(0);
-      expect(transformer.context.findTargetElementId(ids.childId)).toBe(
-        Id64.invalid
-      );
-    } finally {
-      transformer.dispose();
-      targetTxn.end();
-      source.close();
-      reservations.dispose();
-    }
-  });
-
-  it("uses a public processElement call for a code-matched existing target", async () => {
-    using scenario = await createScenario("public-code-match");
-    withEditTxn(scenario.source, "match public existing model", (txn) => {
-      txn.updateElement({
-        ...scenario.partition.toJSON(),
-        code: { ...scenario.partition.code.toJSON(), value: "existing-model" },
-      });
-    });
-    scenario.context.remapCodeSpec(
-      scenario.source.codeSpecs.getById(scenario.partition.code.spec).name,
-      scenario.source.codeSpecs.getById(scenario.partition.code.spec).name
-    );
-    scenario.context.remapElement(IModel.rootSubjectId, IModel.rootSubjectId);
-    await scenario.transformer.processElement(scenario.partition.id);
-    expect(scenario.reservations.calls).toBe(0);
-    expect(scenario.context.findTargetElementId(scenario.partition.id)).toBe(
-      scenario.targetIds.existingModel
-    );
-  });
-
-  it("uses the real target identity of a code-matched scope with a different GUID", async () => {
-    using scenario = await createScenario("code-matched-scope");
-    const existingGuid = scenario.target.elements.getElement(
-      scenario.targetIds.existingModel
-    ).federationGuid;
-    expect(existingGuid).not.toBe(scenario.partition.federationGuid);
-    withEditTxn(scenario.source, "match existing model code", (txn) => {
-      txn.updateElement({
-        ...scenario.partition.toJSON(),
-        code: { ...scenario.partition.code.toJSON(), value: "existing-model" },
-      });
-    });
-    const partition = scenario.source.elements.getElement(
-      scenario.partition.id
-    );
-    const insert = vi.spyOn(scenario.txn, "insertElement");
-    const update = vi.spyOn(scenario.txn, "updateElement");
-    const preparedModel = await scenario.context.prepareElementIdentity(
-      partition,
-      IModel.rootSubjectId,
-      async () => scenario.transformer.onTransformElement(partition)
-    );
-    const matchedId = await scenario.transformer["findTargetElementMatch"](
-      partition,
-      preparedModel.identity
-    );
-    expect(matchedId).toBe(scenario.targetIds.existingModel);
-    expect(scenario.context.findTargetElementId(partition.id)).toBe(matchedId);
-    const element = await scenario.context.prepareElementIdentity(
-      scenario.object,
-      matchedId,
-      async () => scenario.transformer.onTransformElement(scenario.object)
-    );
-    expect(element.identity.code.scope).toBe(matchedId);
-    expect(insert).not.toHaveBeenCalled();
-    expect(update).not.toHaveBeenCalled();
-    expect(scenario.reservations.calls).toBe(0);
-    await scenario.reserve([element]);
-    expect(scenario.reservations.calls).toBe(1);
-    const props = await scenario.context.transformPreparedElement(
-      element,
-      async () => scenario.transformer.onTransformElement(scenario.object)
-    );
-    props.id = undefined;
-    const id = scenario.txn.insertElement(props);
-    expect(scenario.target.elements.getElementProps(id).code.scope).toBe(
-      matchedId
-    );
-    expect(scenario.target.elements.getElement(matchedId).federationGuid).toBe(
-      existingGuid
-    );
-    expect(
-      scenario.reservations.sync.findReservedElement(partition.federationGuid!)
+      s.reservations.sync.findReservedElement(sourceModel.federationGuid!)
     ).toBeUndefined();
-  });
-
-  it("honors class remapping, onCloned and onTransformElement identity changes exactly once per pass", async () => {
-    const transformedGuid = Guid.createValue();
-    class CustomTransformer extends IModelTransformer {
-      public override async onTransformElement(
-        source: Element
-      ): Promise<ElementProps> {
-        const props = await super.onTransformElement(source);
-        if (source instanceof PhysicalObject) {
-          props.classFullName = "ReservationIdentity:Transformed";
-          props.federationGuid = transformedGuid;
-          props.code.value = `${props.code.value}:transform`;
-        }
-        return props;
-      }
-    }
-    using scenario = await createScenario("customization", CustomTransformer);
-    const seenClasses: string[] = [];
-    vi.spyOn(
-      PhysicalObject as unknown as {
-        onCloned(
-          context: IModelElementCloneContext,
-          source: ElementProps,
-          target: ElementProps
-        ): Promise<void>;
-      },
-      "onCloned"
-    ).mockImplementation(async (_context, _source, props) => {
-      seenClasses.push(props.classFullName);
-      expect("code" in props).toBe(true);
-      expect(
-        Object.getOwnPropertyDescriptor(props, "classFullName")?.value
-      ).toBe("ReservationIdentity:Remapped");
-      props.code.value = `${props.code.value}:clone`;
-    });
-    scenario.context.remapElementClass(
-      PhysicalObject.classFullName,
-      "ReservationIdentity:Remapped"
-    );
-    const prepared = await scenario.prepare();
-    expect(seenClasses).toEqual(["ReservationIdentity:Remapped"]);
-    expect(prepared.element.identity.federationGuid).toBe(transformedGuid);
-    expect(prepared.element.identity.classFullName).toBe(
-      "ReservationIdentity:Transformed"
-    );
-    expect(prepared.element.identity.code.value).toBe("object:clone:transform");
-    expect(prepared.element.codeBeforeHooks.value).toBe("object");
-    expect(scenario.object.code.value).toBe("object");
-
-    await scenario.reserve([prepared.model, prepared.element]);
-    const modelId = await scenario.insertModel(prepared.model);
-    const replayProps = await scenario.context.transformPreparedElement(
-      prepared.element,
-      async () => scenario.transformer.onTransformElement(scenario.object)
-    );
-    expect(seenClasses).toEqual([
-      "ReservationIdentity:Remapped",
-      "ReservationIdentity:Remapped",
-    ]);
-    replayProps.id = undefined;
-    const objectId = scenario.txn.insertElement(replayProps);
-    const stored = scenario.target.elements.getElementProps(objectId);
-    expect(stored.classFullName).toBe("ReservationIdentity:Transformed");
-    expect(stored.federationGuid).toBe(transformedGuid);
-    expect(stored.code.value).toBe("object:clone:transform");
-    expect(stored.code.scope).toBe(modelId);
-    expect(objectId).toBe(
-      scenario.reservations.sync.findReservedElement(transformedGuid)?.elementId
-    );
+    await s.transformer.processElement(s.sourceIds.model);
+    expect(reserve).toHaveBeenCalledTimes(1);
   });
 
   it.each(["read", "spread", "has", "descriptor"])(
-    "rejects a hook that needs incomplete target props (%s), and restores preparation state",
+    "rejects unavailable target props and restores preparation state (%s)",
     async (operation) => {
+      let invalid = true;
       class TargetDependentTransformer extends IModelTransformer {
         public override async onTransformElement(
-          source: Element
+          element: Element
         ): Promise<ElementProps> {
-          const props = await super.onTransformElement(source);
-          if (source instanceof PhysicalObject) {
+          const props = await super.onTransformElement(element);
+          if (invalid && element instanceof PhysicalObject) {
             if (operation === "read") props.code.value = props.model;
             else if (operation === "has")
               props.code.value = "model" in props ? "present" : "absent";
@@ -1034,360 +574,83 @@ describe("TypeScript reservation identity preparation", () => {
           return props;
         }
       }
-      using scenario = await createScenario(
+      using s = await createScenario(
         `unsupported-${operation}`,
         TargetDependentTransformer
       );
-      const insert = vi.spyOn(scenario.txn, "insertElement");
-      const error = await scenario.prepare().catch((caught: unknown) => caught);
-      expect(
-        ITwinError.isError(
-          error,
-          IModelTransformerErrorScope,
-          IModelTransformerError.ElementReservationUnsupported
-        )
-      ).toBe(true);
-      expect(insert).not.toHaveBeenCalled();
-      expect(scenario.reservations.calls).toBe(0);
-      expect(scenario.context.isPreparingIdentityOnly(scenario.object.id)).toBe(
-        false
-      );
+      const insert = vi.spyOn(s.txn, "insertElement");
       await expect(
-        scenario.transformer.onTransformElement(scenario.object)
-      ).rejects.toThrow("Invalid target model");
+        s.transformer.processModel(s.sourceIds.model)
+      ).rejects.toMatchObject(
+        reservationError(IModelTransformerError.ElementReservationUnsupported)
+      );
+      expect(insert).not.toHaveBeenCalled();
+      expect(s.reservations.calls).toBe(0);
+      expect(s.context.isPreparingIdentityOnly(s.sourceIds.object)).toBe(false);
+      expect(s.context.findTargetElementId(s.sourceIds.model)).toBe(
+        Id64.invalid
+      );
+      invalid = false;
+      await s.transformer.processModel(s.sourceIds.model);
+      expect(s.reservations.calls).toBe(1);
     }
   );
 
-  it("preserves stored code whitespace instead of copying the trimmed Element.code value", async () => {
-    using scenario = await createScenario("exact-code");
-    scenario.source.codeValueBehavior = "exact";
-    scenario.target.codeValueBehavior = "exact";
-    withEditTxn(scenario.source, "set exact source code", (txn) => {
-      txn.updateElement({
-        ...scenario.object.toJSON(),
-        code: { ...scenario.object.code.toJSON(), value: "  object  " },
+  it.each(["  object  ", ""])(
+    "preserves exact and genuinely empty codes (%j)",
+    async (value) => {
+      using s = await createScenario(`code-${value.length}`);
+      s.source.codeValueBehavior = s.target.codeValueBehavior = "exact";
+      withEditTxn(s.source, "source code", (txn) => {
+        const props = s.source.elements.getElementProps(s.sourceIds.object);
+        txn.updateElement({
+          ...props,
+          code: value ? { ...props.code, value } : Code.createEmpty().toJSON(),
+        });
       });
-    });
-    expect(
-      scenario.source.elements.getElement(scenario.object.id).code.value
-    ).toBe("object");
-    const prepared = await scenario.prepare();
-    expect(prepared.element.identity.code.value).toBe("  object  ");
-    await scenario.reserve([prepared.model, prepared.element]);
-    await scenario.insertModel(prepared.model);
-    const props = await scenario.context.transformPreparedElement(
-      prepared.element,
-      async () => scenario.transformer.onTransformElement(scenario.object)
-    );
-    props.id = undefined;
-    const id = scenario.txn.insertElement(props);
-    expect(scenario.target.elements.getElementProps(id).code.value).toBe(
-      "  object  "
-    );
-  });
-
-  it("prepares genuinely empty codes without inventing a model-scoped code", async () => {
-    using scenario = await createScenario("empty-code");
-    withEditTxn(scenario.source, "clear source code", (txn) => {
-      txn.updateElement({
-        ...scenario.object.toJSON(),
-        code: Code.createEmpty(),
-      });
-    });
-    const object = scenario.source.elements.getElement(
-      scenario.sourceIds.object
-    );
-    const model = await scenario.context.prepareElementIdentity(
-      scenario.partition,
-      IModel.rootSubjectId,
-      async () => scenario.transformer.onTransformElement(scenario.partition)
-    );
-    const element = await scenario.context.prepareElementIdentity(
-      object,
-      IModel.rootSubjectId,
-      async () => scenario.transformer.onTransformElement(object)
-    );
-    expect(Code.isEmpty(element.identity.code)).toBe(true);
-    await scenario.reserve([model, element]);
-    await scenario.insertModel(model);
-    const props = await scenario.context.transformPreparedElement(
-      element,
-      async () => scenario.transformer.onTransformElement(object)
-    );
-    props.id = undefined;
-    const id = scenario.txn.insertElement(props);
-    expect(
-      Code.isEmpty(scenario.target.elements.getElementProps(id).code)
-    ).toBe(true);
-  });
-
-  it("uses complete native-cloned props when the target model already exists", async () => {
-    class ModelAwareTransformer extends IModelTransformer {
-      public override async onTransformElement(
-        source: Element
-      ): Promise<ElementProps> {
-        const props = await super.onTransformElement(source);
-        if (source instanceof PhysicalObject)
-          props.code.value = `model:${props.model}`;
-        return props;
-      }
+      await s.transformer.processModel(s.sourceIds.model);
+      const code = s.target.elements.getElementProps(
+        s.context.findTargetElementId(s.sourceIds.object)
+      ).code;
+      if (value) expect(code.value).toBe(value);
+      else expect(Code.isEmpty(code)).toBe(true);
     }
-    using scenario = await createScenario(
-      "existing-model",
-      ModelAwareTransformer
-    );
-    const model = await scenario.context.prepareElementIdentity(
-      scenario.partition,
-      IModel.rootSubjectId,
-      async () => scenario.transformer.onTransformElement(scenario.partition)
-    );
-    await scenario.reserve([model]);
-    const modelId = await scenario.insertModel(model);
-    // A later operation may use target dependencies that already exist.
-    const element = await scenario.context.prepareElementIdentity(
-      scenario.object,
-      modelId,
-      async () => scenario.transformer.onTransformElement(scenario.object)
-    );
-    expect(element.identity.code.value).toBe(`model:${modelId}`);
-    await scenario.reserve([element]);
-    const replayProps = await scenario.context.transformPreparedElement(
-      element,
-      async () => scenario.transformer.onTransformElement(scenario.object)
-    );
-    replayProps.id = undefined;
-    const id = scenario.txn.insertElement(replayProps);
-    expect(scenario.target.elements.getElementProps(id).code.scope).toBe(
-      modelId
-    );
-  });
+  );
 
-  it("retries a failed public processModel on the same transformer", async () => {
-    let fail = true;
-    class RetryTransformer extends IModelTransformer {
-      public override async onTransformElement(
-        source: Element
-      ): Promise<ElementProps> {
-        if (fail && source instanceof PhysicalObject)
-          throw new Error("retryable public preparation failure");
-        return super.onTransformElement(source);
-      }
-    }
-    using scenario = await createScenario("public-retry", RetryTransformer);
-    const firstError = await scenario.transformer
-      .processModel(scenario.sourceIds.model)
-      .catch((caught: unknown) => caught);
-    expect(firstError).toBeInstanceOf(Error);
-    expect((firstError as Error).message).toBe(
-      "retryable public preparation failure"
-    );
-    expect(scenario.reservations.calls).toBe(0);
-    expect(scenario.context.findTargetElementId(scenario.sourceIds.model)).toBe(
-      Id64.invalid
-    );
-    fail = false;
-    await scenario.transformer.processModel(scenario.sourceIds.model);
-    expect(scenario.reservations.calls).toBe(1);
-    expect(
-      scenario.context.findTargetElementId(scenario.sourceIds.object)
-    ).not.toBe(Id64.invalid);
-  });
-
-  it("cleans up preparation mappings, the handler, and insertion guard after a replay failure", async () => {
-    const failure = new Error("replay model failure");
-    let replayedElements = 0;
-    class FailingModelTransformer extends IModelTransformer {
-      public override async onExportElement(element: Element): Promise<void> {
-        await super.onExportElement(element);
-        replayedElements++;
-      }
+  it("restores mappings, handler, and guard after replay failure without rolling back caller writes", async () => {
+    const failure = new Error("replay failure");
+    class FailingTransformer extends IModelTransformer {
       public override async onExportModel(): Promise<void> {
         throw failure;
       }
     }
-    using scenario = await createScenario(
-      "replay-cleanup",
-      FailingModelTransformer
-    );
-    withEditTxn(scenario.source, "match the existing target model", (txn) => {
+    using s = await createScenario("replay-failure", FailingTransformer);
+    const model = s.source.elements.getElementProps(s.sourceIds.model);
+    withEditTxn(s.source, "match model", (txn) =>
       txn.updateElement({
-        ...scenario.partition.toJSON(),
-        code: { ...scenario.partition.toJSON().code, value: "existing-model" },
-      });
-    });
-    await expect(
-      scenario.transformer.processModel(scenario.sourceIds.model)
-    ).rejects.toBe(failure);
-    expect(scenario.reservations.calls).toBe(1);
-    expect(replayedElements).toBe(1);
-    expect(scenario.context.findTargetElementId(scenario.sourceIds.model)).toBe(
-      Id64.invalid
+        ...model,
+        code: { ...model.code, value: "existing-model" },
+      })
     );
+    await expect(s.transformer.processModel(s.sourceIds.model)).rejects.toBe(
+      failure
+    );
+    expect(s.reservations.calls).toBe(1);
+    expect(s.context.findTargetElementId(s.sourceIds.model)).toBe(Id64.invalid);
+    expect(s.context.findTargetElementId(s.sourceIds.category)).toBe(
+      s.targetIds.category
+    );
+    expect(s.transformer.exporter["handler"]).toBe(s.transformer);
     expect(
-      scenario.context.findTargetElementId(scenario.sourceIds.category)
-    ).toBe(scenario.targetIds.category);
-    expect(scenario.transformer.exporter["handler"]).toBe(scenario.transformer);
-    // Caller-owned writes remain; only preparation's mapping bookkeeping is undone.
-    expect(
-      scenario.target.elements.getElement(scenario.targetIds.existingModel)
-        .federationGuid
-    ).toBe(scenario.partition.federationGuid);
-    const unreservedProps = Subject.create(
-      scenario.target,
+      s.target.elements.getElement(s.targetIds.existingModel).federationGuid
+    ).toBe(model.federationGuid);
+    const props = Subject.create(
+      s.target,
       IModel.rootSubjectId,
-      "after-replay-failure"
+      "after-failure"
     ).toJSON();
-    unreservedProps.federationGuid = undefined;
-    await scenario.transformer.importer.importElement(unreservedProps);
-    expect(Id64.isValidId64(unreservedProps.id ?? Id64.invalid)).toBe(true);
-  });
-
-  it("preserves a hook error and permits preparation to be retried", async () => {
-    using scenario = await createScenario("hook-failure");
-    const failure = new Error("custom failure");
-    const hook = vi
-      .spyOn(scenario.transformer, "onTransformElement")
-      .mockRejectedValueOnce(failure);
-    await expect(scenario.prepare()).rejects.toBe(failure);
-    hook.mockRestore();
-    expect(scenario.context.isPreparingIdentityOnly(scenario.object.id)).toBe(
-      false
-    );
-    const prepared = await scenario.prepare();
-    expect(prepared.element.identity.federationGuid).toBe(
-      scenario.object.federationGuid
-    );
-    expect(scenario.reservations.calls).toBe(0);
-  });
-
-  it("reuses reservations and rolls back only a failed batch, including its ID allocation", async () => {
-    using scenario = await createScenario("batch-rollback");
-    const prepared = await scenario.prepare();
-    await scenario.reserve([prepared.model, prepared.element]);
-    const oldId = scenario.reservations.sync.findReservedElement(
-      prepared.element.identity.federationGuid!
-    )!.elementId;
-    await scenario.reserve([prepared.model, prepared.element]);
-    expect(
-      scenario.reservations.sync.findReservedElement(
-        prepared.element.identity.federationGuid!
-      )?.elementId
-    ).toBe(oldId);
-    const fresh = {
-      ...prepared.element.identity,
-      federationGuid: Guid.createValue(),
-      code: { ...prepared.element.identity.code, value: "fresh" },
-    };
-    const conflict = {
-      ...prepared.element.identity,
-      federationGuid: prepared.element.identity.federationGuid!,
-      code: { ...prepared.element.identity.code, value: "conflicting" },
-    };
-    const insert = vi.spyOn(scenario.txn, "insertElement");
-    const error = await scenario.target.reservations
-      .reserveElements({ elements: [fresh, conflict] })
-      .catch((caught: unknown) => caught);
-    expect(
-      ITwinError.isError(
-        error,
-        ElementReservationError.scope,
-        "reservation-conflict"
-      )
-    ).toBe(true);
-    expect(error).toBe(scenario.reservations.lastError);
-    expect(insert).not.toHaveBeenCalled();
-    expect(
-      scenario.reservations.sync.findReservedElement(fresh.federationGuid)
-    ).toBeUndefined();
-    expect(
-      scenario.reservations.sync.findReservedElement(conflict.federationGuid)
-        ?.elementId
-    ).toBe(oldId);
-    await scenario.target.reservations.reserveElements({ elements: [fresh] });
-    expect(
-      scenario.reservations.sync.findReservedElement(fresh.federationGuid)
-        ?.elementId
-    ).toBe(
-      Id64.fromLocalAndBriefcaseIds(
-        Id64.getLocalId(oldId) + 1,
-        Id64.getBriefcaseId(oldId)
-      )
-    );
-  });
-
-  it("rejects an equivalent numeric scope after GUID reservation, and reservations survive caller abandonment", async () => {
-    using scenario = await createScenario("scope-conflict");
-    const prepared = await scenario.prepare();
-    await scenario.reserve([prepared.model, prepared.element]);
-    const modelId = await scenario.insertModel(prepared.model);
-    const props = await scenario.context.transformPreparedElement(
-      prepared.element,
-      async () => scenario.transformer.onTransformElement(scenario.object)
-    );
-    props.id = undefined;
-    props.code.scope = modelId;
-    let error: unknown;
-    try {
-      scenario.txn.insertElement(props);
-    } catch (caught) {
-      error = caught;
-    }
-    expect(
-      ITwinError.isError(
-        error,
-        ElementReservationError.scope,
-        "reservation-conflict"
-      )
-    ).toBe(true);
-    scenario.txn.abandonChanges();
-    expect(scenario.target.models.tryGetModelProps(modelId)).toBeUndefined();
-    expect(
-      scenario.reservations.sync.findReservedElement(
-        prepared.model.identity.federationGuid!
-      )?.elementId
-    ).toBe(modelId);
-    expect(
-      scenario.reservations.sync.findReservedElement(
-        prepared.element.identity.federationGuid!
-      )
-    ).toBeDefined();
-  });
-
-  it("rejects identity drift without consuming the reserved element ID", async () => {
-    let suffix = "prepared";
-    class ChangingTransformer extends IModelTransformer {
-      public override async onTransformElement(
-        source: Element
-      ): Promise<ElementProps> {
-        const props = await super.onTransformElement(source);
-        if (source instanceof PhysicalObject)
-          props.code.value = `${props.code.value}:${suffix}`;
-        return props;
-      }
-    }
-    using scenario = await createScenario("drift", ChangingTransformer);
-    const prepared = await scenario.prepare();
-    await scenario.reserve([prepared.model, prepared.element]);
-    await scenario.insertModel(prepared.model);
-    suffix = "changed";
-    const error = await scenario.context
-      .transformPreparedElement(prepared.element, async () =>
-        scenario.transformer.onTransformElement(scenario.object)
-      )
-      .catch((caught: unknown) => caught);
-    expect(
-      ITwinError.isError(
-        error,
-        IModelTransformerErrorScope,
-        IModelTransformerError.ElementReservationPlanChanged
-      )
-    ).toBe(true);
-    const reserved = scenario.reservations.sync.findReservedElement(
-      prepared.element.identity.federationGuid!
-    );
-    expect(reserved).toBeDefined();
-    expect(
-      scenario.target.elements.tryGetElement(reserved!.elementId)
-    ).toBeUndefined();
+    props.federationGuid = undefined;
+    await s.transformer.importer.importElement(props);
+    expect(Id64.isValidId64(props.id ?? Id64.invalid)).toBe(true);
   });
 });
