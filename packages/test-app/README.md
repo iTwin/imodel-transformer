@@ -16,6 +16,35 @@ To get usage help run:
 
 `npm start -- --help`
 
+## Profiling `transformer.process()`
+
+Pass `--waitForProfiler` to pause after database setup and schema processing,
+immediately before `transformer.process()`. The app prints its process ID so an
+external profiler can be attached before pressing Enter. Pass
+`--waitAfterProfile` to pause again immediately after `process()` and before the
+target is saved and the databases are closed.
+
+```powershell
+pnpm --filter test-app build
+pnpm --filter test-app start -- `
+  --sourceSnapshot C:\iModels\source.bim `
+  --targetDestination C:\iModels\target.bim `
+  --waitForProfiler `
+  --waitAfterProfile
+```
+
+The profiled interval is delimited by:
+
+```text
+PROFILE START transformer.process() PID=<pid>
+PROFILE END transformer.process() PID=<pid>
+```
+
+The same flags work for incremental processing when a source start changeset
+and a correlated existing target are supplied. The pauses require an
+interactive terminal. Profiling changes execution characteristics, so use a
+separate unprofiled run for benchmark timings.
+
 If you want to connect to an online iModel (e.g. using the `--sourceIModelId` argument),
 you will need to setup a .env file, see the `.env.template` file for an example and link to a setup guide.
 
