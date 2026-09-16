@@ -73,6 +73,7 @@ async function main(): Promise<void> {
     baseline: {
       revision: trimmed(process.env.QUICK_PERF_BASELINE_REVISION) ?? "baseline",
       rootDirectory: requiredPath(process.env, "QUICK_PERF_BASELINE_ROOT"),
+      scenarioId: trimmed(process.env.QUICK_PERF_BASELINE_SCENARIO),
     },
     candidate: {
       revision:
@@ -82,6 +83,7 @@ async function main(): Promise<void> {
         "QUICK_PERF_CANDIDATE_ROOT",
         candidateDefault
       ),
+      scenarioId: trimmed(process.env.QUICK_PERF_CANDIDATE_SCENARIO),
     },
     fixtureId: trimmed(process.env.QUICK_PERF_FIXTURE),
     informationalThresholdPercent: nonNegativeNumber(

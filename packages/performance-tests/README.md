@@ -83,6 +83,16 @@ no relationships) and `relationship-heavy-transform` (5,000 elements with
 30,000 `ElementGroupsMembers` relationships, exercising the relationship export
 path including federation-guid lookups).
 
+The `export-only-hierarchy-traversal` and `export-only-linear-traversal`
+scenarios also use `standalone-source-and-empty-target`, over the
+hierarchy-rich `hierarchy-heavy-export` fixture (many models, each full of
+parent/child assemblies). They run `IModelExporter.exportAll` with a no-op
+counting handler and never touch the target, isolating exporter traversal cost.
+The two scenarios differ only in `ExportAllOptions.traversal`, so running each
+against the same fixture is a reproducible A/B of the hierarchy versus linear
+traversal; `finish()` digests the order-insensitive sets of exported element
+and model ids, which must be identical across both.
+
 ## Running the quick suite
 
 Install the workspace dependencies from the repository root:
@@ -179,6 +189,24 @@ $env:QUICK_PERF_STANDALONE_BIM = "C:\iModels\source.bim"
 pnpm test:quick
 ```
 
+Compare the exporter traversal modes over the same fixture in a POSIX shell:
+
+```sh
+QUICK_PERF_SCENARIO=export-only-hierarchy-traversal QUICK_PERF_SAMPLES=5 pnpm test:quick
+QUICK_PERF_SCENARIO=export-only-linear-traversal QUICK_PERF_SAMPLES=5 pnpm test:quick
+```
+
+For an interleaved single-invocation comparison of the two traversal scenarios
+on one build, use the A/B coordinator with per-arm scenarios (see
+[Pull request A/B comparison](#pull-request-ab-comparison)):
+
+```sh
+QUICK_PERF_BASELINE_ROOT="$(pwd)/../.." \
+QUICK_PERF_BASELINE_SCENARIO=export-only-hierarchy-traversal \
+QUICK_PERF_CANDIDATE_SCENARIO=export-only-linear-traversal \
+pnpm quick:compare
+```
+
 `QUICK_PERF_STANDALONE_BIM` is valid only for a
 `standalone-source-and-empty-target` fixture. The path must be absolute, and the
 file must exist, have a `.bim` extension, and open as a standalone `SnapshotDb`;
@@ -271,6 +299,16 @@ The coordinator accepts `QUICK_PERF_SCENARIO`, `QUICK_PERF_FIXTURE`,
 `QUICK_PERF_COMPARISON_SAMPLES`, and
 `QUICK_PERF_COMPARISON_THRESHOLD_PERCENT`, and
 `QUICK_PERF_STANDALONE_BIM` for the standalone topology.
+`QUICK_PERF_BASELINE_SCENARIO` and `QUICK_PERF_CANDIDATE_SCENARIO` override the
+shared scenario per arm for a scenario A/B comparison: both arms run in the same
+interleaved schedule but execute different scenarios — for example the same
+operation with two different option sets, such as
+`export-only-hierarchy-traversal` against `export-only-linear-traversal`. A
+scenario A/B requires both scenarios to resolve to the same fixture and both
+arms to use the same transformer build (point `QUICK_PERF_BASELINE_ROOT` and
+`QUICK_PERF_CANDIDATE_ROOT` at the same checkout), so the reported delta
+isolates the scenario difference; semantic digests must still match across
+arms.
 `QUICK_PERF_COMPARISON_WORKER_TIMEOUT_SECONDS` sets the positive per-process timeout and defaults to 600 seconds. Every isolated worker reports its peak RSS through Node's `process.resourceUsage().maxRSS`, covering the complete worker lifetime including setup and teardown; `rssDeltaBytes` continues to cover only the scenario endpoints. Wall time and peak RSS are reported together but must be interpreted independently, and the informational threshold applies only to wall time. `QUICK_PERF_BASELINE_ROOT` is required; candidate and revision paths are set by the workflow.
 
 ## Running the manual workflow

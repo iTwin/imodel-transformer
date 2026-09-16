@@ -98,6 +98,16 @@ export interface ElementBulkDeleteError extends ITwinError {
     readonly status: BulkDeleteElementsStatus;
 }
 
+// @beta
+export interface ExportAllElementsAndModelsOptions {
+    skipRootSubjectAndRepositoryModel?: boolean;
+}
+
+// @beta
+export interface ExportAllOptions {
+    traversal?: "hierarchy" | "linear";
+}
+
 // @public
 export type ExportChangesOptions = {
     skipPropagateChangesToRootElements?: boolean;
@@ -159,7 +169,8 @@ export class IModelExporter {
     excludeElementClass(classFullName: string): void;
     excludeElementsInCategory(categoryId: Id64String): void;
     excludeRelationshipClass(classFullName: string): void;
-    exportAll(): Promise<void>;
+    exportAll(options?: ExportAllOptions): Promise<void>;
+    exportAllElementsAndModels(options?: ExportAllElementsAndModelsOptions): Promise<void>;
     exportChanges(args?: ExportChangesOptions): Promise<void>;
     exportChildElements(elementId: Id64String): Promise<void>;
     exportCodeSpecById(codeSpecId: Id64String): Promise<void>;
@@ -427,6 +438,7 @@ export interface IModelTransformOptions {
     branchRelationshipDataBehavior?: "unsafe-migrate" | "reject";
     cloneUsingBinaryGeometry?: boolean;
     danglingReferencesBehavior?: "reject" | "ignore";
+    exportAllTraversal?: "hierarchy" | "linear";
     forceExternalSourceAspectProvenance?: boolean;
     includeSourceProvenance?: boolean;
     loadSourceGeometry?: boolean;

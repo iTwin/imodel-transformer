@@ -34,6 +34,11 @@ const defaultForcedTerminationConfirmationMilliseconds = 5_000;
 export interface ComparisonArmConfiguration {
   readonly revision: string;
   readonly rootDirectory: string;
+  /**
+   * Optional per-arm scenario override for a scenario A/B comparison on one build. Both arms'
+   * scenarios must resolve to the same fixture. Defaults to the shared `scenarioId`.
+   */
+  readonly scenarioId?: string;
 }
 
 export interface ComparisonRunOptions {
@@ -366,11 +371,25 @@ export async function runComparison(
   execute: ArmExecutor = executeArmProcess,
   buildFixture: FixtureArtifactBuilder = buildFixtureArtifactProcess
 ): Promise<ComparisonSummary> {
+  const baselineScenarioId = options.baseline.scenarioId ?? options.scenarioId;
+  const candidateScenarioId =
+    options.candidate.scenarioId ?? options.scenarioId;
   const resolved = resolveBenchmarkRunFromEnvironment({
     ...process.env,
     QUICK_PERF_FIXTURE: options.fixtureId,
-    QUICK_PERF_SCENARIO: options.scenarioId,
+    QUICK_PERF_SCENARIO: baselineScenarioId,
   });
+  if (candidateScenarioId !== baselineScenarioId) {
+    const candidateResolved = resolveBenchmarkRunFromEnvironment({
+      ...process.env,
+      QUICK_PERF_FIXTURE: options.fixtureId,
+      QUICK_PERF_SCENARIO: candidateScenarioId,
+    });
+    if (candidateResolved.descriptor.id !== resolved.descriptor.id)
+      throw new Error(
+        `A scenario A/B comparison requires one shared fixture; baseline scenario "${resolved.scenario.id}" uses fixture "${resolved.descriptor.id}" but candidate scenario "${candidateResolved.scenario.id}" uses "${candidateResolved.descriptor.id}"`
+      );
+  }
   const measuredSamplesPerArm =
     options.measuredSamplesPerArm ?? defaultComparisonMeasuredSamples;
   const informationalThresholdPercent =
@@ -418,7 +437,7 @@ export async function runComparison(
     fixtureId: options.fixtureId,
     harnessRootDirectory,
     rootDirectory: options.baseline.rootDirectory,
-    scenarioId: options.scenarioId,
+    scenarioId: baselineScenarioId,
     workerTimeoutMilliseconds,
   });
   const samples: Record<ComparisonArm, ComparisonSample[]> = {
@@ -440,7 +459,8 @@ export async function runComparison(
       outputDir,
       revision: arm.revision,
       rootDirectory: arm.rootDirectory,
-      scenarioId: options.scenarioId,
+      scenarioId:
+        execution.arm === "baseline" ? baselineScenarioId : candidateScenarioId,
       workerTimeoutMilliseconds,
     });
     if (sample.fixtureContentHash !== fixtureManifest.contentHash)
@@ -454,10 +474,16 @@ export async function runComparison(
     baseline: {
       revision: options.baseline.revision,
       samples: samples.baseline,
+      ...(baselineScenarioId === undefined
+        ? {}
+        : { scenarioId: baselineScenarioId }),
     },
     candidate: {
       revision: options.candidate.revision,
       samples: samples.candidate,
+      ...(candidateScenarioId === undefined
+        ? {}
+        : { scenarioId: candidateScenarioId }),
     },
     fixtureAuthoring: {
       arm: "baseline",
