@@ -165,16 +165,34 @@ export class Transformer extends IModelTransformer {
     process.stdout.write(
       `PROFILE START transformer.process() PID=${process.pid}\n`
     );
+    let processError: unknown;
     try {
       await transformer.process();
+    } catch (error) {
+      processError = error;
     } finally {
       process.stdout.write(
         `PROFILE END transformer.process() PID=${process.pid}\n`
       );
     }
 
-    if (options.waitAfterProfile)
-      await this.waitForInput("Stop or detach the profiler now.");
+    try {
+      if (options.waitAfterProfile)
+        await this.waitForInput("Stop or detach the profiler now.");
+    } catch (pauseError) {
+      if (processError !== undefined)
+        throw new AggregateError(
+          [processError, pauseError],
+          "Transformation and post-profile pause both failed",
+          { cause: processError }
+        );
+      throw pauseError;
+    }
+    if (processError instanceof Error) throw processError;
+    if (processError !== undefined)
+      throw new Error("Transformation failed with a non-Error value", {
+        cause: processError,
+      });
   }
 
   /**

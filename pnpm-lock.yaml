@@ -50,6 +50,9 @@ importers:
 
   packages/performance-tests:
     dependencies:
+      '@bentley/hook-profiler':
+        specifier: workspace:*
+        version: link:../performance-scripts
       '@itwin/core-backend':
         specifier: ^5.13.0
         version: 5.13.0(@itwin/core-bentley@5.13.0)(@itwin/core-common@5.13.0(@itwin/core-bentley@5.13.0)(@itwin/core-geometry@5.13.0))(@itwin/core-geometry@5.13.0)(@itwin/ecschema-metadata@5.13.0(@itwin/core-bentley@5.13.0)(@itwin/core-quantity@5.13.0(@itwin/core-bentley@5.13.0)))

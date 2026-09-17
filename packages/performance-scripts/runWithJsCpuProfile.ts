@@ -68,10 +68,40 @@ export async function runWithCpuProfiler<F extends () => any>(
     interval: sampleIntervalMicroSec,
   });
   await invokeFunc(session, "Profiler.start");
-  const result = await f();
-  await stopProfiler(session, "Profiler.stop", profilePath);
-  await invokeFunc(session, "Profiler.disable");
-  session.disconnect();
+  let result!: Awaited<ReturnType<F>>;
+  let operationError: unknown;
+  try {
+    result = await f();
+  } catch (error) {
+    operationError = error;
+  }
+
+  const cleanupErrors: unknown[] = [];
+  try {
+    await stopProfiler(session, "Profiler.stop", profilePath);
+  } catch (error) {
+    cleanupErrors.push(error);
+  }
+  try {
+    await invokeFunc(session, "Profiler.disable");
+  } catch (error) {
+    cleanupErrors.push(error);
+  } finally {
+    session.disconnect();
+  }
+
+  if (operationError !== undefined) {
+    if (cleanupErrors.length > 0)
+      throw new AggregateError(
+        [operationError, ...cleanupErrors],
+        "Profiled operation and profiler cleanup both failed",
+        { cause: operationError }
+      );
+    throw operationError;
+  }
+  if (cleanupErrors.length === 1) throw cleanupErrors[0];
+  if (cleanupErrors.length > 1)
+    throw new AggregateError(cleanupErrors, "Profiler cleanup failed");
   return result;
 }
 
