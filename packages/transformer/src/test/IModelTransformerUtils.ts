@@ -114,6 +114,36 @@ export function createStartedEditTxn(db: IModelDb): EditTxn {
 }
 // __PUBLISH_EXTRACT_END__
 
+/** Run a transformer operation and always dispose the transformer and finish its edit transactions. */
+export function withTransformerLifecycle(
+  transformer: IModelTransformer,
+  editTxns: readonly EditTxn[]
+): Promise<void>;
+export function withTransformerLifecycle<T>(
+  transformer: IModelTransformer,
+  editTxns: readonly EditTxn[],
+  operation: () => Promise<T>
+): Promise<T>;
+export async function withTransformerLifecycle<T>(
+  transformer: IModelTransformer,
+  editTxns: readonly EditTxn[],
+  operation?: () => Promise<T>
+): Promise<T | void> {
+  let succeeded = false;
+  try {
+    const result = operation ? await operation() : await transformer.process();
+    succeeded = true;
+    return result;
+  } finally {
+    try {
+      transformer.dispose();
+    } finally {
+      for (const editTxn of editTxns)
+        editTxn.end(succeeded ? "save" : "abandon");
+    }
+  }
+}
+
 export function assertTransformerError(
   error: unknown,
   key: IModelTransformerError,
