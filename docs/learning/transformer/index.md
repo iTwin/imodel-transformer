@@ -128,6 +128,14 @@ try {
 
 See [schema processing](./schema-processing.md) for schema selection, dynamic schema unions, conflict handling, and the schema-processing workflow.
 
+### Dangling references
+
+By default, `IModelTransformer` validates references in each transformed element and aspect against the source iModel and rejects a transformation when it finds a genuinely dangling reference. Set `IModelTransformOptions.danglingReferencesBehavior` to `"ignore"` only when omitting unresolvable references is acceptable.
+
+`"ignore"` mode bypasses source-reference validation and the per-entity reference walk. To retain valid references to entities exported later, the transformer conservatively transforms elements and aspects again after all source-to-target mappings are available. References that remain unmapped after that completion pass are omitted. Required model, category, and parent references continue to be exported before the dependent element is inserted.
+
+This mode exchanges integrity checking and a targeted completion pass for an unconditional completion pass. Benchmark it with representative iModels before using it as a performance optimization.
+
 ## Logging
 
 With batch processes like iModel transformation and data exchange, logging is often the only way to figure out what is actually happening.

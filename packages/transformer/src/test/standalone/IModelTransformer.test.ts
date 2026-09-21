@@ -3480,7 +3480,7 @@ describe("IModelTransformer", () => {
       IModelTransformerError.DanglingReference,
       /Found a reference to an element "[^"]*" that doesn't exist/
     );
-    defaultTransformer.targetDb.close();
+    rejectDanglingReferencesTransformer.targetDb.close();
 
     const runTransform = async (
       opts: Pick<IModelTransformOptions, "danglingReferencesBehavior">
@@ -3499,7 +3499,15 @@ describe("IModelTransformer", () => {
         createTargetDb,
         opts
       );
+      const sourceReferenceValidation = vi.spyOn(
+        transformer as unknown as {
+          assertReferencesExistInSource: (...args: unknown[]) => Promise<void>;
+        },
+        "assertReferencesExistInSource"
+      );
       await transformer.process();
+      expect(sourceReferenceValidation).not.toHaveBeenCalled();
+      sourceReferenceValidation.mockRestore();
       transformer.editTxn.saveChanges("save changes");
       transformer.editTxn.end();
 
@@ -3641,6 +3649,7 @@ describe("IModelTransformer", () => {
     const transformer = new IModelTransformer(
       { source: sourceDb, target: targetTxn },
       {
+        danglingReferencesBehavior: "ignore",
         includeSourceProvenance: true,
         noProvenance: true, // don't add transformer provenance aspects, makes querying for aspects later simpler
       }
@@ -3751,28 +3760,42 @@ describe("IModelTransformer", () => {
       public constructor(source: IModelDb, target: IModelDb) {
         const editTxn = new EditTxn(target, "IModelTransformer");
         editTxn.start();
-        super({
-          source: new (class extends IModelExporter {
-            public override async exportElement(elementId: string) {
-              if (elementId === navPropTargetId) {
-                // don't export it, we'll export it later, after the holder
-              } else if (elementId === elemWithNavPropId) {
-                await super.exportElement(elemWithNavPropId);
-                await super.exportElement(navPropTargetId);
-              } else {
-                await super.exportElement(elementId);
+        super(
+          {
+            source: new (class extends IModelExporter {
+              public override async exportElement(elementId: string) {
+                if (elementId === navPropTargetId) {
+                  // don't export it, we'll export it later, after the holder
+                } else if (elementId === elemWithNavPropId) {
+                  await super.exportElement(elemWithNavPropId);
+                  await super.exportElement(navPropTargetId);
+                } else {
+                  await super.exportElement(elementId);
+                }
               }
-            }
-          })(source),
-          target: editTxn,
-        });
+            })(source),
+            target: editTxn,
+          },
+          { danglingReferencesBehavior: "ignore" }
+        );
         this.editTxn = editTxn;
       }
     }
 
     const transformer = new ProcessTargetLastTransformer(sourceDb, targetDb);
+    const getReferenceIds = vi.spyOn(Element.prototype, "getReferenceIds");
+    const sourceReferenceValidation = vi.spyOn(
+      transformer as unknown as {
+        assertReferencesExistInSource: (...args: unknown[]) => Promise<void>;
+      },
+      "assertReferencesExistInSource"
+    );
     await transformer.processSchemas();
     await transformer.process();
+    expect(getReferenceIds).not.toHaveBeenCalled();
+    expect(sourceReferenceValidation).not.toHaveBeenCalled();
+    getReferenceIds.mockRestore();
+    sourceReferenceValidation.mockRestore();
     transformer.editTxn.saveChanges("save changes");
     transformer.editTxn.end();
 

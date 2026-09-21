@@ -199,9 +199,10 @@ export interface IModelTransformOptions {
    * elements without fixing up references.
    *
    * @note "reject" will throw an error and reject the transformation upon finding this case.
-   * @note "ignore" passes the issue down to consuming applications, iModels that have invalid element references
-   *       like this can cause errors, and you should consider adding custom logic in your transformer to remove the
-   *       reference depending on your use case.
+   * @note "ignore" skips source-reference validation. References that cannot be remapped after the transformation
+   *       are omitted from the target entity.
+   * @note In "ignore" mode, transformed elements and aspects are conservatively completed after all mappings are
+   *       available so valid forward references are retained without an up-front reference walk.
    * @default "reject"
    * @beta
    */
@@ -1099,6 +1100,16 @@ export class IModelTransformer extends IModelExportHandler {
     }
   }
 
+  private async referencesRequireDeferredCompletion(entity: ConcreteEntity) {
+    if (this._options.danglingReferencesBehavior === "ignore") {
+      // Discovering whether this entity actually has unresolved references requires the
+      // reference walk that ignore mode is intended to bypass. Conservatively retry the
+      // entity after traversal so valid forward references are still remapped.
+      return true;
+    }
+    return !(await this.doAllReferencesExistInTarget(entity));
+  }
+
   private async doAllReferencesExistInTarget(entity: ConcreteEntity) {
     let allReferencesExist = true;
     const checkedReferences: EntityReference[] = [];
@@ -1118,16 +1129,10 @@ export class IModelTransformer extends IModelExportHandler {
           await this.context.findTargetEntityId(referenceId)
         )
       ) {
-        // if we care about references existing then we cannot return early and must check all other references.
-        if (this._options.danglingReferencesBehavior === "ignore") {
-          return false;
-        }
         allReferencesExist = false;
       }
 
-      if (this._options.danglingReferencesBehavior === "reject") {
-        checkedReferences.push(referenceId);
-      }
+      checkedReferences.push(referenceId);
     }
     if (checkedReferences.length > 0) {
       await this.assertReferencesExistInSource(checkedReferences, entity);
@@ -1408,7 +1413,7 @@ export class IModelTransformer extends IModelExportHandler {
       return;
     }
 
-    if (!(await this.doAllReferencesExistInTarget(sourceElement))) {
+    if (await this.referencesRequireDeferredCompletion(sourceElement)) {
       this._partiallyCommittedElementIds.add(sourceElement.id);
     }
 
@@ -1963,7 +1968,7 @@ export class IModelTransformer extends IModelExportHandler {
     sourceAspect: ElementUniqueAspect
   ): Promise<void> {
     const targetAspectProps = await this.onTransformElementAspect(sourceAspect);
-    if (!(await this.doAllReferencesExistInTarget(sourceAspect))) {
+    if (await this.referencesRequireDeferredCompletion(sourceAspect)) {
       this._partiallyCommittedAspectIds.add(sourceAspect.id);
     }
     const targetId =
@@ -1983,7 +1988,7 @@ export class IModelTransformer extends IModelExportHandler {
       this.onTransformElementAspect(srcA)
     );
     for (const a of sourceAspects) {
-      if (!(await this.doAllReferencesExistInTarget(a))) {
+      if (await this.referencesRequireDeferredCompletion(a)) {
         this._partiallyCommittedAspectIds.add(a.id);
       }
     }
