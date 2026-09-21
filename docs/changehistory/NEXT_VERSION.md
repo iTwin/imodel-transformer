@@ -1,5 +1,21 @@
 # Next release notes
 
+## Batched dangling-reference validation
+
+Source-reference validation for `danglingReferencesBehavior: "reject"` now
+deduplicates references across streamed elements and aspects and checks them in
+bounded batches of up to 1,000 unique references. Each batch is still grouped
+by concrete entity type for the source query. Final partial batches are checked
+before deferred element or aspect completion, before a low-level element
+processing call returns, and before a full transformation finalizes.
+
+The `"reject"` and `"ignore"` outcomes are unchanged. A rejection can now be
+reported at the end of a batch rather than immediately after the entity is
+visited, so preceding target writes can already be present in the caller-owned
+active `EditTxn`. Full and change-processing workflows still validate before
+finalization or saving; callers of low-level processing APIs should continue to
+abandon the transaction when processing fails.
+
 ## Set-based element hierarchy traversal in full exports
 
 `IModelExporter` now discovers element hierarchies during full exports (`exportAll()`, `exportModelContents()`, `exportChildElements()`) with a single streamed recursive ECSQL query per traversal root instead of one `queryChildren()` round trip per visited element. Observable export behavior is unchanged for root order, sibling order (ECInstanceId ascending), depth-first pre-order, element filtering, subtree suppression, and exporter callbacks. The streamed loop yields while consuming every result row, including descendants skipped inside rejected subtrees, so large exports remain responsive.

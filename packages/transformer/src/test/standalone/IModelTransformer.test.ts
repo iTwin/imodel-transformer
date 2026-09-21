@@ -3457,6 +3457,9 @@ describe("IModelTransformer", () => {
     });
     const targetDbForRejectedPath = targetDbForRejected.pathName;
     targetDbForRejected.close();
+    const expectedDanglingReference = new RegExp(
+      `Found a reference to an element "e${physicalObjects[1].id}" that doesn't exist while looking for references of "${displayStyleId}"`
+    );
 
     const defaultTransformer = new ShiftedIdsEmptyTargetTransformer(
       sourceDb,
@@ -3465,7 +3468,7 @@ describe("IModelTransformer", () => {
     await expectTransformerError(
       defaultTransformer.process(),
       IModelTransformerError.DanglingReference,
-      /Found a reference to an element "[^"]*" that doesn't exist/
+      expectedDanglingReference
     );
     defaultTransformer.targetDb.close();
 
@@ -3478,7 +3481,7 @@ describe("IModelTransformer", () => {
     await expectTransformerError(
       rejectDanglingReferencesTransformer.process(),
       IModelTransformerError.DanglingReference,
-      /Found a reference to an element "[^"]*" that doesn't exist/
+      expectedDanglingReference
     );
     defaultTransformer.targetDb.close();
 

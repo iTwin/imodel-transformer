@@ -1,0 +1,7 @@
+{
+  "type": "patch",
+  "comment": "Validate source references in bounded, deduplicated chunks instead of issuing a bulk query for every transformed entity",
+  "packageName": "@itwin/imodel-transformer",
+  "email": "DanRod1999@users.noreply.github.com",
+  "dependentChangeType": "patch"
+}

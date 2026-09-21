@@ -117,6 +117,11 @@ import {
   IModelTransformerError,
   IModelTransformerErrorScope,
 } from "./IModelTransformerError";
+import {
+  defaultSourceReferenceValidationBatchSize,
+  MissingSourceReference,
+  SourceReferenceValidator,
+} from "./SourceReferenceValidator";
 
 const loggerCategory: string = TransformerLoggerCategory.IModelTransformer;
 
@@ -416,6 +421,8 @@ export class IModelTransformer extends IModelExportHandler {
 
   /** The clone context used by the transformer implementation. */
   private readonly _cloneContext: IModelCloneContext;
+  /** Source references are checked in bounded groups to preserve streaming without issuing a query per entity. */
+  private readonly _sourceReferenceValidator: SourceReferenceValidator;
   /** The transform to be applied to the placement of spatial elements
    * This transform should be applied when:
    * - source and target db have different ECEF locations
@@ -573,6 +580,11 @@ export class IModelTransformer extends IModelExportHandler {
     );
     // create the IModelCloneContext, it must be initialized later
     this._cloneContext = new IModelCloneContext(this.sourceDb, this.targetDb);
+    this._sourceReferenceValidator = new SourceReferenceValidator(
+      this.sourceDb,
+      this._cloneContext.existenceCache,
+      defaultSourceReferenceValidationBatchSize
+    );
     this.importer.registerEntityExistenceCache(
       this._cloneContext.existenceCache
     );
@@ -656,6 +668,7 @@ export class IModelTransformer extends IModelExportHandler {
     this.importer.unregisterEntityExistenceCache(
       this._cloneContext.existenceCache
     );
+    this._sourceReferenceValidator.clear();
     this._cloneContext.existenceCache.clear();
     this._cloneContext[Symbol.dispose]();
   }
@@ -1130,38 +1143,39 @@ export class IModelTransformer extends IModelExportHandler {
       }
     }
     if (checkedReferences.length > 0) {
-      await this.assertReferencesExistInSource(checkedReferences, entity);
+      const missingReference = await this._sourceReferenceValidator.add(
+        checkedReferences,
+        entity.id
+      );
+      if (missingReference !== undefined) {
+        this.throwDanglingReference(missingReference);
+      }
     }
     return allReferencesExist;
   }
 
-  /** Assert that all `referenceIds` exist in the source iModel, batching the existence
-   * queries by entity type and caching positive results for the rest of the run.
-   */
-  private async assertReferencesExistInSource(
-    referenceIds: EntityReference[],
-    entity: ConcreteEntity
-  ) {
-    const found = await this._cloneContext.existenceCache.existsAll(
-      this.sourceDb,
-      referenceIds
-    );
-    for (const referenceId of referenceIds) {
-      if (!found.has(referenceId)) {
-        ITwinError.throwError({
-          iTwinErrorId: {
-            scope: IModelTransformerErrorScope,
-            key: IModelTransformerError.DanglingReference,
-          },
-          message: [
-            `Found a reference to an element "${referenceId}" that doesn't exist while looking for references of "${entity.id}".`,
-            "This must have been caused by an upstream application that changed the iModel.",
-            "You can set the IModelTransformOptions.danglingReferencesBehavior option to 'ignore' to ignore this,",
-            `and the referenceId found on "${entity.id}" will not be carried over to corresponding target element.`,
-          ].join("\n"),
-        });
-      }
+  private async validatePendingSourceReferences(): Promise<void> {
+    const missingReference = await this._sourceReferenceValidator.flush();
+    if (missingReference !== undefined) {
+      this.throwDanglingReference(missingReference);
     }
+  }
+
+  private throwDanglingReference(
+    missingReference: MissingSourceReference
+  ): never {
+    ITwinError.throwError({
+      iTwinErrorId: {
+        scope: IModelTransformerErrorScope,
+        key: IModelTransformerError.DanglingReference,
+      },
+      message: [
+        `Found a reference to an element "${missingReference.referenceId}" that doesn't exist while looking for references of "${missingReference.entityId}".`,
+        "This must have been caused by an upstream application that changed the iModel.",
+        "You can set the IModelTransformOptions.danglingReferencesBehavior option to 'ignore' to ignore this,",
+        `and the referenceId found on "${missingReference.entityId}" will not be carried over to corresponding target element.`,
+      ].join("\n"),
+    });
   }
 
   /** Cause the specified Element and its child Elements (if applicable) to be exported from the source iModel and imported into the target iModel.
@@ -1202,7 +1216,11 @@ export class IModelTransformer extends IModelExportHandler {
   private async processScopedElementExport(
     exportElements: () => Promise<void>
   ): Promise<void> {
+    const isNestedScope = this.exporter.elementAspectExportCoordinator.isActive;
     await this.exporter.elementAspectExportCoordinator.run(exportElements);
+    if (!isNestedScope) {
+      await this.validatePendingSourceReferences();
+    }
   }
 
   /** Override of [IModelExportHandler.shouldExportElement]($transformer) that is called to determine if an element should be exported from the source iModel.
@@ -1746,6 +1764,7 @@ export class IModelTransformer extends IModelExportHandler {
 
   /** Complete a high-level transformation after all export operations finish. */
   private async finalizeTransformation() {
+    await this.validatePendingSourceReferences();
     this.importer.finalize();
     this._cloneContext.existenceCache.clear();
     await this.updateSynchronizationVersion({
@@ -2639,8 +2658,10 @@ export class IModelTransformer extends IModelExportHandler {
       } else {
         await this.exporter.exportModel(IModel.repositoryModelId);
       }
+      await this.validatePendingSourceReferences();
       await this.completePartiallyCommittedElements();
     });
+    await this.validatePendingSourceReferences();
     await this.completePartiallyCommittedAspects();
     await this.exporter.exportRelationships(
       ElementRefersToElements.classFullName
@@ -2676,6 +2697,7 @@ export class IModelTransformer extends IModelExportHandler {
     this._targetModelsImportedInCurrentTransform.clear();
     // must wait for initialization of synchronization provenance data
     await this.exporter.exportChanges(await this.getExportInitOpts(options));
+    await this.validatePendingSourceReferences();
     await this.completePartiallyCommittedElements();
     await this.completePartiallyCommittedAspects();
 
