@@ -51,6 +51,8 @@ type ProvenanceContext = Pick<IModelTransformContext, "findTargetElementId"> & {
  * @internal
  */
 export class ProvenanceManager {
+  private static readonly _elementProvenanceIdentifierBatchSize = 500;
+
   private readonly _context: ProvenanceContext;
   private readonly _targetScopeElementId: Id64String;
   private readonly _transformerOptions: IModelTransformOptions;
@@ -1021,6 +1023,55 @@ export class ProvenanceManager {
     if (await result.step()) {
       return result.current.id;
     } else return undefined;
+  }
+
+  /**
+   * Queries the provenanceDb for element ESAs whose identifiers match the provided IDs.
+   * Identifiers are strings, so each value is bound directly rather than passed through IdSet.
+   * When more than one matching ESA exists, the first result retains the singular query's behavior.
+   */
+  public async queryProvenanceForElements(
+    entityIdsInProvenanceSource: Iterable<Id64String>
+  ): Promise<Map<Id64String, Id64String>> {
+    const identifiers = [...new Set(entityIdsInProvenanceSource)];
+    const sourceToTargetElementIds = new Map<Id64String, Id64String>();
+    if (identifiers.length === 0) return sourceToTargetElementIds;
+
+    const provenanceDb = await this.getProvenanceDb();
+    for (
+      let batchStart = 0;
+      batchStart < identifiers.length;
+      batchStart += ProvenanceManager._elementProvenanceIdentifierBatchSize
+    ) {
+      const batch = identifiers.slice(
+        batchStart,
+        batchStart + ProvenanceManager._elementProvenanceIdentifierBatchSize
+      );
+      const identifierParameters = batch.map(
+        (_, index) => `:identifier${index}`
+      );
+      const params = new QueryBinder()
+        .bindString("kind", ExternalSourceAspect.Kind.Element)
+        .bindId("scopeId", this._targetScopeElementId);
+      batch.forEach((identifier, index) =>
+        params.bindString(`identifier${index}`, identifier)
+      );
+      const result = provenanceDb.createQueryReader(
+        `SELECT esa.Identifier, esa.Element.Id
+         FROM Bis.ExternalSourceAspect esa
+         WHERE esa.Kind=:kind
+           AND esa.Scope.Id=:scopeId
+           AND esa.Identifier IN (${identifierParameters.join(",")})`,
+        params,
+        { usePrimaryConn: true }
+      );
+      for await (const row of result) {
+        const identifier = row[0] as Id64String;
+        if (!sourceToTargetElementIds.has(identifier))
+          sourceToTargetElementIds.set(identifier, row[1] as Id64String);
+      }
+    }
+    return sourceToTargetElementIds;
   }
 
   /**

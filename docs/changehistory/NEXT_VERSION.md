@@ -1,5 +1,13 @@
 # Next release notes
 
+## Bulk provenance resolution for incremental deletions
+
+`IModelTransformer.process()` now resolves scoped element provenance for deleted
+source identifiers in bounded batches before processing deletion records. This
+removes the per-deletion `ExternalSourceAspect` query while preserving
+changeset order, recreation handling, federation-GUID fallback, scope
+isolation, relationship deletion behavior, and database error propagation.
+
 ## Set-based element hierarchy traversal in full exports
 
 `IModelExporter` now discovers element hierarchies during full exports (`exportAll()`, `exportModelContents()`, `exportChildElements()`) with a single streamed recursive ECSQL query per traversal root instead of one `queryChildren()` round trip per visited element. Observable export behavior is unchanged for root order, sibling order (ECInstanceId ascending), depth-first pre-order, element filtering, subtree suppression, and exporter callbacks. The streamed loop yields while consuming every result row, including descendants skipped inside rejected subtrees, so large exports remain responsive.

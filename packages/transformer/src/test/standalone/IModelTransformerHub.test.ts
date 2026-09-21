@@ -6995,7 +6995,8 @@ describe("IModelTransformerHub", () => {
             new Map(),
             true,
             new Set<Id64String>(),
-            new Set<Id64String>()
+            new Set<Id64String>(),
+            new Map<Id64String, Id64String>()
           ),
           IModelTransformerError.ChangedInstanceMetadataMissing,
           "Relationship deletion 0x123 is missing an endpoint."
@@ -7285,6 +7286,14 @@ describe("IModelTransformerHub", () => {
       );
       await transformer.processSchemas();
       const openFileSpy = vi.spyOn(ChangesetReader, "openFile");
+      const bulkProvenanceSpy = vi.spyOn(
+        transformer["_provenanceManager"],
+        "queryProvenanceForElements"
+      );
+      const singularProvenanceSpy = vi.spyOn(
+        transformer["_provenanceManager"],
+        "queryProvenanceForElement"
+      );
       try {
         await transformer.process();
         secondTransformEditTxn.end();
@@ -7307,6 +7316,9 @@ describe("IModelTransformerHub", () => {
         ).to.deep.equal(
           selectedChangesetPaths.map(() => PropertyFilter.BisCoreElement)
         );
+        expect(bulkProvenanceSpy).toHaveBeenCalledTimes(1);
+        expect([...bulkProvenanceSpy.mock.calls[0][0]]).toContain(elementId);
+        expect(singularProvenanceSpy).not.toHaveBeenCalled();
       } finally {
         openFileSpy.mockRestore();
       }
