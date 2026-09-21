@@ -1,0 +1,7 @@
+{
+  "type": "patch",
+  "comment": "Resolve missing aspect owners with a deduplicated bulk ID query during changeset scanning instead of repeatedly loading complete aspects. Preserve changeset-provided historical owners and immediate owner resolution outside scans.",
+  "packageName": "@itwin/imodel-transformer",
+  "email": "50554904+hl662@users.noreply.github.com",
+  "dependentChangeType": "patch"
+}
