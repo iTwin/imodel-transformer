@@ -70,6 +70,41 @@ describe("quick performance scenario catalog", () => {
     expect(base.elements / changed).to.equal(1_000);
   });
 
+  it("registers the deletion-heavy fixture for incremental comparison", () => {
+    const resolved = resolveBenchmarkRun(
+      "incremental-synchronization",
+      "deletion-heavy-incremental"
+    );
+
+    expect(resolved.descriptor).to.deep.include({
+      id: "deletion-heavy-incremental",
+      version: 1,
+    });
+    expect(resolved.descriptor.layout).to.deep.include({
+      recipe: "deletion-heavy-incremental",
+      topology: "source-and-empty-target",
+    });
+    expect(resolved.descriptor.scenarioClaims).to.include.members([
+      "incremental synchronization",
+      "element deletion",
+    ]);
+    expect(resolved.descriptor.distribution).to.deep.include({
+      base: {
+        aspects: 20_050,
+        elements: 10_025,
+        geometricElements: 0,
+        relationships: 0,
+      },
+      operations: {
+        aspects: { deletes: 20_000, inserts: 0, updates: 0 },
+        elements: { deletes: 10_000, inserts: 0, updates: 0 },
+        relationships: { deletes: 0, inserts: 0, updates: 0 },
+        geometryUpdates: 0,
+        sourceChangesets: 1,
+      },
+    });
+  });
+
   it("derives the large-base workload from scale", () => {
     const distribution = largeBaseIncrementalRecipe.distribution({ scale: 50 });
     expect(distribution.base.elements).to.equal(100_000);
