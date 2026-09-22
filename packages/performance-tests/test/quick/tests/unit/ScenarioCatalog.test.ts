@@ -33,8 +33,31 @@ describe("quick performance scenario catalog", () => {
 
   it("rejects unknown scenarios", () => {
     expect(() => getScenarioDefinition("not-a-scenario")).to.throw(
-      'Unknown quick performance scenario "not-a-scenario". Available scenarios: incremental-synchronization, large-base-incremental-synchronization, changeset-scanning, schema-processing, standalone-full-transformation'
+      'Unknown quick performance scenario "not-a-scenario". Available scenarios: incremental-synchronization, large-base-incremental-synchronization, changeset-scanning, schema-processing, standalone-full-transformation, ignore-reference-full-transformation'
     );
+  });
+
+  it("registers the ignore-mode navigation-reference transformation", () => {
+    const resolved = resolveBenchmarkRun(
+      "ignore-reference-full-transformation"
+    );
+    expect(resolved.scenario.defaultFixtureId).to.equal(
+      "ignore-reference-transform"
+    );
+    expect(resolved.scenario.configuration).to.deep.equal({
+      danglingReferencesBehavior: "ignore",
+      loadSourceGeometry: "false",
+      noProvenance: "true",
+    });
+    expect(resolved.descriptor.scenarioClaims).to.include(
+      "ignore-mode navigation-reference full transformation"
+    );
+    expect(resolved.descriptor.distribution.base).to.deep.equal({
+      aspects: 0,
+      elements: 4000,
+      geometricElements: 0,
+      relationships: 0,
+    });
   });
 
   it("registers the schema-processing scenario and its source fixture", () => {

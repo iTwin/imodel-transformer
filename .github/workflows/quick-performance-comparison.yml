@@ -16,6 +16,7 @@ on:
           - changeset-scanning
           - schema-processing
           - standalone-full-transformation
+          - ignore-reference-full-transformation
       fixture:
         description: Fixture id (blank uses the scenario's default)
         required: false

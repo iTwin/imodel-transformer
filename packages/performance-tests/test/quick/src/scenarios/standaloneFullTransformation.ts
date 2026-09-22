@@ -4,7 +4,10 @@
  *--------------------------------------------------------------------------------------------*/
 
 import { EditTxn, SnapshotDb } from "@itwin/core-backend";
-import { IModelTransformer } from "@itwin/imodel-transformer";
+import {
+  IModelTransformer,
+  IModelTransformOptions,
+} from "@itwin/imodel-transformer";
 import { canonicalSha256 } from "../fixtures/FixtureDescriptor.js";
 import {
   PreparedDataset,
@@ -39,7 +42,9 @@ async function classDistribution(
   return rows;
 }
 
-async function structuralIdentity(db: SnapshotDb): Promise<unknown> {
+export async function standaloneStructuralIdentity(
+  db: SnapshotDb
+): Promise<unknown> {
   const [aspects, elements, models, relationships] = await Promise.all([
     classDistribution(db, "bis.ElementAspect"),
     classDistribution(db, "bis.Element"),
@@ -49,19 +54,22 @@ async function structuralIdentity(db: SnapshotDb): Promise<unknown> {
   return { aspects, elements, models, relationships };
 }
 
-async function outputShapeDigest(targetDb: SnapshotDb): Promise<string> {
-  return canonicalSha256(await structuralIdentity(targetDb));
+interface StandaloneFullTransformationConfiguration {
+  readonly description: string;
+  readonly outputIdentity?: (targetDb: SnapshotDb) => Promise<unknown>;
+  readonly transformerOptions: IModelTransformOptions;
 }
 
-export function standaloneFullTransformation(
-  dataset: PreparedDataset
+export function createStandaloneFullTransformation(
+  dataset: PreparedDataset,
+  configuration: StandaloneFullTransformationConfiguration
 ): BenchmarkScenario {
   const { sourceDb, targetDb } = requireStandaloneDataset(dataset);
-  const editTxn = new EditTxn(targetDb, "Quick standalone full transformation");
+  const editTxn = new EditTxn(targetDb, configuration.description);
   editTxn.start();
   const transformer = new IModelTransformer(
     { source: sourceDb, target: editTxn },
-    { loadSourceGeometry: true, noProvenance: true }
+    configuration.transformerOptions
   );
   let disposed = false;
   const dispose = () => {
@@ -94,11 +102,23 @@ export function standaloneFullTransformation(
       await transformer.process();
     },
     async finish() {
-      editTxn.saveChanges("complete quick standalone full transformation");
+      editTxn.saveChanges(`complete ${configuration.description}`);
       dispose();
-      return outputShapeDigest(targetDb);
+      const identity = await (
+        configuration.outputIdentity ?? standaloneStructuralIdentity
+      )(targetDb);
+      return canonicalSha256(identity);
     },
   };
+}
+
+export function standaloneFullTransformation(
+  dataset: PreparedDataset
+): BenchmarkScenario {
+  return createStandaloneFullTransformation(dataset, {
+    description: "quick standalone full transformation",
+    transformerOptions: { loadSourceGeometry: true, noProvenance: true },
+  });
 }
 
 export const standaloneFullTransformationScenario: BenchmarkScenarioDefinition =

@@ -83,6 +83,15 @@ no relationships) and `relationship-heavy-transform` (5,000 elements with
 30,000 `ElementGroupsMembers` relationships, exercising the relationship export
 path including federation-guid lookups).
 
+The `ignore-reference-full-transformation` scenario uses the same standalone
+lifecycle but explicitly sets `danglingReferencesBehavior: "ignore"`, disables
+source geometry loading and provenance, and measures only `process()`. Its
+dedicated `ignore-reference-transform` fixture has 3,000 referenced elements
+and 1,000 holders with 24 populated navigation properties each. Untimed
+validation requires all 24,000 references in the source, and `finish()` requires
+every holder reference to remain populated in the target before producing the
+A/B semantic digest.
+
 ## Running the quick suite
 
 Install the workspace dependencies from the repository root:
@@ -130,12 +139,13 @@ pnpm test:quick
 
 Registered fixtures per scenario:
 
-| Scenario ID                      | Fixture IDs                                                 | Default                     |
-| -------------------------------- | ----------------------------------------------------------- | --------------------------- |
-| `incremental-synchronization`    | `balanced-incremental`                                      | `balanced-incremental`      |
-| `standalone-full-transformation` | `standalone-full-transform`, `relationship-heavy-transform` | `standalone-full-transform` |
-| `schema-processing`              | `schema-processing-large`                                   | `schema-processing-large`   |
-| `changeset-scanning`             | `update-heavy-scan`                                         | `update-heavy-scan`         |
+| Scenario ID                            | Fixture IDs                                                 | Default                      |
+| -------------------------------------- | ----------------------------------------------------------- | ---------------------------- |
+| `incremental-synchronization`          | `balanced-incremental`                                      | `balanced-incremental`       |
+| `standalone-full-transformation`       | `standalone-full-transform`, `relationship-heavy-transform` | `standalone-full-transform`  |
+| `ignore-reference-full-transformation` | `ignore-reference-transform`                                | `ignore-reference-transform` |
+| `schema-processing`                    | `schema-processing-large`                                   | `schema-processing-large`    |
+| `changeset-scanning`                   | `update-heavy-scan`                                         | `update-heavy-scan`          |
 
 Example in a POSIX shell:
 

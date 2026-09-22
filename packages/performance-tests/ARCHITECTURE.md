@@ -49,6 +49,12 @@ arms produced the same structural workload. It does not assert source-to-target
 correctness; detailed transformation correctness remains the responsibility of the
 transformer test suite.
 
+The `ignore-reference-full-transformation` scenario uses the same provider and
+timing boundary with `danglingReferencesBehavior: "ignore"`. Its dedicated
+fixture contains 24,000 navigation references. In addition to structural
+identity, its untimed semantic digest verifies that every holder retains every
+navigation reference, so an A/B arm cannot gain speed by silently dropping them.
+
 #### Recipe
 
 A recipe defines the deterministic iModel generated for a fixture. It describes
@@ -74,10 +80,10 @@ delivered to each scenario sample. It owns database, Hub, changeset, and cleanup
 resources. The scenario constructs `IModelTransformer` from those resources and
 chooses its options and measured operation.
 
-| Provider                    | Data delivered to the scenario                                                                     | Hub availability during the scenario | Stage-one behavior                                                                  |
-| --------------------------- | -------------------------------------------------------------------------------------------------- | ------------------------------------ | ----------------------------------------------------------------------------------- |
-| `liveHubProvider`           | Open source and target `BriefcaseDb`s backed by `HubMock`                                          | Available                            | Captures prepared briefcases, seeds, and local-hub timelines once                   |
-| `detachedBriefcaseProvider` | Read-only source `BriefcaseDb`, local changeset files, artifact metadata, and optional recipe data | Not available                        | Uses `HubMock` once to generate changesets, then captures a reusable local artifact |
+| Provider                    | Data delivered to the scenario                                                                     | Hub availability during the scenario | Stage-one behavior                                                                     |
+| --------------------------- | -------------------------------------------------------------------------------------------------- | ------------------------------------ | -------------------------------------------------------------------------------------- |
+| `liveHubProvider`           | Open source and target `BriefcaseDb`s backed by `HubMock`                                          | Available                            | Captures prepared briefcases, seeds, and local-hub timelines once                      |
+| `detachedBriefcaseProvider` | Read-only source `BriefcaseDb`, local changeset files, artifact metadata, and optional recipe data | Not available                        | Uses `HubMock` once to generate changesets, then captures a reusable local artifact    |
 | `standaloneProvider`        | Read-only source `SnapshotDb`, newly empty target `SnapshotDb`, and artifact metadata              | Not available                        | Generates or ingests one standalone source artifact; creates targets only in stage two |
 
 Both providers are credential-free and use local `HubMock` when they need
@@ -332,6 +338,13 @@ full-transformation correctness suite. `abort()` disposes transformer/edit state
 provider disposal attempts to close both databases before the runner removes the
 sample directory.
 
+The ignore-reference variant follows this lifecycle with source geometry loading
+disabled. Its deterministic source contains 3,000 referenced physical objects
+and 1,000 custom holders with 24 navigation properties each. Fixture validation
+proves all references are populated before artifact capture; scenario `finish()`
+proves they remain populated after transformation. Both checks are outside
+`measure()`.
+
 External BIMs must be standalone snapshots readable by the installed
 `@itwin/core-backend`. Hub briefcases, corrupt files, incompatible profiles or
 schemas, and unsupported encrypted/native formats are rejected. Absolute paths
@@ -385,7 +398,7 @@ excluded from aggregate performance statistics.
 | ---------------------------- | ------------------------------------------------------ |
 | `wallMilliseconds`           | Only `BenchmarkScenario.measure()`                     |
 | CPU and RSS delta            | The same measured region                               |
-| `workerPeakRssBytes`         | Complete isolated A/B worker lifetime                 |
+| `workerPeakRssBytes`         | Complete isolated A/B worker lifetime                  |
 | `fixtureBuildMilliseconds`   | Stage-one provider build, once per job                 |
 | `reconstructionMilliseconds` | Creation or copying of one prepared sample             |
 | `verificationMilliseconds`   | `BenchmarkScenario.finish()`                           |
