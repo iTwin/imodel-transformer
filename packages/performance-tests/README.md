@@ -78,10 +78,13 @@ The `standalone-full-transformation` scenario uses
 source copy and a newly-created empty target. Untimed `prepare()` imports
 schemas, `measure()` contains only `IModelTransformer.process()`, and
 `finish()` computes the target output-shape digest used for A/B comparability.
-Two configured fixtures support it: `standalone-full-transform` (element-heavy,
-no relationships) and `relationship-heavy-transform` (5,000 elements with
-30,000 `ElementGroupsMembers` relationships, exercising the relationship export
-path including federation-guid lookups).
+Three configured fixtures support it: `standalone-full-transform` (element-heavy,
+no relationships), `relationship-heavy-transform` (5,000 elements with 30,000
+`ElementGroupsMembers` relationships, exercising the relationship export path
+including federation-guid lookups), and `reference-heavy-transform` (8,000
+parent elements and 37,000 child elements whose round-robin parent navigation
+references exercise source-reference validation with about 8,000 unique
+references).
 
 ## Running the quick suite
 
@@ -130,12 +133,12 @@ pnpm test:quick
 
 Registered fixtures per scenario:
 
-| Scenario ID                      | Fixture IDs                                                 | Default                     |
-| -------------------------------- | ----------------------------------------------------------- | --------------------------- |
-| `incremental-synchronization`    | `balanced-incremental`                                      | `balanced-incremental`      |
-| `standalone-full-transformation` | `standalone-full-transform`, `relationship-heavy-transform` | `standalone-full-transform` |
-| `schema-processing`              | `schema-processing-large`                                   | `schema-processing-large`   |
-| `changeset-scanning`             | `update-heavy-scan`                                         | `update-heavy-scan`         |
+| Scenario ID                      | Fixture IDs                                                                              | Default                     |
+| -------------------------------- | ---------------------------------------------------------------------------------------- | --------------------------- |
+| `incremental-synchronization`    | `balanced-incremental`                                                                   | `balanced-incremental`      |
+| `standalone-full-transformation` | `standalone-full-transform`, `relationship-heavy-transform`, `reference-heavy-transform` | `standalone-full-transform` |
+| `schema-processing`              | `schema-processing-large`                                                                | `schema-processing-large`   |
+| `changeset-scanning`             | `update-heavy-scan`                                                                      | `update-heavy-scan`         |
 
 Example in a POSIX shell:
 
@@ -160,6 +163,14 @@ Run the generated standalone full-transform workload in a POSIX shell:
 ```sh
 QUICK_PERF_SCENARIO=standalone-full-transformation \
 QUICK_PERF_SAMPLES=3 \
+pnpm test:quick
+```
+
+Run the navigation-reference-heavy standalone workload in PowerShell:
+
+```powershell
+$env:QUICK_PERF_SCENARIO = "standalone-full-transformation"
+$env:QUICK_PERF_FIXTURE = "reference-heavy-transform"
 pnpm test:quick
 ```
 
@@ -292,6 +303,16 @@ scenario that exists only on a feature branch, set the optional free-form
 ```sh
 gh workflow run quick-performance.yml --ref <branch> \
   -f scenario_override=my-feature-scenario
+```
+
+Run the registered reference-heavy fixture through the A/B workflow:
+
+```sh
+gh workflow run quick-performance-comparison.yml --ref <branch> \
+  -f scenario=standalone-full-transformation \
+  -f fixture=reference-heavy-transform \
+  -f baseline_ref=main \
+  -f samples=40
 ```
 
 ## Adding quick performance coverage
