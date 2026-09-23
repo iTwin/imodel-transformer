@@ -12,7 +12,7 @@ import { EntityExistenceCache } from "./EntityExistenceCache";
  * batches, bounding memory and virtual-set sizes while amortizing query overhead.
  * @internal
  */
-export const defaultSourceReferenceValidationBatchSize = 1000;
+const defaultBatchSize = 1000;
 
 /** @internal */
 export interface MissingSourceReference {
@@ -29,7 +29,7 @@ export class SourceReferenceValidator {
   public constructor(
     private readonly _sourceDb: IModelDb,
     private readonly _existenceCache: EntityExistenceCache,
-    private readonly _batchSize: number
+    private readonly _batchSize = defaultBatchSize
   ) {
     if (!Number.isSafeInteger(_batchSize) || _batchSize <= 0) {
       throw new Error(

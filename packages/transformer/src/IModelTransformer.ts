@@ -118,7 +118,6 @@ import {
   IModelTransformerErrorScope,
 } from "./IModelTransformerError";
 import {
-  defaultSourceReferenceValidationBatchSize,
   MissingSourceReference,
   SourceReferenceValidator,
 } from "./SourceReferenceValidator";
@@ -582,8 +581,7 @@ export class IModelTransformer extends IModelExportHandler {
     this._cloneContext = new IModelCloneContext(this.sourceDb, this.targetDb);
     this._sourceReferenceValidator = new SourceReferenceValidator(
       this.sourceDb,
-      this._cloneContext.existenceCache,
-      defaultSourceReferenceValidationBatchSize
+      this._cloneContext.existenceCache
     );
     this.importer.registerEntityExistenceCache(
       this._cloneContext.existenceCache
