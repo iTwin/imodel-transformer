@@ -1006,6 +1006,7 @@ export class ProvenanceManager {
         WHERE esa.Kind=?
           AND esa.Scope.Id=?
           AND esa.Identifier=?
+        ORDER BY esa.ECInstanceId
       `;
     const params = new QueryBinder();
     params.bindString(1, ExternalSourceAspect.Kind.Element);

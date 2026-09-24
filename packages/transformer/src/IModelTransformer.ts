@@ -2282,6 +2282,8 @@ export class IModelTransformer extends IModelExportHandler {
       // Loop to process deletes.
       for (const change of changes) {
         if (relationshipECClassIdsToSkip.has(change.ecClassId)) continue;
+        // Retain deleted aspect metadata above, but do not process aspects as elements.
+        if (change.elementId !== undefined) continue;
         await this.processDeletedOp(
           change,
           elemIdToScopeEsa,
