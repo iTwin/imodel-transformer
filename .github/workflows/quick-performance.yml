@@ -10,6 +10,7 @@ on:
         type: choice
         options:
           - incremental-synchronization
+          - legacy-guidless-deletion-fallback
           - changeset-scanning
           - schema-processing
       scenario_override:

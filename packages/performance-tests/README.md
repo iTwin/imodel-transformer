@@ -130,12 +130,20 @@ pnpm test:quick
 
 Registered fixtures per scenario:
 
-| Scenario ID                      | Fixture IDs                                                 | Default                     |
-| -------------------------------- | ----------------------------------------------------------- | --------------------------- |
-| `incremental-synchronization`    | `balanced-incremental`, `deletion-heavy-incremental`        | `balanced-incremental`      |
-| `standalone-full-transformation` | `standalone-full-transform`, `relationship-heavy-transform` | `standalone-full-transform` |
-| `schema-processing`              | `schema-processing-large`                                   | `schema-processing-large`   |
-| `changeset-scanning`             | `update-heavy-scan`                                         | `update-heavy-scan`         |
+| Scenario ID                         | Fixture IDs                                                 | Default                     |
+| ----------------------------------- | ----------------------------------------------------------- | --------------------------- |
+| `incremental-synchronization`       | `balanced-incremental`, `deletion-heavy-incremental`        | `balanced-incremental`      |
+| `legacy-guidless-deletion-fallback` | `legacy-guidless-deletion-fallback`                         | Same as scenario ID         |
+| `standalone-full-transformation`    | `standalone-full-transform`, `relationship-heavy-transform` | `standalone-full-transform` |
+| `schema-processing`                 | `schema-processing-large`                                   | `schema-processing-large`   |
+| `changeset-scanning`                | `update-heavy-scan`                                         | `update-heavy-scan`         |
+
+`legacy-guidless-deletion-fallback` has the same 10,025-element base, 10,000
+element deletions, 20,000 aspect deletions, one source changeset, validation,
+and semantic digest as `deletion-heavy-incremental`. Only the 10,000 elements
+selected for deletion omit FederationGuid values. This intentionally isolates
+the provenance fallback for legacy data and special elements; it is not
+representative of typical modern iModels.
 
 Example in a POSIX shell:
 
@@ -280,6 +288,16 @@ gh workflow run quick-performance-comparison.yml \
   --ref <candidate-branch> \
   -f scenario=incremental-synchronization \
   -f fixture=deletion-heavy-incremental \
+  -f baseline_ref=main \
+  -f samples=3
+```
+
+Dispatch the legacy/special-element fallback variant with:
+
+```sh
+gh workflow run quick-performance-comparison.yml \
+  --ref <candidate-branch> \
+  -f scenario=legacy-guidless-deletion-fallback \
   -f baseline_ref=main \
   -f samples=3
 ```
