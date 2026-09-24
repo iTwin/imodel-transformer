@@ -3,7 +3,7 @@
  * See LICENSE.md in the project root for license terms and full copyright notice.
  *--------------------------------------------------------------------------------------------*/
 
-import { Id64String } from "@itwin/core-bentley";
+import { Guid, Id64String } from "@itwin/core-bentley";
 import {
   Code,
   ElementAspectProps,
@@ -35,6 +35,7 @@ const defaultSurvivorElements = 25;
 
 export interface DeletionHeavyIncrementalParameters {
   readonly scale: number;
+  readonly deletedElementFederationGuids: "present" | "absent";
 }
 
 function deletionHeavyDistribution(
@@ -43,6 +44,13 @@ function deletionHeavyDistribution(
   if (!Number.isSafeInteger(parameters.scale) || parameters.scale < 1)
     throw new Error(
       "Deletion-heavy fixture scale must be a positive safe integer"
+    );
+  if (
+    parameters.deletedElementFederationGuids !== "present" &&
+    parameters.deletedElementFederationGuids !== "absent"
+  )
+    throw new Error(
+      'Deletion-heavy deletedElementFederationGuids must be "present" or "absent"'
     );
   const baseElements = parameters.scale + defaultSurvivorElements;
   return {
@@ -101,13 +109,18 @@ async function createDeletionHeavySeed(
         const ids: Id64String[] = [];
         const elementCount = context.descriptor.distribution.base.elements;
         for (let index = 0; index < elementCount; ++index) {
+          const isDeletedElement = index < context.parameters.scale;
           const elementId = txn.insertElement({
             category: categoryId,
             classFullName: PhysicalObject.classFullName,
             code: Code.createEmpty(),
-            federationGuid: `00000000-0000-4000-8000-${index
-              .toString()
-              .padStart(12, "0")}`,
+            federationGuid:
+              isDeletedElement &&
+              context.parameters.deletedElementFederationGuids === "absent"
+                ? Guid.empty
+                : `00000000-0000-4000-8000-${index
+                    .toString()
+                    .padStart(12, "0")}`,
             model: modelId,
             userLabel: `deletion-heavy-${index}`,
           } as PhysicalElementProps);
@@ -123,7 +136,7 @@ async function createDeletionHeavySeed(
             payload: `multi-${index}`,
             sequence: index,
           } as ElementAspectProps);
-          if (index < context.parameters.scale) ids.push(elementId);
+          if (isDeletedElement) ids.push(elementId);
         }
         return ids;
       }
@@ -178,6 +191,33 @@ export const deletionHeavyIncrementalFixture = configureFixture(
     scenarioClaims: ["incremental synchronization", "element deletion"],
     topology: "source-and-empty-target",
     seed: 662,
-    parameters: { scale: 10_000 },
+    parameters: {
+      scale: 10_000,
+      deletedElementFederationGuids: "present",
+    },
+  }
+);
+
+/**
+ * Incremental synchronization fixture that deletes 10,000 elements without FederationGuid values.
+ * This models the fallback needed for legacy data and special elements, not typical modern iModels.
+ */
+export const legacyGuidlessDeletionFallbackFixture = configureFixture(
+  deletionHeavyIncrementalRecipe,
+  {
+    id: "legacy-guidless-deletion-fallback",
+    version: 1,
+    label: "legacy/special-element guidless deletion fallback",
+    scenarioClaims: [
+      "incremental synchronization",
+      "element deletion",
+      "legacy guidless deletion fallback",
+    ],
+    topology: "source-and-empty-target",
+    seed: 662,
+    parameters: {
+      scale: 10_000,
+      deletedElementFederationGuids: "absent",
+    },
   }
 );

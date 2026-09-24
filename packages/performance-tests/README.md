@@ -130,12 +130,20 @@ pnpm test:quick
 
 Registered fixtures per scenario:
 
-| Scenario ID                      | Fixture IDs                                                 | Default                     |
-| -------------------------------- | ----------------------------------------------------------- | --------------------------- |
-| `incremental-synchronization`    | `balanced-incremental`                                      | `balanced-incremental`      |
-| `standalone-full-transformation` | `standalone-full-transform`, `relationship-heavy-transform` | `standalone-full-transform` |
-| `schema-processing`              | `schema-processing-large`                                   | `schema-processing-large`   |
-| `changeset-scanning`             | `update-heavy-scan`                                         | `update-heavy-scan`         |
+| Scenario ID                         | Fixture IDs                                                 | Default                     |
+| ----------------------------------- | ----------------------------------------------------------- | --------------------------- |
+| `incremental-synchronization`       | `balanced-incremental`                                      | `balanced-incremental`      |
+| `legacy-guidless-deletion-fallback` | `legacy-guidless-deletion-fallback`                         | Same as scenario ID         |
+| `standalone-full-transformation`    | `standalone-full-transform`, `relationship-heavy-transform` | `standalone-full-transform` |
+| `schema-processing`                 | `schema-processing-large`                                   | `schema-processing-large`   |
+| `changeset-scanning`                | `update-heavy-scan`                                         | `update-heavy-scan`         |
+
+`legacy-guidless-deletion-fallback` has the same 10,025-element base, 10,000
+element deletions, 20,000 aspect deletions, one source changeset, validation,
+and semantic digest as `deletion-heavy-incremental`. Only the 10,000 elements
+selected for deletion omit FederationGuid values. This intentionally isolates
+the provenance fallback for legacy data and special elements; it is not
+representative of typical modern iModels.
 
 Example in a POSIX shell:
 
@@ -272,6 +280,21 @@ The coordinator accepts `QUICK_PERF_SCENARIO`, `QUICK_PERF_FIXTURE`,
 `QUICK_PERF_COMPARISON_THRESHOLD_PERCENT`, and
 `QUICK_PERF_STANDALONE_BIM` for the standalone topology.
 `QUICK_PERF_COMPARISON_WORKER_TIMEOUT_SECONDS` sets the positive per-process timeout and defaults to 600 seconds. Every isolated worker reports its peak RSS through Node's `process.resourceUsage().maxRSS`, covering the complete worker lifetime including setup and teardown; `rssDeltaBytes` continues to cover only the scenario endpoints. Wall time and peak RSS are reported together but must be interpreted independently, and the informational threshold applies only to wall time. `QUICK_PERF_BASELINE_ROOT` is required; candidate and revision paths are set by the workflow.
+
+Dispatch the legacy/special-element fallback variant with:
+
+```sh
+gh workflow run quick-performance-comparison.yml \
+  --ref <candidate-branch> \
+  -f scenario=legacy-guidless-deletion-fallback \
+  -f baseline_ref=main \
+  -f samples=3
+```
+
+The candidate checkout supplies the compiled comparison harness to both arms.
+The baseline checkout still authors the immutable fixture artifact, and the
+comparison requires one fixture content hash and semantic digest across all
+baseline and candidate samples.
 
 ## Running the manual workflow
 

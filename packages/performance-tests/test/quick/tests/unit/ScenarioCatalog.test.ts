@@ -16,6 +16,10 @@ import {
 import { validateFixtureDescriptor } from "../../src/fixtures/FixtureDescriptor.js";
 import { largeBaseIncrementalRecipe } from "../../src/fixtures/recipes/largeBaseIncremental.js";
 import {
+  deletionHeavyIncrementalFixture,
+  legacyGuidlessDeletionFallbackFixture,
+} from "../../src/fixtures/recipes/deletionHeavyIncremental.js";
+import {
   assertScenarioSupportsFixture,
   resolveBenchmarkRun,
 } from "../../src/framework/BenchmarkResolution.js";
@@ -33,7 +37,7 @@ describe("quick performance scenario catalog", () => {
 
   it("rejects unknown scenarios", () => {
     expect(() => getScenarioDefinition("not-a-scenario")).to.throw(
-      'Unknown quick performance scenario "not-a-scenario". Available scenarios: incremental-synchronization, large-base-incremental-synchronization, changeset-scanning, schema-processing, standalone-full-transformation'
+      'Unknown quick performance scenario "not-a-scenario". Available scenarios: incremental-synchronization, large-base-incremental-synchronization, legacy-guidless-deletion-fallback, changeset-scanning, schema-processing, standalone-full-transformation'
     );
   });
 
@@ -68,6 +72,34 @@ describe("quick performance scenario catalog", () => {
     const changed = operations.elements.inserts + operations.elements.updates;
     expect(changed).to.be.greaterThan(0);
     expect(base.elements / changed).to.equal(1_000);
+  });
+
+  it("registers the legacy guidless deletion fallback as an explicit scenario", () => {
+    const resolved = resolveBenchmarkRun("legacy-guidless-deletion-fallback");
+
+    expect(resolved.scenario.defaultFixtureId).to.equal(
+      "legacy-guidless-deletion-fallback"
+    );
+    expect(resolved.descriptor).to.deep.include({
+      id: "legacy-guidless-deletion-fallback",
+      version: 1,
+    });
+    expect(resolved.descriptor.layout).to.deep.include({
+      recipe: "deletion-heavy-incremental",
+      topology: "source-and-empty-target",
+    });
+    expect(resolved.descriptor.scenarioClaims).to.include.members([
+      "incremental synchronization",
+      "element deletion",
+      "legacy guidless deletion fallback",
+    ]);
+    expect(resolved.descriptor.distribution).to.deep.equal(
+      deletionHeavyIncrementalFixture.descriptor.distribution
+    );
+    expect(resolved.descriptor.recipeHash).not.to.equal(
+      deletionHeavyIncrementalFixture.descriptor.recipeHash
+    );
+    expect(resolved.fixture).to.equal(legacyGuidlessDeletionFallbackFixture);
   });
 
   it("derives the large-base workload from scale", () => {
