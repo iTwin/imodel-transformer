@@ -30,13 +30,13 @@ async function main(): Promise<void> {
   process.stdout.write(
     `Preparing quick profile: scenario=${scenario.id}, fixture=${descriptor.id}, mode=${mode}\n`
   );
-  const sample = await new BenchmarkRunner(
+  const semanticDigest = await new BenchmarkRunner(
     fixture,
     outputDirectory,
     scenario
   ).runProfile(measurement);
   process.stdout.write(
-    `Quick profile completed and validated; semanticDigest=${sample.semanticDigest}\n`
+    `Quick profile completed and validated; semanticDigest=${semanticDigest}\n`
   );
 }
 

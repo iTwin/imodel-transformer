@@ -18,32 +18,27 @@ To get usage help run:
 
 ## Profiling `transformer.process()`
 
-Pass `--waitForProfiler` to pause after database setup and schema processing,
-immediately before `transformer.process()`. The app prints its process ID so an
-external profiler can be attached before pressing Enter. Pass
-`--waitAfterProfile` to pause again immediately after `process()` and before the
-target is saved and the databases are closed.
+Use the `@bentley/hook-profiler` preload to profile transformation calls without
+changing the app's execution path. `PROFILE_TYPE=pause` pauses immediately
+before and after `transformer.process()` and prints the process ID for an
+external profiler:
 
 ```powershell
+pnpm --filter @bentley/hook-profiler build
 pnpm --filter test-app build
+$env:NODE_OPTIONS = "--require @bentley/hook-profiler"
+$env:PROFILE_TYPE = "pause"
+$env:FUNCTIONS = 'require("@itwin/imodel-transformer").IModelTransformer.prototype.process'
 pnpm --filter test-app start -- `
   --sourceSnapshot C:\iModels\source.bim `
-  --targetDestination C:\iModels\target.bim `
-  --waitForProfiler `
-  --waitAfterProfile
+  --targetDestination C:\iModels\target.bim
 ```
 
-The profiled interval is delimited by:
-
-```text
-PROFILE START transformer.process() PID=<pid>
-PROFILE END transformer.process() PID=<pid>
-```
-
-The same flags work for incremental processing when a source start changeset
-and a correlated existing target are supplied. The pauses require an
-interactive terminal. Profiling changes execution characteristics, so use a
-separate unprofiled run for benchmark timings.
+Set `PROFILE_TYPE=js-cpu` instead to capture a V8 `.js.cpuprofile`
+automatically. Set `FUNCTIONS` to
+`IModelTransformer.prototype.processElement` when profiling isolated-element
+runs. Pause mode requires an interactive terminal. Profiling changes execution
+characteristics, so use a separate unprofiled run for benchmark timings.
 
 If you want to connect to an online iModel (e.g. using the `--sourceIModelId` argument),
 you will need to setup a .env file, see the `.env.template` file for an example and link to a setup guide.
@@ -53,9 +48,9 @@ you will need to setup a .env file, see the `.env.template` file for an example 
 This application demonstrates the following:
 
 - Using the `IModelTransformer` API
-- Calling the `ITwinRegistry` API to get *context* (project or asset) information
+- Calling the `ITwinRegistry` API to get _context_ (project or asset) information
 - Querying `IModelHub` to get iModel information
-- How to handle either *briefcase* or *snapshot* iModel in the same application
+- How to handle either _briefcase_ or _snapshot_ iModel in the same application
 - Using [yargs](http://yargs.js.org/) to handle command line arguments
 
 ## imodel-transformer as a support tool
@@ -65,7 +60,7 @@ It can be used to investigate issues reported against the `IModelTransformer` AP
 A common scenario is a generic report (with minimal details) of IModelTransformer throwing an Error before running to successful completion.
 Here are the steps that can be used:
 
-- Ask to be invited to the project/asset context that contains the iModel. This is straightforward in *QA* and *DEV* but may require more legwork for a user iModel in *PROD*.
+- Ask to be invited to the project/asset context that contains the iModel. This is straightforward in _QA_ and _DEV_ but may require more legwork for a user iModel in _PROD_.
 - After being invited, your name should show up in the "Team Members" list. If it does not, you may not have the required permissions to pull a briefcase of the iModel.
 - Get the GUID of the iTwinId and the GUID of the iModelId. Both should be available in the URL used by Design Review to view the iModel.
 - Optionally, you can turn on verbose iModel transformation-related logging with the `--logTransformer` (or `-v`) option.

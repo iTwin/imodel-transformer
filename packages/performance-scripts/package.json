@@ -13,6 +13,16 @@
       "types": "./lib/runWithJsCpuProfile.d.ts",
       "require": "./lib/runWithJsCpuProfile.js",
       "default": "./lib/runWithJsCpuProfile.js"
+    },
+    "./cleanup": {
+      "types": "./lib/runWithCleanup.d.ts",
+      "require": "./lib/runWithCleanup.js",
+      "default": "./lib/runWithCleanup.js"
+    },
+    "./pause": {
+      "types": "./lib/runWithPause.d.ts",
+      "require": "./lib/runWithPause.js",
+      "default": "./lib/runWithPause.js"
     }
   },
   "description": "Scripts for profiling performance of JavaScript (iTwin.js) applications",

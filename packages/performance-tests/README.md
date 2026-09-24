@@ -158,6 +158,9 @@ Configuration:
 The external mode requires an interactive terminal. Start Node with
 `NODE_OPTIONS=--inspect` before running it to attach Chrome DevTools for manual
 V8 profiling. Native profilers attach directly to the printed process ID.
+For automatic profiles, open the exact output path printed by the command
+directly in VS Code, or use **Load profile** in Chrome DevTools' **Performance**
+panel.
 
 ### Selecting a scenario and fixture
 

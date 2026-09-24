@@ -6,6 +6,20 @@
 import * as path from "node:path";
 import * as fs from "node:fs";
 import * as inspector from "node:inspector";
+import { runWithCleanup } from "./runWithCleanup";
+
+export interface CpuProfilerOptions {
+  profileDir?: string;
+  timestamp?: boolean;
+  profileName?: string;
+  profileExtension?: string;
+  sampleIntervalMicroSec?: number;
+}
+
+export interface CpuProfileResult<T> {
+  profilePath: string;
+  result: T;
+}
 
 /**
  * Runs a function under the cpu profiler, by default creates cpu profiles in the working directory of
@@ -13,8 +27,8 @@ import * as inspector from "node:inspector";
  * You can override the default across all calls with the environment variable ITWIN_TESTS_CPUPROF_DIR,
  * or per function just pass a specific `profileDir`
  */
-export async function runWithCpuProfiler<F extends () => any>(
-  f: F,
+export async function runWithCpuProfiler<T>(
+  f: () => Promise<T>,
   {
     profileDir = process.env.ITWIN_TESTS_CPUPROF_DIR ?? process.cwd(),
     /** append an ISO timestamp to the name you provided */
@@ -26,8 +40,8 @@ export async function runWithCpuProfiler<F extends () => any>(
      * default to half a millesecond
      */
     sampleIntervalMicroSec = +(process.env.PROFILE_SAMPLE_INTERVAL ?? 500), // half a millisecond
-  } = {}
-): Promise<ReturnType<F>> {
+  }: CpuProfilerOptions = {}
+): Promise<CpuProfileResult<T>> {
   const maybeNameTimePortion = timestamp
     ? `_${new Date().toISOString().replace(/[:.]/g, "-")}`
     : "";
@@ -35,6 +49,7 @@ export async function runWithCpuProfiler<F extends () => any>(
     profileDir,
     `${profileName}${maybeNameTimePortion}${profileExtension}`
   );
+  await fs.promises.mkdir(profileDir, { recursive: true });
   // eslint-disable-next-line @typescript-eslint/no-var-requires
   // implementation influenced by https://github.com/wallet77/v8-inspector-api/blob/master/src/utils.js
   const invokeFunc = async (
@@ -54,55 +69,47 @@ export async function runWithCpuProfiler<F extends () => any>(
     writePath: string
   ) => {
     return new Promise<void>((resolve, reject) => {
-      thisSession.post(funcName, async (err, res) => {
+      thisSession.post(funcName, (err, res) => {
         if (err) return reject(err);
-        await fs.promises.writeFile(writePath, JSON.stringify(res.profile));
-        resolve();
+        void fs.promises
+          .writeFile(writePath, JSON.stringify(res.profile))
+          .then(() => resolve(), reject);
       });
     });
   };
   const session = new inspector.Session();
   session.connect();
-  await invokeFunc(session, "Profiler.enable");
-  await invokeFunc(session, "Profiler.setSamplingInterval", {
-    interval: sampleIntervalMicroSec,
-  });
-  await invokeFunc(session, "Profiler.start");
-  let result!: Awaited<ReturnType<F>>;
-  let operationError: unknown;
-  try {
-    result = await f();
-  } catch (error) {
-    operationError = error;
-  }
-
-  const cleanupErrors: unknown[] = [];
-  try {
-    await stopProfiler(session, "Profiler.stop", profilePath);
-  } catch (error) {
-    cleanupErrors.push(error);
-  }
-  try {
-    await invokeFunc(session, "Profiler.disable");
-  } catch (error) {
-    cleanupErrors.push(error);
-  } finally {
-    session.disconnect();
-  }
-
-  if (operationError !== undefined) {
-    if (cleanupErrors.length > 0)
-      throw new AggregateError(
-        [operationError, ...cleanupErrors],
-        "Profiled operation and profiler cleanup both failed",
-        { cause: operationError }
-      );
-    throw operationError;
-  }
-  if (cleanupErrors.length === 1) throw cleanupErrors[0];
-  if (cleanupErrors.length > 1)
-    throw new AggregateError(cleanupErrors, "Profiler cleanup failed");
-  return result;
+  let profilerEnabled = false;
+  let profilerStarted = false;
+  const result = await runWithCleanup(async () => {
+    await invokeFunc(session, "Profiler.enable");
+    profilerEnabled = true;
+    await invokeFunc(session, "Profiler.setSamplingInterval", {
+      interval: sampleIntervalMicroSec,
+    });
+    await invokeFunc(session, "Profiler.start");
+    profilerStarted = true;
+    return f();
+  }, [
+    {
+      name: "write JavaScript CPU profile",
+      run: async () => {
+        if (profilerStarted)
+          await stopProfiler(session, "Profiler.stop", profilePath);
+      },
+    },
+    {
+      name: "disable JavaScript CPU profiler",
+      run: async () => {
+        if (profilerEnabled) await invokeFunc(session, "Profiler.disable");
+      },
+    },
+    {
+      name: "disconnect JavaScript CPU profiler",
+      run: () => session.disconnect(),
+    },
+  ]);
+  return { profilePath, result };
 }
 
 export default function RunWithJSCpuProfiler(
@@ -117,12 +124,12 @@ export default function RunWithJSCpuProfiler(
           const isPromise = Promise.resolve(result) === result;
           if (!isPromise)
             throw Error(
-              "runWithLinuxPerf only supports instrumenting async functions!"
+              "runWithCpuProfiler only supports instrumenting async functions!"
             );
           return result;
         },
         { profileName: key }
-      );
+      ).then(({ result }) => result);
     };
   }
 }

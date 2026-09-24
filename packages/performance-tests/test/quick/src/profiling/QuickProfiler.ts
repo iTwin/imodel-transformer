@@ -3,10 +3,8 @@
  * See LICENSE.md in the project root for license terms and full copyright notice.
  *--------------------------------------------------------------------------------------------*/
 
-import * as fs from "node:fs";
-import * as path from "node:path";
-import { createInterface } from "node:readline/promises";
-import { runWithCleanup } from "../../../Cleanup.js";
+import { runWithCpuProfiler } from "@bentley/hook-profiler/js-cpu";
+import { runWithPause } from "@bentley/hook-profiler/pause";
 import {
   BenchmarkMeasurement,
   BenchmarkMeasurementContext,
@@ -14,23 +12,9 @@ import {
 
 export type QuickProfileMode = "external" | "js-cpu";
 
-interface CpuProfileOptions {
-  profileDir: string;
-  profileName: string;
-}
-
-type CpuProfiler = (
-  measure: () => Promise<void>,
-  options: CpuProfileOptions
-) => Promise<void>;
-
-interface CpuProfilerModule {
-  runWithCpuProfiler: CpuProfiler;
-}
-
 interface QuickProfilerDependencies {
-  loadCpuProfiler(): Promise<CpuProfiler>;
-  waitForInput(message: string): Promise<void>;
+  runWithCpuProfiler: typeof runWithCpuProfiler;
+  runWithPause: typeof runWithPause;
   write(message: string): void;
 }
 
@@ -39,40 +23,9 @@ export interface QuickProfilerOptions {
   profileDirectory: string;
 }
 
-function isCpuProfilerModule(value: unknown): value is CpuProfilerModule {
-  return (
-    typeof value === "object" &&
-    value !== null &&
-    "runWithCpuProfiler" in value &&
-    typeof value.runWithCpuProfiler === "function"
-  );
-}
-
-async function loadCpuProfiler(): Promise<CpuProfiler> {
-  const moduleName = "@bentley/hook-profiler/js-cpu";
-  const loaded: unknown = await import(moduleName);
-  if (!isCpuProfilerModule(loaded))
-    throw new Error(`${moduleName} does not export runWithCpuProfiler`);
-  return loaded.runWithCpuProfiler;
-}
-
-async function waitForInput(message: string): Promise<void> {
-  if (!process.stdin.isTTY || !process.stdout.isTTY)
-    throw new Error("External profiling requires an interactive terminal");
-  const readline = createInterface({
-    input: process.stdin,
-    output: process.stdout,
-  });
-  try {
-    await readline.question(`${message}\nPress Enter to continue.`);
-  } finally {
-    readline.close();
-  }
-}
-
 const defaultDependencies: QuickProfilerDependencies = {
-  loadCpuProfiler,
-  waitForInput,
+  runWithCpuProfiler,
+  runWithPause,
   write: (message) => process.stdout.write(message),
 };
 
@@ -97,38 +50,29 @@ export function createQuickProfileMeasurement(
   return async (measure, context) => {
     const label = profileLabel(context);
     if (options.mode === "external") {
-      await dependencies.waitForInput(
-        `Ready to profile ${label}; PID=${process.pid}. Attach and start the profiler now.`
-      );
-      dependencies.write(`PROFILE START ${label} PID=${process.pid}\n`);
-      await runWithCleanup(measure, [
-        {
-          name: "finish external profiling interval",
-          run: async () => {
-            dependencies.write(`PROFILE END ${label} PID=${process.pid}\n`);
-            await dependencies.waitForInput("Stop or detach the profiler now.");
-          },
-        },
-      ]);
+      await dependencies.runWithPause(measure, {
+        label,
+        write: (message) => dependencies.write(message),
+      });
       return;
     }
 
-    fs.mkdirSync(options.profileDirectory, { recursive: true });
     const profileName = `${context.scenarioId}-${context.fixtureId}`;
-    const cpuProfiler = await dependencies.loadCpuProfiler();
     dependencies.write(
-      `PROFILE START ${label} PID=${process.pid}; output=${path.join(
-        options.profileDirectory,
-        `${profileName}_<timestamp>.js.cpuprofile`
-      )}\n`
+      `PROFILE START ${label} PID=${process.pid}; output-directory=${options.profileDirectory}\n`
     );
+    let profilePath: string | undefined;
     try {
-      await cpuProfiler(measure, {
+      ({ profilePath } = await dependencies.runWithCpuProfiler(measure, {
         profileDir: options.profileDirectory,
         profileName,
-      });
+      }));
     } finally {
-      dependencies.write(`PROFILE END ${label} PID=${process.pid}\n`);
+      dependencies.write(
+        `PROFILE END ${label} PID=${process.pid}${
+          profilePath === undefined ? "" : `; output=${profilePath}`
+        }\n`
+      );
     }
   };
 }

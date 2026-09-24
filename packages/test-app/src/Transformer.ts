@@ -38,7 +38,6 @@ import {
   IModelTransformOptions,
 } from "@itwin/imodel-transformer";
 import { ElementProps, IModel, QueryBinder } from "@itwin/core-common";
-import { createInterface } from "node:readline/promises";
 
 export const loggerCategory = "imodel-transformer";
 
@@ -49,11 +48,6 @@ export interface TransformerOptions extends IModelTransformOptions {
   deleteUnusedGeometryParts?: boolean;
   excludeSubCategories?: string[];
   excludeCategories?: string[];
-}
-
-export interface TransformerProfilingOptions {
-  waitForProfiler?: boolean;
-  waitAfterProfile?: boolean;
 }
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
@@ -68,8 +62,7 @@ export class Transformer extends IModelTransformer {
   public static async transformAll(
     sourceDb: IModelDb,
     targetDb: IModelDb,
-    options?: TransformerOptions,
-    profilingOptions?: TransformerProfilingOptions
+    options?: TransformerOptions
   ): Promise<void> {
     const editTxn = new EditTxn(targetDb, "transform all");
     editTxn.start();
@@ -78,7 +71,7 @@ export class Transformer extends IModelTransformer {
       await transformer.initializeTransformer();
       await transformer.processSchemas();
       await transformer.saveChanges("processSchemas");
-      await this.processWithProfilingControls(transformer, profilingOptions);
+      await transformer.process();
       await transformer.saveChanges("processAll");
       if (options?.deleteUnusedGeometryParts) {
         await transformer.deleteUnusedGeometryParts();
@@ -97,12 +90,11 @@ export class Transformer extends IModelTransformer {
     sourceDb: IModelDb,
     targetDb: IModelDb,
     sourceStartChangesetId: string,
-    options?: TransformerOptions,
-    profilingOptions?: TransformerProfilingOptions
+    options?: TransformerOptions
   ): Promise<void> {
     if ("" === sourceDb.changeset.id) {
       assert("" === sourceStartChangesetId);
-      return this.transformAll(sourceDb, targetDb, options, profilingOptions);
+      return this.transformAll(sourceDb, targetDb, options);
     }
     const editTxn = new EditTxn(targetDb, "transform changes");
     editTxn.start();
@@ -116,7 +108,7 @@ export class Transformer extends IModelTransformer {
       await transformer.initializeTransformer();
       await transformer.processSchemas();
       await transformer.saveChanges("processSchemas");
-      await this.processWithProfilingControls(transformer, profilingOptions);
+      await transformer.process();
       await transformer.saveChanges("processChanges");
       if (options?.deleteUnusedGeometryParts) {
         await transformer.deleteUnusedGeometryParts();
@@ -129,70 +121,6 @@ export class Transformer extends IModelTransformer {
       editTxn.end("abandon");
       throw err;
     }
-  }
-
-  private static async waitForInput(message: string): Promise<void> {
-    if (!process.stdin.isTTY || !process.stdout.isTTY)
-      throw new Error("Profiling pauses require an interactive terminal");
-
-    const readline = createInterface({
-      input: process.stdin,
-      output: process.stdout,
-    });
-    try {
-      await readline.question(`${message}\nPress Enter to continue.`);
-    } finally {
-      readline.close();
-    }
-  }
-
-  private static async processWithProfilingControls(
-    transformer: IModelTransformer,
-    options?: TransformerProfilingOptions
-  ): Promise<void> {
-    const profilingEnabled =
-      options?.waitForProfiler === true || options?.waitAfterProfile === true;
-    if (!profilingEnabled) {
-      await transformer.process();
-      return;
-    }
-
-    if (options.waitForProfiler)
-      await this.waitForInput(
-        `Ready to profile transformer.process(); PID=${process.pid}. Attach and start the profiler now.`
-      );
-
-    process.stdout.write(
-      `PROFILE START transformer.process() PID=${process.pid}\n`
-    );
-    let processError: unknown;
-    try {
-      await transformer.process();
-    } catch (error) {
-      processError = error;
-    } finally {
-      process.stdout.write(
-        `PROFILE END transformer.process() PID=${process.pid}\n`
-      );
-    }
-
-    try {
-      if (options.waitAfterProfile)
-        await this.waitForInput("Stop or detach the profiler now.");
-    } catch (pauseError) {
-      if (processError !== undefined)
-        throw new AggregateError(
-          [processError, pauseError],
-          "Transformation and post-profile pause both failed",
-          { cause: processError }
-        );
-      throw pauseError;
-    }
-    if (processError instanceof Error) throw processError;
-    if (processError !== undefined)
-      throw new Error("Transformation failed with a non-Error value", {
-        cause: processError,
-      });
   }
 
   /**

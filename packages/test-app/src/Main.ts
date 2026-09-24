@@ -31,7 +31,6 @@ import {
   loggerCategory,
   Transformer as TestAppTransformer,
   TransformerOptions,
-  TransformerProfilingOptions,
 } from "./Transformer";
 import "source-map-support/register";
 
@@ -171,16 +170,6 @@ void (async () => {
         },
         validation: {
           desc: "If true, perform extra and potentially expensive validation to assist with finding issues and confirming results",
-          type: "boolean",
-          default: false,
-        },
-        waitForProfiler: {
-          desc: "Pause after setup and schema processing, immediately before transformer.process(), so a profiler can be attached and started",
-          type: "boolean",
-          default: false,
-        },
-        waitAfterProfile: {
-          desc: "Pause immediately after transformer.process() so a profiler can be stopped or detached before save and cleanup",
           type: "boolean",
           default: false,
         },
@@ -574,26 +563,19 @@ void (async () => {
       }
     }
 
-    const { waitForProfiler, waitAfterProfile, ...transformerArgs } = args;
     const transformerOptions: TransformerOptions = {
-      ...transformerArgs,
+      ...args,
       cloneUsingBinaryGeometry: !args.cloneUsingJsonGeometry,
       excludeSubCategories: args.excludeSubCategories?.split(","),
       excludeCategories: args.excludeCategories?.split(","),
     };
-    const profilingOptions: TransformerProfilingOptions = {
-      waitForProfiler,
-      waitAfterProfile,
-    };
-
     if (processChanges) {
       assert(undefined !== args.sourceStartChangesetId);
       await TestAppTransformer.transformChanges(
         sourceDb,
         targetDb,
         args.sourceStartChangesetId,
-        transformerOptions,
-        profilingOptions
+        transformerOptions
       );
     } else if (
       args.isolateElements !== undefined ||
@@ -626,8 +608,7 @@ void (async () => {
       await TestAppTransformer.transformAll(
         sourceDb,
         targetDb,
-        transformerOptions,
-        profilingOptions
+        transformerOptions
       );
     }
 

@@ -172,6 +172,16 @@ export type BenchmarkMeasurement = (
   context: BenchmarkMeasurementContext
 ) => Promise<void>;
 
+interface BenchmarkExecutionOptions {
+  readonly fixtureArtifactDirectory?: string;
+  readonly measurement?: BenchmarkMeasurement;
+  readonly recordSamples?: boolean;
+  readonly transformerProvenance?: TransformerProvenance;
+}
+
+const defaultBenchmarkMeasurement: BenchmarkMeasurement = async (measure) =>
+  measure();
+
 export function reusableFixtureIdentity(descriptor: FixtureDescriptor): string {
   const {
     generator: _generator,
@@ -220,11 +230,10 @@ export class BenchmarkRunner {
       throw new Error(
         "Quick performance sample zero must be the warm-up and positive samples must be measured"
       );
-    const [result] = await this.runExecutions(
-      [{ measured, sample }],
+    const [result] = await this.runExecutions([{ measured, sample }], {
       fixtureArtifactDirectory,
-      transformerProvenance
-    );
+      transformerProvenance,
+    });
     return result;
   }
 
@@ -232,16 +241,12 @@ export class BenchmarkRunner {
    * Run one pristine measured sample through a custom measurement wrapper. Profiling tools use
    * this boundary without changing normal benchmark execution or scenario implementations.
    */
-  public async runProfile(
-    measurement: BenchmarkMeasurement
-  ): Promise<BenchmarkSample> {
-    const [result] = await this.runExecutions(
-      [{ measured: true, sample: 1 }],
-      undefined,
-      undefined,
-      measurement
-    );
-    return result;
+  public async runProfile(measurement: BenchmarkMeasurement): Promise<string> {
+    const [result] = await this.runExecutions([{ measured: true, sample: 1 }], {
+      measurement,
+      recordSamples: false,
+    });
+    return result.semanticDigest;
   }
 
   /**
@@ -308,9 +313,12 @@ export class BenchmarkRunner {
 
   private async runExecutions(
     executions: readonly BenchmarkExecution[],
-    fixtureArtifactDirectory?: string,
-    transformerProvenance?: TransformerProvenance,
-    measurement?: BenchmarkMeasurement
+    {
+      fixtureArtifactDirectory,
+      measurement = defaultBenchmarkMeasurement,
+      recordSamples = true,
+      transformerProvenance,
+    }: BenchmarkExecutionOptions = {}
   ): Promise<BenchmarkSample[]> {
     prepareBenchmarkOutputDirectoryForFixture(this._outputDir, this._fixture);
     const samples: BenchmarkSample[] = [];
@@ -406,16 +414,12 @@ export class BenchmarkRunner {
             const measure = async () => {
               await activeScenario.measure();
             };
-            if (measurement) {
-              await measurement(measure, {
-                fixtureId: descriptor.id,
-                measured,
-                sample,
-                scenarioId: this._scenario.id,
-              });
-            } else {
-              await measure();
-            }
+            await measurement(measure, {
+              fixtureId: descriptor.id,
+              measured,
+              sample,
+              scenarioId: this._scenario.id,
+            });
             const wallMilliseconds =
               Number(process.hrtime.bigint() - wallStart) / 1_000_000;
             const cpu = process.cpuUsage(cpuBefore);
@@ -461,10 +465,11 @@ export class BenchmarkRunner {
             teardownMilliseconds,
           };
           samples.push(sampleResult);
-          fs.appendFileSync(
-            path.join(this._outputDir, "samples.jsonl"),
-            `${JSON.stringify(sampleResult)}\n`
-          );
+          if (recordSamples)
+            fs.appendFileSync(
+              path.join(this._outputDir, "samples.jsonl"),
+              `${JSON.stringify(sampleResult)}\n`
+            );
         }
       }, [
         {
