@@ -53,9 +53,9 @@ export class ElementAspectCleanup {
       ElementUniqueAspect.classFullName,
       ElementMultiAspect.classFullName,
     ]) {
-      // ExternalSourceAspect derives from ElementMultiAspect, so provenance can only
-      // appear in the multi-aspect pass. Correlate on the candidate row instead of
-      // materializing every scoped ExternalSourceAspect for each page.
+      // ExternalSourceAspect is a multi-aspect, so provenance aspects are only found
+      // when querying ElementMultiAspect. For each candidate, check whether it is a
+      // provenance aspect rather than listing every provenance aspect on each page.
       const preserveProvenance =
         provenanceScopeId !== undefined &&
         aspectClassFullName === ElementMultiAspect.classFullName;
