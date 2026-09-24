@@ -7235,6 +7235,18 @@ describe("IModelTransformerHub", () => {
         sourceDb,
         "DynamicTestSchema:DynamicPhysicalElement"
       );
+      const aspectId = withEditTxn(
+        sourceDb,
+        "insert aspect excluded from element provenance lookup",
+        (txn) =>
+          txn.insertAspect({
+            classFullName: ExternalSourceAspect.classFullName,
+            element: new ElementOwnsExternalSourceAspects(elementId),
+            scope: { id: IModel.rootSubjectId },
+            kind: "Document",
+            identifier: "deleted-aspect",
+          } as ExternalSourceAspectProps)
+      );
       await sourceDb.pushChanges({
         description: "Initial schema and element creation",
         retainLocks: true,
@@ -7317,7 +7329,9 @@ describe("IModelTransformerHub", () => {
           selectedChangesetPaths.map(() => PropertyFilter.BisCoreElement)
         );
         expect(bulkProvenanceSpy).toHaveBeenCalledTimes(1);
-        expect([...bulkProvenanceSpy.mock.calls[0][0]]).toContain(elementId);
+        const provenanceCandidates = [...bulkProvenanceSpy.mock.calls[0][0]];
+        expect(provenanceCandidates).toContain(elementId);
+        expect(provenanceCandidates).not.toContain(aspectId);
         expect(singularProvenanceSpy).not.toHaveBeenCalled();
       } finally {
         openFileSpy.mockRestore();

@@ -69,7 +69,7 @@ describe("ProvenanceManager element provenance queries", () => {
     ownerId: Id64String,
     scopeId: Id64String,
     identifier: string
-  ): void {
+  ): Id64String {
     const props: ExternalSourceAspectProps = {
       classFullName: ExternalSourceAspect.classFullName,
       element: {
@@ -80,7 +80,7 @@ describe("ProvenanceManager element provenance queries", () => {
       kind: ExternalSourceAspect.Kind.Element,
       identifier,
     };
-    targetTxn.insertAspect(props);
+    return targetTxn.insertAspect(props);
   }
 
   it("deduplicates identifiers and bounds queries across batch boundaries", async () => {
@@ -140,7 +140,7 @@ describe("ProvenanceManager element provenance queries", () => {
     expect(mappings.has("missing")).toBe(false);
   });
 
-  it("preserves first-result behavior for ambiguous mappings", async () => {
+  it("returns the earliest ESA consistently for ambiguous mappings", async () => {
     const firstOwner = Subject.insert(
       targetTxn,
       IModel.rootSubjectId,
@@ -151,12 +151,13 @@ describe("ProvenanceManager element provenance queries", () => {
       IModel.rootSubjectId,
       "second owner"
     );
-    insertProvenance(firstOwner, IModel.rootSubjectId, "ambiguous");
     insertProvenance(secondOwner, IModel.rootSubjectId, "ambiguous");
+    insertProvenance(firstOwner, IModel.rootSubjectId, "ambiguous");
 
     const singularResult = await manager.queryProvenanceForElement("ambiguous");
     const bulkResult = await manager.queryProvenanceForElements(["ambiguous"]);
 
+    expect(singularResult).toBe(secondOwner);
     expect(bulkResult.get("ambiguous")).toBe(singularResult);
   });
 

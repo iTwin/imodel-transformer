@@ -2264,10 +2264,13 @@ export class IModelTransformer extends IModelExportHandler {
     );
 
     this._deletedSourceRelationshipData = new Map();
+    const isElementAspectDeletion = (change: ChangesetDeletionRecord) =>
+      change.elementId !== undefined;
     const deletedSourceElementIds = new Set<Id64String>();
     for (const changes of deletionRecordsByChangeset) {
       for (const change of changes) {
         if (
+          !isElementAspectDeletion(change) &&
           !relationshipECClassIdsToSkip.has(change.ecClassId) &&
           !relationshipECClassIds.has(change.ecClassId)
         ) {
@@ -2299,6 +2302,7 @@ export class IModelTransformer extends IModelExportHandler {
       // Loop to process deletes.
       for (const change of changes) {
         if (relationshipECClassIdsToSkip.has(change.ecClassId)) continue;
+        if (isElementAspectDeletion(change)) continue;
         await this.processDeletedOp(
           change,
           elemIdToScopeEsa,
