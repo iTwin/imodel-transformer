@@ -91,53 +91,44 @@ export class ChangesetScanner {
     options: { populateChangedInstanceIds?: boolean }
   ): Generator<ChangeInstance> {
     for (const csFile of csFileProps) {
-      const csReader = ChangesetReader.openFile({
+      using csReader = ChangesetReader.openFile({
         fileName: csFile.pathname,
         db: iModel,
         propFilter: PropertyFilter.BisCoreElement,
       });
-      try {
-        // Spill unified instances to a temporary SQLite database so memory does not
-        // grow with changeset size.
-        const changeUnifier = new PartialChangeUnifier(
-          ChangeUnifierCache.createSqliteBackedCache()
-        );
-        try {
-          while (csReader.step()) changeUnifier.appendFrom(csReader);
-          const deletionRecords: ChangesetDeletionRecord[] = [];
-          for (const change of changeUnifier.instances) {
-            const ecClassId = change.ECClassId;
-            if (ecClassId === undefined)
-              ITwinError.throwError({
-                iTwinErrorId: {
-                  scope: IModelTransformerErrorScope,
-                  key: IModelTransformerError.ChangedInstanceMetadataMissing,
-                },
-                message: `ECClassId was not found for id: ${change.ECInstanceId}! Table is : ${change.$meta.tables}`,
-              });
-            // Change is recorded at table level, not EC entity level.
-            // This normalizes overflow-table expansion records so they do not
-            // appear as element inserts or deletes.
-            if (
-              (change.$meta.op === "Inserted" ||
-                change.$meta.op === "Deleted") &&
-              change.$meta.tables.every((table) => table.endsWith("Overflow"))
-            ) {
-              change.$meta.op = "Updated";
-            }
-
-            if (options.populateChangedInstanceIds !== false) yield change;
-            if (change.$meta.op === "Deleted") {
-              deletionRecords.push(this.toDeletionRecord(iModel, change));
-            }
-          }
-          deletionRecordsByChangeset.push(deletionRecords);
-        } finally {
-          changeUnifier[Symbol.dispose]();
+      // Spill unified instances to a temporary SQLite database so memory does not
+      // grow with changeset size.
+      using changeUnifier = new PartialChangeUnifier(
+        ChangeUnifierCache.createSqliteBackedCache()
+      );
+      while (csReader.step()) changeUnifier.appendFrom(csReader);
+      const deletionRecords: ChangesetDeletionRecord[] = [];
+      for (const change of changeUnifier.instances) {
+        const ecClassId = change.ECClassId;
+        if (ecClassId === undefined)
+          ITwinError.throwError({
+            iTwinErrorId: {
+              scope: IModelTransformerErrorScope,
+              key: IModelTransformerError.ChangedInstanceMetadataMissing,
+            },
+            message: `ECClassId was not found for id: ${change.ECInstanceId}! Table is : ${change.$meta.tables}`,
+          });
+        // Change is recorded at table level, not EC entity level.
+        // This normalizes overflow-table expansion records so they do not
+        // appear as element inserts or deletes.
+        if (
+          (change.$meta.op === "Inserted" || change.$meta.op === "Deleted") &&
+          change.$meta.tables.every((table) => table.endsWith("Overflow"))
+        ) {
+          change.$meta.op = "Updated";
         }
-      } finally {
-        csReader[Symbol.dispose]();
+
+        if (options.populateChangedInstanceIds !== false) yield change;
+        if (change.$meta.op === "Deleted") {
+          deletionRecords.push(this.toDeletionRecord(iModel, change));
+        }
       }
+      deletionRecordsByChangeset.push(deletionRecords);
     }
   }
 
