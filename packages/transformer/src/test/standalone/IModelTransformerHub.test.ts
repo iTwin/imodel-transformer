@@ -58,12 +58,15 @@ import {
   Id64,
   Id64Array,
   Id64String,
+  IModelStatus,
   Logger,
   LogLevel,
 } from "@itwin/core-bentley";
 import {
   BisCodeSpec,
   Code,
+  CodeScopeSpec,
+  CodeSpec,
   ColorDef,
   DefinitionElementProps,
   ElementProps,
@@ -1674,6 +1677,116 @@ describe("IModelTransformerHub", () => {
     });
 
     await tearDown();
+  });
+
+  it("should reject merging source and target elements with duplicate codes", async () => {
+    const equipmentCodeSpecName = "EquipmentCode";
+    const equipmentCodeValue = "CatalogEquipment";
+    const placedFederationGuids: GuidString[] = [];
+
+    const placeEquipment = (db: IModelDb, userLabel: string) => {
+      const modelId = db.elements.queryElementIdByCode(
+        PhysicalPartition.createCode(db, IModel.rootSubjectId, "PhysicalModel")
+      )!;
+      const categoryId = db.elements.queryElementIdByCode(
+        SpatialCategory.createCode(db, IModel.dictionaryId, "SpatialCategory")
+      )!;
+      const federationGuid = Guid.createValue();
+      placedFederationGuids.push(federationGuid);
+
+      withEditTxn(db, `place ${userLabel}`, (txn) => {
+        txn.insertElement({
+          classFullName: PhysicalObject.classFullName,
+          model: modelId,
+          category: categoryId,
+          code: new Code({
+            spec: db.codeSpecs.getByName(equipmentCodeSpecName).id,
+            scope: modelId,
+            value: equipmentCodeValue,
+          }),
+          federationGuid,
+          userLabel,
+          geom: IModelTransformerTestUtils.createBox(Point3d.create(1, 1, 1)),
+          placement: {
+            origin: Point3d.createZero(),
+            angles: YawPitchRollAngles.createDegrees(0, 0, 0),
+          },
+        });
+      });
+    };
+
+    const timeline: Timeline = [
+      {
+        master: {
+          manualUpdate(db) {
+            withEditTxn(db, "insert equipment code spec", (txn) => {
+              db.codeSpecs.insert(
+                txn,
+                CodeSpec.create(
+                  db,
+                  equipmentCodeSpecName,
+                  CodeScopeSpec.Type.Model
+                )
+              );
+            });
+          },
+        },
+      },
+      { source: { branch: "master" } },
+      {
+        master: {
+          manualUpdate(db) {
+            placeEquipment(db, "Target equipment");
+          },
+        },
+      },
+      {
+        source: {
+          manualUpdate(db) {
+            placeEquipment(db, "Source equipment");
+          },
+        },
+      },
+      {
+        master: {
+          sync: [
+            "source",
+            {
+              expectThrow: true,
+              assert: {
+                onError(error) {
+                  if (!(error instanceof IModelError)) throw error;
+                  expect(error.errorNumber).to.equal(
+                    IModelStatus.DuplicateCode
+                  );
+                },
+              },
+            },
+          ],
+        },
+      },
+    ];
+
+    const { trackedIModels, tearDown } = await runTimeline(timeline, {
+      iTwinId,
+      accessToken,
+    });
+    try {
+      expect(placedFederationGuids).to.have.length(2);
+      expect(placedFederationGuids[0]).not.to.equal(placedFederationGuids[1]);
+
+      const master = trackedIModels.get("master")!;
+      const mergedEquipmentIds = master.db.queryEntityIds({
+        from: PhysicalObject.classFullName,
+        where: "CodeValue=?",
+        bindings: [equipmentCodeValue],
+      });
+
+      // A failed reverse synchronization leaves the target element intact.
+      expect(mergedEquipmentIds.size).to.equal(1);
+    } finally {
+      await tearDown();
+    }
   });
 
   it("should merge changes made on a branch back to master", async () => {
