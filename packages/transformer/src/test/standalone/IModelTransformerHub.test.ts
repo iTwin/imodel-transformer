@@ -6995,8 +6995,7 @@ describe("IModelTransformerHub", () => {
             new Map(),
             true,
             new Set<Id64String>(),
-            new Set<Id64String>(),
-            new Map<Id64String, Id64String>()
+            new Set<Id64String>()
           ),
           IModelTransformerError.ChangedInstanceMetadataMissing,
           "Relationship deletion 0x123 is missing an endpoint."
@@ -7298,9 +7297,16 @@ describe("IModelTransformerHub", () => {
       );
       await transformer.processSchemas();
       const openFileSpy = vi.spyOn(ChangesetReader, "openFile");
-      const bulkProvenanceSpy = vi.spyOn(
-        transformer["_provenanceManager"],
-        "queryProvenanceForElements"
+      const processedDeletionIds: Id64String[] = [];
+      const processDeletedOp =
+        transformer["processDeletedOp"].bind(transformer);
+      transformer["processDeletedOp"] = async (...args) => {
+        processedDeletionIds.push(args[0].ecInstanceId);
+        return processDeletedOp(...args);
+      };
+      const findTargetElementIdSpy = vi.spyOn(
+        transformer.context,
+        "findTargetElementId"
       );
       const singularProvenanceSpy = vi.spyOn(
         transformer["_provenanceManager"],
@@ -7328,10 +7334,9 @@ describe("IModelTransformerHub", () => {
         ).to.deep.equal(
           selectedChangesetPaths.map(() => PropertyFilter.BisCoreElement)
         );
-        expect(bulkProvenanceSpy).toHaveBeenCalledTimes(1);
-        const provenanceCandidates = [...bulkProvenanceSpy.mock.calls[0][0]];
-        expect(provenanceCandidates).toContain(elementId);
-        expect(provenanceCandidates).not.toContain(aspectId);
+        expect(findTargetElementIdSpy).toHaveBeenCalledWith(elementId);
+        expect(processedDeletionIds).toContain(elementId);
+        expect(processedDeletionIds).not.toContain(aspectId);
         expect(singularProvenanceSpy).not.toHaveBeenCalled();
       } finally {
         openFileSpy.mockRestore();
@@ -7346,6 +7351,108 @@ describe("IModelTransformerHub", () => {
         targetElement2,
         "Element should be deleted in target iModel"
       ).to.equal(Id64.invalid);
+    });
+
+    it("honors a guidless deletion remap and ignores a missing mapping", async () => {
+      const sourceSubjectId = withEditTxn(
+        sourceDb,
+        "insert guidless source subject",
+        (txn) => {
+          const subject = Subject.create(
+            sourceDb,
+            IModel.rootSubjectId,
+            "Context mapped source"
+          );
+          subject.federationGuid = Guid.empty;
+          return subject.insert(txn);
+        }
+      );
+      await sourceDb.pushChanges({
+        description: "Insert guidless source subject",
+        retainLocks: true,
+      });
+
+      const initialEditTxn = createStartedEditTxn(targetDb);
+      const transformer = new IModelTransformer({
+        source: sourceDb,
+        target: initialEditTxn,
+      });
+      await transformer.process();
+      const provenanceTargetId =
+        transformer.context.findTargetElementId(sourceSubjectId);
+      transformer.dispose();
+      initialEditTxn.end();
+      await targetDb.pushChanges({
+        description: "Initial guidless subject transformation",
+        retainLocks: true,
+      });
+
+      const customTargetId = withEditTxn(
+        targetDb,
+        "insert custom deletion target",
+        (txn) =>
+          Subject.insert(txn, IModel.rootSubjectId, "Custom deletion target")
+      );
+      await targetDb.pushChanges({
+        description: "Insert custom deletion target",
+        retainLocks: true,
+      });
+
+      const unmappedSourceId = withEditTxn(
+        sourceDb,
+        "insert never-synchronized guidless subject",
+        (txn) => {
+          const subject = Subject.create(
+            sourceDb,
+            IModel.rootSubjectId,
+            "Never synchronized"
+          );
+          subject.federationGuid = Guid.empty;
+          return subject.insert(txn);
+        }
+      );
+      await sourceDb.pushChanges({
+        description: "Insert never-synchronized guidless subject",
+        retainLocks: true,
+      });
+
+      withEditTxn(sourceDb, "delete guidless source subjects", (txn) => {
+        txn.deleteElement(sourceSubjectId);
+        txn.deleteElement(unmappedSourceId);
+      });
+      await sourceDb.pushChanges({
+        description: "Delete guidless source subjects",
+        retainLocks: true,
+      });
+
+      class CustomDeletionRemapTransformer extends IModelTransformer {
+        public override async addCustomChanges(): Promise<void> {
+          expect(this.context.findTargetElementId(sourceSubjectId)).to.equal(
+            provenanceTargetId
+          );
+          this.context.remapElement(sourceSubjectId, customTargetId);
+        }
+      }
+
+      const changesEditTxn = createStartedEditTxn(targetDb);
+      const changesTransformer = new CustomDeletionRemapTransformer(
+        { source: sourceDb, target: changesEditTxn },
+        { argsForProcessChanges: {} }
+      );
+      const addCustomChangesSpy = vi.spyOn(
+        changesTransformer,
+        "addCustomChanges"
+      );
+      await changesTransformer.process();
+      expect(
+        changesTransformer.context.findTargetElementId(unmappedSourceId)
+      ).to.equal(Id64.invalid);
+      changesTransformer.dispose();
+      changesEditTxn.end();
+
+      expect(addCustomChangesSpy).toHaveBeenCalledOnce();
+      expect(targetDb.elements.tryGetElement(customTargetId)).toBeUndefined();
+      expect(targetDb.elements.tryGetElement(provenanceTargetId)).toBeDefined();
     });
 
     it("should leave model contents correct when model partition was recreated with different federation guid and the same code value", async () => {
@@ -7616,6 +7723,7 @@ describe("IModelTransformerHub", () => {
             sourcePhysicalModelId,
             "TestClassElement"
           ),
+          federationGuid: Guid.empty,
           userLabel: "TestClassElement",
           SourceProperty1: "value1",
         } as GeometricElementProps);
