@@ -3550,6 +3550,49 @@ describe("IModelTransformer", () => {
     targetDbForRejected.close();
   });
 
+  it("rejects dangling references after direct exporter calls", async () => {
+    class DirectExportTransformer extends ShiftedIdsEmptyTargetTransformer {
+      public async exportDictionaryModel(): Promise<void> {
+        await this.initialize();
+        await this.exporter.exportModel(IModel.dictionaryId);
+      }
+    }
+
+    const sourceDbPath = IModelTransformerTestUtils.prepareOutputFile(
+      "IModelTransformer",
+      "DanglingReferenceDirectExporterSource.bim"
+    );
+    const [sourceDb, { displayStyleId, physicalObjects }] =
+      createIModelWithDanglingReference({
+        name: "DanglingReferencesDirectExporter",
+        path: sourceDbPath,
+      });
+    const transformer = new DirectExportTransformer(sourceDb, () =>
+      StandaloneDb.createEmpty(
+        IModelTransformerTestUtils.prepareOutputFile(
+          "IModelTransformer",
+          "DanglingReferenceDirectExporterTarget.bim"
+        ),
+        { rootSubject: sourceDb.rootSubject }
+      )
+    );
+
+    try {
+      await expectTransformerError(
+        transformer.exportDictionaryModel(),
+        IModelTransformerError.DanglingReference,
+        new RegExp(
+          `Found a reference to an element "e${physicalObjects[1].id}" that doesn't exist while looking for references of "${displayStyleId}"`
+        )
+      );
+    } finally {
+      transformer.editTxn.end("abandon");
+      transformer.dispose();
+      transformer.targetDb.close();
+      sourceDb.close();
+    }
+  });
+
   it("exports aspects of deferred elements", async () => {
     const sourceDbPath = IModelTransformerTestUtils.prepareOutputFile(
       "IModelTransformer",

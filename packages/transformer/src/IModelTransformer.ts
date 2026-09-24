@@ -583,6 +583,9 @@ export class IModelTransformer extends IModelExportHandler {
       this.sourceDb,
       this._cloneContext.existenceCache
     );
+    this.exporter.elementAspectExportCoordinator.setScopeCompletion(async () =>
+      this.validatePendingSourceReferences()
+    );
     this.importer.registerEntityExistenceCache(
       this._cloneContext.existenceCache
     );
@@ -1214,11 +1217,7 @@ export class IModelTransformer extends IModelExportHandler {
   private async processScopedElementExport(
     exportElements: () => Promise<void>
   ): Promise<void> {
-    const isNestedScope = this.exporter.elementAspectExportCoordinator.isActive;
     await this.exporter.elementAspectExportCoordinator.run(exportElements);
-    if (!isNestedScope) {
-      await this.validatePendingSourceReferences();
-    }
   }
 
   /** Override of [IModelExportHandler.shouldExportElement]($transformer) that is called to determine if an element should be exported from the source iModel.

@@ -19,6 +19,7 @@ export class ElementAspectExportCoordinator {
   private _batchSize: number;
   private _depth = 0;
   private _prepare?: ElementAspectExportPreparation;
+  private _complete?: () => Promise<void>;
 
   public constructor(
     private readonly _defaultBatchSize: number,
@@ -39,6 +40,11 @@ export class ElementAspectExportCoordinator {
   /** Sets the callback that prepares each accepted-owner group before its aspects are exported. */
   public setPreparation(prepare: ElementAspectExportPreparation): void {
     this._prepare = prepare;
+  }
+
+  /** Sets the callback that completes an outermost accepted-owner scope after its aspects are exported. */
+  public setScopeCompletion(complete: () => Promise<void>): void {
+    this._complete = complete;
   }
 
   /** Begins an accepted-owner collection scope.
@@ -68,6 +74,7 @@ export class ElementAspectExportCoordinator {
       if (this._acceptedOwnerIds.size > 0) {
         await this.flush();
       }
+      await this._complete?.();
     } finally {
       this.reset();
     }
