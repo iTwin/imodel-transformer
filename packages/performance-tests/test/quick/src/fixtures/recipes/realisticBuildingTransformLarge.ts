@@ -7,7 +7,6 @@ import {
   Code,
   ColorDef,
   ElementAspectProps,
-  ElementProps,
   ExternalSourceAspectProps,
   GeometryPartProps,
   GeometryStreamBuilder,
@@ -15,7 +14,6 @@ import {
   IModel,
   PhysicalElementProps,
   Placement3d,
-  RelationshipProps,
 } from "@itwin/core-common";
 import {
   Box,
@@ -24,15 +22,12 @@ import {
   YawPitchRollAngles,
 } from "@itwin/core-geometry";
 import {
-  DefinitionModel,
   ElementOwnsExternalSourceAspects,
   ElementOwnsMultiAspects,
   ElementOwnsUniqueAspect,
   ExternalSourceAspect,
   GeometryPart,
   IModelDb,
-  InformationRecordModel,
-  PhysicalModel,
   PhysicalObject,
   RenderMaterialElement,
   SnapshotDb,
@@ -42,6 +37,15 @@ import {
 import { FixtureDistribution } from "../FixtureDescriptor.js";
 import { configureFixture, defineFixtureRecipe } from "../FixtureRecipe.js";
 import { quickPath } from "../../support/paths.js";
+import {
+  createRealisticBuildingModelStructure,
+  deterministicRealisticBuildingFederationGuid,
+  insertRealisticBuildingInformationRecords,
+  insertRealisticBuildingRelationships,
+  insertRealisticBuildingSyntheticDefinitions,
+  queryRealisticBuildingCount,
+  remainingRealisticBuildingEntityCount,
+} from "./realisticBuildingShared.js";
 
 const schemaName = "QuickSyntheticFacilityLarge";
 const schemaAlias = "qsfl";
@@ -333,14 +337,6 @@ ${aspectClasses}
 </ECSchema>`;
 }
 
-function deterministicFederationGuid(seed: number, index: number): string {
-  const suffix = (BigInt(seed) * 1_000_003n + BigInt(index + 1))
-    .toString(16)
-    .padStart(12, "0")
-    .slice(-12);
-  return `20000000-0000-4000-8000-${suffix}`;
-}
-
 function createGeometryVariants(): readonly GeometryStreamProps[] {
   return Array.from({ length: geometryVariantCount }, (_, index) => {
     const builder = new GeometryStreamBuilder();
@@ -367,14 +363,11 @@ function createGeometryPartReference(partId: string): GeometryStreamProps {
 }
 
 async function queryCount(db: IModelDb, ecsql: string): Promise<number> {
-  const reader = db.createQueryReader(ecsql, undefined, {
-    usePrimaryConn: true,
-  });
-  if (!(await reader.step()))
-    throw new Error(
-      `Large realistic-building fixture count query returned no row: ${ecsql}`
-    );
-  return reader.current.cnt as number;
+  return queryRealisticBuildingCount(
+    db,
+    ecsql,
+    "Large realistic-building fixture"
+  );
 }
 
 export async function queryRealisticBuildingTransformLargeGeometryBytes(
@@ -499,7 +492,8 @@ export async function queryRealisticBuildingTransformLargeCounts(
 
 function expectedCounts(
   parameters: Readonly<RealisticBuildingTransformLargeParameters>,
-  includeExternalSourceAspects: boolean
+  includeExternalSourceAspects: boolean,
+  includeDriveRelationships: boolean
 ): RealisticBuildingTransformLargeCounts {
   const predefinedDefinitions =
     parameters.spatialCategoryCount * 2 +
@@ -537,7 +531,9 @@ function expectedCounts(
       ? parameters.externalSourceAspectOwnerCount
       : 0,
     refersToRelationships: parameters.refersToRelationshipCount,
-    drivesRelationships: parameters.drivesRelationshipCount,
+    drivesRelationships: includeDriveRelationships
+      ? parameters.drivesRelationshipCount
+      : 0,
     spatialCategories: parameters.spatialCategoryCount,
     renderMaterials: parameters.renderMaterialCount,
     geometryParts: parameters.geometryPartCount,
@@ -552,11 +548,15 @@ function expectedCounts(
 
 export const realisticBuildingTransformLargeSourceExpectedCounts =
   Object.freeze(
-    expectedCounts(realisticBuildingTransformLargeParameters, true)
+    expectedCounts(realisticBuildingTransformLargeParameters, true, true)
   );
 export const realisticBuildingTransformLargeTargetExpectedCounts =
   Object.freeze(
-    expectedCounts(realisticBuildingTransformLargeParameters, false)
+    expectedCounts(realisticBuildingTransformLargeParameters, false, false)
+  );
+export const realisticBuildingTransformLargeDriveTargetExpectedCounts =
+  Object.freeze(
+    expectedCounts(realisticBuildingTransformLargeParameters, false, true)
   );
 
 export const realisticBuildingTransformLargeRecipe = defineFixtureRecipe<
@@ -572,6 +572,7 @@ export const realisticBuildingTransformLargeRecipe = defineFixtureRecipe<
         "recipes",
         "realisticBuildingTransformLarge.ts"
       ),
+      quickPath("src", "fixtures", "recipes", "realisticBuildingShared.ts"),
     ],
     values: {
       content: "aggregate-large-facility-structure-v1",
@@ -588,39 +589,16 @@ export const realisticBuildingTransformLargeRecipe = defineFixtureRecipe<
     try {
       await db.importSchemaStrings([buildSyntheticSchema(parameters)]);
 
-      const initialModelCount = await queryCount(
-        db,
-        "SELECT count(*) cnt FROM bis.Model"
-      );
-      const additionalModelCount = parameters.modelCount - initialModelCount;
-      if (additionalModelCount < 3)
-        throw new Error(
-          `Large realistic-building fixture needs at least three additional models, found ${additionalModelCount}`
-        );
-
-      let definitionModelId = IModel.dictionaryId;
-      let informationModelId = IModel.repositoryModelId;
-      const physicalModelIds: string[] = [];
-      withEditTxn(db, "create large realistic-building models", (txn) => {
-        definitionModelId = DefinitionModel.insert(
-          txn,
-          IModel.rootSubjectId,
-          "Synthetic Large Definitions"
-        );
-        informationModelId = InformationRecordModel.insert(
-          txn,
-          IModel.rootSubjectId,
-          "Synthetic Large Records"
-        );
-        for (let index = 0; index < additionalModelCount - 2; index++)
-          physicalModelIds.push(
-            PhysicalModel.insert(
-              txn,
-              IModel.rootSubjectId,
-              `Synthetic Large Physical Model ${index}`
-            )
-          );
-      });
+      const { definitionModelId, informationModelId, physicalModelIds } =
+        await createRealisticBuildingModelStructure(db, {
+          definitionModelName: "Synthetic Large Definitions",
+          fixtureLabel: "Large realistic-building fixture",
+          informationModelName: "Synthetic Large Records",
+          modelCount: parameters.modelCount,
+          physicalModelName: (index) =>
+            `Synthetic Large Physical Model ${index}`,
+          transactionDescription: "create large realistic-building models",
+        });
 
       const geometryVariants = createGeometryVariants();
       const categoryIds: string[] = [];
@@ -628,7 +606,8 @@ export const realisticBuildingTransformLargeRecipe = defineFixtureRecipe<
       const definitionIds: string[] = [];
       let federationGuidIndex = 0;
       const nextFederationGuid = () =>
-        deterministicFederationGuid(
+        deterministicRealisticBuildingFederationGuid(
+          "20000000",
           context.descriptor.layout.seed,
           federationGuidIndex++
         );
@@ -731,73 +710,51 @@ export const realisticBuildingTransformLargeRecipe = defineFixtureRecipe<
         }
       );
 
-      const currentDefinitionCount = await queryCount(
-        db,
-        "SELECT count(*) cnt FROM bis.DefinitionElement"
-      );
       const syntheticDefinitionCount =
-        parameters.definitionElementCount - currentDefinitionCount;
-      if (syntheticDefinitionCount < 0)
-        throw new Error(
-          `Large realistic-building built-in definitions exceed target by ${-syntheticDefinitionCount}`
+        await remainingRealisticBuildingEntityCount(
+          db,
+          "bis.DefinitionElement",
+          parameters.definitionElementCount,
+          "Large realistic-building",
+          "built-in definitions"
         );
-      withEditTxn(
-        db,
-        "create large realistic-building synthetic definitions",
-        (txn) => {
-          for (let index = 0; index < syntheticDefinitionCount; index++) {
-            const props: ElementProps & { ordinal: number; token: string } = {
-              classFullName: `${schemaName}:${definitionClassNames[index % definitionClassNames.length]}`,
-              model: definitionModelId,
-              code: Code.createEmpty(),
-              federationGuid: nextFederationGuid(),
-              userLabel: `Synthetic Large Definition ${index}`,
-              ordinal: index,
-              token: `large-definition-${index % 193}`,
-            };
-            definitionIds.push(txn.insertElement(props));
-          }
-        }
-      );
+      insertRealisticBuildingSyntheticDefinitions(db, {
+        classFullNames: definitionClassNames.map(
+          (className) => `${schemaName}:${className}`
+        ),
+        count: syntheticDefinitionCount,
+        definitionIds,
+        federationGuid: () => nextFederationGuid(),
+        modelId: definitionModelId,
+        token: (index) => `large-definition-${index % 193}`,
+        transactionDescription:
+          "create large realistic-building synthetic definitions",
+        userLabel: (index) => `Synthetic Large Definition ${index}`,
+      });
 
-      const currentElementCount = await queryCount(
-        db,
-        "SELECT count(*) cnt FROM bis.Element"
-      );
       const informationRecordCount =
-        parameters.elementCount - currentElementCount;
-      if (informationRecordCount < 0)
-        throw new Error(
-          `Large realistic-building modeled elements exceed target by ${-informationRecordCount}`
+        await remainingRealisticBuildingEntityCount(
+          db,
+          "bis.Element",
+          parameters.elementCount,
+          "Large realistic-building",
+          "modeled elements"
         );
-      const informationIds: string[] = [];
-      withEditTxn(
-        db,
-        "create large realistic-building information records",
-        (txn) => {
-          for (let index = 0; index < informationRecordCount; index++) {
-            const props: ElementProps & { ordinal: number; token: string } = {
-              classFullName: `${schemaName}:${informationRecordClassName}`,
-              model: informationModelId,
-              code: Code.createEmpty(),
-              federationGuid: nextFederationGuid(),
-              userLabel: `Synthetic Large Record ${index}`,
-              ordinal: index,
-              token: `large-record-${index % 251}`,
-            };
-            informationIds.push(txn.insertElement(props));
-          }
-        }
-      );
+      const informationIds = insertRealisticBuildingInformationRecords(db, {
+        classFullName: `${schemaName}:${informationRecordClassName}`,
+        count: informationRecordCount,
+        federationGuid: () => nextFederationGuid(),
+        modelId: informationModelId,
+        token: (index) => `large-record-${index % 251}`,
+        transactionDescription:
+          "create large realistic-building information records",
+        userLabel: (index) => `Synthetic Large Record ${index}`,
+      });
 
-      const aspectOwnerIds = [
-        ...physicalIds,
-        ...definitionIds,
-        ...informationIds,
-      ];
-      if (parameters.externalSourceAspectOwnerCount > aspectOwnerIds.length)
+      const elementIds = [...physicalIds, ...definitionIds, ...informationIds];
+      if (parameters.externalSourceAspectOwnerCount > elementIds.length)
         throw new Error(
-          `Large realistic-building external-source-aspect owners exceed available owners: ${parameters.externalSourceAspectOwnerCount} > ${aspectOwnerIds.length}`
+          `Large realistic-building external-source-aspect owners exceed available owners: ${parameters.externalSourceAspectOwnerCount} > ${elementIds.length}`
         );
 
       const uniqueAspectClassNames = numberedClassNames(
@@ -821,9 +778,9 @@ export const realisticBuildingTransformLargeRecipe = defineFixtureRecipe<
           } = {
             classFullName: `${schemaName}:${uniqueAspectClassNames[classIndex]}`,
             element: new ElementOwnsUniqueAspect(
-              aspectOwnerIds[
+              elementIds[
                 Math.floor(index / uniqueAspectClassNames.length) %
-                  aspectOwnerIds.length
+                  elementIds.length
               ]
             ),
             ordinal: index,
@@ -843,7 +800,7 @@ export const realisticBuildingTransformLargeRecipe = defineFixtureRecipe<
           } = {
             classFullName: `${schemaName}:${multiAspectClassNames[classIndex]}`,
             element: new ElementOwnsMultiAspects(
-              aspectOwnerIds[(index * 19 + 11) % aspectOwnerIds.length]
+              elementIds[(index * 19 + 11) % elementIds.length]
             ),
             ordinal: index,
             token: `large-multi-${classIndex}-${index % 223}`,
@@ -858,7 +815,7 @@ export const realisticBuildingTransformLargeRecipe = defineFixtureRecipe<
           const props: ExternalSourceAspectProps = {
             classFullName: ExternalSourceAspect.classFullName,
             element: new ElementOwnsExternalSourceAspects(
-              aspectOwnerIds[
+              elementIds[
                 index < parameters.externalSourceAspectOwnerCount
                   ? index
                   : index % parameters.externalSourceAspectOwnerCount
@@ -873,53 +830,23 @@ export const realisticBuildingTransformLargeRecipe = defineFixtureRecipe<
         }
       });
 
-      const relationshipElementIds = [
-        ...physicalIds,
-        ...definitionIds,
-        ...informationIds,
-      ];
       withEditTxn(
         db,
         "create large realistic-building relationships",
         (txn) => {
-          for (
-            let index = 0;
-            index < parameters.refersToRelationshipCount;
-            index++
-          ) {
-            const sourceIndex = index % relationshipElementIds.length;
-            const offset =
-              ((index * 29 + context.descriptor.layout.seed) %
-                (relationshipElementIds.length - 1)) +
-              1;
-            const props: RelationshipProps & { ordinal: number } = {
-              classFullName: `${schemaName}:${referenceClassName}`,
-              sourceId: relationshipElementIds[sourceIndex],
-              targetId:
-                relationshipElementIds[
-                  (sourceIndex + offset) % relationshipElementIds.length
-                ],
-              ordinal: index,
-            };
-            txn.insertRelationship(props);
-          }
-          for (
-            let index = 0;
-            index < parameters.drivesRelationshipCount;
-            index++
-          ) {
-            const props: RelationshipProps & {
-              priority: number;
-              status: number;
-            } = {
-              classFullName: `${schemaName}:${driveClassName}`,
-              sourceId: definitionIds[index % definitionIds.length],
-              targetId: physicalIds[(index * 31 + 13) % physicalIds.length],
-              priority: index % 8,
-              status: 0,
-            };
-            txn.insertRelationship(props);
-          }
+          insertRealisticBuildingRelationships(txn, {
+            definitionIds,
+            driveClassFullName: `${schemaName}:${driveClassName}`,
+            driveCount: parameters.drivesRelationshipCount,
+            driveTargetOffset: 13,
+            driveTargetStride: 31,
+            elementIds,
+            physicalIds,
+            referenceClassFullName: `${schemaName}:${referenceClassName}`,
+            referenceCount: parameters.refersToRelationshipCount,
+            referenceOffsetStride: 29,
+            seed: context.descriptor.layout.seed,
+          });
         }
       );
     } finally {
@@ -928,7 +855,7 @@ export const realisticBuildingTransformLargeRecipe = defineFixtureRecipe<
   },
   async applySourceChangesets() {},
   async validate(db, context) {
-    const expected = expectedCounts(context.parameters, true);
+    const expected = expectedCounts(context.parameters, true, true);
     const actual = await queryRealisticBuildingTransformLargeCounts(
       db,
       context.parameters
@@ -948,7 +875,7 @@ export const realisticBuildingTransformLargeFixture = configureFixture(
     id: "realistic-building-transform-large",
     version: 1,
     label: "large realistic synthetic building full transformation",
-    scenarioClaims: ["full transformation"],
+    scenarioClaims: ["full transformation", "drive relationship processing"],
     topology: "standalone-source-and-empty-target",
     seed: 49979687,
     parameters: realisticBuildingTransformLargeParameters,

@@ -16,16 +16,20 @@ import {
 import {
   queryRealisticBuildingCounts,
   realisticBuildingExpectedCounts,
+  realisticBuildingFullTransformExpectedCounts,
   realisticBuildingTransformFixture,
 } from "../../src/fixtures/recipes/realisticBuildingTransform.js";
 import { standaloneFixtureProvider } from "../../src/fixtures/providers/standaloneProvider.js";
+import { standaloneDriveRelationshipProcessing } from "../../src/scenarios/standaloneDriveRelationshipProcessing.js";
 import { standaloneFullTransformation } from "../../src/scenarios/standaloneFullTransformation.js";
 import {
   shutdownIsolatedHost,
   startIsolatedHost,
 } from "../support/isolatedHost.js";
 
-const expectedSemanticDigest =
+const expectedFullTransformSemanticDigest =
+  "0014ec00cca96224da1b17eb36789b8a12b68ee614ba6611defd410bde8c4f22";
+const expectedDriveRelationshipSemanticDigest =
   "d2e96eadb8f4c46a67ed9bef48d464fd4679e236896d6dc0587adb847ce77e20";
 
 function sha256(fileName: string): string {
@@ -101,13 +105,31 @@ describe("realistic synthetic building fixture", () => {
       try {
         await scenario.prepare?.();
         await scenario.measure();
-        expect(await scenario.finish()).to.equal(expectedSemanticDigest);
+        expect(await scenario.finish()).to.equal(
+          expectedFullTransformSemanticDigest
+        );
       } finally {
         scenario.abort();
       }
 
       expect(sha256(first.sourceDb.pathName)).to.equal(firstSourceHash);
       expect(await queryRealisticBuildingCounts(first.targetDb)).to.deep.equal(
+        realisticBuildingFullTransformExpectedCounts
+      );
+
+      const driveScenario = standaloneDriveRelationshipProcessing(second);
+      try {
+        await driveScenario.prepare?.();
+        await driveScenario.measure();
+        expect(await driveScenario.finish()).to.equal(
+          expectedDriveRelationshipSemanticDigest
+        );
+      } finally {
+        driveScenario.abort();
+      }
+
+      expect(sha256(second.sourceDb.pathName)).to.equal(firstSourceHash);
+      expect(await queryRealisticBuildingCounts(second.targetDb)).to.deep.equal(
         realisticBuildingExpectedCounts
       );
     } catch (error) {

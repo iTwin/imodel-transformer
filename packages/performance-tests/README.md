@@ -83,7 +83,16 @@ Four configured fixtures support it: `standalone-full-transform`
 elements with 30,000 `ElementGroupsMembers` relationships, exercising the
 relationship export path including federation-guid lookups), and the opt-in
 `realistic-building-transform` and `realistic-building-transform-large`
-fixtures described below.
+fixtures described below. Stock `process()` does not copy their
+`ElementDrivesElement` relationships.
+
+The `standalone-drive-relationship-processing` scenario supports the two
+realistic fixtures. Its untimed `prepare()` imports schemas and runs the stock
+full transformation so all relationship endpoints are mapped. Its timed
+`measure()` contains only
+`processRelationships(ElementDrivesElement.classFullName)`; finalization,
+saving, and output-shape validation are untimed. This is a fresh-snapshot
+relationship benchmark, not incremental changeset coverage.
 
 `realistic-building-transform` is a deterministic synthetic workload modeled
 only from aggregate transformer-relevant characteristics of a representative
@@ -166,12 +175,13 @@ pnpm test:quick
 
 Registered fixtures per scenario:
 
-| Scenario ID                      | Fixture IDs                                                                                                                       | Default                     |
-| -------------------------------- | --------------------------------------------------------------------------------------------------------------------------------- | --------------------------- |
-| `incremental-synchronization`    | `balanced-incremental`                                                                                                            | `balanced-incremental`      |
-| `standalone-full-transformation` | `standalone-full-transform`, `relationship-heavy-transform`, `realistic-building-transform`, `realistic-building-transform-large` | `standalone-full-transform` |
-| `schema-processing`              | `schema-processing-large`                                                                                                         | `schema-processing-large`   |
-| `changeset-scanning`             | `update-heavy-scan`                                                                                                               | `update-heavy-scan`         |
+| Scenario ID                                   | Fixture IDs                                                                                                                       | Default                        |
+| --------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------- | ------------------------------ |
+| `incremental-synchronization`                 | `balanced-incremental`                                                                                                            | `balanced-incremental`         |
+| `standalone-full-transformation`              | `standalone-full-transform`, `relationship-heavy-transform`, `realistic-building-transform`, `realistic-building-transform-large` | `standalone-full-transform`    |
+| `standalone-drive-relationship-processing`    | `realistic-building-transform`, `realistic-building-transform-large`                                                              | `realistic-building-transform` |
+| `schema-processing`                           | `schema-processing-large`                                                                                                         | `schema-processing-large`      |
+| `changeset-scanning`                          | `update-heavy-scan`                                                                                                               | `update-heavy-scan`            |
 
 Example in a POSIX shell:
 

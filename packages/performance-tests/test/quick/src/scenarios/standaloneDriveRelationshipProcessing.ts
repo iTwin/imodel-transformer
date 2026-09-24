@@ -3,7 +3,7 @@
  * See LICENSE.md in the project root for license terms and full copyright notice.
  *--------------------------------------------------------------------------------------------*/
 
-import { EditTxn, SnapshotDb } from "@itwin/core-backend";
+import { EditTxn, ElementDrivesElement, SnapshotDb } from "@itwin/core-backend";
 import { IModelTransformer } from "@itwin/imodel-transformer";
 import { canonicalSha256 } from "../fixtures/FixtureDescriptor.js";
 import {
@@ -12,8 +12,6 @@ import {
 } from "../fixtures/FixtureProvider.js";
 import { realisticBuildingTransformLargeFixture } from "../fixtures/recipes/realisticBuildingTransformLarge.js";
 import { realisticBuildingTransformFixture } from "../fixtures/recipes/realisticBuildingTransform.js";
-import { standaloneFullTransformFixture } from "../fixtures/recipes/standaloneFullTransform.js";
-import { relationshipHeavyTransformFixture } from "../fixtures/recipes/relationshipHeavyTransform.js";
 import { defineBenchmark } from "../framework/BenchmarkRegistration.js";
 import {
   BenchmarkScenario,
@@ -41,25 +39,49 @@ async function classDistribution(
   return rows;
 }
 
-async function structuralIdentity(db: SnapshotDb): Promise<unknown> {
-  const [aspects, elements, models, relationships] = await Promise.all([
-    classDistribution(db, "bis.ElementAspect"),
-    classDistribution(db, "bis.Element"),
-    classDistribution(db, "bis.Model"),
-    classDistribution(db, "bis.ElementRefersToElements"),
-  ]);
-  return { aspects, elements, models, relationships };
-}
-
 async function outputShapeDigest(targetDb: SnapshotDb): Promise<string> {
-  return canonicalSha256(await structuralIdentity(targetDb));
+  const [
+    aspects,
+    drives,
+    elements,
+    geometricElementsWithGeometry,
+    geometryPartsWithGeometry,
+    models,
+    relationships,
+  ] = await Promise.all([
+    classDistribution(targetDb, "bis.ElementAspect"),
+    classDistribution(targetDb, "bis.ElementDrivesElement"),
+    classDistribution(targetDb, "bis.Element"),
+    classDistribution(
+      targetDb,
+      "bis.GeometricElement3d WHERE GeometryStream IS NOT NULL"
+    ),
+    classDistribution(
+      targetDb,
+      "bis.GeometryPart WHERE GeometryStream IS NOT NULL"
+    ),
+    classDistribution(targetDb, "bis.Model"),
+    classDistribution(targetDb, "bis.ElementRefersToElements"),
+  ]);
+  return canonicalSha256({
+    aspects,
+    drives,
+    elements,
+    geometricElementsWithGeometry,
+    geometryPartsWithGeometry,
+    models,
+    relationships,
+  });
 }
 
-export function standaloneFullTransformation(
+export function standaloneDriveRelationshipProcessing(
   dataset: PreparedDataset
 ): BenchmarkScenario {
   const { sourceDb, targetDb } = requireStandaloneDataset(dataset);
-  const editTxn = new EditTxn(targetDb, "Quick standalone full transformation");
+  const editTxn = new EditTxn(
+    targetDb,
+    "Quick standalone drive relationship processing"
+  );
   editTxn.start();
   const transformer = new IModelTransformer(
     { source: sourceDb, target: editTxn },
@@ -84,41 +106,45 @@ export function standaloneFullTransformation(
     if (errors.length > 1)
       throw new AggregateError(
         errors,
-        "Failed to dispose standalone full transformation"
+        "Failed to dispose standalone drive relationship processing"
       );
   };
   return {
     abort: dispose,
     async prepare() {
       await transformer.processSchemas();
-    },
-    async measure() {
       await transformer.process();
     },
+    async measure() {
+      await transformer.processRelationships(
+        ElementDrivesElement.classFullName
+      );
+    },
     async finish() {
-      editTxn.saveChanges("complete quick standalone full transformation");
+      transformer.importer.finalize();
+      editTxn.saveChanges(
+        "complete quick standalone drive relationship processing"
+      );
       dispose();
       return outputShapeDigest(targetDb);
     },
   };
 }
 
-export const standaloneFullTransformationScenario: BenchmarkScenarioDefinition =
+export const standaloneDriveRelationshipProcessingScenario: BenchmarkScenarioDefinition =
   {
-    id: "standalone-full-transformation",
-    defaultFixtureId: "standalone-full-transform",
+    id: "standalone-drive-relationship-processing",
+    defaultFixtureId: "realistic-building-transform",
     capabilities: {
       topology: "standalone-source-and-empty-target",
-      requiredClaims: ["full transformation"],
+      requiredClaims: ["full transformation", "drive relationship processing"],
     },
-    factory: standaloneFullTransformation,
+    factory: standaloneDriveRelationshipProcessing,
   };
 
-export const standaloneFullTransformationBenchmark = defineBenchmark({
-  scenario: standaloneFullTransformationScenario,
+export const standaloneDriveRelationshipProcessingBenchmark = defineBenchmark({
+  scenario: standaloneDriveRelationshipProcessingScenario,
   fixtures: [
-    standaloneFullTransformFixture,
-    relationshipHeavyTransformFixture,
     realisticBuildingTransformFixture,
     realisticBuildingTransformLargeFixture,
   ],

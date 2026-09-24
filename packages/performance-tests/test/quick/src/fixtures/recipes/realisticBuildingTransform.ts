@@ -7,14 +7,11 @@ import {
   Code,
   ColorDef,
   ElementAspectProps,
-  ElementProps,
   GeometryPartProps,
   GeometryStreamBuilder,
   GeometryStreamProps,
-  IModel,
   PhysicalElementProps,
   Placement3d,
-  RelationshipProps,
 } from "@itwin/core-common";
 import {
   Box,
@@ -23,13 +20,10 @@ import {
   YawPitchRollAngles,
 } from "@itwin/core-geometry";
 import {
-  DefinitionModel,
   ElementOwnsMultiAspects,
   ElementOwnsUniqueAspect,
   GeometryPart,
   IModelDb,
-  InformationRecordModel,
-  PhysicalModel,
   PhysicalObject,
   RenderMaterialElement,
   SnapshotDb,
@@ -39,6 +33,15 @@ import {
 import { FixtureDistribution } from "../FixtureDescriptor.js";
 import { configureFixture, defineFixtureRecipe } from "../FixtureRecipe.js";
 import { quickPath } from "../../support/paths.js";
+import {
+  createRealisticBuildingModelStructure,
+  deterministicRealisticBuildingFederationGuid,
+  insertRealisticBuildingInformationRecords,
+  insertRealisticBuildingRelationships,
+  insertRealisticBuildingSyntheticDefinitions,
+  queryRealisticBuildingCount,
+  remainingRealisticBuildingEntityCount,
+} from "./realisticBuildingShared.js";
 
 const schemaName = "QuickSyntheticBuilding";
 const schemaAlias = "qsb";
@@ -256,14 +259,6 @@ ${uniqueAspects}
 </ECSchema>`;
 }
 
-function deterministicFederationGuid(seed: number, index: number): string {
-  const suffix = (BigInt(seed) * 1_000_003n + BigInt(index + 1))
-    .toString(16)
-    .padStart(12, "0")
-    .slice(-12);
-  return `10000000-0000-4000-8000-${suffix}`;
-}
-
 function createGeometryVariants(): readonly GeometryStreamProps[] {
   return Array.from({ length: geometryVariantCount }, (_, index) => {
     const builder = new GeometryStreamBuilder();
@@ -284,14 +279,7 @@ function createGeometryVariants(): readonly GeometryStreamProps[] {
 }
 
 async function queryCount(db: IModelDb, ecsql: string): Promise<number> {
-  const reader = db.createQueryReader(ecsql, undefined, {
-    usePrimaryConn: true,
-  });
-  if (!(await reader.step()))
-    throw new Error(
-      `Realistic-building fixture count query returned no row: ${ecsql}`
-    );
-  return reader.current.cnt as number;
+  return queryRealisticBuildingCount(db, ecsql, "Realistic-building fixture");
 }
 
 function expectedUniqueAspectClassCounts(total: number): number[] {
@@ -384,7 +372,8 @@ export async function queryRealisticBuildingCounts(
 }
 
 function expectedCounts(
-  parameters: Readonly<RealisticBuildingTransformParameters>
+  parameters: Readonly<RealisticBuildingTransformParameters>,
+  includeDriveRelationships = true
 ): RealisticBuildingCounts {
   const predefinedDefinitions =
     parameters.spatialCategoryCount * 2 +
@@ -407,7 +396,9 @@ function expectedCounts(
       parameters.uniqueAspectCount
     ),
     refersToRelationships: parameters.refersToRelationshipCount,
-    drivesRelationships: parameters.drivesRelationshipCount,
+    drivesRelationships: includeDriveRelationships
+      ? parameters.drivesRelationshipCount
+      : 0,
     spatialCategories: parameters.spatialCategoryCount,
     renderMaterials: parameters.renderMaterialCount,
     geometryParts: parameters.geometryPartCount,
@@ -421,6 +412,9 @@ function expectedCounts(
 
 export const realisticBuildingExpectedCounts = Object.freeze(
   expectedCounts(realisticBuildingTransformParameters)
+);
+export const realisticBuildingFullTransformExpectedCounts = Object.freeze(
+  expectedCounts(realisticBuildingTransformParameters, false)
 );
 
 /**
@@ -436,6 +430,7 @@ export const realisticBuildingTransformRecipe = defineFixtureRecipe<
   identity: {
     implementationFiles: [
       quickPath("src", "fixtures", "recipes", "realisticBuildingTransform.ts"),
+      quickPath("src", "fixtures", "recipes", "realisticBuildingShared.ts"),
     ],
     values: {
       content: "aggregate-building-structure-v1",
@@ -452,39 +447,15 @@ export const realisticBuildingTransformRecipe = defineFixtureRecipe<
     try {
       await db.importSchemaStrings([buildSyntheticSchema()]);
 
-      const initialModelCount = await queryCount(
-        db,
-        "SELECT count(*) cnt FROM bis.Model"
-      );
-      const additionalModelCount = parameters.modelCount - initialModelCount;
-      if (additionalModelCount < 3)
-        throw new Error(
-          `Realistic-building fixture needs at least three additional models, found ${additionalModelCount}`
-        );
-
-      let definitionModelId = IModel.dictionaryId;
-      let informationModelId = IModel.repositoryModelId;
-      const physicalModelIds: string[] = [];
-      withEditTxn(db, "create realistic-building models", (txn) => {
-        definitionModelId = DefinitionModel.insert(
-          txn,
-          IModel.rootSubjectId,
-          "Synthetic Definitions"
-        );
-        informationModelId = InformationRecordModel.insert(
-          txn,
-          IModel.rootSubjectId,
-          "Synthetic Records"
-        );
-        for (let index = 0; index < additionalModelCount - 2; index++)
-          physicalModelIds.push(
-            PhysicalModel.insert(
-              txn,
-              IModel.rootSubjectId,
-              `Synthetic Physical Model ${index}`
-            )
-          );
-      });
+      const { definitionModelId, informationModelId, physicalModelIds } =
+        await createRealisticBuildingModelStructure(db, {
+          definitionModelName: "Synthetic Definitions",
+          fixtureLabel: "Realistic-building fixture",
+          informationModelName: "Synthetic Records",
+          modelCount: parameters.modelCount,
+          physicalModelName: (index) => `Synthetic Physical Model ${index}`,
+          transactionDescription: "create realistic-building models",
+        });
 
       const geometryVariants = createGeometryVariants();
       const categoryIds: string[] = [];
@@ -531,7 +502,8 @@ export const realisticBuildingTransformRecipe = defineFixtureRecipe<
               classFullName: GeometryPart.classFullName,
               model: definitionModelId,
               code: Code.createEmpty(),
-              federationGuid: deterministicFederationGuid(
+              federationGuid: deterministicRealisticBuildingFederationGuid(
+                "10000000",
                 context.descriptor.layout.seed,
                 index
               ),
@@ -551,7 +523,8 @@ export const realisticBuildingTransformRecipe = defineFixtureRecipe<
             model: physicalModelIds[index % physicalModelIds.length],
             category: categoryIds[index % categoryIds.length],
             code: Code.createEmpty(),
-            federationGuid: deterministicFederationGuid(
+            federationGuid: deterministicRealisticBuildingFederationGuid(
+              "10000000",
               context.descriptor.layout.seed,
               parameters.geometryPartCount + index
             ),
@@ -580,81 +553,69 @@ export const realisticBuildingTransformRecipe = defineFixtureRecipe<
         }
       });
 
-      const currentDefinitionCount = await queryCount(
-        db,
-        "SELECT count(*) cnt FROM bis.DefinitionElement"
-      );
       const syntheticDefinitionCount =
-        parameters.definitionElementCount - currentDefinitionCount;
-      if (syntheticDefinitionCount < 0)
-        throw new Error(
-          `Realistic-building built-in definitions exceed target by ${-syntheticDefinitionCount}`
+        await remainingRealisticBuildingEntityCount(
+          db,
+          "bis.DefinitionElement",
+          parameters.definitionElementCount,
+          "Realistic-building",
+          "built-in definitions"
         );
-      withEditTxn(
-        db,
-        "create realistic-building synthetic definitions",
-        (txn) => {
-          for (let index = 0; index < syntheticDefinitionCount; index++) {
-            const props: ElementProps & { ordinal: number; token: string } = {
-              classFullName: `${schemaName}:${definitionClassNames[index % definitionClassNames.length]}`,
-              model: definitionModelId,
-              code: Code.createEmpty(),
-              federationGuid: deterministicFederationGuid(
-                context.descriptor.layout.seed,
-                parameters.geometryPartCount +
-                  parameters.geometricElementCount +
-                  index
-              ),
-              userLabel: `Synthetic Definition ${index}`,
-              ordinal: index,
-              token: `definition-${index % 97}`,
-            };
-            definitionIds.push(txn.insertElement(props));
-          }
-        }
-      );
+      insertRealisticBuildingSyntheticDefinitions(db, {
+        classFullNames: definitionClassNames.map(
+          (className) => `${schemaName}:${className}`
+        ),
+        count: syntheticDefinitionCount,
+        definitionIds,
+        federationGuid: (index) =>
+          deterministicRealisticBuildingFederationGuid(
+            "10000000",
+            context.descriptor.layout.seed,
+            parameters.geometryPartCount +
+              parameters.geometricElementCount +
+              index
+          ),
+        modelId: definitionModelId,
+        token: (index) => `definition-${index % 97}`,
+        transactionDescription:
+          "create realistic-building synthetic definitions",
+        userLabel: (index) => `Synthetic Definition ${index}`,
+      });
 
-      const currentElementCount = await queryCount(
-        db,
-        "SELECT count(*) cnt FROM bis.Element"
-      );
       const informationRecordCount =
-        parameters.elementCount - currentElementCount;
-      if (informationRecordCount < 0)
-        throw new Error(
-          `Realistic-building modeled elements exceed target by ${-informationRecordCount}`
+        await remainingRealisticBuildingEntityCount(
+          db,
+          "bis.Element",
+          parameters.elementCount,
+          "Realistic-building",
+          "modeled elements"
         );
-      const informationIds: string[] = [];
-      withEditTxn(
-        db,
-        "create realistic-building information records",
-        (txn) => {
-          for (let index = 0; index < informationRecordCount; index++) {
-            const props: ElementProps & { ordinal: number; token: string } = {
-              classFullName: `${schemaName}:${informationRecordClassName}`,
-              model: informationModelId,
-              code: Code.createEmpty(),
-              federationGuid: deterministicFederationGuid(
-                context.descriptor.layout.seed,
-                parameters.geometryPartCount +
-                  parameters.geometricElementCount +
-                  syntheticDefinitionCount +
-                  index
-              ),
-              userLabel: `Synthetic Project Record ${index}`,
-              ordinal: index,
-              token: `record-${index % 17}`,
-            };
-            informationIds.push(txn.insertElement(props));
-          }
-        }
-      );
+      const informationIds = insertRealisticBuildingInformationRecords(db, {
+        classFullName: `${schemaName}:${informationRecordClassName}`,
+        count: informationRecordCount,
+        federationGuid: (index) =>
+          deterministicRealisticBuildingFederationGuid(
+            "10000000",
+            context.descriptor.layout.seed,
+            parameters.geometryPartCount +
+              parameters.geometricElementCount +
+              syntheticDefinitionCount +
+              index
+          ),
+        modelId: informationModelId,
+        token: (index) => `record-${index % 17}`,
+        transactionDescription: "create realistic-building information records",
+        userLabel: (index) => `Synthetic Project Record ${index}`,
+      });
 
-      const aspectOwnerIds = [
-        ...physicalIds,
-        ...definitionIds,
-        ...informationIds,
-      ];
+      const elementIds = [...physicalIds, ...definitionIds, ...informationIds];
+      const requiredMultiAspectOwnerCount = expectedMultiAspectOwnerCount(
+        parameters.multiAspectCount
+      );
+      if (requiredMultiAspectOwnerCount > elementIds.length)
+        throw new Error(
+          `Realistic-building multi-aspects require ${requiredMultiAspectOwnerCount} owners, but only ${elementIds.length} are available`
+        );
       withEditTxn(db, "create realistic-building aspects", (txn) => {
         for (let index = 0; index < parameters.uniqueAspectCount; index++) {
           const classIndex = index % uniqueAspectClassNames.length;
@@ -664,9 +625,9 @@ export const realisticBuildingTransformRecipe = defineFixtureRecipe<
           } = {
             classFullName: `${schemaName}:${uniqueAspectClassNames[classIndex]}`,
             element: new ElementOwnsUniqueAspect(
-              aspectOwnerIds[
+              elementIds[
                 Math.floor(index / uniqueAspectClassNames.length) %
-                  aspectOwnerIds.length
+                  elementIds.length
               ]
             ),
             ordinal: index,
@@ -688,7 +649,7 @@ export const realisticBuildingTransformRecipe = defineFixtureRecipe<
               token: string;
             } = {
               classFullName: `${schemaName}:${multiAspectClassName}`,
-              element: new ElementOwnsMultiAspects(aspectOwnerIds[ownerIndex]),
+              element: new ElementOwnsMultiAspects(elementIds[ownerIndex]),
               ordinal,
               token: `multi-${ownerIndex % 127}-${ordinal}`,
             };
@@ -699,50 +660,20 @@ export const realisticBuildingTransformRecipe = defineFixtureRecipe<
         }
       });
 
-      const relationshipElementIds = [
-        ...physicalIds,
-        ...definitionIds,
-        ...informationIds,
-      ];
       withEditTxn(db, "create realistic-building relationships", (txn) => {
-        for (
-          let index = 0;
-          index < parameters.refersToRelationshipCount;
-          index++
-        ) {
-          const sourceIndex = index % relationshipElementIds.length;
-          const offset =
-            ((index * 17 + context.descriptor.layout.seed) %
-              (relationshipElementIds.length - 1)) +
-            1;
-          const props: RelationshipProps & { ordinal: number } = {
-            classFullName: `${schemaName}:${referenceClassName}`,
-            sourceId: relationshipElementIds[sourceIndex],
-            targetId:
-              relationshipElementIds[
-                (sourceIndex + offset) % relationshipElementIds.length
-              ],
-            ordinal: index,
-          };
-          txn.insertRelationship(props);
-        }
-        for (
-          let index = 0;
-          index < parameters.drivesRelationshipCount;
-          index++
-        ) {
-          const props: RelationshipProps & {
-            priority: number;
-            status: number;
-          } = {
-            classFullName: `${schemaName}:${driveClassName}`,
-            sourceId: definitionIds[index % definitionIds.length],
-            targetId: physicalIds[(index * 13 + 7) % physicalIds.length],
-            priority: index % 8,
-            status: 0,
-          };
-          txn.insertRelationship(props);
-        }
+        insertRealisticBuildingRelationships(txn, {
+          definitionIds,
+          driveClassFullName: `${schemaName}:${driveClassName}`,
+          driveCount: parameters.drivesRelationshipCount,
+          driveTargetOffset: 7,
+          driveTargetStride: 13,
+          elementIds,
+          physicalIds,
+          referenceClassFullName: `${schemaName}:${referenceClassName}`,
+          referenceCount: parameters.refersToRelationshipCount,
+          referenceOffsetStride: 17,
+          seed: context.descriptor.layout.seed,
+        });
       });
     } finally {
       db.close();
@@ -767,7 +698,7 @@ export const realisticBuildingTransformFixture = configureFixture(
     id: "realistic-building-transform",
     version: 1,
     label: "realistic synthetic building full transformation",
-    scenarioClaims: ["full transformation"],
+    scenarioClaims: ["full transformation", "drive relationship processing"],
     topology: "standalone-source-and-empty-target",
     seed: 32452843,
     parameters: realisticBuildingTransformParameters,

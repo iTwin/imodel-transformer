@@ -16,19 +16,23 @@ import {
 import {
   queryRealisticBuildingTransformLargeCounts,
   queryRealisticBuildingTransformLargeGeometryBytes,
+  realisticBuildingTransformLargeDriveTargetExpectedCounts,
   realisticBuildingTransformLargeFixture,
   realisticBuildingTransformLargeSourceExpectedCounts,
   realisticBuildingTransformLargeSourceGeometryBytes,
   realisticBuildingTransformLargeTargetExpectedCounts,
 } from "../../src/fixtures/recipes/realisticBuildingTransformLarge.js";
 import { standaloneFixtureProvider } from "../../src/fixtures/providers/standaloneProvider.js";
+import { standaloneDriveRelationshipProcessing } from "../../src/scenarios/standaloneDriveRelationshipProcessing.js";
 import { standaloneFullTransformation } from "../../src/scenarios/standaloneFullTransformation.js";
 import {
   shutdownIsolatedHost,
   startIsolatedHost,
 } from "../support/isolatedHost.js";
 
-const expectedSemanticDigest =
+const expectedFullTransformSemanticDigest =
+  "9a5ba8fb899f5487fa2cec38d5975afc2126bb867744575716f078828286dff0";
+const expectedDriveRelationshipSemanticDigest =
   "2b1237282f7fbe3e668f05ee8f106e80551697c19e64791d964625e652fe3d9c";
 
 function sha256(fileName: string): string {
@@ -109,7 +113,9 @@ describe("large realistic synthetic building fixture", () => {
       try {
         await scenario.prepare?.();
         await scenario.measure();
-        expect(await scenario.finish()).to.equal(expectedSemanticDigest);
+        expect(await scenario.finish()).to.equal(
+          expectedFullTransformSemanticDigest
+        );
       } finally {
         scenario.abort();
       }
@@ -118,6 +124,22 @@ describe("large realistic synthetic building fixture", () => {
       expect(
         await queryRealisticBuildingTransformLargeCounts(first.targetDb)
       ).to.deep.equal(realisticBuildingTransformLargeTargetExpectedCounts);
+
+      const driveScenario = standaloneDriveRelationshipProcessing(second);
+      try {
+        await driveScenario.prepare?.();
+        await driveScenario.measure();
+        expect(await driveScenario.finish()).to.equal(
+          expectedDriveRelationshipSemanticDigest
+        );
+      } finally {
+        driveScenario.abort();
+      }
+
+      expect(sha256(second.sourceDb.pathName)).to.equal(firstSourceHash);
+      expect(
+        await queryRealisticBuildingTransformLargeCounts(second.targetDb)
+      ).to.deep.equal(realisticBuildingTransformLargeDriveTargetExpectedCounts);
     } catch (error) {
       testError = error;
     }

@@ -43,7 +43,7 @@ describe("quick performance scenario catalog", () => {
 
   it("rejects unknown scenarios", () => {
     expect(() => getScenarioDefinition("not-a-scenario")).to.throw(
-      'Unknown quick performance scenario "not-a-scenario". Available scenarios: incremental-synchronization, large-base-incremental-synchronization, changeset-scanning, schema-processing, standalone-full-transformation'
+      'Unknown quick performance scenario "not-a-scenario". Available scenarios: incremental-synchronization, large-base-incremental-synchronization, changeset-scanning, schema-processing, standalone-full-transformation, standalone-drive-relationship-processing'
     );
   });
 
@@ -91,6 +91,9 @@ describe("quick performance scenario catalog", () => {
     expect(resolved.descriptor.scenarioClaims).to.include(
       "full transformation"
     );
+    expect(resolved.descriptor.scenarioClaims).to.include(
+      "drive relationship processing"
+    );
     expect(resolved.descriptor.distribution.base).to.deep.equal({
       aspects:
         realisticBuildingTransformParameters.multiAspectCount +
@@ -133,6 +136,9 @@ describe("quick performance scenario catalog", () => {
     expect(resolved.descriptor.scenarioClaims).to.include(
       "full transformation"
     );
+    expect(resolved.descriptor.scenarioClaims).to.include(
+      "drive relationship processing"
+    );
     expect(resolved.descriptor.distribution.base).to.deep.equal({
       aspects:
         realisticBuildingTransformLargeParameters.includedUniqueAspectCount +
@@ -145,6 +151,24 @@ describe("quick performance scenario catalog", () => {
         realisticBuildingTransformLargeSourceExpectedCounts.refersToRelationships +
         realisticBuildingTransformLargeSourceExpectedCounts.drivesRelationships,
     });
+  });
+
+  it("registers both realistic fixtures for drive relationship processing", () => {
+    for (const fixtureId of [
+      "realistic-building-transform",
+      "realistic-building-transform-large",
+    ]) {
+      const resolvedDriveRun = resolveBenchmarkRun(
+        "standalone-drive-relationship-processing",
+        fixtureId
+      );
+      expect(resolvedDriveRun.descriptor.layout.topology).to.equal(
+        "standalone-source-and-empty-target"
+      );
+      expect(resolvedDriveRun.descriptor.scenarioClaims).to.include(
+        "drive relationship processing"
+      );
+    }
   });
 
   it("keeps large realistic-building geometry, aspects, and relationships independently configurable", () => {
