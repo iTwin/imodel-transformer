@@ -9,6 +9,7 @@ import {
   ElementOwnsExternalSourceAspects,
   ElementOwnsMultiAspects,
   ElementOwnsUniqueAspect,
+  ElementUniqueAspect,
   ExternalSourceAspect,
   StandaloneDb,
   Subject,
@@ -185,6 +186,13 @@ describe("IModelImporter", () => {
             identifier: "provenance",
             kind: ExternalSourceAspect.Kind.Element,
           } as ExternalSourceAspectProps),
+          scopeOwned: txn.insertAspect({
+            classFullName: ExternalSourceAspect.classFullName,
+            element: new ElementOwnsExternalSourceAspects(provenanceScopeId),
+            scope: { id: IModel.rootSubjectId },
+            identifier: "scope-owned",
+            kind: ExternalSourceAspect.Kind.Scope,
+          } as ExternalSourceAspectProps),
         })
       );
 
@@ -204,22 +212,36 @@ describe("IModelImporter", () => {
         }
       }
       const importer = new TrackingImporter(editTxn);
+      const querySpy = vi.spyOn(targetDb, "createQueryReader");
       await importer.elementAspectCleanup.delete(
-        new Set([elementId]),
+        new Set([elementId, provenanceScopeId]),
         new Set(["TestDeleteAspectsSchema:TestUniqueAspect"]),
         provenanceScopeId,
         1
       );
       editTxn.saveChanges();
 
+      // ExternalSourceAspect is a multi-aspect, so only that pass needs the provenance filter.
+      const queries = querySpy.mock.calls.map(([ecsql]) => ecsql);
+      const uniqueQueries = queries.filter((ecsql) =>
+        ecsql.includes(`FROM ${ElementUniqueAspect.classFullName} aspect`)
+      );
+      expect(uniqueQueries).not.toHaveLength(0);
+      for (const ecsql of uniqueQueries)
+        expect(ecsql).not.toContain(ExternalSourceAspect.classFullName);
+      querySpy.mockRestore();
+
       const hasAspect = (id: string) =>
-        targetDb.elements
-          .getAspects(elementId)
-          .some((aspect) => aspect.id === id);
+        [elementId, provenanceScopeId].some((ownerId) =>
+          targetDb.elements
+            .getAspects(ownerId)
+            .some((aspect) => aspect.id === id)
+        );
       expect(hasAspect(aspectIds.excluded)).to.be.true;
       expect(hasAspect(aspectIds.replaceable)).to.be.false;
       expect(hasAspect(aspectIds.nonProvenance)).to.be.false;
       expect(hasAspect(aspectIds.provenance)).to.be.true;
+      expect(hasAspect(aspectIds.scopeOwned)).to.be.true;
       expect(importer.deletedAspectCount).to.equal(2);
       expect(importer.deletedExternalSourceIdentifiers).to.deep.equal([
         "replaceable",

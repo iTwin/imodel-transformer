@@ -53,30 +53,37 @@ export class ElementAspectCleanup {
       ElementUniqueAspect.classFullName,
       ElementMultiAspect.classFullName,
     ]) {
-      while (true) {
-        const params = new QueryBinder().bindIdSet("elementIds", ids);
-        let whereClause = "TRUE";
-        if (provenanceScopeId !== undefined) {
-          params.bindId("provenanceScopeId", provenanceScopeId);
-          whereClause += ` AND ECInstanceId NOT IN (
-            SELECT ECInstanceId FROM ${ExternalSourceAspect.classFullName}
-            WHERE Element.Id = :provenanceScopeId OR Scope.Id = :provenanceScopeId
-          )`;
-        }
-        if (targetExcludedElementAspectClassFullNames.length > 0) {
-          whereClause += ` AND ECInstanceId NOT IN (
-            SELECT ECInstanceId FROM ${aspectClassFullName}
-            WHERE ECClassId IS (${[
-              ...targetExcludedElementAspectClassFullNames,
-            ].join(", ")})
-          )`;
-        }
-
-        const query = `SELECT aspect.ECInstanceId as id
+      // ExternalSourceAspect derives from ElementMultiAspect, so provenance can only
+      // appear in the multi-aspect pass. Correlate on the candidate row instead of
+      // materializing every scoped ExternalSourceAspect for each page.
+      const preserveProvenance =
+        provenanceScopeId !== undefined &&
+        aspectClassFullName === ElementMultiAspect.classFullName;
+      const conditions: string[] = [];
+      if (targetExcludedElementAspectClassFullNames.length > 0) {
+        conditions.push(
+          `aspect.ECClassId IS NOT (${targetExcludedElementAspectClassFullNames.join(", ")})`
+        );
+      }
+      if (preserveProvenance) {
+        conditions.push(`NOT EXISTS (
+            SELECT 1 FROM ${ExternalSourceAspect.classFullName} esa
+            WHERE esa.ECInstanceId = aspect.ECInstanceId
+              AND (esa.Element.Id = :provenanceScopeId OR esa.Scope.Id = :provenanceScopeId)
+          )`);
+      }
+      const whereClause =
+        conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
+      const query = `SELECT aspect.ECInstanceId as id
           FROM ${aspectClassFullName} aspect
           INNER JOIN IdSet(:elementIds) ids ON ids.id = aspect.Element.Id
-          WHERE ${whereClause}
+          ${whereClause}
           LIMIT ${pageSize}`;
+      while (true) {
+        const params = new QueryBinder().bindIdSet("elementIds", ids);
+        if (preserveProvenance)
+          params.bindId("provenanceScopeId", provenanceScopeId);
+
         // Drain the full page before deleting: mutating a table while a reader is still
         // scanning it is unsafe.
         const candidateIds: Id64String[] = [];

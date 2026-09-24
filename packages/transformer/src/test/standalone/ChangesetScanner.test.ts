@@ -5,6 +5,7 @@
 import * as path from "node:path";
 import {
   ChangesetReader,
+  ChangeUnifierCache,
   EditTxn,
   ElementGroupsMembers,
   ExternalSourceAspect,
@@ -253,6 +254,69 @@ describe("ChangesetScanner owner resolution", () => {
       expect([...ids.aspectOwnerElementIds]).toEqual([]);
       expect(querySpy).not.toHaveBeenCalled();
     });
+  });
+
+  it("unifies each changeset in its own disposed SQLite-backed cache", async () => {
+    const createCache = ChangeUnifierCache.createSqliteBackedCache;
+    const disposeSpies: ReturnType<typeof vi.fn>[] = [];
+    const cacheSpy = vi
+      .spyOn(ChangeUnifierCache, "createSqliteBackedCache")
+      .mockImplementation((...args) => {
+        const cache = createCache(...args);
+        const dispose = cache[Symbol.dispose].bind(cache);
+        const disposeSpy = vi.fn(dispose);
+        cache[Symbol.dispose] = disposeSpy;
+        disposeSpies.push(disposeSpy);
+        return cache;
+      });
+    const seed = withEditTxn(db, "create deleted aspect", (txn) => {
+      const owner = Subject.insert(txn, IModel.rootSubjectId, "owner");
+      return { owner, aspect: insertAspect(txn, owner) };
+    });
+    await withEditTxn(db, "delete aspect", async (txn) => {
+      txn.deleteAspect(seed.aspect);
+      const ids = new ChangedInstanceIds(db);
+      const records = await ChangesetScanner.scan(
+        db,
+        [...files, ...files],
+        ids
+      );
+      expect(
+        records.map((changeset) => changeset.map((r) => r.ecInstanceId))
+      ).toEqual([[seed.aspect], [seed.aspect]]);
+      expect([...ids.aspect.deleteIds]).toEqual([seed.aspect]);
+    });
+    expect(cacheSpy).toHaveBeenCalledTimes(2);
+    for (const disposeSpy of disposeSpies)
+      expect(disposeSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it("releases the reader when the unifier cache cannot be created", async () => {
+    const cacheError = new Error("cache failed");
+    vi.spyOn(ChangeUnifierCache, "createSqliteBackedCache").mockImplementation(
+      () => {
+        throw cacheError;
+      }
+    );
+    const disposeSpies: ReturnType<typeof vi.fn>[] = [];
+    vi.spyOn(ChangesetReader, "openFile").mockImplementation((args) => {
+      const reader = ChangesetReader.openInMemoryChanges({
+        db,
+        propFilter: args.propFilter,
+      });
+      const disposeSpy = vi.fn(reader[Symbol.dispose].bind(reader));
+      reader[Symbol.dispose] = disposeSpy;
+      disposeSpies.push(disposeSpy);
+      return reader;
+    });
+    await withEditTxn(db, "pending change", async (txn) => {
+      Subject.insert(txn, IModel.rootSubjectId, "pending");
+      await expect(
+        ChangesetScanner.scan(db, files, new ChangedInstanceIds(db))
+      ).rejects.toBe(cacheError);
+    });
+    expect(disposeSpies).toHaveLength(1);
+    expect(disposeSpies[0]).toHaveBeenCalledTimes(1);
   });
 
   it("preserves ChangesetReader errors", async () => {
