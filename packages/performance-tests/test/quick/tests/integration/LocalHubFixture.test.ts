@@ -35,7 +35,10 @@ import {
   balancedIncrementalRecipe,
 } from "../../src/fixtures/recipes/balancedIncremental.js";
 import { configureFixture } from "../../src/fixtures/FixtureRecipe.js";
-import { deletionHeavyIncrementalRecipe } from "../../src/fixtures/recipes/deletionHeavyIncremental.js";
+import {
+  deletionHeavyIncrementalRecipe,
+  legacyGuidlessDeletionFallbackFixture,
+} from "../../src/fixtures/recipes/deletionHeavyIncremental.js";
 import { materializeLiveHubFixture } from "../../src/fixtures/providers/liveHubProvider.js";
 import {
   createStartedEditTxn,
@@ -47,7 +50,11 @@ import {
   incrementalSynchronization,
   incrementalSynchronizationScenario,
 } from "../../src/scenarios/incrementalSynchronization.js";
-import { assertSynchronizationProvenance } from "../../src/fixtures/validation/validateFixture.js";
+import { legacyGuidlessDeletionFallbackScenario } from "../../src/scenarios/legacyGuidlessDeletionFallback.js";
+import {
+  assertSynchronizationProvenance,
+  queryCount,
+} from "../../src/fixtures/validation/validateFixture.js";
 import { quickTestHub } from "../../src/fixtures/QuickTestHub.js";
 
 function required<T>(value: T | undefined, name: string): T {
@@ -326,7 +333,10 @@ describe("BenchmarkRunner scenario injection", () => {
       scenarioClaims: ["incremental synchronization", "element deletion"],
       topology: "source-and-empty-target",
       seed: 662,
-      parameters: { scale: 25 },
+      parameters: {
+        scale: 25,
+        deletedElementFederationGuids: "present",
+      },
     });
     try {
       const samples = await new BenchmarkRunner(
@@ -346,6 +356,70 @@ describe("BenchmarkRunner scenario injection", () => {
           (sample) => sample.fixtureRecipeHash === fixture.descriptor.recipeHash
         )
       ).to.be.true;
+    } finally {
+      fs.rmSync(outputDir, { recursive: true, force: true });
+    }
+  });
+
+  it("runs legacy guidless deletion fallback end to end", async () => {
+    const outputDir = fs.mkdtempSync(
+      path.join(os.tmpdir(), "quick-perf-guidless-deletion-")
+    );
+    const fixture = configureFixture(deletionHeavyIncrementalRecipe, {
+      id: "legacy-guidless-deletion-integration-test",
+      version: 1,
+      label: "legacy guidless deletion integration test",
+      scenarioClaims:
+        legacyGuidlessDeletionFallbackFixture.descriptor.scenarioClaims,
+      topology: "source-and-empty-target",
+      seed: 662,
+      parameters: {
+        scale: 25,
+        deletedElementFederationGuids: "absent",
+      },
+    });
+    let verifiedGuidlessDeletedElements = false;
+    const verifiedFixture = {
+      ...fixture,
+      async applySourceChangesets(
+        db: Parameters<typeof fixture.applySourceChangesets>[0],
+        accessToken: Parameters<typeof fixture.applySourceChangesets>[1],
+        state: unknown
+      ) {
+        const { elementIdsToDelete } = state as {
+          readonly elementIdsToDelete: readonly string[];
+        };
+        expect(elementIdsToDelete).to.have.length(25);
+        expect(
+          elementIdsToDelete.every(
+            (elementId) =>
+              db.elements.getElement(elementId).federationGuid === undefined
+          )
+        ).to.be.true;
+        expect(
+          await queryCount(
+            db,
+            "SELECT count(*) cnt FROM Generic.PhysicalObject WHERE FederationGuid IS NULL"
+          )
+        ).to.equal(elementIdsToDelete.length);
+        verifiedGuidlessDeletedElements = true;
+        return fixture.applySourceChangesets(db, accessToken, state);
+      },
+    };
+    try {
+      const samples = await new BenchmarkRunner(
+        verifiedFixture,
+        outputDir,
+        legacyGuidlessDeletionFallbackScenario
+      ).run(1);
+      expect(verifiedGuidlessDeletedElements).to.be.true;
+      expect(samples).to.have.length(2);
+      expect(
+        samples.map((sample) => sample.operations.elements.deletes)
+      ).to.deep.equal([25, 25]);
+      expect(
+        new Set(samples.map((sample) => sample.semanticDigest)).size
+      ).to.equal(1);
     } finally {
       fs.rmSync(outputDir, { recursive: true, force: true });
     }

@@ -83,6 +83,16 @@ describe("benchmark resolution", () => {
     expect(resolved.descriptor.id).to.equal("balanced-incremental");
   });
 
+  it("resolves the legacy guidless fallback scenario from the environment", () => {
+    const resolved = resolveBenchmarkRunFromEnvironment({
+      QUICK_PERF_SCENARIO: "legacy-guidless-deletion-fallback",
+    });
+    expect(resolved.scenario.id).to.equal("legacy-guidless-deletion-fallback");
+    expect(resolved.descriptor.id).to.equal(
+      "legacy-guidless-deletion-fallback"
+    );
+  });
+
   it("binds external BIM identity only to the standalone topology", () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), "quick-external-unit-"));
     const external = path.join(root, "input.bim");
