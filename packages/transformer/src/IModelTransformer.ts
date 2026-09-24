@@ -2266,24 +2266,6 @@ export class IModelTransformer extends IModelExportHandler {
     this._deletedSourceRelationshipData = new Map();
     const isElementAspectDeletion = (change: ChangesetDeletionRecord) =>
       change.elementId !== undefined;
-    const deletedSourceElementIds = new Set<Id64String>();
-    for (const changes of deletionRecordsByChangeset) {
-      for (const change of changes) {
-        if (
-          !isElementAspectDeletion(change) &&
-          !relationshipECClassIdsToSkip.has(change.ecClassId) &&
-          !relationshipECClassIds.has(change.ecClassId)
-        ) {
-          deletedSourceElementIds.add(change.ecInstanceId);
-        }
-      }
-    }
-    const sourceToTargetElementIds =
-      this.sourceDb === (await this._provenanceManager.getProvenanceSourceDb())
-        ? await this._provenanceManager.queryProvenanceForElements(
-            deletedSourceElementIds
-          )
-        : new Map<Id64String, Id64String>();
 
     for (const changes of deletionRecordsByChangeset) {
       /** a map of element ids to this transformation scope's ESA data for that element, in case the ESA is deleted in the target */
@@ -2308,8 +2290,7 @@ export class IModelTransformer extends IModelExportHandler {
           elemIdToScopeEsa,
           relationshipECClassIds.has(change.ecClassId),
           alreadyImportedElementInserts,
-          alreadyImportedModelInserts,
-          sourceToTargetElementIds
+          alreadyImportedModelInserts
         );
       }
     }
@@ -2336,7 +2317,6 @@ export class IModelTransformer extends IModelExportHandler {
    * @param isRelationship is relationship or not
    * @param alreadyImportedElementInserts used to handle entity recreation and not delete already handled element inserts.
    * @param alreadyImportedModelInserts used to handle entity recreation and not delete already handled model inserts.
-   * @param sourceToTargetElementIds source identifiers resolved from scoped element provenance before deletion processing.
    * @returns void
    */
   private async processDeletedOp(
@@ -2344,8 +2324,7 @@ export class IModelTransformer extends IModelExportHandler {
     mapOfDeletedElemIdToScopeEsas: Map<string, ChangesetDeletionRecord>,
     isRelationship: boolean,
     alreadyImportedElementInserts: Set<Id64String>,
-    alreadyImportedModelInserts: Set<Id64String>,
-    sourceToTargetElementIds: ReadonlyMap<Id64String, Id64String>
+    alreadyImportedModelInserts: Set<Id64String>
   ) {
     // we need a connected iModel with changes to remap elements with deletions
     const notConnectedModel = this.sourceDb.iTwinId === undefined;
@@ -2461,7 +2440,9 @@ export class IModelTransformer extends IModelExportHandler {
         this.sourceDb ===
           (await this._provenanceManager.getProvenanceSourceDb())
       ) {
-        targetId = sourceToTargetElementIds.get(changedInstanceId);
+        const contextTargetId =
+          this.context.findTargetElementId(changedInstanceId);
+        if (Id64.isValidId64(contextTargetId)) targetId = contextTargetId;
       }
       // since we are processing one changeset at a time, we can see local source deletes
       // of entities that were never synced and can be safely ignored
@@ -2470,7 +2451,7 @@ export class IModelTransformer extends IModelExportHandler {
 
       if (targetId === undefined) {
         throw new Error(
-          "targetId should be acquired from source id or element provenance"
+          "targetId should be acquired from source id or transformation context"
         );
       }
 

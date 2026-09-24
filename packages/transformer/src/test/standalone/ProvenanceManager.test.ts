@@ -9,18 +9,18 @@ import {
   ExternalSourceAspect,
   StandaloneDb,
   Subject,
+  SubjectOwnsSubjects,
 } from "@itwin/core-backend";
-import { ExternalSourceAspectProps, IModel } from "@itwin/core-common";
-import { Id64, Id64String } from "@itwin/core-bentley";
+import { Code, ExternalSourceAspectProps, IModel } from "@itwin/core-common";
+import { Guid, Id64String } from "@itwin/core-bentley";
 import { ProvenanceManager } from "../../ProvenanceManager";
-import { SyncTypeResolver } from "../../SyncTypeResolver";
 import { IModelTransformerTestUtils } from "../IModelTransformerUtils";
 
-describe("ProvenanceManager element provenance queries", () => {
+describe("ProvenanceManager tracked element mappings", () => {
   let sourceDb: StandaloneDb;
   let targetDb: StandaloneDb;
+  let sourceTxn: EditTxn;
   let targetTxn: EditTxn;
-  let manager: ProvenanceManager;
 
   beforeEach(() => {
     sourceDb = StandaloneDb.createEmpty(
@@ -37,29 +37,15 @@ describe("ProvenanceManager element provenance queries", () => {
       ),
       { rootSubject: { name: "target" }, enableTransactions: true }
     );
+    sourceTxn = new EditTxn(sourceDb, "tracked element mapping test");
+    sourceTxn.start();
     targetTxn = new EditTxn(targetDb, "provenance query test");
     targetTxn.start();
-    manager = new ProvenanceManager(
-      IModel.rootSubjectId,
-      {},
-      {
-        sourceDb,
-        targetDb,
-        findTargetElementId: () => Id64.invalid,
-      },
-      new SyncTypeResolver(
-        sourceDb,
-        targetDb,
-        IModel.rootSubjectId,
-        false,
-        false
-      ),
-      targetTxn
-    );
   });
 
   afterEach(() => {
     vi.restoreAllMocks();
+    sourceTxn.end("abandon");
     targetTxn.end("abandon");
     sourceDb.close();
     targetDb.close();
@@ -83,28 +69,20 @@ describe("ProvenanceManager element provenance queries", () => {
     return targetTxn.insertAspect(props);
   }
 
-  it("deduplicates identifiers and bounds queries across batch boundaries", async () => {
-    const querySpy = vi.spyOn(targetDb, "createQueryReader");
+  async function loadMappings(
+    mappings: Map<Id64String, Id64String>
+  ): Promise<void> {
+    await ProvenanceManager.forEachTrackedElement({
+      provenanceSourceDb: sourceDb,
+      provenanceDb: targetDb,
+      targetScopeElementId: IModel.rootSubjectId,
+      isReverseSynchronization: false,
+      fn: (sourceId, targetId) => mappings.set(sourceId, targetId),
+      skipPropagateChangesToRootElements: true,
+    });
+  }
 
-    await expect(manager.queryProvenanceForElements([])).resolves.toEqual(
-      new Map()
-    );
-    expect(querySpy).not.toHaveBeenCalled();
-
-    const firstBatch = Array.from({ length: 500 }, (_, index) => `${index}`);
-    await manager.queryProvenanceForElements([
-      ...firstBatch,
-      firstBatch[0],
-      firstBatch[499],
-    ]);
-    expect(querySpy).toHaveBeenCalledTimes(1);
-
-    querySpy.mockClear();
-    await manager.queryProvenanceForElements([...firstBatch, "overflow"]);
-    expect(querySpy).toHaveBeenCalledTimes(2);
-  });
-
-  it("isolates scope, omits missing IDs, and accepts arbitrary string identifiers", async () => {
+  it("adds only current-scope provenance without removing context-only mappings", async () => {
     const expectedOwner = Subject.insert(
       targetTxn,
       IModel.rootSubjectId,
@@ -120,55 +98,81 @@ describe("ProvenanceManager element provenance queries", () => {
       IModel.rootSubjectId,
       "other scope"
     );
-    const stringIdentifier = "connector-key' OR 1=1 --";
-    insertProvenance(expectedOwner, IModel.rootSubjectId, "scoped");
-    insertProvenance(otherOwner, otherScope, "scoped");
-    insertProvenance(expectedOwner, IModel.rootSubjectId, stringIdentifier);
+    const contextOnlySourceId = "0x123";
+    const contextOnlyTargetId = "0x456";
+    const scopedSourceId = "0x789";
+    insertProvenance(expectedOwner, IModel.rootSubjectId, scopedSourceId);
+    insertProvenance(otherOwner, otherScope, scopedSourceId);
 
-    const mappings = await manager.queryProvenanceForElements([
-      "scoped",
-      "missing",
-      stringIdentifier,
+    const mappings = new Map<Id64String, Id64String>([
+      [contextOnlySourceId, contextOnlyTargetId],
     ]);
+    await loadMappings(mappings);
 
-    expect(mappings).toEqual(
-      new Map([
-        ["scoped", expectedOwner],
-        [stringIdentifier, expectedOwner],
-      ])
-    );
-    expect(mappings.has("missing")).toBe(false);
+    expect(mappings.get(contextOnlySourceId)).toBe(contextOnlyTargetId);
+    expect(mappings.get(scopedSourceId)).toBe(expectedOwner);
+    expect([...mappings.values()]).not.toContain(otherOwner);
+    expect(mappings.has("0x999")).toBe(false);
   });
 
-  it("returns the earliest ESA consistently for ambiguous mappings", async () => {
-    const firstOwner = Subject.insert(
+  it("maps matching federation GUIDs and lets scoped provenance override them", async () => {
+    const federationGuid = Guid.createValue();
+    const sourceElementId = sourceTxn.insertElement({
+      classFullName: Subject.classFullName,
+      code: Code.createEmpty(),
+      federationGuid,
+      model: IModel.repositoryModelId,
+      parent: new SubjectOwnsSubjects(IModel.rootSubjectId),
+      userLabel: "source",
+    });
+    const guidOwner = targetTxn.insertElement({
+      classFullName: Subject.classFullName,
+      code: Code.createEmpty(),
+      federationGuid,
+      model: IModel.repositoryModelId,
+      parent: new SubjectOwnsSubjects(IModel.rootSubjectId),
+      userLabel: "guid owner",
+    });
+    const provenanceOwner = Subject.insert(
       targetTxn,
       IModel.rootSubjectId,
-      "first owner"
+      "provenance owner"
     );
-    const secondOwner = Subject.insert(
-      targetTxn,
-      IModel.rootSubjectId,
-      "second owner"
-    );
-    insertProvenance(secondOwner, IModel.rootSubjectId, "ambiguous");
-    insertProvenance(firstOwner, IModel.rootSubjectId, "ambiguous");
+    insertProvenance(provenanceOwner, IModel.rootSubjectId, sourceElementId);
 
-    const singularResult = await manager.queryProvenanceForElement("ambiguous");
-    const bulkResult = await manager.queryProvenanceForElements(["ambiguous"]);
+    const mappings = new Map<Id64String, Id64String>();
+    await loadMappings(mappings);
 
-    expect(singularResult).toBe(secondOwner);
-    expect(bulkResult.get("ambiguous")).toBe(singularResult);
+    expect(mappings.get(sourceElementId)).toBe(provenanceOwner);
+    expect(mappings.get(sourceElementId)).not.toBe(guidOwner);
   });
 
-  it("propagates provenance query failures", async () => {
+  it("uses the earliest scoped provenance aspect for conflicting mappings", async () => {
+    const earliestOwner = Subject.insert(
+      targetTxn,
+      IModel.rootSubjectId,
+      "earliest owner"
+    );
+    const laterOwner = Subject.insert(
+      targetTxn,
+      IModel.rootSubjectId,
+      "later owner"
+    );
+    insertProvenance(earliestOwner, IModel.rootSubjectId, "0x123");
+    insertProvenance(laterOwner, IModel.rootSubjectId, "0x123");
+
+    const mappings = new Map<Id64String, Id64String>();
+    await loadMappings(mappings);
+
+    expect(mappings.get("0x123")).toBe(earliestOwner);
+  });
+
+  it("propagates tracked-element query failures", async () => {
     const queryError = new Error("provenance query failed");
     vi.spyOn(targetDb, "createQueryReader").mockImplementation(() => {
       throw queryError;
     });
 
-    await expect(
-      manager.queryProvenanceForElements(["source-id"])
-    ).rejects.toBe(queryError);
+    await expect(loadMappings(new Map())).rejects.toBe(queryError);
   });
 });
