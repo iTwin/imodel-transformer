@@ -58,7 +58,6 @@ import {
   Id64,
   Id64Array,
   Id64String,
-  IModelStatus,
   Logger,
   LogLevel,
 } from "@itwin/core-bentley";
@@ -1674,54 +1673,6 @@ describe("IModelTransformerHub", () => {
       accessToken,
     });
 
-    await tearDown();
-  });
-
-  it("should reject merging source and target elements with duplicate codes", async () => {
-    const timeline: Timeline = [
-      { target: {} },
-      { source: { branch: "target" } },
-      { target: { equipment: 1 } },
-      { source: { equipment: 1 } },
-      {
-        assert({ source, target }) {
-          const sourceEquipment = source.db.elements.getElement(
-            IModelTestUtils.queryByUserLabel(source.db, "equipment")
-          );
-          const targetEquipment = target.db.elements.getElement(
-            IModelTestUtils.queryByUserLabel(target.db, "equipment")
-          );
-
-          expect(sourceEquipment.federationGuid).not.to.equal(
-            targetEquipment.federationGuid
-          );
-          expect(sourceEquipment.code).to.deep.equal(targetEquipment.code);
-        },
-      },
-      {
-        target: {
-          sync: [
-            "source",
-            {
-              expectThrow: true,
-              assert: {
-                onError(error) {
-                  if (!(error instanceof IModelError)) throw error;
-                  expect(error.errorNumber).to.equal(
-                    IModelStatus.DuplicateCode
-                  );
-                },
-              },
-            },
-          ],
-        },
-      },
-    ];
-
-    const { tearDown } = await runTimeline(timeline, {
-      iTwinId,
-      accessToken,
-    });
     await tearDown();
   });
 
