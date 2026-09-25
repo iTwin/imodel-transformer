@@ -1,0 +1,7 @@
+{
+  "type": "patch",
+  "comment": "Simplify the ElementAspect cleanup query so provenance filtering runs only for multi-aspects and no longer materializes every scoped ExternalSourceAspect per page.",
+  "packageName": "@itwin/imodel-transformer",
+  "email": "50554904+hl662@users.noreply.github.com",
+  "dependentChangeType": "patch"
+}
