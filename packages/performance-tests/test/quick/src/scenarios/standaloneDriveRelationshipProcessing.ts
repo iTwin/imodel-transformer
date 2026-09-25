@@ -3,7 +3,7 @@
  * See LICENSE.md in the project root for license terms and full copyright notice.
  *--------------------------------------------------------------------------------------------*/
 
-import { EditTxn } from "@itwin/core-backend";
+import { EditTxn, ElementDrivesElement } from "@itwin/core-backend";
 import { IModelTransformer } from "@itwin/imodel-transformer";
 import {
   PreparedDataset,
@@ -11,9 +11,6 @@ import {
 } from "../fixtures/FixtureProvider.js";
 import { realisticBuildingTransformLargeFixture } from "../fixtures/recipes/realisticBuildingTransformLarge.js";
 import { realisticBuildingTransformFixture } from "../fixtures/recipes/realisticBuildingTransform.js";
-import { referenceHeavyTransformFixture } from "../fixtures/recipes/referenceHeavyTransform.js";
-import { standaloneFullTransformFixture } from "../fixtures/recipes/standaloneFullTransform.js";
-import { relationshipHeavyTransformFixture } from "../fixtures/recipes/relationshipHeavyTransform.js";
 import { defineBenchmark } from "../framework/BenchmarkRegistration.js";
 import {
   BenchmarkScenario,
@@ -23,16 +20,24 @@ import { outputShapeDigest } from "./outputShape.js";
 
 const outputClassQueries = {
   aspects: "bis.ElementAspect",
+  drives: "bis.ElementDrivesElement",
   elements: "bis.Element",
+  geometricElementsWithGeometry:
+    "bis.GeometricElement3d WHERE GeometryStream IS NOT NULL",
+  geometryPartsWithGeometry:
+    "bis.GeometryPart WHERE GeometryStream IS NOT NULL",
   models: "bis.Model",
   relationships: "bis.ElementRefersToElements",
 } as const;
 
-export function standaloneFullTransformation(
+export function standaloneDriveRelationshipProcessing(
   dataset: PreparedDataset
 ): BenchmarkScenario {
   const { sourceDb, targetDb } = requireStandaloneDataset(dataset);
-  const editTxn = new EditTxn(targetDb, "Quick standalone full transformation");
+  const editTxn = new EditTxn(
+    targetDb,
+    "Quick standalone drive relationship processing"
+  );
   editTxn.start();
   const transformer = new IModelTransformer(
     { source: sourceDb, target: editTxn },
@@ -57,43 +62,46 @@ export function standaloneFullTransformation(
     if (errors.length > 1)
       throw new AggregateError(
         errors,
-        "Failed to dispose standalone full transformation"
+        "Failed to dispose standalone drive relationship processing"
       );
   };
   return {
     abort: dispose,
     async prepare() {
       await transformer.processSchemas();
-    },
-    async measure() {
       await transformer.process();
     },
+    async measure() {
+      await transformer.processRelationships(
+        ElementDrivesElement.classFullName
+      );
+    },
     async finish() {
-      editTxn.saveChanges("complete quick standalone full transformation");
+      transformer.importer.finalize();
+      editTxn.saveChanges(
+        "complete quick standalone drive relationship processing"
+      );
       dispose();
       return outputShapeDigest(targetDb, outputClassQueries);
     },
   };
 }
 
-export const standaloneFullTransformationScenario: BenchmarkScenarioDefinition =
+export const standaloneDriveRelationshipProcessingScenario: BenchmarkScenarioDefinition =
   {
-    id: "standalone-full-transformation",
-    defaultFixtureId: "standalone-full-transform",
+    id: "standalone-drive-relationship-processing",
+    defaultFixtureId: "realistic-building-transform",
     capabilities: {
       topology: "standalone-source-and-empty-target",
-      requiredClaims: ["full transformation"],
+      requiredClaims: ["full transformation", "drive relationship processing"],
     },
-    factory: standaloneFullTransformation,
+    factory: standaloneDriveRelationshipProcessing,
   };
 
-export const standaloneFullTransformationBenchmark = defineBenchmark({
-  scenario: standaloneFullTransformationScenario,
+export const standaloneDriveRelationshipProcessingBenchmark = defineBenchmark({
+  scenario: standaloneDriveRelationshipProcessingScenario,
   fixtures: [
-    standaloneFullTransformFixture,
-    relationshipHeavyTransformFixture,
     realisticBuildingTransformFixture,
     realisticBuildingTransformLargeFixture,
-    referenceHeavyTransformFixture,
   ],
 });

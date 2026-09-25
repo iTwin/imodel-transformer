@@ -27,8 +27,11 @@ import { TransformerLoggerCategory } from "@itwin/imodel-transformer";
 import { NamedVersion } from "@itwin/imodels-client-management";
 import { ElementUtils } from "./ElementUtils";
 import { IModelHubUtils, IModelTransformerTestAppHost } from "./IModelHubUtils";
-// eslint-disable-next-line @typescript-eslint/no-redeclare
-import { loggerCategory, Transformer, TransformerOptions } from "./Transformer";
+import {
+  loggerCategory,
+  Transformer as TestAppTransformer,
+  TransformerOptions,
+} from "./Transformer";
 import "source-map-support/register";
 
 const acquireAccessToken = async () =>
@@ -566,10 +569,9 @@ void (async () => {
       excludeSubCategories: args.excludeSubCategories?.split(","),
       excludeCategories: args.excludeCategories?.split(","),
     };
-
     if (processChanges) {
       assert(undefined !== args.sourceStartChangesetId);
-      await Transformer.transformChanges(
+      await TestAppTransformer.transformChanges(
         sourceDb,
         targetDb,
         args.sourceStartChangesetId,
@@ -583,7 +585,7 @@ void (async () => {
       const isolateArg = args.isolateElements ?? args.isolateTrees;
       assert(isolateArg !== undefined);
       const isolateList = isolateArg.split(",");
-      const transformer = await Transformer.transformIsolated(
+      const transformer = await TestAppTransformer.transformIsolated(
         sourceDb,
         targetDb,
         isolateList,
@@ -603,7 +605,11 @@ void (async () => {
       );
       transformer.dispose();
     } else {
-      await Transformer.transformAll(sourceDb, targetDb, transformerOptions);
+      await TestAppTransformer.transformAll(
+        sourceDb,
+        targetDb,
+        transformerOptions
+      );
     }
 
     if (args.exportViewDefinition) {

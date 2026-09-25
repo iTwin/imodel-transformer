@@ -33,6 +33,7 @@
     "yargs": "^17.7.2"
   },
   "devDependencies": {
+    "@bentley/hook-profiler": "workspace:*",
     "@itwin/build-tools": "^5.13.0",
     "@itwin/eslint-plugin": "^6.1.0",
     "@itwin/projects-client": "^0.6.0",
