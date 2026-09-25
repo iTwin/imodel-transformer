@@ -304,9 +304,12 @@ describe("EntityExistenceCache", () => {
       { noProvenance: true }
     );
     const markExists = vi.spyOn(EntityExistenceCache.prototype, "markExists");
+    const existsAll = vi.spyOn(EntityExistenceCache.prototype, "existsAll");
 
     try {
       await transformer.processElement(objIds[0]);
+      // The low-level processing boundary flushes this partial validation batch.
+      expect(existsAll).toHaveBeenCalled();
       expect(
         markExists.mock.calls.some(
           ([, reference]) =>
@@ -314,6 +317,7 @@ describe("EntityExistenceCache", () => {
         )
       ).to.be.true;
     } finally {
+      existsAll.mockRestore();
       markExists.mockRestore();
       transformer.dispose();
       editTxn.end("abandon");

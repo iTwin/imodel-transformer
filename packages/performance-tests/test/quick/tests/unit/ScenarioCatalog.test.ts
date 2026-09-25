@@ -15,6 +15,7 @@ import {
 } from "../../src/catalogs/BenchmarkRegistry.js";
 import { validateFixtureDescriptor } from "../../src/fixtures/FixtureDescriptor.js";
 import { largeBaseIncrementalRecipe } from "../../src/fixtures/recipes/largeBaseIncremental.js";
+import { referenceHeavyTransformRecipe } from "../../src/fixtures/recipes/referenceHeavyTransform.js";
 import {
   realisticBuildingExpectedCounts,
   realisticBuildingTransformParameters,
@@ -205,6 +206,36 @@ describe("quick performance scenario catalog", () => {
         (distribution.operations.elements.inserts +
           distribution.operations.elements.updates)
     ).to.equal(1_000);
+  });
+
+  it("registers the reference-heavy standalone workload at its calibrated shape", () => {
+    const resolved = resolveBenchmarkRun(
+      "standalone-full-transformation",
+      "reference-heavy-transform"
+    );
+    expect(resolved.descriptor.distribution.base).to.deep.equal({
+      aspects: 0,
+      elements: 45_000,
+      geometricElements: 0,
+      relationships: 0,
+    });
+    expect(resolved.descriptor.scenarioClaims).to.include(
+      "full transformation"
+    );
+    expect(resolved.descriptor.layout.topology).to.equal(
+      "standalone-source-and-empty-target"
+    );
+  });
+
+  it.each([
+    { parentElementCount: 0, childElementCount: 1 },
+    { parentElementCount: 1.5, childElementCount: 2 },
+    { parentElementCount: 2, childElementCount: 1 },
+    { parentElementCount: 2, childElementCount: 2.5 },
+  ])("rejects invalid reference-heavy parameters %j", (parameters) => {
+    expect(() =>
+      referenceHeavyTransformRecipe.distribution(parameters)
+    ).to.throw(/Reference-heavy/);
   });
 
   it.each([0, -1, 1.5])(

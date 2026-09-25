@@ -320,6 +320,7 @@ describe("IModelExporter", () => {
     const ownerB = Id64.fromLocalAndBriefcaseIds(2, 0);
     const exportedOwners: Id64String[] = [];
     let cacheResetCount = 0;
+    let scopeCompletionCount = 0;
     const coordinator = new ElementAspectExportCoordinator(
       1,
       () => new Set<string>(),
@@ -328,6 +329,9 @@ describe("IModelExporter", () => {
       },
       () => cacheResetCount++
     );
+    coordinator.setScopeCompletion(async () => {
+      scopeCompletionCount++;
+    });
 
     coordinator.begin(1);
     await coordinator.addAcceptedOwner(ownerA);
@@ -335,15 +339,18 @@ describe("IModelExporter", () => {
     await coordinator.addAcceptedOwner(ownerB);
     await coordinator.addAcceptedOwner(ownerA);
     await coordinator.end();
+    expect(scopeCompletionCount).to.equal(0);
     await coordinator.end();
     expect(exportedOwners).to.deep.equal([ownerA, ownerB]);
     expect(cacheResetCount).to.equal(1);
+    expect(scopeCompletionCount).to.equal(1);
 
     coordinator.begin(1);
     await coordinator.addAcceptedOwner(ownerA);
     await coordinator.end();
     expect(exportedOwners).to.deep.equal([ownerA, ownerB, ownerA]);
     expect(cacheResetCount).to.equal(2);
+    expect(scopeCompletionCount).to.equal(2);
 
     await coordinator.exportOwners(new Set([ownerA]));
     await coordinator.exportOwners(new Set([ownerA]));
@@ -354,6 +361,7 @@ describe("IModelExporter", () => {
       ownerA,
       ownerA,
     ]);
+    expect(scopeCompletionCount).to.equal(2);
   });
 
   it("rebuilds unchanged unique aspects for changed owners", async () => {

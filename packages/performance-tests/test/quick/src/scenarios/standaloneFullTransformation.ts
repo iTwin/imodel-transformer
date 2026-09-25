@@ -11,6 +11,7 @@ import {
 } from "../fixtures/FixtureProvider.js";
 import { realisticBuildingTransformLargeFixture } from "../fixtures/recipes/realisticBuildingTransformLarge.js";
 import { realisticBuildingTransformFixture } from "../fixtures/recipes/realisticBuildingTransform.js";
+import { referenceHeavyTransformFixture } from "../fixtures/recipes/referenceHeavyTransform.js";
 import { standaloneFullTransformFixture } from "../fixtures/recipes/standaloneFullTransform.js";
 import { relationshipHeavyTransformFixture } from "../fixtures/recipes/relationshipHeavyTransform.js";
 import { defineBenchmark } from "../framework/BenchmarkRegistration.js";
@@ -93,5 +94,6 @@ export const standaloneFullTransformationBenchmark = defineBenchmark({
     relationshipHeavyTransformFixture,
     realisticBuildingTransformFixture,
     realisticBuildingTransformLargeFixture,
+    referenceHeavyTransformFixture,
   ],
 });
