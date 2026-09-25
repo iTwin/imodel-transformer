@@ -108,6 +108,7 @@ Then run commands from `packages/performance-tests`:
 | `pnpm test:quick-integration` | Run the database- and HubMock-backed integration tests                                                |
 | `pnpm test:quick-harness`     | Run all quick unit and integration tests; does not run the benchmark                                  |
 | `pnpm test:quick`             | Run the selected performance scenario                                                                 |
+| `pnpm quick:profile`          | Materialize one pristine sample and profile only its scenario measurement                             |
 | `pnpm quick:build-fixture`    | Compile the native ESM fixture CLI, initialize its output, and write the selected fixture descriptor  |
 | `pnpm quick:verify-fixture`   | Run one warm-up plus one measured sample, verify deterministic results, and write a diagnostic report |
 | `pnpm quick:compare`          | Compile and run the A/B coordinator against prepared baseline and candidate checkouts                 |
@@ -117,6 +118,49 @@ The local benchmark default is one warm-up followed by one measured sample:
 ```sh
 pnpm test:quick
 ```
+
+### Profiling a quick scenario
+
+`pnpm quick:profile` builds the selected fixture, materializes one pristine
+sample, calls `prepare()`, profiles only `measure()`, validates with `finish()`,
+and then cleans up. Profiled wall time is diagnostic and must not be compared
+with normal benchmark results.
+
+External profiling is the default. After fixture preparation, the CLI prints
+the Node process ID and waits before and after the measurement so a native
+profiler or an interactive V8 profiler can be attached:
+
+```powershell
+$env:QUICK_PERF_SCENARIO = "standalone-full-transformation"
+$env:QUICK_PERF_FIXTURE = "standalone-full-transform"
+pnpm quick:profile
+```
+
+Use automatic V8 CPU profiling to write one `.js.cpuprofile` for the exact
+measurement interval without interactive prompts:
+
+```powershell
+$env:QUICK_PERF_PROFILE_MODE = "js-cpu"
+$env:QUICK_PERF_PROFILE_OUTPUT = "$env:TEMP\transformer-profiles"
+pnpm quick:profile
+```
+
+Configuration:
+
+| Environment variable        | Meaning                                                         | Default                                      |
+| --------------------------- | --------------------------------------------------------------- | -------------------------------------------- |
+| `QUICK_PERF_PROFILE_MODE`   | `external` for attach/pause or `js-cpu` for automatic V8 output | `external`                                   |
+| `QUICK_PERF_PROFILE_OUTPUT` | Directory for automatic V8 `.js.cpuprofile` files               | `<QUICK_PERF_OUTPUT>\profiles`               |
+| `QUICK_PERF_SCENARIO`       | Scenario to profile                                             | `incremental-synchronization`                |
+| `QUICK_PERF_FIXTURE`        | Compatible fixture to profile                                   | The selected scenario's default fixture      |
+| `QUICK_PERF_STANDALONE_BIM` | External standalone BIM used by a full-transform fixture        | The configured generated standalone workload |
+
+The external mode requires an interactive terminal. Start Node with
+`NODE_OPTIONS=--inspect` before running it to attach Chrome DevTools for manual
+V8 profiling. Native profilers attach directly to the printed process ID.
+For automatic profiles, open the exact output path printed by the command
+directly in VS Code, or use **Load profile** in Chrome DevTools' **Performance**
+panel.
 
 ### Selecting a scenario and fixture
 
