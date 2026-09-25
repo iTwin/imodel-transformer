@@ -28,7 +28,7 @@ While it is possible to export data from an iModel using the standard [IModelDb]
 
 [IModelExporter.exportChanges]($transformer) exports changes collected from the selected changesets or supplied through `ExportChangesOptions.changedInstanceIds`. For inserted and updated elements, the exporter finds each changed element and the parents needed to reach it. It visits only those paths instead of checking every element in each changed model. Deleted element IDs are passed together to [IModelExportHandler.onDeleteElements]($transformer).
 
-Changed elements are visited parent before child. The exporter can pass through an unchanged parent without calling element callbacks for that parent, then processes each changed descendant normally. An element excluded by ID still triggers `onSkipElement`, even when unchanged, and its descendants are skipped. Configure exclusions before starting an export operation; changing them while an export is in progress is unsupported. A changed element rejected by `shouldExportElement` also causes its descendants to be skipped.
+Changed elements are visited parent before child. The exporter passes through unchanged ancestors without exporting them. When it reaches a changed element, it calls `shouldExportElement` once for each unchanged ancestor that has not been checked yet, starting at the top. If an ancestor is rejected, `onSkipElement` is called for it and its descendants are skipped, as in a full export. A changed element rejected by `shouldExportElement` also causes its descendants to be skipped. An element excluded by ID triggers `onSkipElement` even when unchanged, and its descendants are skipped. Configure exclusions before starting an export operation; changing them while an export is in progress is unsupported.
 
 A custom `IModelExporter` subclass that overrides `exportElement` or `exportChildElements` uses the previous per-element traversal. This preserves calls to those overrides, but the subclass does not receive the faster changed-element traversal.
 
@@ -106,6 +106,15 @@ Potential transformations include:
 - Augmenting - generating data during transformation for the target that is not part of the source
 - Schema Mapping - mapping classes and properties to a new schema during transformation
 - Change Squashing - each iModel has its own change ledger, so multiple changesets from the source could be _squashed_ into a single changeset to the target
+
+### Filtering during change processing
+
+The export filter is [IModelExporter.shouldExportElement]($transformer). It applies the exporter's exclusions, such as `excludeElement`, `excludeElementClass`, and `excludeElementsInCategory`, then calls the handler's `shouldExportElement`, which `IModelTransformer` subclasses override. When the filter rejects an element, its descendants are skipped during both full and change processing.
+
+During change processing, a changed element can require an unchanged element that has no mapping in the target, such as its parent or category. If the required element passes the export filter, the transformer looks for it in the target by FederationGuid and then by Code. Change processing does not insert unchanged elements, so if the required element is rejected or not found, the transformer throws `ITwinError` with key `DependencyMappingMissing`. This happens in two cases:
+
+- The filter rejects a required element other than the parent, such as the category of an element that the filter accepts. Change the filter to reject both elements or accept both.
+- The required element passes the filter but is missing from the target. This happens when the element was deleted from the target, or when the filter starts accepting elements that it rejected in an earlier run, for example after the categories or views it filters by change. To insert the element, override `addCustomChanges` and add it with [ChangedInstanceIds.addCustomElementChange]($transformer).
 
 ### Processing a subset
 

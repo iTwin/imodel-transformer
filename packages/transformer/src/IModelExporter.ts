@@ -178,6 +178,7 @@ export abstract class IModelExportHandler {
 
   /** If `true` is returned, then the element will be exported.
    * @note This method can optionally be overridden to exclude an individual Element (and its children and ElementAspects) from the export. The base implementation always returns `true`.
+   * @note During [IModelExporter.exportChanges]($transformer), this method is also called once for each unchanged ancestor of a changed element, so that a rejected ancestor excludes its changed descendants.
    */
   public async shouldExportElement(_element: Element): Promise<boolean> {
     return true;
@@ -337,6 +338,11 @@ export class IModelExporter {
     forest?: Promise<ChangedElementForest | undefined>;
     useForest: boolean;
   };
+  /** Unchanged elements on the current change-processing path. Each is filtered only when a changed descendant is reached. */
+  private readonly _unchangedAncestors: {
+    elementId: Id64String;
+    accepted?: boolean;
+  }[] = [];
   /** Bounds the additional hierarchy retained by the sparse changed-element path. */
   private readonly _changedElementForestElementLimit = 100_000;
 
@@ -998,8 +1004,8 @@ export class IModelExporter {
       const isPruned = pruneDepth !== undefined && depth > pruneDepth;
       if (!isPruned) {
         pruneDepth = undefined;
-        const visitChildren = await this.exportElementShallow(elementId);
-        if (!visitChildren) pruneDepth = depth;
+        if ((await this.exportElementShallow(elementId)) === "skip")
+          pruneDepth = depth;
       }
       // Keep the streamed loop responsive, including while consuming a rejected subtree.
       await this._yieldManager.allowYield();
@@ -1105,21 +1111,53 @@ export class IModelExporter {
       return;
     }
 
-    const visitChildren = await this.exportElementShallow(elementId);
-    if (visitChildren) {
-      return this.exportChildElements(elementId);
+    const childVisit = await this.exportElementShallow(elementId);
+    if (childVisit === "visit") return this.exportChildElements(elementId);
+    if (childVisit === "passThrough") {
+      // The element's own filter result is decided later, if a changed descendant is reached.
+      this._unchangedAncestors.push({ elementId });
+      try {
+        await this.exportChildElements(elementId);
+      } finally {
+        this._unchangedAncestors.pop();
+      }
     }
   }
 
-  /** Runs the export callbacks for a single element without visiting its children.
-   * @returns `true` if the element's children should be visited afterwards.
+  /** Filters the unchanged ancestors of a changed element, top-down, once each.
+   * @returns `false` if an ancestor is rejected.
    */
-  private async exportElementShallow(elementId: Id64String): Promise<boolean> {
+  private async acceptUnchangedAncestors(): Promise<boolean> {
+    for (const ancestor of this._unchangedAncestors) {
+      if (ancestor.accepted === undefined) {
+        ancestor.accepted = await this.shouldExportElementById(
+          ancestor.elementId
+        );
+        if (!ancestor.accepted)
+          await this.handler.onSkipElement(ancestor.elementId);
+      }
+      if (!ancestor.accepted) return false;
+    }
+    return true;
+  }
+
+  /** Runs the export callbacks for a single element without visiting its children.
+   * @returns how to continue with the element's children: skip them, visit them, or pass through an unchanged element to reach changed descendants.
+   */
+  private async exportElementShallow(
+    elementId: Id64String
+  ): Promise<"skip" | "visit" | "passThrough"> {
+    // Descendants of a rejected unchanged ancestor are skipped, as in a full export.
+    if (
+      this._unchangedAncestors.some((ancestor) => ancestor.accepted === false)
+    )
+      return "skip";
+
     // Return early if the elementId is already excluded so it does not need to be loaded.
     if (this._excludedElementIds.has(elementId)) {
       Logger.logInfo(loggerCategory, `Excluded element ${elementId} by Id`);
       await this.handler.onSkipElement(elementId);
-      return false;
+      return "skip";
     }
 
     const isUpdate = this._sourceDbChanges?.element.insertIds.has(elementId)
@@ -1129,9 +1167,10 @@ export class IModelExporter {
         : undefined;
 
     // An unchanged element may still connect a changed descendant to its model root.
-    if (this._sourceDbChanges !== undefined && isUpdate === undefined) {
-      return true;
-    }
+    if (this._sourceDbChanges !== undefined && isUpdate === undefined)
+      return "passThrough";
+
+    if (!(await this.acceptUnchangedAncestors())) return "skip";
 
     const element = this.sourceDb.elements.getElement({
       id: elementId,
@@ -1150,10 +1189,10 @@ export class IModelExporter {
       await this.handler.onExportElement(element, isUpdate);
       await this.trackProgress();
       await this._elementAspectExportCoordinator.addAcceptedOwner(elementId);
-      return true;
+      return "visit";
     }
     await this.handler.onSkipElement(element.id);
-    return false;
+    return "skip";
   }
 
   /** Export the child elements of the specified element from the source iModel.
@@ -1333,9 +1372,7 @@ export class IModelExporter {
   ): Promise<boolean> {
     let elementFact = elementFacts.get(elementId);
     while (elementFact !== undefined) {
-      if (
-        !(await this.shouldExportElementForAspect(elementFact.id, elementFact))
-      )
+      if (!(await this.shouldExportElementById(elementFact.id, elementFact)))
         return false;
       if (
         !(await this.shouldExportModelForAspect(
@@ -1374,7 +1411,7 @@ export class IModelExporter {
       modelFact.id !== IModel.repositoryModelId &&
       modelFact.id !== IModel.dictionaryId &&
       modelFact.id !== "0xe" &&
-      !(await this.shouldExportElementForAspect(
+      !(await this.shouldExportElementById(
         modelFact.id,
         elementFacts.get(modelFact.id)
       ))
@@ -1429,8 +1466,8 @@ export class IModelExporter {
     }
   }
 
-  /** Apply the element export filter when deciding whether to process an aspect owner. @internal */
-  private async shouldExportElementForAspect(
+  /** Applies the element export filter to an element loaded without geometry. @internal */
+  private async shouldExportElementById(
     elementId: Id64String,
     elementFact?: AspectElementFact
   ): Promise<boolean> {

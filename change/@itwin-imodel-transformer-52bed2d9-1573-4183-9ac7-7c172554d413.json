@@ -1,0 +1,7 @@
+{
+  "type": "patch",
+  "comment": "Skip changed descendants of unchanged ancestors that shouldExportElement rejects, and throw DependencyMappingMissing instead of recursing when change processing cannot map a required unchanged element",
+  "packageName": "@itwin/imodel-transformer",
+  "email": "50554904+hl662@users.noreply.github.com",
+  "dependentChangeType": "patch"
+}

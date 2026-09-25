@@ -22,6 +22,7 @@ import {
   DocumentListModel,
   Drawing,
   DrawingModel,
+  EditTxn,
   // eslint-disable-next-line @typescript-eslint/no-redeclare
   Element,
   ElementGroupsMembers,
@@ -44,6 +45,7 @@ import {
   SnapshotDb,
   SpatialCategory,
   SpatialViewDefinition,
+  SubCategory,
   Subject,
   SubjectOwnsPartitionElements,
   SubjectOwnsSubjects,
@@ -7106,6 +7108,160 @@ describe("IModelTransformerHub", () => {
 
       transformer.dispose();
       secondEditTxn.end();
+    });
+
+    /** Rejects fixed elements, like a filter based on categories or a saved view. */
+    class RejectingTransformer extends IModelTransformer {
+      private readonly _rejectedIds: ReadonlySet<Id64String>;
+
+      public constructor(
+        source: IModelDb,
+        target: EditTxn,
+        rejectedIds: Id64String[],
+        options?: IModelTransformOptions
+      ) {
+        super({ source, target }, options);
+        this._rejectedIds = new Set(rejectedIds);
+      }
+
+      public override async shouldExportElement(sourceElement: Element) {
+        return !this._rejectedIds.has(sourceElement.id);
+      }
+    }
+
+    async function processAllRejecting(rejectedIds: Id64String[]) {
+      const editTxn = createStartedEditTxn(targetDb);
+      const transformer = new RejectingTransformer(
+        sourceDb,
+        editTxn,
+        rejectedIds
+      );
+      await transformer.process();
+      transformer.dispose();
+      editTxn.end();
+      await targetDb.pushChanges({
+        description: "process all",
+        retainLocks: true,
+      });
+    }
+
+    /** Processes changes while rejecting the given elements, then discards the target changes. */
+    async function processChangesRejecting(
+      rejectedIds: Id64String[],
+      inspect?: (transformer: IModelTransformer) => void
+    ) {
+      const editTxn = createStartedEditTxn(targetDb);
+      const transformer = new RejectingTransformer(
+        sourceDb,
+        editTxn,
+        rejectedIds,
+        { argsForProcessChanges: {} }
+      );
+      try {
+        await transformer.process();
+        inspect?.(transformer);
+      } finally {
+        transformer.dispose();
+        editTxn.end("abandon");
+      }
+    }
+
+    /** Inserts a category that a full run rejects, then a subcategory under it. */
+    async function insertSubCategoryUnderRejectedCategory() {
+      const categoryId = withEditTxn(sourceDb, "insert category", (txn) =>
+        SpatialCategory.insert(
+          txn,
+          IModel.dictionaryId,
+          "RejectedCategory",
+          new SubCategoryAppearance()
+        )
+      );
+      await sourceDb.pushChanges({
+        description: "insert category",
+        retainLocks: true,
+      });
+      await processAllRejecting([categoryId]);
+
+      const subCategoryId = withEditTxn(sourceDb, "insert subcategory", (txn) =>
+        SubCategory.insert(
+          txn,
+          categoryId,
+          "NewSubCategory",
+          new SubCategoryAppearance()
+        )
+      );
+      await sourceDb.pushChanges({
+        description: "insert subcategory",
+        retainLocks: true,
+      });
+      return { categoryId, subCategoryId };
+    }
+
+    it("should skip a changed child when shouldExportElement rejects its unchanged parent", async () => {
+      const { categoryId, subCategoryId } =
+        await insertSubCategoryUnderRejectedCategory();
+
+      await processChangesRejecting([categoryId], (transformer) => {
+        expect(transformer.context.findTargetElementId(subCategoryId)).to.equal(
+          Id64.invalid
+        );
+      });
+    });
+
+    it("should throw DependencyMappingMissing when a changed child requires an unchanged parent that is not in the target", async () => {
+      const { categoryId, subCategoryId } =
+        await insertSubCategoryUnderRejectedCategory();
+
+      // The filter now accepts the category, but nobody added it in addCustomChanges.
+      await expectTransformerError(
+        processChangesRejecting([]),
+        IModelTransformerError.DependencyMappingMissing,
+        `Element ${subCategoryId} requires unchanged element ${categoryId}, which is not in the target iModel. Change processing does not insert unchanged elements; to insert element ${categoryId}, add it in addCustomChanges.`
+      );
+    });
+
+    it("should throw DependencyMappingMissing when a changed element requires an unchanged category that shouldExportElement rejects", async () => {
+      const { modelId, categoryId } = withEditTxn(
+        sourceDb,
+        "insert model and category",
+        (txn) => ({
+          modelId: PhysicalModel.insert(
+            txn,
+            IModel.rootSubjectId,
+            "PhysicalModel"
+          ),
+          categoryId: SpatialCategory.insert(
+            txn,
+            IModel.dictionaryId,
+            "RejectedCategory",
+            new SubCategoryAppearance()
+          ),
+        })
+      );
+      await sourceDb.pushChanges({
+        description: "insert model and category",
+        retainLocks: true,
+      });
+      await processAllRejecting([categoryId]);
+
+      const elementId = withEditTxn(sourceDb, "insert physical object", (txn) =>
+        txn.insertElement({
+          classFullName: PhysicalObject.classFullName,
+          model: modelId,
+          category: categoryId,
+          code: Code.createEmpty(),
+        } as GeometricElementProps)
+      );
+      await sourceDb.pushChanges({
+        description: "insert physical object",
+        retainLocks: true,
+      });
+
+      await expectTransformerError(
+        processChangesRejecting([categoryId]),
+        IModelTransformerError.DependencyMappingMissing,
+        `Element ${elementId} requires element ${categoryId}, which the export filter rejects. Reject element ${elementId} as well, or accept element ${categoryId}.`
+      );
     });
 
     it("should still export updated aspects when the owning element is unchanged during processChanges", async () => {

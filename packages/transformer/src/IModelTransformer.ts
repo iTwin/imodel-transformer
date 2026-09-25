@@ -1278,13 +1278,47 @@ export class IModelTransformer extends IModelExportHandler {
     if (unresolvedReferences.length > 0) {
       for (const reference of unresolvedReferences) {
         const processState = await this.getElemTransformState(reference);
-        // must export element first
         if (processState.needsElemImport)
-          await this.exporter.exportElement(reference);
+          await this.importRequiredElement(sourceElement.id, reference);
         if (processState.needsModelImport)
           await this.exporter.exportModel(reference);
       }
     }
+  }
+
+  /** Exports an element that a changed element requires, so that it is mapped before the changed element is imported.
+   * An unchanged element is only mapped: change processing does not insert it, and exporting it would visit its children, which can include the element that requires it.
+   */
+  private async importRequiredElement(
+    elementId: Id64String,
+    referenceId: Id64String
+  ): Promise<void> {
+    const changes = this.exporter.sourceDbChanges;
+    if (
+      changes === undefined ||
+      changes.element.insertIds.has(referenceId) ||
+      changes.element.updateIds.has(referenceId)
+    )
+      return this.exporter.exportElement(referenceId);
+
+    const reference = this.sourceDb.elements.getElement({
+      id: referenceId,
+      wantGeometry: this.exporter.wantGeometry,
+      wantBRepData: this.exporter.wantGeometry,
+    });
+    const accepted = await this.exporter.shouldExportElement(reference);
+    if (accepted) await this.onExportElement(reference); // finds it in the target by FederationGuid or Code
+    if (Id64.isValid(this.context.findTargetElementId(referenceId))) return;
+
+    ITwinError.throwError({
+      iTwinErrorId: {
+        scope: IModelTransformerErrorScope,
+        key: IModelTransformerError.DependencyMappingMissing,
+      },
+      message: accepted
+        ? `Element ${elementId} requires unchanged element ${referenceId}, which is not in the target iModel. Change processing does not insert unchanged elements; to insert element ${referenceId}, add it in addCustomChanges.`
+        : `Element ${elementId} requires element ${referenceId}, which the export filter rejects. Reject element ${elementId} as well, or accept element ${referenceId}.`,
+    });
   }
 
   private async getElemTransformState(elementId: Id64String) {
