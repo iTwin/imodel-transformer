@@ -44,9 +44,10 @@ export class SourceReferenceValidator {
     entityId: Id64String
   ): Promise<MissingSourceReference | undefined> {
     for (const referenceId of referenceIds) {
-      if (this._pendingReferences.has(referenceId)) continue;
-
-      this._pendingReferences.set(referenceId, entityId);
+      if (!this._pendingReferences.has(referenceId)) {
+        this._pendingReferences.set(referenceId, entityId);
+      }
+      // Checked for duplicates too, so a batch retained after a failed query is retried.
       if (this._pendingReferences.size >= this._batchSize) {
         const missingReference = await this.flush();
         if (missingReference !== undefined) return missingReference;

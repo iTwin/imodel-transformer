@@ -190,19 +190,37 @@ describe("SourceReferenceValidator", () => {
     }
   });
 
-  it("propagates source query failures", async () => {
+  it("propagates source query failures and retries the retained batch", async () => {
     const { db, objectIds } = createDb("QueryFailure.bim", 1);
     const cache = new EntityExistenceCache();
     const validator = new SourceReferenceValidator(db, cache, 1);
     const queryFailure = new Error("source query failed");
+    const batches: EntityReference[][] = [];
     const existsAll = vi
       .spyOn(cache, "existsAll")
-      .mockRejectedValue(queryFailure);
+      .mockImplementation(async (queriedDb, references) => {
+        const batch = [...references];
+        batches.push(batch);
+        if (batches.length === 1) throw queryFailure;
+        return EntityExistenceCache.prototype.existsAll.call(
+          cache,
+          queriedDb,
+          batch
+        );
+      });
+    const reference: EntityReference = `e${objectIds[0]}`;
 
     try {
-      await expect(
-        validator.add([`e${objectIds[0]}`], objectIds[0])
-      ).rejects.toBe(queryFailure);
+      await expect(validator.add([reference], objectIds[0])).rejects.toBe(
+        queryFailure
+      );
+
+      // Retrying with only already-pending references must query again, not skip validation.
+      expect(await validator.add([reference], objectIds[0])).to.be.undefined;
+      expect(batches).to.deep.equal([[reference], [reference]]);
+
+      expect(await validator.flush()).to.be.undefined;
+      expect(batches).to.have.lengthOf(2);
     } finally {
       existsAll.mockRestore();
       db.close();
