@@ -7308,10 +7308,6 @@ describe("IModelTransformerHub", () => {
         transformer.context,
         "findTargetElementId"
       );
-      const singularProvenanceSpy = vi.spyOn(
-        transformer["_provenanceManager"],
-        "queryProvenanceForElement"
-      );
       try {
         await transformer.process();
         secondTransformEditTxn.end();
@@ -7337,7 +7333,6 @@ describe("IModelTransformerHub", () => {
         expect(findTargetElementIdSpy).toHaveBeenCalledWith(elementId);
         expect(processedDeletionIds).toContain(elementId);
         expect(processedDeletionIds).not.toContain(aspectId);
-        expect(singularProvenanceSpy).not.toHaveBeenCalled();
       } finally {
         openFileSpy.mockRestore();
       }
@@ -7453,6 +7448,98 @@ describe("IModelTransformerHub", () => {
       expect(addCustomChangesSpy).toHaveBeenCalledOnce();
       expect(targetDb.elements.tryGetElement(customTargetId)).toBeUndefined();
       expect(targetDb.elements.tryGetElement(provenanceTargetId)).toBeDefined();
+    });
+
+    it("preserves a remapped guidless target when its source is recreated across changesets", async () => {
+      const sourceSubjectId = withEditTxn(
+        sourceDb,
+        "insert original guidless subject",
+        (txn) => {
+          const subject = Subject.create(
+            sourceDb,
+            IModel.rootSubjectId,
+            "Guidless recreation"
+          );
+          subject.federationGuid = Guid.empty;
+          return subject.insert(txn);
+        }
+      );
+      await sourceDb.pushChanges({
+        description: "Insert original guidless subject",
+        retainLocks: true,
+      });
+
+      const initialEditTxn = createStartedEditTxn(targetDb);
+      let transformer = new IModelTransformer({
+        source: sourceDb,
+        target: initialEditTxn,
+      });
+      await transformer.process();
+      const targetSubjectId =
+        transformer.context.findTargetElementId(sourceSubjectId);
+      transformer.dispose();
+      initialEditTxn.end();
+      await targetDb.pushChanges({
+        description: "Initial guidless subject transformation",
+        retainLocks: true,
+      });
+
+      withEditTxn(sourceDb, "delete original guidless subject", (txn) => {
+        txn.deleteElement(sourceSubjectId);
+      });
+      await sourceDb.pushChanges({
+        description: "Delete original guidless subject",
+        retainLocks: true,
+      });
+      const startChangeset = sourceDb.changeset;
+
+      const recreatedSourceSubjectId = withEditTxn(
+        sourceDb,
+        "recreate guidless subject",
+        (txn) => {
+          const subject = Subject.create(
+            sourceDb,
+            IModel.rootSubjectId,
+            "Guidless recreation"
+          );
+          subject.federationGuid = Guid.empty;
+          subject.userLabel = "Recreated guidless subject";
+          return subject.insert(txn);
+        }
+      );
+      await sourceDb.pushChanges({
+        description: "Recreate guidless subject",
+        retainLocks: true,
+      });
+
+      class GuidlessRecreationTransformer extends IModelTransformer {
+        public override async addCustomChanges(): Promise<void> {
+          expect(this.context.findTargetElementId(sourceSubjectId)).to.equal(
+            targetSubjectId
+          );
+          this.context.remapElement(recreatedSourceSubjectId, targetSubjectId);
+        }
+      }
+
+      const changesEditTxn = createStartedEditTxn(targetDb);
+      transformer = new GuidlessRecreationTransformer(
+        { source: sourceDb, target: changesEditTxn },
+        { argsForProcessChanges: { startChangeset } }
+      );
+      await transformer.process();
+      transformer.dispose();
+      changesEditTxn.end();
+
+      expect(
+        targetDb.elements.getElement<Subject>(targetSubjectId).userLabel
+      ).to.equal("Recreated guidless subject");
+      expect(
+        count(
+          targetDb,
+          Subject.classFullName,
+          `Parent.Id = ${IModel.rootSubjectId}`
+        )
+      ).to.equal(1);
     });
 
     it("should leave model contents correct when model partition was recreated with different federation guid and the same code value", async () => {

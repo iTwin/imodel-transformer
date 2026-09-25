@@ -995,37 +995,6 @@ export class ProvenanceManager {
   // ── Provenance queries ─────────────────────────────────────────────────
 
   /**
-   * Queries the provenanceDb for an ESA whose identifier matches the provided element ID.
-   * @param entityInProvenanceSourceId ID of the element in the provenanceSourceDb
-   */
-  public async queryProvenanceForElement(
-    entityInProvenanceSourceId: Id64String
-  ): Promise<Id64String | undefined> {
-    const sql = `
-        SELECT esa.Element.Id
-        FROM Bis.ExternalSourceAspect esa
-        WHERE esa.Kind=?
-          AND esa.Scope.Id=?
-          AND esa.Identifier=?
-        ORDER BY esa.ECInstanceId
-      `;
-    const params = new QueryBinder();
-    params.bindString(1, ExternalSourceAspect.Kind.Element);
-    params.bindId(2, this._targetScopeElementId);
-    params.bindString(3, entityInProvenanceSourceId);
-    const result = (await this.getProvenanceDb()).createQueryReader(
-      sql,
-      params,
-      {
-        usePrimaryConn: true,
-      }
-    );
-    if (await result.step()) {
-      return result.current.id;
-    } else return undefined;
-  }
-
-  /**
    * Queries the provenanceDb for an ESA whose identifier matches the provided relationship ID.
    * @param entityInProvenanceSourceId ID of the relationship in the provenanceSourceDb
    * @param sourceRelInfo Source relationship class and endpoint info (for legacy fallback)

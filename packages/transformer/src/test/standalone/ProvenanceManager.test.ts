@@ -4,12 +4,12 @@
  *--------------------------------------------------------------------------------------------*/
 
 import {
-  EditTxn,
   ElementOwnsExternalSourceAspects,
   ExternalSourceAspect,
   StandaloneDb,
   Subject,
   SubjectOwnsSubjects,
+  withEditTxn,
 } from "@itwin/core-backend";
 import { Code, ExternalSourceAspectProps, IModel } from "@itwin/core-common";
 import { Guid, Id64String } from "@itwin/core-bentley";
@@ -19,8 +19,6 @@ import { IModelTransformerTestUtils } from "../IModelTransformerUtils";
 describe("ProvenanceManager tracked element mappings", () => {
   let sourceDb: StandaloneDb;
   let targetDb: StandaloneDb;
-  let sourceTxn: EditTxn;
-  let targetTxn: EditTxn;
 
   beforeEach(() => {
     sourceDb = StandaloneDb.createEmpty(
@@ -37,26 +35,20 @@ describe("ProvenanceManager tracked element mappings", () => {
       ),
       { rootSubject: { name: "target" }, enableTransactions: true }
     );
-    sourceTxn = new EditTxn(sourceDb, "tracked element mapping test");
-    sourceTxn.start();
-    targetTxn = new EditTxn(targetDb, "provenance query test");
-    targetTxn.start();
   });
 
   afterEach(() => {
     vi.restoreAllMocks();
-    sourceTxn.end("abandon");
-    targetTxn.end("abandon");
     sourceDb.close();
     targetDb.close();
   });
 
-  function insertProvenance(
+  function createProvenanceProps(
     ownerId: Id64String,
     scopeId: Id64String,
     identifier: string
-  ): Id64String {
-    const props: ExternalSourceAspectProps = {
+  ): ExternalSourceAspectProps {
+    return {
       classFullName: ExternalSourceAspect.classFullName,
       element: {
         id: ownerId,
@@ -66,7 +58,6 @@ describe("ProvenanceManager tracked element mappings", () => {
       kind: ExternalSourceAspect.Kind.Element,
       identifier,
     };
-    return targetTxn.insertAspect(props);
   }
 
   async function loadMappings(
@@ -83,26 +74,33 @@ describe("ProvenanceManager tracked element mappings", () => {
   }
 
   it("adds only current-scope provenance without removing context-only mappings", async () => {
-    const expectedOwner = Subject.insert(
-      targetTxn,
-      IModel.rootSubjectId,
-      "expected owner"
-    );
-    const otherOwner = Subject.insert(
-      targetTxn,
-      IModel.rootSubjectId,
-      "other owner"
-    );
-    const otherScope = Subject.insert(
-      targetTxn,
-      IModel.rootSubjectId,
-      "other scope"
-    );
     const contextOnlySourceId = "0x123";
     const contextOnlyTargetId = "0x456";
     const scopedSourceId = "0x789";
-    insertProvenance(expectedOwner, IModel.rootSubjectId, scopedSourceId);
-    insertProvenance(otherOwner, otherScope, scopedSourceId);
+    const { expectedOwner, otherOwner } = withEditTxn(
+      targetDb,
+      "insert scoped provenance",
+      (txn) => {
+        const expected = Subject.insert(
+          txn,
+          IModel.rootSubjectId,
+          "expected owner"
+        );
+        const other = Subject.insert(txn, IModel.rootSubjectId, "other owner");
+        const otherScope = Subject.insert(
+          txn,
+          IModel.rootSubjectId,
+          "other scope"
+        );
+        txn.insertAspect(
+          createProvenanceProps(expected, IModel.rootSubjectId, scopedSourceId)
+        );
+        txn.insertAspect(
+          createProvenanceProps(other, otherScope, scopedSourceId)
+        );
+        return { expectedOwner: expected, otherOwner: other };
+      }
+    );
 
     const mappings = new Map<Id64String, Id64String>([
       [contextOnlySourceId, contextOnlyTargetId],
@@ -117,28 +115,46 @@ describe("ProvenanceManager tracked element mappings", () => {
 
   it("maps matching federation GUIDs and lets scoped provenance override them", async () => {
     const federationGuid = Guid.createValue();
-    const sourceElementId = sourceTxn.insertElement({
-      classFullName: Subject.classFullName,
-      code: Code.createEmpty(),
-      federationGuid,
-      model: IModel.repositoryModelId,
-      parent: new SubjectOwnsSubjects(IModel.rootSubjectId),
-      userLabel: "source",
-    });
-    const guidOwner = targetTxn.insertElement({
-      classFullName: Subject.classFullName,
-      code: Code.createEmpty(),
-      federationGuid,
-      model: IModel.repositoryModelId,
-      parent: new SubjectOwnsSubjects(IModel.rootSubjectId),
-      userLabel: "guid owner",
-    });
-    const provenanceOwner = Subject.insert(
-      targetTxn,
-      IModel.rootSubjectId,
-      "provenance owner"
+    const sourceElementId = withEditTxn(
+      sourceDb,
+      "insert source subject",
+      (txn) =>
+        txn.insertElement({
+          classFullName: Subject.classFullName,
+          code: Code.createEmpty(),
+          federationGuid,
+          model: IModel.repositoryModelId,
+          parent: new SubjectOwnsSubjects(IModel.rootSubjectId),
+          userLabel: "source",
+        })
     );
-    insertProvenance(provenanceOwner, IModel.rootSubjectId, sourceElementId);
+    const { guidOwner, provenanceOwner } = withEditTxn(
+      targetDb,
+      "insert target subjects and provenance",
+      (txn) => {
+        const guid = txn.insertElement({
+          classFullName: Subject.classFullName,
+          code: Code.createEmpty(),
+          federationGuid,
+          model: IModel.repositoryModelId,
+          parent: new SubjectOwnsSubjects(IModel.rootSubjectId),
+          userLabel: "guid owner",
+        });
+        const provenance = Subject.insert(
+          txn,
+          IModel.rootSubjectId,
+          "provenance owner"
+        );
+        txn.insertAspect(
+          createProvenanceProps(
+            provenance,
+            IModel.rootSubjectId,
+            sourceElementId
+          )
+        );
+        return { guidOwner: guid, provenanceOwner: provenance };
+      }
+    );
 
     const mappings = new Map<Id64String, Id64String>();
     await loadMappings(mappings);
@@ -148,18 +164,25 @@ describe("ProvenanceManager tracked element mappings", () => {
   });
 
   it("uses the earliest scoped provenance aspect for conflicting mappings", async () => {
-    const earliestOwner = Subject.insert(
-      targetTxn,
-      IModel.rootSubjectId,
-      "earliest owner"
+    const earliestOwner = withEditTxn(
+      targetDb,
+      "insert conflicting provenance",
+      (txn) => {
+        const earliest = Subject.insert(
+          txn,
+          IModel.rootSubjectId,
+          "earliest owner"
+        );
+        const later = Subject.insert(txn, IModel.rootSubjectId, "later owner");
+        txn.insertAspect(
+          createProvenanceProps(earliest, IModel.rootSubjectId, "0x123")
+        );
+        txn.insertAspect(
+          createProvenanceProps(later, IModel.rootSubjectId, "0x123")
+        );
+        return earliest;
+      }
     );
-    const laterOwner = Subject.insert(
-      targetTxn,
-      IModel.rootSubjectId,
-      "later owner"
-    );
-    insertProvenance(earliestOwner, IModel.rootSubjectId, "0x123");
-    insertProvenance(laterOwner, IModel.rootSubjectId, "0x123");
 
     const mappings = new Map<Id64String, Id64String>();
     await loadMappings(mappings);
