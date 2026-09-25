@@ -3,9 +3,8 @@
  * See LICENSE.md in the project root for license terms and full copyright notice.
  *--------------------------------------------------------------------------------------------*/
 
-import { EditTxn, ElementDrivesElement, SnapshotDb } from "@itwin/core-backend";
+import { EditTxn, ElementDrivesElement } from "@itwin/core-backend";
 import { IModelTransformer } from "@itwin/imodel-transformer";
-import { canonicalSha256 } from "../fixtures/FixtureDescriptor.js";
 import {
   PreparedDataset,
   requireStandaloneDataset,
@@ -17,62 +16,19 @@ import {
   BenchmarkScenario,
   BenchmarkScenarioDefinition,
 } from "../framework/BenchmarkScenario.js";
+import { outputShapeDigest } from "./outputShape.js";
 
-async function classDistribution(
-  db: SnapshotDb,
-  className: string
-): Promise<unknown[]> {
-  const rows: unknown[] = [];
-  const reader = db.createQueryReader(
-    `SELECT ec_classname(ECClassId, 's.c') className, count(*) cnt
-     FROM ${className}
-     GROUP BY ECClassId
-     ORDER BY className`,
-    undefined,
-    { usePrimaryConn: true }
-  );
-  while (await reader.step())
-    rows.push({
-      className: reader.current.className,
-      count: reader.current.cnt,
-    });
-  return rows;
-}
-
-async function outputShapeDigest(targetDb: SnapshotDb): Promise<string> {
-  const [
-    aspects,
-    drives,
-    elements,
-    geometricElementsWithGeometry,
-    geometryPartsWithGeometry,
-    models,
-    relationships,
-  ] = await Promise.all([
-    classDistribution(targetDb, "bis.ElementAspect"),
-    classDistribution(targetDb, "bis.ElementDrivesElement"),
-    classDistribution(targetDb, "bis.Element"),
-    classDistribution(
-      targetDb,
-      "bis.GeometricElement3d WHERE GeometryStream IS NOT NULL"
-    ),
-    classDistribution(
-      targetDb,
-      "bis.GeometryPart WHERE GeometryStream IS NOT NULL"
-    ),
-    classDistribution(targetDb, "bis.Model"),
-    classDistribution(targetDb, "bis.ElementRefersToElements"),
-  ]);
-  return canonicalSha256({
-    aspects,
-    drives,
-    elements,
-    geometricElementsWithGeometry,
-    geometryPartsWithGeometry,
-    models,
-    relationships,
-  });
-}
+const outputClassQueries = {
+  aspects: "bis.ElementAspect",
+  drives: "bis.ElementDrivesElement",
+  elements: "bis.Element",
+  geometricElementsWithGeometry:
+    "bis.GeometricElement3d WHERE GeometryStream IS NOT NULL",
+  geometryPartsWithGeometry:
+    "bis.GeometryPart WHERE GeometryStream IS NOT NULL",
+  models: "bis.Model",
+  relationships: "bis.ElementRefersToElements",
+} as const;
 
 export function standaloneDriveRelationshipProcessing(
   dataset: PreparedDataset
@@ -126,7 +82,7 @@ export function standaloneDriveRelationshipProcessing(
         "complete quick standalone drive relationship processing"
       );
       dispose();
-      return outputShapeDigest(targetDb);
+      return outputShapeDigest(targetDb, outputClassQueries);
     },
   };
 }
