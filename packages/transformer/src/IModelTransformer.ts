@@ -155,6 +155,12 @@ export interface IModelTransformOptions {
    */
   includeSourceProvenance?: boolean;
 
+  /** Set to `true` to clone source [ChannelRootAspect]($backend) instances into the target.
+   * This is useful for branch synchronization workflows that need to preserve channel ownership boundaries.
+   * @note The default is `false` because source channel boundaries are not relevant to many transformed targets.
+   */
+  includeSourceChannelRootAspects?: boolean;
+
   /** Flag that indicates that the target iModel was created by copying the source iModel.
    * This is common when the target iModel is intended to be a *branch* of the source iModel.
    * This *hint* is essential to properly initialize the source to target element mapping and to cause provenance to be recorded for future synchronizations.
@@ -512,6 +518,8 @@ export class IModelTransformer extends IModelExportHandler {
       skipPropagateChangesToRootElements:
         options?.skipPropagateChangesToRootElements ?? true,
       tryAlignGeolocation: options?.tryAlignGeolocation ?? false,
+      includeSourceChannelRootAspects:
+        options?.includeSourceChannelRootAspects ?? false,
     };
     // check if authorization client is defined
     if (IModelHost.authorizationClient === undefined) {
@@ -542,7 +550,9 @@ export class IModelTransformer extends IModelExportHandler {
         this.exporter.excludeElementAspectClass(cls.classFullName)
       );
     }
-    this.exporter.excludeElementAspectClass(ChannelRootAspect.classFullName); // Channel boundaries within the source iModel are not relevant to the target iModel
+    if (!this._options.includeSourceChannelRootAspects) {
+      this.exporter.excludeElementAspectClass(ChannelRootAspect.classFullName);
+    }
     this.exporter.excludeElementAspectClass("BisCore:TextAnnotationData"); // This ElementAspect is auto-created by the BisCore:TextAnnotation2d/3d element handlers
     // initialize importer and targetDb
     if (target instanceof EditTxn) {
@@ -693,6 +703,10 @@ export class IModelTransformer extends IModelExportHandler {
     Logger.logInfo(
       loggerCategory,
       `this._includeSourceProvenance=${this._options.includeSourceProvenance}`
+    );
+    Logger.logInfo(
+      loggerCategory,
+      `this._includeSourceChannelRootAspects=${this._options.includeSourceChannelRootAspects}`
     );
     Logger.logInfo(
       loggerCategory,

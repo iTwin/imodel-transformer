@@ -430,6 +430,7 @@ export interface IModelTransformOptions {
     cloneUsingBinaryGeometry?: boolean;
     danglingReferencesBehavior?: "reject" | "ignore";
     forceExternalSourceAspectProvenance?: boolean;
+    includeSourceChannelRootAspects?: boolean;
     includeSourceProvenance?: boolean;
     loadSourceGeometry?: boolean;
     noDetachChangeCache?: boolean;
