@@ -315,6 +315,26 @@ describe("BenchmarkRunner scenario injection", () => {
   });
   const { descriptor: testDescriptor } = testFixture;
 
+  it("validates a profile run without recording a benchmark sample", async () => {
+    const outputDir = fs.mkdtempSync(
+      path.join(os.tmpdir(), "quick-perf-profile-runner-")
+    );
+    try {
+      const semanticDigest = await new BenchmarkRunner(
+        testFixture,
+        outputDir,
+        incrementalSynchronizationScenario
+      ).runProfile(async (measure) => measure());
+      expect(semanticDigest).to.be.a("string").and.not.empty;
+      expect(fs.existsSync(path.join(outputDir, "samples.jsonl"))).to.be.false;
+      expect(
+        fs.readdirSync(outputDir).filter((entry) => entry.startsWith("sample-"))
+      ).to.be.empty;
+    } finally {
+      fs.rmSync(outputDir, { recursive: true, force: true });
+    }
+  });
+
   it("runs the deletion-heavy fixture end to end", async () => {
     const outputDir = fs.mkdtempSync(
       path.join(os.tmpdir(), "quick-perf-deletion-heavy-")

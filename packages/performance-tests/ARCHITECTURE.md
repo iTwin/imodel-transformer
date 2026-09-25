@@ -80,10 +80,10 @@ delivered to each scenario sample. It owns database, Hub, changeset, and cleanup
 resources. The scenario constructs `IModelTransformer` from those resources and
 chooses its options and measured operation.
 
-| Provider                    | Data delivered to the scenario                                                                     | Hub availability during the scenario | Stage-one behavior                                                                  |
-| --------------------------- | -------------------------------------------------------------------------------------------------- | ------------------------------------ | ----------------------------------------------------------------------------------- |
-| `liveHubProvider`           | Open source and target `BriefcaseDb`s backed by `HubMock`                                          | Available                            | Captures prepared briefcases, seeds, and local-hub timelines once                   |
-| `detachedBriefcaseProvider` | Read-only source `BriefcaseDb`, local changeset files, artifact metadata, and optional recipe data | Not available                        | Uses `HubMock` once to generate changesets, then captures a reusable local artifact |
+| Provider                    | Data delivered to the scenario                                                                     | Hub availability during the scenario | Stage-one behavior                                                                     |
+| --------------------------- | -------------------------------------------------------------------------------------------------- | ------------------------------------ | -------------------------------------------------------------------------------------- |
+| `liveHubProvider`           | Open source and target `BriefcaseDb`s backed by `HubMock`                                          | Available                            | Captures prepared briefcases, seeds, and local-hub timelines once                      |
+| `detachedBriefcaseProvider` | Read-only source `BriefcaseDb`, local changeset files, artifact metadata, and optional recipe data | Not available                        | Uses `HubMock` once to generate changesets, then captures a reusable local artifact    |
 | `standaloneProvider`        | Read-only source `SnapshotDb`, newly empty target `SnapshotDb`, and artifact metadata              | Not available                        | Generates or ingests one standalone source artifact; creates targets only in stage two |
 
 Both providers are credential-free and use local `HubMock` when they need
@@ -210,6 +210,20 @@ sequenceDiagram
 The runner wraps scenario, sample, fixture-build, and `IModelHost` lifecycles in
 cleanup tasks. It attempts all applicable cleanup and preserves both originating
 and cleanup errors when more than one operation fails.
+
+### Profiling flow
+
+The compiled `quick:profile` CLI reuses the normal scenario resolution, fixture
+build, sample materialization, preparation, validation, and cleanup lifecycle. It
+runs one pristine sample and replaces only the call to `scenario.measure()` with
+a profiling wrapper. External mode pauses before and after that call for profiler
+attachment; `js-cpu` mode starts and stops the V8 profiler programmatically.
+Fixture generation, initial synchronization setup, `prepare()`, `finish()`, and
+cleanup remain outside the profile interval.
+
+Profile runs are diagnostic rather than benchmark samples. Their reported wall
+time includes profiler control overhead and, in external mode, time spent waiting
+for user input.
 
 ### Isolated pull request A/B flow
 
@@ -391,7 +405,7 @@ excluded from aggregate performance statistics.
 | ---------------------------- | ------------------------------------------------------ |
 | `wallMilliseconds`           | Only `BenchmarkScenario.measure()`                     |
 | CPU and RSS delta            | The same measured region                               |
-| `workerPeakRssBytes`         | Complete isolated A/B worker lifetime                 |
+| `workerPeakRssBytes`         | Complete isolated A/B worker lifetime                  |
 | `fixtureBuildMilliseconds`   | Stage-one provider build, once per job                 |
 | `reconstructionMilliseconds` | Creation or copying of one prepared sample             |
 | `verificationMilliseconds`   | `BenchmarkScenario.finish()`                           |
