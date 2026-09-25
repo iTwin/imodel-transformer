@@ -219,6 +219,159 @@ describe("A/B comparison reporting", () => {
     expect(markdown).to.contain("<code>scan&#124;next line</code>");
   });
 
+  function scenarioComparisonInput() {
+    const base = input();
+    return {
+      ...base,
+      baseline: {
+        revision: "same-sha",
+        scenarioId: "export-only-hierarchy-traversal",
+        samples: base.baseline.samples.map((sample) => ({
+          ...sample,
+          scenarioId: "export-only-hierarchy-traversal",
+          scenarioConfiguration: { traversal: "hierarchy" },
+        })),
+      },
+      candidate: {
+        revision: "same-sha",
+        scenarioId: "export-only-linear-traversal",
+        samples: base.candidate.samples.map((sample) => ({
+          ...sample,
+          scenarioId: "export-only-linear-traversal",
+          scenarioConfiguration: { traversal: "linear" },
+        })),
+      },
+    };
+  }
+
+  it("accepts a declared scenario A/B over one fixture and build", () => {
+    const summary = createComparisonSummary(scenarioComparisonInput());
+    expect(summary.scenarioId).to.equal("export-only-hierarchy-traversal");
+    expect(summary.baseline.scenarioId).to.equal(
+      "export-only-hierarchy-traversal"
+    );
+    expect(summary.candidate.scenarioId).to.equal(
+      "export-only-linear-traversal"
+    );
+    expect(summary.baseline.scenarioConfiguration).to.deep.equal({
+      traversal: "hierarchy",
+    });
+    expect(summary.candidate.scenarioConfiguration).to.deep.equal({
+      traversal: "linear",
+    });
+    expect(summary.percentageDelta).to.be.closeTo(10, 0.000_001);
+  });
+
+  it("renders per-arm scenarios in a scenario A/B report", () => {
+    const outputDir = fs.mkdtempSync(
+      path.join(os.tmpdir(), "quick-ab-report-scenario-")
+    );
+    temporaryDirectories.push(outputDir);
+    ComparisonReporter.write(outputDir, scenarioComparisonInput());
+    const markdown = fs.readFileSync(
+      path.join(outputDir, "comparison.md"),
+      "utf8"
+    );
+    expect(markdown).to.contain(
+      "| Arm | Scenario | Configuration | Fixture | Source iModel scale | Samples |"
+    );
+    expect(markdown).to.contain("<code>export-only-hierarchy-traversal</code>");
+    expect(markdown).to.contain("<code>export-only-linear-traversal</code>");
+    expect(markdown).to.contain("Traversal: <code>linear</code>");
+    expect(markdown).to.contain(
+      "the candidate delta measures the scenario difference"
+    );
+    expect(markdown).to.contain(
+      "| Arm | Scenario | Revision | Transformer | Median | P90 | Range | Peak worker RSS |"
+    );
+  });
+
+  it("rejects an undeclared scenario mismatch", () => {
+    const declared = scenarioComparisonInput();
+    const undeclared = {
+      ...declared,
+      baseline: {
+        revision: declared.baseline.revision,
+        samples: declared.baseline.samples,
+      },
+      candidate: {
+        revision: declared.candidate.revision,
+        samples: declared.candidate.samples,
+      },
+    };
+    expect(() => createComparisonSummary(undeclared)).to.throw(
+      /identical scenario and configured fixture/
+    );
+  });
+
+  it("rejects a declared scenario A/B when an arm ran another scenario", () => {
+    const declared = scenarioComparisonInput();
+    const mismatched = {
+      ...declared,
+      candidate: {
+        ...declared.candidate,
+        samples: declared.candidate.samples.map((sample) => ({
+          ...sample,
+          scenarioId: "export-only-hierarchy-traversal",
+        })),
+      },
+    };
+    expect(() => createComparisonSummary(mismatched)).to.throw(
+      /instead of the declared/
+    );
+  });
+
+  it("rejects a scenario A/B across different fixtures, builds, or semantics", () => {
+    const differentFixture = scenarioComparisonInput();
+    expect(() =>
+      createComparisonSummary({
+        ...differentFixture,
+        candidate: {
+          ...differentFixture.candidate,
+          samples: differentFixture.candidate.samples.map((sample) => ({
+            ...sample,
+            fixtureRecipeHash: "different-recipe",
+          })),
+        },
+      })
+    ).to.throw(/requires the identical configured fixture/);
+
+    const differentBuild = scenarioComparisonInput();
+    expect(() =>
+      createComparisonSummary({
+        ...differentBuild,
+        candidate: {
+          ...differentBuild.candidate,
+          samples: differentBuild.candidate.samples.map((sample) => {
+            if (sample.transformerProvenance === undefined)
+              throw new Error("Test sample is missing transformer provenance");
+            return {
+              ...sample,
+              transformerProvenance: {
+                ...sample.transformerProvenance,
+                contentHash: "different-transformer-hash",
+              },
+            };
+          }),
+        },
+      })
+    ).to.throw(/same transformer build/);
+
+    const differentSemantics = scenarioComparisonInput();
+    expect(() =>
+      createComparisonSummary({
+        ...differentSemantics,
+        candidate: {
+          ...differentSemantics.candidate,
+          samples: differentSemantics.candidate.samples.map((sample) => ({
+            ...sample,
+            semanticDigest: "different-result",
+          })),
+        },
+      })
+    ).to.throw(/different semantic results/);
+  });
+
   it("rejects configuration and semantic mismatches", () => {
     const mismatchedFixture = input();
     mismatchedFixture.candidate.samples = armSamples([99, 110, 121]).map(

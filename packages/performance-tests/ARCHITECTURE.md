@@ -431,7 +431,11 @@ Compare reports only when these identity fields match:
 - `fixtureSource` when an external standalone BIM is selected
 - Every `fixtureGenerator` version
 
-The reporter rejects mixed scenario or fixture identities within one report. A comparison sample also carries the worker-reported `workerPeakRssBytes`; the summary includes its measured values and median for each arm. This metric is independent of the scenario-endpoint `rssDeltaBytes` and the wall-time informational threshold.
+The reporter rejects mixed scenario or fixture identities within one report,
+with one declared exception: when the coordinator declares a different scenario
+per arm (`QUICK_PERF_BASELINE_SCENARIO`/`QUICK_PERF_CANDIDATE_SCENARIO`), the
+scenario identity is validated per arm instead, and the fixture identity,
+transformer build, and semantic digest must still match across arms. A comparison sample also carries the worker-reported `workerPeakRssBytes`; the summary includes its measured values and median for each arm. This metric is independent of the scenario-endpoint `rssDeltaBytes` and the wall-time informational threshold.
 
 | Field                    | Meaning                                                                  |
 | ------------------------ | ------------------------------------------------------------------------ |

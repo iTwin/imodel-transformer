@@ -22,6 +22,12 @@ export type ComparisonSample = BenchmarkSample & {
 export interface ComparisonArmResult {
   readonly revision: string;
   readonly samples: readonly ComparisonSample[];
+  /**
+   * Scenario this arm was configured to run. When the two arms declare different scenarios, the
+   * report treats the run as an intentional scenario A/B over one shared fixture and build instead
+   * of rejecting the scenario mismatch.
+   */
+  readonly scenarioId?: string;
 }
 
 export interface ComparisonReportInput {
@@ -43,7 +49,8 @@ export type InformationalComparisonStatus =
   | "within-informational-threshold";
 
 export interface ComparisonSummary {
-  readonly reportSchemaVersion: 3;
+  readonly reportSchemaVersion: 4;
+  /** Baseline arm's scenario; identical to the candidate's except in a scenario A/B comparison. */
   readonly scenarioId: string;
   readonly fixtureId: string;
   readonly fixtureVersion: number;
@@ -62,6 +69,8 @@ export interface ComparisonSummary {
   };
   readonly baseline: {
     readonly revision: string;
+    readonly scenarioId: string;
+    readonly scenarioConfiguration?: ScenarioConfiguration;
     readonly transformerProvenance: TransformerProvenance;
     readonly medianMilliseconds: number;
     readonly p90Milliseconds: number;
@@ -73,6 +82,8 @@ export interface ComparisonSummary {
   };
   readonly candidate: {
     readonly revision: string;
+    readonly scenarioId: string;
+    readonly scenarioConfiguration?: ScenarioConfiguration;
     readonly transformerProvenance: TransformerProvenance;
     readonly medianMilliseconds: number;
     readonly p90Milliseconds: number;
@@ -88,16 +99,20 @@ export interface ComparisonSummary {
   readonly executionOrder: readonly ComparisonArm[];
 }
 
-function configurationIdentity(sample: ComparisonSample): string {
+function configurationIdentity(
+  sample: ComparisonSample,
+  includeScenario: boolean
+): string {
   return JSON.stringify([
     sample.reportSchemaVersion,
-    sample.scenarioId,
+    ...(includeScenario
+      ? [sample.scenarioId, sample.scenarioConfiguration]
+      : []),
     sample.fixtureId,
     sample.fixtureVersion,
     sample.fixtureRecipeHash,
     sample.fixtureContentHash,
     sample.fixtureInventory,
-    sample.scenarioConfiguration,
     {
       coreBackend: sample.fixtureGenerator.coreBackend,
       node: sample.fixtureGenerator.node,
@@ -139,6 +154,35 @@ function validateArm(
   if (transformerProvenances.size !== 1 || transformerProvenance === undefined)
     throw new Error(`${arm} workers did not resolve one transformer build`);
   return transformerProvenance;
+}
+
+interface ArmScenario {
+  readonly id: string;
+  readonly configuration?: ScenarioConfiguration;
+}
+
+function armScenario(
+  arm: ComparisonArm,
+  result: ComparisonArmResult
+): ArmScenario {
+  const scenarioIds = new Set(
+    result.samples.map((sample) => sample.scenarioId)
+  );
+  const id = [...scenarioIds][0];
+  if (scenarioIds.size !== 1 || id === undefined)
+    throw new Error(`${arm} samples must run one scenario`);
+  const configurations = new Set(
+    result.samples.map((sample) =>
+      JSON.stringify(sample.scenarioConfiguration ?? null)
+    )
+  );
+  if (configurations.size !== 1)
+    throw new Error(`${arm} samples must use one scenario configuration`);
+  if (result.scenarioId !== undefined && result.scenarioId !== id)
+    throw new Error(
+      `${arm} samples ran scenario "${id}" instead of the declared "${result.scenarioId}"`
+    );
+  return { id, configuration: result.samples[0].scenarioConfiguration };
 }
 
 export function percentageDelta(
@@ -217,6 +261,19 @@ export function createComparisonSummary(
   );
   validatePeakRss("baseline", input.baseline.samples);
   validatePeakRss("candidate", input.candidate.samples);
+  const baselineScenario = armScenario("baseline", input.baseline);
+  const candidateScenario = armScenario("candidate", input.candidate);
+  const scenarioComparison =
+    input.baseline.scenarioId !== undefined &&
+    input.candidate.scenarioId !== undefined &&
+    input.baseline.scenarioId !== input.candidate.scenarioId;
+  if (
+    scenarioComparison &&
+    baselineTransformer.contentHash !== candidateTransformer.contentHash
+  )
+    throw new Error(
+      "A scenario A/B comparison requires both arms to use the same transformer build"
+    );
   const allSamples = [...input.baseline.samples, ...input.candidate.samples];
   const fixtureContentHashes = new Set(
     allSamples.map((sample) => sample.fixtureContentHash)
@@ -226,9 +283,17 @@ export function createComparisonSummary(
     throw new Error(
       "Baseline and candidate must use the same immutable fixture artifact"
     );
-  if (new Set(allSamples.map(configurationIdentity)).size !== 1)
+  if (
+    new Set(
+      allSamples.map((sample) =>
+        configurationIdentity(sample, !scenarioComparison)
+      )
+    ).size !== 1
+  )
     throw new Error(
-      "Baseline and candidate must use the identical scenario and configured fixture"
+      scenarioComparison
+        ? "A scenario A/B comparison requires the identical configured fixture"
+        : "Baseline and candidate must use the identical scenario and configured fixture"
     );
   const semanticDigests = new Set(
     allSamples.map((sample) => sample.semanticDigest)
@@ -261,14 +326,14 @@ export function createComparisonSummary(
   const identity = allSamples[0];
 
   return {
-    reportSchemaVersion: 3,
-    scenarioId: identity.scenarioId,
+    reportSchemaVersion: 4,
+    scenarioId: baselineScenario.id,
     fixtureId: identity.fixtureId,
     fixtureVersion: identity.fixtureVersion,
     fixtureRecipeHash: identity.fixtureRecipeHash,
     fixtureContentHash,
     fixtureInventory: identity.fixtureInventory,
-    scenarioConfiguration: identity.scenarioConfiguration,
+    scenarioConfiguration: baselineScenario.configuration,
     fixtureAuthoring: input.fixtureAuthoring,
     ...(identity.fixtureSource === undefined
       ? {}
@@ -282,6 +347,10 @@ export function createComparisonSummary(
     },
     baseline: {
       revision: input.baseline.revision,
+      scenarioId: baselineScenario.id,
+      ...(baselineScenario.configuration === undefined
+        ? {}
+        : { scenarioConfiguration: baselineScenario.configuration }),
       transformerProvenance: baselineTransformer,
       ...baselineTiming,
       medianPeakRssBytes: median(baselinePeakRss),
@@ -289,6 +358,10 @@ export function createComparisonSummary(
     },
     candidate: {
       revision: input.candidate.revision,
+      scenarioId: candidateScenario.id,
+      ...(candidateScenario.configuration === undefined
+        ? {}
+        : { scenarioConfiguration: candidateScenario.configuration }),
       transformerProvenance: candidateTransformer,
       ...candidateTiming,
       medianPeakRssBytes: median(candidatePeakRss),
@@ -372,8 +445,29 @@ function relativePerformance(summary: ComparisonSummary): string {
   return "Candidate and baseline have equal median duration.";
 }
 
-function markdown(summary: ComparisonSummary): string {
-  const signedDelta = `${summary.percentageDelta >= 0 ? "+" : ""}${summary.percentageDelta.toFixed(2)}%`;
+function armConfigurationCell(
+  configuration: ScenarioConfiguration | undefined
+): string {
+  const entries = Object.entries(configuration ?? {});
+  if (entries.length === 0) return "—";
+  return entries
+    .map(([key, value]) => `${configurationLabel(key)}: ${markdownCode(value)}`)
+    .join(", ");
+}
+
+function runConfigurationRows(summary: ComparisonSummary): string[] {
+  const fixtureCell = `${markdownCode(summary.fixtureId)} v${summary.fixtureVersion}`;
+  const scaleCell = formatInventory(summary.fixtureInventory);
+  const samplesCell = `${summary.policy.measuredSamplesPerArm} + ${summary.policy.warmupsPerArm} warm-up/arm`;
+  if (summary.baseline.scenarioId !== summary.candidate.scenarioId)
+    return [
+      "| Arm | Scenario | Configuration | Fixture | Source iModel scale | Samples |",
+      "| --- | --- | --- | --- | --- | ---: |",
+      `| Baseline | ${markdownCode(summary.baseline.scenarioId)} | ${armConfigurationCell(summary.baseline.scenarioConfiguration)} | ${fixtureCell} | ${scaleCell} | ${samplesCell} |`,
+      `| Candidate | ${markdownCode(summary.candidate.scenarioId)} | ${armConfigurationCell(summary.candidate.scenarioConfiguration)} | ${fixtureCell} | ${scaleCell} | ${samplesCell} |`,
+      "",
+      "Both arms use one transformer build and one immutable fixture; the candidate delta measures the scenario difference.",
+    ];
   const configuration = Object.entries(summary.scenarioConfiguration ?? {});
   const configurationHeaders = configuration.map(([key]) =>
     configurationLabel(key)
@@ -381,6 +475,19 @@ function markdown(summary: ComparisonSummary): string {
   const configurationValues = configuration.map(([, value]) =>
     markdownCode(value)
   );
+  return [
+    `| Scenario | ${configurationHeaders.length > 0 ? `${configurationHeaders.join(" | ")} | ` : ""}Fixture | Source iModel scale | Samples |`,
+    `| --- | ${configurationHeaders.map(() => "--- | ").join("")}--- | --- | ---: |`,
+    `| ${markdownCode(summary.scenarioId)} | ${configurationValues.length > 0 ? `${configurationValues.join(" | ")} | ` : ""}${fixtureCell} | ${scaleCell} | ${samplesCell} |`,
+  ];
+}
+
+function markdown(summary: ComparisonSummary): string {
+  const signedDelta = `${summary.percentageDelta >= 0 ? "+" : ""}${summary.percentageDelta.toFixed(2)}%`;
+  const scenarioComparison =
+    summary.baseline.scenarioId !== summary.candidate.scenarioId;
+  const scenarioColumn = (scenarioId: string) =>
+    scenarioComparison ? ` ${markdownCode(scenarioId)} |` : "";
   const threshold = summary.policy.informationalThresholdPercent;
   const baselineCore =
     summary.baseline.transformerProvenance.coreBackendVersion;
@@ -397,9 +504,7 @@ function markdown(summary: ComparisonSummary): string {
     "",
     "## Run configuration",
     "",
-    `| Scenario | ${configurationHeaders.length > 0 ? `${configurationHeaders.join(" | ")} | ` : ""}Fixture | Source iModel scale | Samples |`,
-    `| --- | ${configurationHeaders.map(() => "--- | ").join("")}--- | --- | ---: |`,
-    `| ${markdownCode(summary.scenarioId)} | ${configurationValues.length > 0 ? `${configurationValues.join(" | ")} | ` : ""}${markdownCode(summary.fixtureId)} v${summary.fixtureVersion} | ${formatInventory(summary.fixtureInventory)} | ${summary.policy.measuredSamplesPerArm} + ${summary.policy.warmupsPerArm} warm-up/arm |`,
+    ...runConfigurationRows(summary),
     "",
     `Execution order: ${summary.policy.ordering} baseline/candidate samples in isolated processes.`,
     `Prepared target: baseline ${markdownCode(formatRevision(summary.fixtureAuthoring.revision))} with transformer ${markdownCode(summary.fixtureAuthoring.transformerVersion)}.`,
@@ -408,10 +513,10 @@ function markdown(summary: ComparisonSummary): string {
     "",
     coreBackendSummary,
     "",
-    "| Arm | Revision | Transformer | Median | P90 | Range | Peak worker RSS |",
-    "| --- | --- | --- | ---: | ---: | ---: | ---: |",
-    `| Baseline | ${markdownCode(formatRevision(summary.baseline.revision))} | ${markdownCode(summary.baseline.transformerProvenance.version)} | ${formatMilliseconds(summary.baseline.medianMilliseconds)} | ${formatMilliseconds(summary.baseline.p90Milliseconds)} | ${formatMilliseconds(summary.baseline.minimumMilliseconds)}–${formatMilliseconds(summary.baseline.maximumMilliseconds)} | ${formatBytes(summary.baseline.medianPeakRssBytes)} |`,
-    `| Candidate | ${markdownCode(formatRevision(summary.candidate.revision))} | ${markdownCode(summary.candidate.transformerProvenance.version)} | ${formatMilliseconds(summary.candidate.medianMilliseconds)} | ${formatMilliseconds(summary.candidate.p90Milliseconds)} | ${formatMilliseconds(summary.candidate.minimumMilliseconds)}–${formatMilliseconds(summary.candidate.maximumMilliseconds)} | ${formatBytes(summary.candidate.medianPeakRssBytes)} |`,
+    `| Arm |${scenarioComparison ? " Scenario |" : ""} Revision | Transformer | Median | P90 | Range | Peak worker RSS |`,
+    `| --- |${scenarioComparison ? " --- |" : ""} --- | --- | ---: | ---: | ---: | ---: |`,
+    `| Baseline |${scenarioColumn(summary.baseline.scenarioId)} ${markdownCode(formatRevision(summary.baseline.revision))} | ${markdownCode(summary.baseline.transformerProvenance.version)} | ${formatMilliseconds(summary.baseline.medianMilliseconds)} | ${formatMilliseconds(summary.baseline.p90Milliseconds)} | ${formatMilliseconds(summary.baseline.minimumMilliseconds)}–${formatMilliseconds(summary.baseline.maximumMilliseconds)} | ${formatBytes(summary.baseline.medianPeakRssBytes)} |`,
+    `| Candidate |${scenarioColumn(summary.candidate.scenarioId)} ${markdownCode(formatRevision(summary.candidate.revision))} | ${markdownCode(summary.candidate.transformerProvenance.version)} | ${formatMilliseconds(summary.candidate.medianMilliseconds)} | ${formatMilliseconds(summary.candidate.p90Milliseconds)} | ${formatMilliseconds(summary.candidate.minimumMilliseconds)}–${formatMilliseconds(summary.candidate.maximumMilliseconds)} | ${formatBytes(summary.candidate.medianPeakRssBytes)} |`,
     "",
     "Peak worker RSS is reported by the isolated worker's process resource usage across its complete lifetime, including setup and teardown.",
     "",

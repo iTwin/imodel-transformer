@@ -1,5 +1,11 @@
 # Next release notes
 
+## Opt-in linear traversal for full exports
+
+`IModelExporter.exportAll` now accepts `{ traversal: "linear" }` and `IModelTransformOptions` gained a matching `exportAllTraversal` option (both `@beta`). Instead of recursively traversing the model/parent hierarchy (repository model → sub-models → per-model contents → per-parent child queries), the linear traversal scans the `bis.Element` table once in `ECInstanceId` order, exporting each element exactly once and each model container immediately after its modeled element. This eliminates the per-model and per-parent queries and is usually faster for full exports.
+
+The default (`"hierarchy"`) is unchanged. The linear traversal exports the same set of entities — including subtree pruning for excluded elements and template-model handling — but in a different order, and `IModelExportHandler.shouldExportElement` is consulted exactly once per element (the hierarchy traversal consults it twice for sub-modeled elements). Handlers that depend on visit order (for example, definition models being exported first) should not opt in without verifying their assumptions; the `IModelTransformer` resolves out-of-order references through its usual partially-committed-element handling. `exportAllTraversal` has no effect when processing changes. A future change of the default traversal would be a breaking (major) change.
+
 ## Set-based element hierarchy traversal in full exports
 
 `IModelExporter` now discovers element hierarchies during full exports (`exportAll()`, `exportModelContents()`, `exportChildElements()`) with a single streamed recursive ECSQL query per traversal root instead of one `queryChildren()` round trip per visited element. Observable export behavior is unchanged for root order, sibling order (ECInstanceId ascending), depth-first pre-order, element filtering, subtree suppression, and exporter callbacks. The streamed loop yields while consuming every result row, including descendants skipped inside rejected subtrees, so large exports remain responsive.
