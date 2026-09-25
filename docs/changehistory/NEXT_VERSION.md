@@ -1,5 +1,23 @@
 # Next release notes
 
+## Context-based provenance resolution for incremental deletions
+
+`IModelTransformer.process()` now resolves guidless incremental element
+deletions from its transformation context, which is populated from matching
+federation GUIDs and current-scope element provenance before changes are
+processed. This removes the additional per-deletion provenance query while
+preserving changeset order, recreation handling, federation-GUID-first
+resolution, scope isolation, relationship deletion behavior, and database
+error propagation.
+
+Deletion processing now also honors a valid context remap supplied by
+`addCustomChanges()` after provenance initialization. A conflicting remap made
+before `process()` can still be replaced while the context is initialized from
+the current scope. Context mappings are not target-existence checks, so custom
+remaps must identify a valid target element. If duplicate current-scope element
+provenance exists for one source identifier, the earliest
+`ExternalSourceAspect` remains authoritative.
+
 ## Set-based element hierarchy traversal in full exports
 
 `IModelExporter` now discovers element hierarchies during full exports (`exportAll()`, `exportModelContents()`, `exportChildElements()`) with a single streamed recursive ECSQL query per traversal root instead of one `queryChildren()` round trip per visited element. Observable export behavior is unchanged for root order, sibling order (ECInstanceId ascending), depth-first pre-order, element filtering, subtree suppression, and exporter callbacks. The streamed loop yields while consuming every result row, including descendants skipped inside rejected subtrees, so large exports remain responsive.
