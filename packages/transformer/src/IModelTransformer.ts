@@ -2264,9 +2264,8 @@ export class IModelTransformer extends IModelExportHandler {
     );
 
     this._deletedSourceRelationshipData = new Map();
-       // Assumes only ElementAspects carry an `Element` navigation property (true in BisCore).
-       // A domain element class with its own `Element` property would be skipped here and its deletion missed, leading to silent data loss.
-       const isElementAspectDeletion = (change: ChangesetDeletionRecord) =>
+    // Only ElementAspects carry an Element navigation property in BisCore.
+    const isElementAspectDeletion = (change: ChangesetDeletionRecord) =>
       change.elementId !== undefined;
 
     for (const changes of deletionRecordsByChangeset) {
