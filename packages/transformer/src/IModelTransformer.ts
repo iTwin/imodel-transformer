@@ -1479,7 +1479,6 @@ export class IModelTransformer extends IModelExportHandler {
     // physical consolidation is an example of a 'joining' transform
     // FIXME: verify at finalization time that we don't lose provenance on new elements
     // FIXME: make public and improve `initElementProvenance` API for usage by consolidators
-    const provenanceDb = await this.getProvenanceDb();
     const provenanceEditTxn =
       await this._provenanceManager.getProvenanceEditTxn();
     if (!this._options.noProvenance) {
@@ -1497,10 +1496,7 @@ export class IModelTransformer extends IModelExportHandler {
           targetElementProps.id
         );
         const foundEsaProps =
-          await ProvenanceManager.queryScopeExternalSourceAspect(
-            provenanceDb,
-            aspectProps
-          );
+          await this._provenanceManager.findScopeEsaForEntity(aspectProps);
         if (foundEsaProps === undefined)
           aspectProps.id = provenanceEditTxn.insertAspect(aspectProps);
         else {
@@ -1508,6 +1504,7 @@ export class IModelTransformer extends IModelExportHandler {
           aspectProps.id = foundEsaProps.aspectId;
           provenanceEditTxn.updateAspect(aspectProps);
         }
+        this._provenanceManager.recordScopeEsa(aspectProps);
       }
     }
   }
@@ -1752,6 +1749,8 @@ export class IModelTransformer extends IModelExportHandler {
       initializeReverseSyncVersion: this._isProvenanceInitTransform,
     });
 
+    this._provenanceManager.clearScopeEsaCaches();
+
     // TODO: ignore if we remove change cache usage
     if (!this._options.noDetachChangeCache) {
       if (ChangeSummaryManager.isChangeCacheAttached(this.sourceDb))
@@ -1802,7 +1801,6 @@ export class IModelTransformer extends IModelExportHandler {
       targetRelationshipProps
     );
 
-    const provenanceDb = await this.getProvenanceDb();
     const provenanceEditTxn =
       await this._provenanceManager.getProvenanceEditTxn();
     if (
@@ -1825,13 +1823,11 @@ export class IModelTransformer extends IModelExportHandler {
             }
           );
         const foundEsaProps =
-          await ProvenanceManager.queryScopeExternalSourceAspect(
-            provenanceDb,
-            aspectProps
-          );
+          await this._provenanceManager.findScopeEsaForEntity(aspectProps);
         // onExportRelationship doesn't need to call updateAspect if esaProps were found, because relationship provenance doesn't have the same concept of a version as element provenance (which uses last mod time on the elements).
         if (undefined === foundEsaProps) {
           aspectProps.id = provenanceEditTxn.insertAspect(aspectProps);
+          this._provenanceManager.recordScopeEsa(aspectProps);
         }
       }
     }
@@ -1873,6 +1869,8 @@ export class IModelTransformer extends IModelExportHandler {
     }
 
     if (deletedRelData.provenanceAspectId) {
+      // the deleted aspect's Identifier is this relationship's id in the provenance-source db
+      this._provenanceManager.forgetRelationshipScopeEsa(sourceRelInstanceId);
       try {
         (await this._provenanceManager.getProvenanceEditTxn()).deleteAspect(
           deletedRelData.provenanceAspectId
@@ -2350,17 +2348,8 @@ export class IModelTransformer extends IModelExportHandler {
         : change.federationGuid;
       if (changeDataInProvenanceDb) {
         // TODO: clarify what happens if there are multiple (e.g. elements were merged)
-        for await (const row of this.sourceDb.createQueryReader(
-          "SELECT esa.Identifier FROM bis.ExternalSourceAspect esa WHERE Scope.Id=:scopeId AND Kind=:kind AND Element.Id=:relatedElementId LIMIT 1",
-          QueryBinder.from([
-            this.targetScopeElementId,
-            ExternalSourceAspect.Kind.Element,
-            id,
-          ]),
-          { usePrimaryConn: true }
-        )) {
-          identifierValue = row.Identifier;
-        }
+        identifierValue =
+          await this._provenanceManager.queryScopeEsaIdentifierByElementId(id);
         identifierValue =
           identifierValue ?? mapOfDeletedElemIdToScopeEsas.get(id)?.identifier;
       }

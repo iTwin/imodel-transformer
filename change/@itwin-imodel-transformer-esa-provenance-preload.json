@@ -1,0 +1,7 @@
+{
+  "type": "patch",
+  "comment": "Eliminate per-entity ExternalSourceAspect provenance N+1 queries by preloading per-Kind scope-wide ESA indexes once per transformation run (falls back to per-row queries above IMODEL_TRANSFORMER_MAX_ESA_CACHE_SIZE entries)",
+  "packageName": "@itwin/imodel-transformer",
+  "email": "44824788+DanRod1999@users.noreply.github.com",
+  "dependentChangeType": "patch"
+}

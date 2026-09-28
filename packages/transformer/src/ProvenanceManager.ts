@@ -44,6 +44,25 @@ type ProvenanceContext = Pick<IModelTransformContext, "findTargetElementId"> & {
   readonly targetDb: IModelDb;
 };
 
+/** A cached ExternalSourceAspect row from the provenance db, see [[ProvenanceManager]]'s scope ESA cache. */
+interface ScopeEsaCacheEntry {
+  aspectId: Id64String;
+  /** the id of the element (in the provenance db) that the aspect is attached to */
+  elementId: Id64String;
+  version?: string;
+  /** stringified json, as stored */
+  jsonProperties?: string;
+}
+
+/**
+ * Per-Kind cache state: `undefined` means not yet built, "disabled" means the cache
+ * was skipped (too many rows) and per-row queries must be used instead.
+ */
+type ScopeEsaCacheState = Map<string, ScopeEsaCacheEntry[]> | "disabled";
+
+/** Default maximum number of scope ESAs (per Kind) to cache in memory. */
+const defaultMaxScopeEsaCacheSize = 4_000_000;
+
 /**
  * Manages provenance scope aspects and synchronization versioning.
  * Encapsulates all ESA scope management, sync version tracking, and
@@ -71,6 +90,17 @@ export class ProvenanceManager {
     undefined;
 
   private _targetClassNameToClassIdCache = new Map<string, string>();
+
+  /**
+   * Lazily-built per-Kind indexes of all ExternalSourceAspects in the provenance db
+   * for this run's scope element. Keyed by ExternalSourceAspect Kind, each value maps
+   * an aspect Identifier to its rows (Identifier is not guaranteed unique, e.g. merged
+   * elements, so each key holds an array in query row order).
+   */
+  private _scopeEsaCaches = new Map<string, ScopeEsaCacheState>();
+
+  /** Secondary index (Kind=Element only) from Element.Id in the provenance db to aspect Identifier. */
+  private _scopeEsaIdentifierByElementId: Map<Id64String, string> | undefined;
 
   private readonly _targetEditTxn: EditTxn;
   private readonly _sourceEditTxn?: EditTxn;
@@ -991,15 +1021,229 @@ export class ProvenanceManager {
     );
   }
 
+  // ── Scope ESA cache ────────────────────────────────────────────────────
+
+  /** Maximum number of scope ESAs (per Kind) to cache. 0 disables caching. */
+  private static get _maxScopeEsaCacheSize(): number {
+    const fromEnv = Number(process.env.IMODEL_TRANSFORMER_MAX_ESA_CACHE_SIZE);
+    return Number.isFinite(fromEnv) && fromEnv >= 0
+      ? fromEnv
+      : defaultMaxScopeEsaCacheSize;
+  }
+
+  /**
+   * Get (building lazily if necessary) the scope ESA index for the given Kind.
+   * Returns undefined when caching is disabled for that Kind (too many rows),
+   * in which case callers must fall back to per-row queries.
+   */
+  private async _getScopeEsaCache(
+    kind: string
+  ): Promise<Map<string, ScopeEsaCacheEntry[]> | undefined> {
+    const existing = this._scopeEsaCaches.get(kind);
+    if (existing === "disabled") return undefined;
+    if (existing !== undefined) return existing;
+
+    const provenanceDb = await this.getProvenanceDb();
+    const maxSize = ProvenanceManager._maxScopeEsaCacheSize;
+
+    const countParams = new QueryBinder()
+      .bindId("scopeId", this._targetScopeElementId)
+      .bindString("kind", kind);
+    const countReader = provenanceDb.createQueryReader(
+      `
+        SELECT COUNT(*)
+        FROM ${ExternalSourceAspect.classFullName}
+        WHERE Scope.Id=:scopeId AND Kind=:kind
+      `,
+      countParams,
+      { usePrimaryConn: true }
+    );
+    const count = (await countReader.step())
+      ? (countReader.current[0] as number)
+      : 0;
+    if (count > maxSize) {
+      Logger.logInfo(
+        loggerCategory,
+        `Not caching scope ExternalSourceAspects of kind '${kind}': ${count} rows exceeds the maximum cache size of ${maxSize}. Falling back to per-row provenance queries.`
+      );
+      this._scopeEsaCaches.set(kind, "disabled");
+      return undefined;
+    }
+
+    const cache = new Map<string, ScopeEsaCacheEntry[]>();
+    const identifierByElementId =
+      kind === ExternalSourceAspect.Kind.Element
+        ? new Map<Id64String, string>()
+        : undefined;
+    const params = new QueryBinder()
+      .bindId("scopeId", this._targetScopeElementId)
+      .bindString("kind", kind);
+    const reader = provenanceDb.createQueryReader(
+      `
+        SELECT Identifier, ECInstanceId, Version, JsonProperties, Element.Id
+        FROM ${ExternalSourceAspect.classFullName}
+        WHERE Scope.Id=:scopeId AND Kind=:kind
+      `,
+      params,
+      { usePrimaryConn: true }
+    );
+    for await (const row of reader) {
+      const identifier = row[0] as string;
+      const entry: ScopeEsaCacheEntry = {
+        aspectId: row[1] as Id64String,
+        version: (row[2] as string | undefined) ?? undefined,
+        jsonProperties: (row[3] as string | undefined) ?? undefined,
+        elementId: row[4] as Id64String,
+      };
+      const entries = cache.get(identifier);
+      if (entries === undefined) cache.set(identifier, [entry]);
+      else entries.push(entry);
+      // preserve first-match semantics of the previous LIMIT 1 queries
+      if (identifierByElementId && !identifierByElementId.has(entry.elementId))
+        identifierByElementId.set(entry.elementId, identifier);
+    }
+    this._scopeEsaCaches.set(kind, cache);
+    if (identifierByElementId !== undefined)
+      this._scopeEsaIdentifierByElementId = identifierByElementId;
+    return cache;
+  }
+
+  /**
+   * Cached equivalent of [[queryScopeExternalSourceAspect]] against the provenance db,
+   * for aspects in this run's scope. Falls back to a per-row query when the aspect is
+   * outside this run's scope/Kind or when caching is disabled.
+   * @note Identifier is not guaranteed unique (e.g. merged elements); like the LIMIT 1
+   * query it replaces, this returns the first match.
+   */
+  public async findScopeEsaForEntity(
+    aspectProps: ExternalSourceAspectProps
+  ): Promise<
+    | {
+        aspectId: Id64String;
+        version?: string;
+        /** stringified json */
+        jsonProperties?: string;
+      }
+    | undefined
+  > {
+    const isCacheableKind =
+      aspectProps.kind === ExternalSourceAspect.Kind.Element ||
+      aspectProps.kind === ExternalSourceAspect.Kind.Relationship;
+    const cache =
+      aspectProps.scope?.id === this._targetScopeElementId && isCacheableKind
+        ? await this._getScopeEsaCache(aspectProps.kind)
+        : undefined;
+    if (cache === undefined) {
+      return ProvenanceManager.queryScopeExternalSourceAspect(
+        await this.getProvenanceDb(),
+        aspectProps
+      );
+    }
+    const entry = cache
+      .get(aspectProps.identifier)
+      ?.find((e) => e.elementId === aspectProps.element.id);
+    return entry !== undefined
+      ? {
+          aspectId: entry.aspectId,
+          version: entry.version,
+          jsonProperties: entry.jsonProperties,
+        }
+      : undefined;
+  }
+
+  /**
+   * Record an ESA that was inserted or updated in the provenance db during this run
+   * so the scope ESA cache stays consistent. No-op if the cache for the aspect's Kind
+   * has not been built or is disabled.
+   */
+  public recordScopeEsa(aspectProps: ExternalSourceAspectProps): void {
+    if (
+      aspectProps.id === undefined ||
+      aspectProps.scope?.id !== this._targetScopeElementId
+    )
+      return;
+    const cache = this._scopeEsaCaches.get(aspectProps.kind);
+    if (cache === undefined || cache === "disabled") return;
+    const entry: ScopeEsaCacheEntry = {
+      aspectId: aspectProps.id,
+      elementId: aspectProps.element.id,
+      version: aspectProps.version,
+      jsonProperties: aspectProps.jsonProperties as string | undefined,
+    };
+    const entries = cache.get(aspectProps.identifier);
+    if (entries === undefined) {
+      cache.set(aspectProps.identifier, [entry]);
+    } else {
+      const index = entries.findIndex((e) => e.aspectId === entry.aspectId);
+      if (index >= 0) entries[index] = entry;
+      else entries.push(entry);
+    }
+    if (
+      aspectProps.kind === ExternalSourceAspect.Kind.Element &&
+      this._scopeEsaIdentifierByElementId !== undefined &&
+      !this._scopeEsaIdentifierByElementId.has(entry.elementId)
+    )
+      this._scopeEsaIdentifierByElementId.set(
+        entry.elementId,
+        aspectProps.identifier
+      );
+  }
+
+  /** Evict a relationship-kind ESA from the scope ESA cache after its aspect was deleted. */
+  public forgetRelationshipScopeEsa(identifier: string): void {
+    const cache = this._scopeEsaCaches.get(
+      ExternalSourceAspect.Kind.Relationship
+    );
+    if (cache !== undefined && cache !== "disabled") cache.delete(identifier);
+  }
+
+  /**
+   * Find the Identifier of the (first) element-kind scope ESA attached to the given
+   * element of the provenance db. Uses the scope ESA cache when available.
+   */
+  public async queryScopeEsaIdentifierByElementId(
+    elementId: Id64String
+  ): Promise<string | undefined> {
+    const cache = await this._getScopeEsaCache(
+      ExternalSourceAspect.Kind.Element
+    );
+    if (cache !== undefined)
+      return this._scopeEsaIdentifierByElementId?.get(elementId);
+    const params = new QueryBinder()
+      .bindId("scopeId", this._targetScopeElementId)
+      .bindString("kind", ExternalSourceAspect.Kind.Element)
+      .bindId("relatedElementId", elementId);
+    const reader = (await this.getProvenanceDb()).createQueryReader(
+      "SELECT esa.Identifier FROM bis.ExternalSourceAspect esa WHERE Scope.Id=:scopeId AND Kind=:kind AND Element.Id=:relatedElementId LIMIT 1",
+      params,
+      { usePrimaryConn: true }
+    );
+    if (await reader.step()) return reader.current[0] as string;
+    return undefined;
+  }
+
+  /** Clear all scope ESA caches, releasing their memory. */
+  public clearScopeEsaCaches(): void {
+    this._scopeEsaCaches.clear();
+    this._scopeEsaIdentifierByElementId = undefined;
+  }
+
   // ── Provenance queries ─────────────────────────────────────────────────
 
   /**
    * Queries the provenanceDb for an ESA whose identifier matches the provided element ID.
+   * Uses the scope ESA cache when available; returns the first match (Identifier is not
+   * guaranteed unique, e.g. merged elements).
    * @param entityInProvenanceSourceId ID of the element in the provenanceSourceDb
    */
   public async queryProvenanceForElement(
     entityInProvenanceSourceId: Id64String
   ): Promise<Id64String | undefined> {
+    const cache = await this._getScopeEsaCache(
+      ExternalSourceAspect.Kind.Element
+    );
+    if (cache !== undefined)
+      return cache.get(entityInProvenanceSourceId)?.[0]?.elementId;
     const sql = `
         SELECT esa.Element.Id
         FROM Bis.ExternalSourceAspect esa
@@ -1043,6 +1287,25 @@ export class ProvenanceManager {
       }
     | undefined
   > {
+    const cache = await this._getScopeEsaCache(
+      ExternalSourceAspect.Kind.Relationship
+    );
+    if (cache !== undefined) {
+      // first match, mirroring the single-row read of the uncached query below
+      const entry = cache.get(entityInProvenanceSourceId)?.[0];
+      if (entry === undefined) return undefined;
+      let provenanceRelInstanceId: string | undefined;
+      if (entry.jsonProperties !== undefined)
+        provenanceRelInstanceId = JSON.parse(
+          entry.jsonProperties
+        )?.provenanceRelInstanceId;
+      return {
+        aspectId: entry.aspectId,
+        relationshipId:
+          provenanceRelInstanceId ??
+          (await this._queryTargetRelId(sourceRelInfo)),
+      };
+    }
     const sql = `
       SELECT
         ECInstanceId,
