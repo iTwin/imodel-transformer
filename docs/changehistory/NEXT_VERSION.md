@@ -10,6 +10,11 @@ preserving changeset order, recreation handling, federation-GUID-first
 resolution, scope isolation, relationship deletion behavior, and database
 error propagation.
 
+ElementAspect deletions, identified by their ECClass, no longer enter element
+deletion handling. Aspects are synchronized through their owning elements, and
+their IDs are not element IDs, so looking them up as element deletions only
+added work and could match an unrelated element with the same numeric ID.
+
 Deletion processing now also honors a valid context remap supplied by
 `addCustomChanges()` after provenance initialization. A conflicting remap made
 before `process()` can still be replaced while the context is initialized from

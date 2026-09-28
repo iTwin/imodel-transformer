@@ -2240,6 +2240,14 @@ export class IModelTransformer extends IModelExportHandler {
     )) {
       relationshipECClassIds.add(row.ECInstanceId);
     }
+    const elementAspectECClassIds = new Set<string>();
+    for await (const row of this.sourceDb.createQueryReader(
+      "SELECT ECInstanceId FROM ECDbMeta.ECClassDef where ECInstanceId IS (BisCore.ElementAspect)",
+      undefined,
+      { usePrimaryConn: true }
+    )) {
+      elementAspectECClassIds.add(row.ECInstanceId);
+    }
 
     // For later use when processing deletes.
     const alreadyImportedElementInserts = new Set<Id64String>();
@@ -2264,9 +2272,8 @@ export class IModelTransformer extends IModelExportHandler {
     );
 
     this._deletedSourceRelationshipData = new Map();
-    // Only ElementAspects carry an Element navigation property in BisCore.
     const isElementAspectDeletion = (change: ChangesetDeletionRecord) =>
-      change.elementId !== undefined;
+      elementAspectECClassIds.has(change.ecClassId);
 
     for (const changes of deletionRecordsByChangeset) {
       /** a map of element ids to this transformation scope's ESA data for that element, in case the ESA is deleted in the target */

@@ -92,6 +92,7 @@ import {
   TransformerLoggerCategory,
 } from "../../imodel-transformer";
 import { ProvenanceManager } from "../../ProvenanceManager";
+import { ChangesetScanner } from "../../ChangesetScanner";
 import {
   assertTransformerError,
   CountingIModelImporter,
@@ -7327,6 +7328,109 @@ describe("IModelTransformerHub", () => {
         targetElement2,
         "Element should be deleted in target iModel"
       ).to.equal(Id64.invalid);
+    });
+
+    it("classifies aspect deletions by class rather than owner metadata", async () => {
+      const { subjectId, aspectId } = withEditTxn(
+        sourceDb,
+        "insert subject with aspect",
+        (txn) => {
+          const insertedSubjectId = Subject.insert(
+            txn,
+            IModel.rootSubjectId,
+            "Aspect classification"
+          );
+          const insertedAspectId = txn.insertAspect({
+            classFullName: ExternalSourceAspect.classFullName,
+            element: new ElementOwnsExternalSourceAspects(insertedSubjectId),
+            scope: { id: IModel.rootSubjectId },
+            kind: "Document",
+            identifier: "classified-aspect",
+          } as ExternalSourceAspectProps);
+          return { subjectId: insertedSubjectId, aspectId: insertedAspectId };
+        }
+      );
+      await sourceDb.pushChanges({
+        description: "Insert subject with aspect",
+        retainLocks: true,
+      });
+
+      const initialEditTxn = createStartedEditTxn(targetDb);
+      let transformer = new IModelTransformer({
+        source: sourceDb,
+        target: initialEditTxn,
+      });
+      await transformer.process();
+      const targetSubjectId =
+        transformer.context.findTargetElementId(subjectId);
+      transformer.dispose();
+      initialEditTxn.end();
+      await targetDb.pushChanges({
+        description: "Initial aspect classification transformation",
+        retainLocks: true,
+      });
+      expect(Id64.isValid(targetSubjectId)).to.be.true;
+
+      withEditTxn(sourceDb, "delete subject with aspect", (txn) => {
+        txn.deleteElement(subjectId);
+      });
+      await sourceDb.pushChanges({
+        description: "Delete subject with aspect",
+        retainLocks: true,
+      });
+
+      // Swap the owner metadata so only the ECClass can distinguish the records.
+      const scan = ChangesetScanner.scan.bind(ChangesetScanner);
+      let scanCalls = 0;
+      const scanSpy = vi
+        .spyOn(ChangesetScanner, "scan")
+        .mockImplementation(async (...args) => {
+          scanCalls++;
+          const recordsByChangeset = await scan(...args);
+          for (const record of recordsByChangeset.flat()) {
+            if (
+              record.classFullName === ExternalSourceAspect.classFullName &&
+              record.ecInstanceId === aspectId
+            )
+              record.elementId = undefined;
+            else if (
+              record.classFullName === Subject.classFullName &&
+              record.ecInstanceId === subjectId
+            )
+              record.elementId = subjectId;
+          }
+          return recordsByChangeset;
+        });
+      const changesEditTxn = createStartedEditTxn(targetDb);
+      transformer = new IModelTransformer(
+        { source: sourceDb, target: changesEditTxn },
+        { argsForProcessChanges: {} }
+      );
+      const processedDeletions: string[] = [];
+      const processDeletedOp =
+        transformer["processDeletedOp"].bind(transformer);
+      transformer["processDeletedOp"] = async (...args) => {
+        processedDeletions.push(
+          `${args[0].classFullName}:${args[0].ecInstanceId}`
+        );
+        return processDeletedOp(...args);
+      };
+      try {
+        await transformer.process();
+      } finally {
+        scanSpy.mockRestore();
+        transformer.dispose();
+        changesEditTxn.end();
+      }
+
+      expect(processedDeletions).toContain(
+        `${Subject.classFullName}:${subjectId}`
+      );
+      expect(processedDeletions).not.toContain(
+        `${ExternalSourceAspect.classFullName}:${aspectId}`
+      );
+      expect(targetDb.elements.tryGetElement(targetSubjectId)).toBeUndefined();
+      expect(scanCalls).to.equal(1);
     });
 
     it("honors a guidless deletion remap and ignores a missing mapping", async () => {
