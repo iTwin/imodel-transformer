@@ -485,10 +485,14 @@ describe("IModelExporter changed-element traversal", () => {
     expect(await runPath(false)).to.deep.equal(expectedEvents);
   });
 
-  it("skips changed descendants of a rejected unchanged ancestor on the legacy and direct paths", async () => {
-    for (const exporterClass of [LegacyTraversalExporter, IModelExporter]) {
+  it.each([
+    ["legacy", LegacyTraversalExporter],
+    ["direct", IModelExporter],
+  ])(
+    "skips changed descendants of a rejected unchanged ancestor on the %s path",
+    async (path, exporterClass) => {
       const { sourceDb, ids, handler, exporter, changes } = setupChangesMode(
-        `RejectedUnchangedAncestor${exporterClass.name}`,
+        `RejectedUnchangedAncestor-${path}`,
         exporterClass
       );
       try {
@@ -513,7 +517,7 @@ describe("IModelExporter changed-element traversal", () => {
         sourceDb.close();
       }
     }
-  });
+  );
 
   it("does not call queryChildren when exporting changes on the direct path", async () => {
     const { sourceDb, ids, handler, exporter, changes } =
