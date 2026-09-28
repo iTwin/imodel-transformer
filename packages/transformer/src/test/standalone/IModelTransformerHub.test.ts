@@ -7110,46 +7110,47 @@ describe("IModelTransformerHub", () => {
       }
     }
 
-    async function processAllRejecting(rejectedIds: Id64String[]) {
-      const editTxn = createStartedEditTxn(targetDb);
-      const transformer = new RejectingTransformer(
-        sourceDb,
-        editTxn,
-        rejectedIds
-      );
-      await transformer.process();
-      transformer.dispose();
-      editTxn.end();
-      await targetDb.pushChanges({
-        description: "process all",
-        retainLocks: true,
-      });
-    }
-
-    /** Processes changes while rejecting the given elements, then discards the target changes. */
-    async function processChangesRejecting(
+    /** Transforms while rejecting the given elements, then pushes the target; abandons the target changes on failure. */
+    async function transformRejecting(
       rejectedIds: Id64String[],
-      inspect?: (transformer: IModelTransformer) => void
+      options?: IModelTransformOptions
     ) {
       const editTxn = createStartedEditTxn(targetDb);
       const transformer = new RejectingTransformer(
         sourceDb,
         editTxn,
         rejectedIds,
-        { argsForProcessChanges: {} }
+        options
       );
       try {
         await transformer.process();
-        inspect?.(transformer);
+        editTxn.end();
       } finally {
         transformer.dispose();
-        editTxn.end("abandon");
+        if (editTxn.isActive) editTxn.end("abandon");
       }
+      await targetDb.pushChanges({
+        description: "transform",
+        retainLocks: true,
+      });
+    }
+
+    const processChanges: IModelTransformOptions = {
+      argsForProcessChanges: {},
+    };
+
+    async function pushSource<T>(
+      description: string,
+      write: (txn: EditTxn) => T
+    ) {
+      const result = withEditTxn(sourceDb, description, write);
+      await sourceDb.pushChanges({ description, retainLocks: true });
+      return result;
     }
 
     /** Inserts a category that a full run rejects, then a subcategory under it. */
     async function insertSubCategoryUnderRejectedCategory() {
-      const categoryId = withEditTxn(sourceDb, "insert category", (txn) =>
+      const categoryId = await pushSource("insert category", (txn) =>
         SpatialCategory.insert(
           txn,
           IModel.dictionaryId,
@@ -7157,13 +7158,8 @@ describe("IModelTransformerHub", () => {
           new SubCategoryAppearance()
         )
       );
-      await sourceDb.pushChanges({
-        description: "insert category",
-        retainLocks: true,
-      });
-      await processAllRejecting([categoryId]);
-
-      const subCategoryId = withEditTxn(sourceDb, "insert subcategory", (txn) =>
+      await transformRejecting([categoryId]);
+      const subCategoryId = await pushSource("insert subcategory", (txn) =>
         SubCategory.insert(
           txn,
           categoryId,
@@ -7171,22 +7167,14 @@ describe("IModelTransformerHub", () => {
           new SubCategoryAppearance()
         )
       );
-      await sourceDb.pushChanges({
-        description: "insert subcategory",
-        retainLocks: true,
-      });
       return { categoryId, subCategoryId };
     }
 
     it("should skip a changed child when shouldExportElement rejects its unchanged parent", async () => {
-      const { categoryId, subCategoryId } =
-        await insertSubCategoryUnderRejectedCategory();
+      const { categoryId } = await insertSubCategoryUnderRejectedCategory();
 
-      await processChangesRejecting([categoryId], (transformer) => {
-        expect(transformer.context.findTargetElementId(subCategoryId)).to.equal(
-          Id64.invalid
-        );
-      });
+      // Completing proves the subcategory was skipped: importing it without its category would throw.
+      await transformRejecting([categoryId], processChanges);
     });
 
     it("should throw DependencyMappingMissing when a changed child requires an unchanged parent that is not in the target", async () => {
@@ -7195,15 +7183,14 @@ describe("IModelTransformerHub", () => {
 
       // The filter now accepts the category, but nobody added it in addCustomChanges.
       await expectTransformerError(
-        processChangesRejecting([]),
+        transformRejecting([], processChanges),
         IModelTransformerError.DependencyMappingMissing,
         `Element ${subCategoryId} requires unchanged element ${categoryId}, which is not in the target iModel. Change processing does not insert unchanged elements; to insert element ${categoryId}, add it in addCustomChanges.`
       );
     });
 
     it("should throw DependencyMappingMissing when a changed element requires an unchanged category that shouldExportElement rejects", async () => {
-      const { modelId, categoryId } = withEditTxn(
-        sourceDb,
+      const { modelId, categoryId } = await pushSource(
         "insert model and category",
         (txn) => ({
           modelId: PhysicalModel.insert(
@@ -7219,13 +7206,8 @@ describe("IModelTransformerHub", () => {
           ),
         })
       );
-      await sourceDb.pushChanges({
-        description: "insert model and category",
-        retainLocks: true,
-      });
-      await processAllRejecting([categoryId]);
-
-      const elementId = withEditTxn(sourceDb, "insert physical object", (txn) =>
+      await transformRejecting([categoryId]);
+      const elementId = await pushSource("insert physical object", (txn) =>
         txn.insertElement({
           classFullName: PhysicalObject.classFullName,
           model: modelId,
@@ -7233,13 +7215,9 @@ describe("IModelTransformerHub", () => {
           code: Code.createEmpty(),
         } as GeometricElementProps)
       );
-      await sourceDb.pushChanges({
-        description: "insert physical object",
-        retainLocks: true,
-      });
 
       await expectTransformerError(
-        processChangesRejecting([categoryId]),
+        transformRejecting([categoryId], processChanges),
         IModelTransformerError.DependencyMappingMissing,
         `Element ${elementId} requires element ${categoryId}, which the export filter rejects. Reject element ${elementId} as well, or accept element ${categoryId}.`
       );

@@ -1130,9 +1130,12 @@ export class IModelExporter {
   private async acceptUnchangedAncestors(): Promise<boolean> {
     for (const ancestor of this._unchangedAncestors) {
       if (ancestor.accepted === undefined) {
-        ancestor.accepted = await this.shouldExportElementById(
-          ancestor.elementId
-        );
+        const element = this.sourceDb.elements.getElement({
+          id: ancestor.elementId,
+          wantGeometry: this.wantGeometry,
+          wantBRepData: this.wantGeometry,
+        });
+        ancestor.accepted = await this.shouldExportElement(element);
         if (!ancestor.accepted)
           await this.handler.onSkipElement(ancestor.elementId);
       }
@@ -1372,7 +1375,9 @@ export class IModelExporter {
   ): Promise<boolean> {
     let elementFact = elementFacts.get(elementId);
     while (elementFact !== undefined) {
-      if (!(await this.shouldExportElementById(elementFact.id, elementFact)))
+      if (
+        !(await this.shouldExportElementForAspect(elementFact.id, elementFact))
+      )
         return false;
       if (
         !(await this.shouldExportModelForAspect(
@@ -1411,7 +1416,7 @@ export class IModelExporter {
       modelFact.id !== IModel.repositoryModelId &&
       modelFact.id !== IModel.dictionaryId &&
       modelFact.id !== "0xe" &&
-      !(await this.shouldExportElementById(
+      !(await this.shouldExportElementForAspect(
         modelFact.id,
         elementFacts.get(modelFact.id)
       ))
@@ -1466,8 +1471,8 @@ export class IModelExporter {
     }
   }
 
-  /** Applies the element export filter to an element loaded without geometry. @internal */
-  private async shouldExportElementById(
+  /** Apply the element export filter when deciding whether to process an aspect owner. @internal */
+  private async shouldExportElementForAspect(
     elementId: Id64String,
     elementFact?: AspectElementFact
   ): Promise<boolean> {
