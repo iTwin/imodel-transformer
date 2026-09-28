@@ -134,6 +134,9 @@ describe("IModelImporter", () => {
   <ECEntityClass typeName="TestUniqueAspect" modifier="Sealed">
     <BaseClass>bis:ElementUniqueAspect</BaseClass>
   </ECEntityClass>
+  <ECEntityClass typeName="TestReplaceableUniqueAspect" modifier="Sealed">
+    <BaseClass>bis:ElementUniqueAspect</BaseClass>
+  </ECEntityClass>
   <ECEntityClass typeName="TestMultiAspect" modifier="Sealed">
     <BaseClass>bis:ElementMultiAspect</BaseClass>
   </ECEntityClass>
@@ -166,6 +169,11 @@ describe("IModelImporter", () => {
         (txn) => ({
           excluded: txn.insertAspect({
             classFullName: "TestDeleteAspectsSchema:TestUniqueAspect",
+            element: new ElementOwnsUniqueAspect(elementId),
+          }),
+          replaceableUnique: txn.insertAspect({
+            classFullName:
+              "TestDeleteAspectsSchema:TestReplaceableUniqueAspect",
             element: new ElementOwnsUniqueAspect(elementId),
           }),
           replaceable: txn.insertAspect({
@@ -238,11 +246,12 @@ describe("IModelImporter", () => {
             .some((aspect) => aspect.id === id)
         );
       expect(hasAspect(aspectIds.excluded)).to.be.true;
+      expect(hasAspect(aspectIds.replaceableUnique)).to.be.false;
       expect(hasAspect(aspectIds.replaceable)).to.be.false;
       expect(hasAspect(aspectIds.nonProvenance)).to.be.false;
       expect(hasAspect(aspectIds.provenance)).to.be.true;
       expect(hasAspect(aspectIds.scopeOwned)).to.be.true;
-      expect(importer.deletedAspectCount).to.equal(2);
+      expect(importer.deletedAspectCount).to.equal(3);
       expect(importer.deletedExternalSourceIdentifiers).to.deep.equal([
         "replaceable",
       ]);
