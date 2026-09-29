@@ -107,6 +107,10 @@ Potential transformations include:
 - Schema Mapping - mapping classes and properties to a new schema during transformation
 - Change Squashing - each iModel has its own change ledger, so multiple changesets from the source could be _squashed_ into a single changeset to the target
 
+### Supplying source changes
+
+When processing changes, `IModelTransformer` downloads and reads the source changesets. To supply the changes from another source, such as a cache, instead, see [Supplying source changes](./change-scanning.md).
+
 ### Processing a subset
 
 `IModelTransformer.process()` finalizes its importer automatically. The subset methods

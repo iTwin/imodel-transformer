@@ -2208,22 +2208,8 @@ export class IModelTransformer extends IModelExportHandler {
    *
    * An override can supply some ranges itself and pass the rest to `super.scanChanges()`. Pass the same
    * `changedInstanceIds` to every call and handle the ranges in order, so that changes to the same instance in
-   * different ranges combine correctly. Use [[ChangedInstanceIds.addEntityChange]] to add each supplied change:
-   * ```ts
-   * protected override async scanChanges(ranges, changedInstanceIds = new ChangedInstanceIds(this.sourceDb)) {
-   *   const deletionRecords: DeletionRecords[] = [];
-   *   for (const range of ranges) {
-   *     const cached = await myCache.tryGetChanges(this.sourceDb, range);
-   *     if (cached === undefined) {
-   *       deletionRecords.push(...(await super.scanChanges([range], changedInstanceIds)).deletionRecords);
-   *       continue;
-   *     }
-   *     for (const change of cached.changes) await changedInstanceIds.addEntityChange(change);
-   *     deletionRecords.push(cached.deletionRecords);
-   *   }
-   *   return { changedInstanceIds, deletionRecords };
-   * }
-   * ```
+   * different ranges combine correctly. Use [[ChangedInstanceIds.addEntityChange]] to add each supplied change.
+   * See [Supplying source changes]($docs/learning/transformer/change-scanning.md) for the full contract and an example.
    * @param ranges Ordered, inclusive `[first, last]` changeset index ranges. They already exclude changesets
    * that must be skipped, such as those pushed by a previous synchronization in the other direction, so an
    * override must cover exactly these ranges.

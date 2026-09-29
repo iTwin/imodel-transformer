@@ -97,6 +97,10 @@ import {
 import { ProvenanceManager } from "../../ProvenanceManager";
 import { ChangesetScanner, DeletionRecords } from "../../ChangesetScanner";
 import {
+  CachedChangesTransformer,
+  ChangeCache,
+} from "./ChangeScanningExamples";
+import {
   assertTransformerError,
   CountingIModelImporter,
   createStartedEditTxn,
@@ -8138,77 +8142,73 @@ describe("IModelTransformerHub", () => {
       return sourceSchema;
     }
 
-    it("uses changes supplied by a scanChanges override without downloading changesets", async () => {
+    it("uses changes from a cache without downloading changesets", async () => {
       const { elementId, ecClassId, federationGuid, deleteChangesetIndex } =
         await syncElementThenDeleteInSource();
 
-      const scannedRanges: (readonly (readonly [number, number])[])[] = [];
-      class PrecomputedChangesTransformer extends IModelTransformer {
-        protected override async scanChanges(
-          ranges: readonly (readonly [number, number])[]
-        ): Promise<ChangeScanResult> {
-          scannedRanges.push(ranges);
-          const changedInstanceIds = new ChangedInstanceIds(this.sourceDb);
-          await changedInstanceIds.addEntityChange({
-            id: elementId,
-            ecClassId,
-            op: "Deleted",
+      const requestedRanges: (readonly [number, number])[] = [];
+      const cache: ChangeCache = {
+        tryGetChanges: async (_iModel, range) => {
+          requestedRanges.push(range);
+          return Promise.resolve({
+            changes: [{ id: elementId, ecClassId, op: "Deleted" }],
+            deletionRecords: {
+              elements: [
+                { ecInstanceId: elementId, ecClassId, federationGuid },
+              ],
+              models: [],
+              relationships: [],
+              externalSourceAspects: [],
+            },
           });
-          return {
-            changedInstanceIds,
-            deletionRecords: [
-              {
-                elements: [
-                  { ecInstanceId: elementId, ecClassId, federationGuid },
-                ],
-                models: [],
-                relationships: [],
-                externalSourceAspects: [],
-              },
-            ],
-          };
-        }
-      }
+        },
+      };
 
       const downloadSpy = vi.spyOn(BriefcaseManager, "downloadChangesets");
       try {
-        await processChangesWith(PrecomputedChangesTransformer);
+        await processChangesWith(
+          (...args) => new CachedChangesTransformer(cache, ...args)
+        );
         expect(downloadSpy).not.toHaveBeenCalled();
       } finally {
         downloadSpy.mockRestore();
       }
 
-      expect(scannedRanges).to.deep.equal([
-        [[deleteChangesetIndex, deleteChangesetIndex]],
+      expect(requestedRanges).to.deep.equal([
+        [deleteChangesetIndex, deleteChangesetIndex],
       ]);
       expect(targetDb.elements.getIdFromFederationGuid(federationGuid)).to.be
         .undefined;
     });
 
-    it("falls back to the default changeset scan from a scanChanges override", async () => {
+    it("falls back to the default changeset scan for ranges missing from a cache", async () => {
       const { federationGuid, deleteChangesetIndex } =
         await syncElementThenDeleteInSource();
 
-      const scannedRanges: (readonly (readonly [number, number])[])[] = [];
-      class FallbackTransformer extends IModelTransformer {
-        protected override async scanChanges(
-          ranges: readonly (readonly [number, number])[]
-        ): Promise<ChangeScanResult> {
-          scannedRanges.push(ranges);
-          return super.scanChanges(ranges);
-        }
-      }
+      const requestedRanges: (readonly [number, number])[] = [];
+      const cache: ChangeCache = {
+        tryGetChanges: async (_iModel, range) => {
+          requestedRanges.push(range);
+          return Promise.resolve(undefined);
+        },
+      };
 
       const downloadSpy = vi.spyOn(BriefcaseManager, "downloadChangesets");
       try {
-        await processChangesWith(FallbackTransformer);
-        expect(downloadSpy).toHaveBeenCalledTimes(1);
+        await processChangesWith(
+          (...args) => new CachedChangesTransformer(cache, ...args)
+        );
+        expect(
+          downloadSpy.mock.calls.map(([args]) => args.range)
+        ).to.deep.equal([
+          { first: deleteChangesetIndex, end: deleteChangesetIndex },
+        ]);
       } finally {
         downloadSpy.mockRestore();
       }
 
-      expect(scannedRanges).to.deep.equal([
-        [[deleteChangesetIndex, deleteChangesetIndex]],
+      expect(requestedRanges).to.deep.equal([
+        [deleteChangesetIndex, deleteChangesetIndex],
       ]);
       expect(targetDb.elements.getIdFromFederationGuid(federationGuid)).to.be
         .undefined;
@@ -8264,7 +8264,9 @@ describe("IModelTransformerHub", () => {
 
       const downloadSpy = vi.spyOn(BriefcaseManager, "downloadChangesets");
       try {
-        await processChangesWith(PartlyCachedTransformer);
+        await processChangesWith(
+          (...args) => new PartlyCachedTransformer(...args)
+        );
         expect(
           downloadSpy.mock.calls.map(([args]) => args.range)
         ).to.deep.equal([
@@ -8375,10 +8377,12 @@ describe("IModelTransformerHub", () => {
     }
 
     async function processChangesWith(
-      transformerClass: typeof IModelTransformer
+      createTransformer: (
+        ...args: ConstructorParameters<typeof IModelTransformer>
+      ) => IModelTransformer
     ): Promise<void> {
       const editTxn = createStartedEditTxn(targetDb);
-      const transformer = new transformerClass(
+      const transformer = createTransformer(
         { source: sourceDb, target: editTxn },
         { argsForProcessChanges: {} }
       );
