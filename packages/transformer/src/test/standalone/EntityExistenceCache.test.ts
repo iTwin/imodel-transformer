@@ -394,13 +394,14 @@ describe("EntityExistenceCache", () => {
           );
         });
 
-      // Every one of the 20 physical objects references the same model. The
-      // source batch check should query that model type once, not once per object.
-      expect(modelExistenceQueries).toHaveLength(1);
+      // Every physical object references the same model, which was exported from the
+      // source before them and is therefore already known to exist.
+      expect(modelExistenceQueries).toHaveLength(0);
       expect(individualModelExistenceQueries).toHaveLength(0);
       expect(
         markExists.mock.calls.some(
-          ([, reference]) =>
+          ([db, reference]) =>
+            db === targetDb &&
             EntityReferences.split(reference)[0] === ConcreteEntityTypes.Element
         )
       ).to.be.false;
