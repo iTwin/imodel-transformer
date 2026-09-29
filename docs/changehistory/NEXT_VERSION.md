@@ -47,19 +47,21 @@ See [Incremental exports](../learning/transformer/index.md#incremental-exports) 
 class CachedChangesTransformer extends IModelTransformer {
   protected override async scanChanges(
     ranges: [number, number][]
-  ): Promise<ChangesetScanResult> {
+  ): Promise<ChangeScanResult> {
     const cached = await myCache.tryGetChanges(this.sourceDb, ranges);
     return cached ?? super.scanChanges(ranges);
   }
 }
 ```
 
-`ranges` lists the inclusive changeset index ranges to process. It already excludes changesets that synchronization must skip, such as those pushed by a previous synchronization in the other direction, so an override must cover exactly these ranges. The override returns a `ChangesetScanResult`:
+`ranges` lists the inclusive changeset index ranges to process. It already excludes changesets that synchronization must skip, such as those pushed by a previous synchronization in the other direction, so an override must cover exactly these ranges. The override returns a `ChangeScanResult`:
 
 - `changedInstanceIds`: the changes to export. Use `ChangedInstanceIds.addAspectOwnerElementIds()` to record the owning elements of changed aspects.
-- `deletionRecordsByChangeset`: one array of `ChangesetDeletionRecord`s per changeset, used to find the target entities of deleted source entities.
+- `deletionRecords`: ordered batches of `DeletionRecords`, used to find the target entities of deleted source entities. Each batch lists deleted elements, models, relationships, and `ExternalSourceAspect`s separately, with the fields each needs to find its target. An empty array means nothing of that kind was deleted.
 
-The default `scanChanges` now downloads the changesets, so an override that covers every range downloads none. `scanChanges` isn't called when `changedInstanceIds` is passed in `argsForProcessChanges`.
+A batch can cover one changeset, a range, or all ranges. An `ExternalSourceAspect` deletion is used to find the target of an element deleted in the same batch, so larger batches find more targets. The default `scanChanges` returns one batch per range, instead of processing each changeset separately. As a result, a reverse synchronization now also deletes the master element for a branch element without a `FederationGuid` whose provenance aspect was deleted in an earlier changeset of the same range.
+
+The default `scanChanges` downloads the changesets, so an override that covers every range downloads none. `scanChanges` isn't called when `changedInstanceIds` is passed in `argsForProcessChanges`.
 
 ## Breaking change: batched incremental element deletion
 

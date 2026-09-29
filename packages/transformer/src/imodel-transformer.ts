@@ -11,9 +11,13 @@ export * from "./schema-processing/SchemaProcessingStrategy";
 export * from "./IModelTransformerError";
 export * from "./BranchProvenanceInitializer";
 export type {
-  ChangesetDeletionRecord,
-  ChangesetDeletionRecordsByChangeset,
-  ChangesetScanResult,
+  ChangeScanResult,
+  DeletionRecordBase,
+  DeletionRecords,
+  ElementDeletionRecord,
+  ExternalSourceAspectDeletionRecord,
+  ModelDeletionRecord,
+  RelationshipDeletionRecord,
 } from "./ChangesetScanner";
 
 import * as semver from "semver";

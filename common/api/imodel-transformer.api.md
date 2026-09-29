@@ -96,26 +96,23 @@ export class ChangedInstanceOps {
 }
 
 // @beta
-export interface ChangesetDeletionRecord {
-    classFullName?: string;
-    ecClassId: Id64String;
-    ecInstanceId: Id64String;
-    elementId?: Id64String;
-    federationGuid?: string;
-    identifier?: string;
-    kind?: string;
-    scopeId?: Id64String;
-    sourceECInstanceId?: Id64String;
-    targetECInstanceId?: Id64String;
+export interface ChangeScanResult {
+    changedInstanceIds: ChangedInstanceIds;
+    deletionRecords: DeletionRecords[];
 }
 
 // @beta
-export type ChangesetDeletionRecordsByChangeset = ChangesetDeletionRecord[][];
+export interface DeletionRecordBase {
+    ecClassId: Id64String;
+    ecInstanceId: Id64String;
+}
 
 // @beta
-export interface ChangesetScanResult {
-    changedInstanceIds: ChangedInstanceIds;
-    deletionRecordsByChangeset: ChangesetDeletionRecordsByChangeset;
+export interface DeletionRecords {
+    elements: ElementDeletionRecord[];
+    externalSourceAspects: ExternalSourceAspectDeletionRecord[];
+    models: ModelDeletionRecord[];
+    relationships: RelationshipDeletionRecord[];
 }
 
 // @beta
@@ -123,6 +120,11 @@ export interface ElementBulkDeleteError extends ITwinError {
     readonly failedIds: ReadonlySet<Id64String>;
     readonly sqlDeleteStatus: DbResult;
     readonly status: BulkDeleteElementsStatus;
+}
+
+// @beta
+export interface ElementDeletionRecord extends DeletionRecordBase {
+    federationGuid?: string;
 }
 
 // @public
@@ -169,6 +171,14 @@ export type ExporterInitOptions = ExportChangesOptions;
 // @beta
 export interface ExportSchemaResult {
     schemaPath?: string;
+}
+
+// @beta
+export interface ExternalSourceAspectDeletionRecord extends DeletionRecordBase {
+    elementId: Id64String;
+    identifier: string;
+    kind: string;
+    scopeId: Id64String;
 }
 
 // @internal
@@ -384,7 +394,7 @@ export class IModelTransformer extends IModelExportHandler {
     static get provenanceElementClasses(): (typeof Entity)[];
     // (undocumented)
     protected _provenanceManager: ProvenanceManager;
-    protected scanChanges(ranges: [number, number][]): Promise<ChangesetScanResult>;
+    protected scanChanges(ranges: [number, number][]): Promise<ChangeScanResult>;
     protected _schemaExportDir: string;
     protected shouldDetectDeletes(): Promise<boolean>;
     shouldExportCodeSpec(_sourceCodeSpec: CodeSpec): Promise<boolean>;
@@ -481,6 +491,9 @@ export interface InitOptions {
 }
 
 // @beta
+export type ModelDeletionRecord = DeletionRecordBase;
+
+// @beta
 export class NewerVersionSchemaImportStrategy implements SchemaProcessingStrategy {
     processSchemas(context: SchemaProcessingContext): Promise<SchemaProcessingResult[]>;
 }
@@ -526,6 +539,13 @@ export interface ProvenanceInitResult {
 // @beta
 export interface ReadonlySchemaAccessor {
     getSchema(schemaName: string): Promise<Schema | undefined>;
+}
+
+// @beta
+export interface RelationshipDeletionRecord extends DeletionRecordBase {
+    classFullName: string;
+    sourceECInstanceId: Id64String;
+    targetECInstanceId: Id64String;
 }
 
 // @beta (undocumented)

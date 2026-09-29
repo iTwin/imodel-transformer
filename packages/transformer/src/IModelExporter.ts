@@ -2472,7 +2472,7 @@ export class ChangedInstanceIds {
     if (csFileProps === undefined) return undefined;
 
     const changedInstanceIds = new ChangedInstanceIds(opts.iModel);
-    await ChangesetScanner.scan(opts.iModel, csFileProps, changedInstanceIds);
+    await ChangesetScanner.scan(opts.iModel, [csFileProps], changedInstanceIds);
     return changedInstanceIds;
   }
 

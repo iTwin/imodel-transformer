@@ -3,13 +3,15 @@ Release Tag;API Item Type;API Item Name
 public;class;ChangedInstanceIds
 public;type;ChangedInstanceIdsInitOptions
 public;class;ChangedInstanceOps
-beta;interface;ChangesetDeletionRecord
-beta;type;ChangesetDeletionRecordsByChangeset
-beta;interface;ChangesetScanResult
+beta;interface;ChangeScanResult
+beta;interface;DeletionRecordBase
+beta;interface;DeletionRecords
 beta;interface;ElementBulkDeleteError
+beta;interface;ElementDeletionRecord
 public;type;ExportChangesOptions
 beta;type;ExporterInitOptions
 beta;interface;ExportSchemaResult
+beta;interface;ExternalSourceAspectDeletionRecord
 internal;function;hasEntityChanged
 beta;class;IModelExporter
 beta;class;IModelExportHandler
@@ -23,6 +25,7 @@ beta;const;IModelTransformerErrorScope
 beta;interface;IModelTransformOptions
 alpha;function;initializeBranchProvenance
 beta;interface;InitOptions
+beta;type;ModelDeletionRecord
 beta;class;NewerVersionSchemaImportStrategy
 beta;interface;OptimizeGeometryOptions
 beta;type;ProcessChangesOptions
@@ -30,6 +33,7 @@ beta;interface;ProcessSchemasOptions
 alpha;interface;ProvenanceInitArgs
 alpha;interface;ProvenanceInitResult
 beta;interface;ReadonlySchemaAccessor
+beta;interface;RelationshipDeletionRecord
 beta;interface;RelationshipPropsForDelete
 beta;interface;SchemaProcessingContext
 beta;type;SchemaProcessingResult

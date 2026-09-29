@@ -6,6 +6,7 @@
 import {
   ChangeInstance,
   ChangesetReader,
+  ExternalSourceAspect,
   IModelDb,
   PartialChangeUnifier,
   PropertyFilter,
@@ -19,51 +20,105 @@ import {
 } from "./IModelTransformerError";
 
 /**
- * Metadata retained from a deleted EC instance for later target remapping.
- * Properties are optional when the deleted instance did not contain that value.
+ * Identity shared by all deletion records.
  * @beta
  */
-export interface ChangesetDeletionRecord {
+export interface DeletionRecordBase {
   /** ID of the deleted source instance. */
   ecInstanceId: Id64String;
   /** EC class ID of the deleted source instance. */
   ecClassId: Id64String;
-  /** Full EC class name resolved from [[ecClassId]]. Set it for deleted relationships and ExternalSourceAspects. */
-  classFullName?: string;
-  /** Federation GUID used to find the corresponding target element. */
-  federationGuid?: string;
-  /** Source endpoint of a deleted relationship. */
-  sourceECInstanceId?: Id64String;
-  /** Target endpoint of a deleted relationship. */
-  targetECInstanceId?: Id64String;
-  /** Scope of a deleted ExternalSourceAspect. */
-  scopeId?: Id64String;
-  /** Element owning a deleted ElementAspect. */
-  elementId?: Id64String;
-  /** Kind of a deleted ExternalSourceAspect. */
-  kind?: string;
-  /** Identifier of a deleted ExternalSourceAspect. */
-  identifier?: string;
 }
 
 /**
- * Pre-delete properties grouped by changeset. [[ChangedInstanceIds]] retains
- * operation sets but not the properties needed to remap deleted instances.
- * Grouping keeps scoped ExternalSourceAspect metadata paired with deletions
- * from the same changeset.
+ * A deleted source element.
  * @beta
  */
-export type ChangesetDeletionRecordsByChangeset = ChangesetDeletionRecord[][];
+export interface ElementDeletionRecord extends DeletionRecordBase {
+  /** Federation GUID used to find the corresponding target element. Undefined when the element had none. */
+  federationGuid?: string;
+}
 
 /**
- * Changes read from a range of source changesets for [[IModelTransformer.scanChanges]].
+ * A deleted source model.
  * @beta
  */
-export interface ChangesetScanResult {
+export type ModelDeletionRecord = DeletionRecordBase;
+
+/**
+ * A deleted source relationship derived from `BisCore:ElementRefersToElements`.
+ * @beta
+ */
+export interface RelationshipDeletionRecord extends DeletionRecordBase {
+  /** Full EC class name of the deleted relationship. */
+  classFullName: string;
+  /** Source endpoint of the deleted relationship. */
+  sourceECInstanceId: Id64String;
+  /** Target endpoint of the deleted relationship. */
+  targetECInstanceId: Id64String;
+}
+
+/**
+ * A deleted source ExternalSourceAspect, used to find the target of an element deleted in the same batch.
+ * Only aspects with a scope, kind, and identifier are recorded.
+ * @beta
+ */
+export interface ExternalSourceAspectDeletionRecord extends DeletionRecordBase {
+  /** Element that owned the deleted aspect. */
+  elementId: Id64String;
+  /** Scope of the deleted aspect. */
+  scopeId: Id64String;
+  /** Kind of the deleted aspect. */
+  kind: string;
+  /** Identifier of the deleted aspect. */
+  identifier: string;
+}
+
+/**
+ * Deleted source instances from one batch of changes.
+ * @note Batches are processed in order. An ExternalSourceAspect deletion is used to identify element deletions in the same batch. An empty array means nothing of that kind was deleted.
+ * @beta
+ */
+export interface DeletionRecords {
+  /** Deleted elements. */
+  elements: ElementDeletionRecord[];
+  /** Deleted models. */
+  models: ModelDeletionRecord[];
+  /** Deleted relationships derived from `BisCore:ElementRefersToElements`. */
+  relationships: RelationshipDeletionRecord[];
+  /** Deleted ExternalSourceAspects with a scope, kind, and identifier. */
+  externalSourceAspects: ExternalSourceAspectDeletionRecord[];
+}
+
+/**
+ * Changes read for [[IModelTransformer.scanChanges]].
+ * @beta
+ */
+export interface ChangeScanResult {
   /** Changed instance IDs, including the owning elements of changed aspects. */
   changedInstanceIds: ChangedInstanceIds;
-  /** Deleted-instance metadata, with one array per changeset in processing order. */
-  deletionRecordsByChangeset: ChangesetDeletionRecordsByChangeset;
+  /** Deletion batches of any granularity: one per changeset, one per range, or one for all ranges. */
+  deletionRecords: DeletionRecords[];
+}
+
+/** Values kept from a deleted row until its class is known. */
+interface DeletedRow {
+  ecInstanceId: Id64String;
+  ecClassId: Id64String;
+  federationGuid?: string;
+  sourceECInstanceId?: Id64String;
+  targetECInstanceId?: Id64String;
+  elementId?: Id64String;
+  scopeId?: Id64String;
+  kind?: string;
+  identifier?: string;
+}
+
+interface DeletionClassIds {
+  elements: Set<Id64String>;
+  models: Set<Id64String>;
+  relationships: Set<Id64String>;
+  relationshipsToSkip: Set<Id64String>;
 }
 
 /**
@@ -74,104 +129,182 @@ export interface ChangesetScanResult {
  */
 export class ChangesetScanner {
   /**
-   * Scans each changeset file in order with one reader and unifier per file.
-   * @param iModel Database used to resolve EC class names.
-   * @param csFileProps Ordered changeset files to scan.
+   * Scans each group of changeset files in order with one reader and unifier per file.
+   * @param iModel Database used to resolve EC classes.
+   * @param csFileGroups Ordered groups of changeset files. Each group produces one deletion batch.
    * @param changedInstanceIds Aggregate updated with the unified changes unless disabled by [[options]].
    * @param options Controls whether the aggregate is populated while deletion records are collected.
-   * @returns Deleted-instance properties needed after the scan; changed IDs are written to [[changedInstanceIds]].
+   * @returns One deletion batch per group; changed IDs are written to [[changedInstanceIds]].
    */
   public static async scan(
     iModel: IModelDb,
-    csFileProps: ChangesetFileProps[],
+    csFileGroups: ChangesetFileProps[][],
     changedInstanceIds: ChangedInstanceIds,
     options: { populateChangedInstanceIds?: boolean } = {}
-  ): Promise<ChangesetDeletionRecordsByChangeset> {
-    const deletionRecordsByChangeset: ChangesetDeletionRecord[][] = [];
+  ): Promise<DeletionRecords[]> {
+    const deletedRowGroups: DeletedRow[][] = [];
     await changedInstanceIds.addChanges(
-      this.readChanges(iModel, csFileProps, deletionRecordsByChangeset, options)
+      this.readChanges(iModel, csFileGroups, deletedRowGroups, options)
     );
-    return deletionRecordsByChangeset;
+    const classIds = deletedRowGroups.some((rows) => rows.length > 0)
+      ? await this.queryDeletionClassIds(iModel)
+      : undefined;
+    return deletedRowGroups.map((rows) =>
+      this.toDeletionRecords(iModel, rows, classIds)
+    );
   }
 
   private static *readChanges(
     iModel: IModelDb,
-    csFileProps: ChangesetFileProps[],
-    deletionRecordsByChangeset: ChangesetDeletionRecordsByChangeset,
+    csFileGroups: ChangesetFileProps[][],
+    deletedRowGroups: DeletedRow[][],
     options: { populateChangedInstanceIds?: boolean }
   ): Generator<ChangeInstance> {
-    for (const csFile of csFileProps) {
-      const csReader = ChangesetReader.openFile({
-        fileName: csFile.pathname,
-        db: iModel,
-        propFilter: PropertyFilter.BisCoreElement,
-      });
-      const changeUnifier = new PartialChangeUnifier();
-      try {
-        while (csReader.step()) changeUnifier.appendFrom(csReader);
-        const deletionRecords: ChangesetDeletionRecord[] = [];
-        for (const change of changeUnifier.instances) {
-          const ecClassId = change.ECClassId;
-          if (ecClassId === undefined)
-            ITwinError.throwError({
-              iTwinErrorId: {
-                scope: IModelTransformerErrorScope,
-                key: IModelTransformerError.ChangedInstanceMetadataMissing,
-              },
-              message: `ECClassId was not found for id: ${change.ECInstanceId}! Table is : ${change.$meta.tables}`,
-            });
-          // Change is recorded at table level, not EC entity level.
-          // This normalizes overflow-table expansion records so they do not
-          // appear as element inserts or deletes.
-          if (
-            (change.$meta.op === "Inserted" || change.$meta.op === "Deleted") &&
-            change.$meta.tables.every((table) => table.endsWith("Overflow"))
-          ) {
-            change.$meta.op = "Updated";
-          }
-
-          if (options.populateChangedInstanceIds !== false) yield change;
-          if (change.$meta.op === "Deleted") {
-            deletionRecords.push(this.toDeletionRecord(iModel, change));
-          }
-        }
-        deletionRecordsByChangeset.push(deletionRecords);
-      } finally {
+    for (const csFileProps of csFileGroups) {
+      const deletedRows: DeletedRow[] = [];
+      deletedRowGroups.push(deletedRows);
+      for (const csFile of csFileProps) {
+        const csReader = ChangesetReader.openFile({
+          fileName: csFile.pathname,
+          db: iModel,
+          propFilter: PropertyFilter.BisCoreElement,
+        });
+        const changeUnifier = new PartialChangeUnifier();
         try {
-          changeUnifier[Symbol.dispose]();
+          while (csReader.step()) changeUnifier.appendFrom(csReader);
+          for (const change of changeUnifier.instances) {
+            const ecClassId = change.ECClassId;
+            if (ecClassId === undefined)
+              ITwinError.throwError({
+                iTwinErrorId: {
+                  scope: IModelTransformerErrorScope,
+                  key: IModelTransformerError.ChangedInstanceMetadataMissing,
+                },
+                message: `ECClassId was not found for id: ${change.ECInstanceId}! Table is : ${change.$meta.tables}`,
+              });
+            // Change is recorded at table level, not EC entity level.
+            // This normalizes overflow-table expansion records so they do not
+            // appear as element inserts or deletes.
+            if (
+              (change.$meta.op === "Inserted" ||
+                change.$meta.op === "Deleted") &&
+              change.$meta.tables.every((table) => table.endsWith("Overflow"))
+            ) {
+              change.$meta.op = "Updated";
+            }
+
+            if (options.populateChangedInstanceIds !== false) yield change;
+            if (change.$meta.op === "Deleted") {
+              deletedRows.push({
+                ecInstanceId: change.ECInstanceId,
+                ecClassId,
+                federationGuid: change.FederationGuid,
+                sourceECInstanceId: change.SourceECInstanceId,
+                targetECInstanceId: change.TargetECInstanceId,
+                elementId: change.Element?.Id,
+                scopeId: change.Scope?.Id,
+                kind: change.Kind,
+                identifier: change.Identifier,
+              });
+            }
+          }
         } finally {
-          csReader[Symbol.dispose]();
+          try {
+            changeUnifier[Symbol.dispose]();
+          } finally {
+            csReader[Symbol.dispose]();
+          }
         }
       }
     }
   }
 
-  private static toDeletionRecord(
-    iModel: IModelDb,
-    change: ChangeInstance
-  ): ChangesetDeletionRecord {
-    const ecClassId = change.ECClassId;
-    if (ecClassId === undefined) {
-      ITwinError.throwError({
-        iTwinErrorId: {
-          scope: IModelTransformerErrorScope,
-          key: IModelTransformerError.ChangedInstanceMetadataMissing,
-        },
-        message: `ECClassId was not found for id: ${change.ECInstanceId}! Table is : ${change.$meta.tables}`,
-      });
-    }
-
-    return {
-      ecInstanceId: change.ECInstanceId,
-      ecClassId,
-      classFullName: iModel.getClassNameFromId(ecClassId),
-      federationGuid: change.FederationGuid,
-      sourceECInstanceId: change.SourceECInstanceId,
-      targetECInstanceId: change.TargetECInstanceId,
-      scopeId: change.Scope?.Id,
-      elementId: change.Element?.Id,
-      kind: change.Kind,
-      identifier: change.Identifier,
+  private static async queryDeletionClassIds(
+    iModel: IModelDb
+  ): Promise<DeletionClassIds> {
+    const queryClassIds = async (baseClass: string) => {
+      const classIds = new Set<Id64String>();
+      for await (const row of iModel.createQueryReader(
+        `SELECT ECInstanceId FROM ECDbMeta.ECClassDef WHERE ECInstanceId IS (${baseClass})`,
+        undefined,
+        { usePrimaryConn: true }
+      ))
+        classIds.add(row.ECInstanceId);
+      return classIds;
     };
+    const [elements, models, relationships, relationshipsToSkip] =
+      await Promise.all([
+        queryClassIds("BisCore.Element"),
+        queryClassIds("BisCore.Model"),
+        queryClassIds("BisCore.ElementRefersToElements"),
+        queryClassIds("BisCore.ElementDrivesElement"),
+      ]);
+    return { elements, models, relationships, relationshipsToSkip };
+  }
+
+  private static toDeletionRecords(
+    iModel: IModelDb,
+    rows: DeletedRow[],
+    classIds: DeletionClassIds | undefined
+  ): DeletionRecords {
+    const records: DeletionRecords = {
+      elements: [],
+      models: [],
+      relationships: [],
+      externalSourceAspects: [],
+    };
+    if (classIds === undefined) return records;
+
+    for (const row of rows) {
+      const { ecInstanceId, ecClassId } = row;
+      if (classIds.relationshipsToSkip.has(ecClassId)) continue;
+      if (classIds.relationships.has(ecClassId)) {
+        const { sourceECInstanceId, targetECInstanceId } = row;
+        if (
+          sourceECInstanceId === undefined ||
+          targetECInstanceId === undefined
+        )
+          ITwinError.throwError({
+            iTwinErrorId: {
+              scope: IModelTransformerErrorScope,
+              key: IModelTransformerError.ChangedInstanceMetadataMissing,
+            },
+            message: `Relationship deletion ${ecInstanceId} is missing an endpoint.`,
+          });
+        records.relationships.push({
+          ecInstanceId,
+          ecClassId,
+          classFullName: iModel.getClassNameFromId(ecClassId),
+          sourceECInstanceId,
+          targetECInstanceId,
+        });
+      } else if (classIds.models.has(ecClassId)) {
+        records.models.push({ ecInstanceId, ecClassId });
+      } else if (classIds.elements.has(ecClassId)) {
+        records.elements.push({
+          ecInstanceId,
+          ecClassId,
+          federationGuid: row.federationGuid,
+        });
+      } else if (
+        // Throws for classes missing from the current schema. Other classes need no target lookup.
+        iModel.getClassNameFromId(ecClassId) ===
+          ExternalSourceAspect.classFullName &&
+        row.elementId !== undefined &&
+        row.scopeId !== undefined &&
+        row.kind !== undefined &&
+        row.identifier !== undefined
+      ) {
+        records.externalSourceAspects.push({
+          ecInstanceId,
+          ecClassId,
+          elementId: row.elementId,
+          scopeId: row.scopeId,
+          kind: row.kind,
+          identifier: row.identifier,
+        });
+      }
+    }
+    return records;
   }
 }
