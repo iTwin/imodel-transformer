@@ -1099,8 +1099,10 @@ export class IModelTransformer extends IModelExportHandler {
     }
   }
 
-  /** An exported source entity exists, so later references to it need no source query. */
-  private markSourceEntityExists(entity: ConcreteEntity): void {
+  /** An exported source element or model exists, so later references to it need no source query.
+   * Aspects are not recorded: they are rarely referenced, and they are usually the largest group.
+   */
+  private markSourceEntityExists(entity: Element | Model): void {
     if (this._options.danglingReferencesBehavior !== "reject") return;
     this._cloneContext.existenceCache.markExists(
       this.sourceDb,
@@ -1973,7 +1975,6 @@ export class IModelTransformer extends IModelExportHandler {
   public override async onExportElementUniqueAspect(
     sourceAspect: ElementUniqueAspect
   ): Promise<void> {
-    this.markSourceEntityExists(sourceAspect);
     const targetAspectProps = await this.onTransformElementAspect(sourceAspect);
     if (!(await this.doAllReferencesExistInTarget(sourceAspect))) {
       this._partiallyCommittedAspectIds.add(sourceAspect.id);
@@ -1995,7 +1996,6 @@ export class IModelTransformer extends IModelExportHandler {
       this.onTransformElementAspect(srcA)
     );
     for (const a of sourceAspects) {
-      this.markSourceEntityExists(a);
       if (!(await this.doAllReferencesExistInTarget(a))) {
         this._partiallyCommittedAspectIds.add(a.id);
       }

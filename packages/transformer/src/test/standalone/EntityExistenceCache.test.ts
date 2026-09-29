@@ -5,6 +5,7 @@
 
 import {
   EntityReferences,
+  IModelDb,
   IModelJsFs,
   PhysicalModel,
   PhysicalObject,
@@ -82,6 +83,30 @@ describe("EntityExistenceCache", () => {
       return { categoryId, modelId, objIds };
     });
     return { db, ...ids };
+  }
+
+  /** Records the references of `type` that are queried in `db`, whichever query form is used. */
+  function spyOnExistenceQueries(db: IModelDb, type: ConcreteEntityTypes) {
+    const exists = vi.spyOn(EntityUnifier, "exists");
+    const existsAll = vi.spyOn(EntityUnifier, "existsAll");
+    const queriedReferences = (): EntityReference[] =>
+      [
+        ...exists.mock.calls
+          .filter(([queriedDb]) => queriedDb === db)
+          .map(([, arg]) =>
+            "entityReference" in arg
+              ? arg.entityReference
+              : EntityReferences.from(arg.entity)
+          ),
+        ...existsAll.mock.calls
+          .filter(([queriedDb]) => queriedDb === db)
+          .flatMap(([, references]) => [...references]),
+      ].filter((reference) => EntityReferences.split(reference)[0] === type);
+    const restore = () => {
+      exists.mockRestore();
+      existsAll.mockRestore();
+    };
+    return { queriedReferences, restore };
   }
 
   it("caches positive results so repeat checks don't re-query", async () => {
@@ -359,7 +384,10 @@ describe("EntityExistenceCache", () => {
       rootSubject: { name: "ManyElementsTarget" },
     });
 
-    const createQueryReader = vi.spyOn(sourceDb, "createQueryReader");
+    const sourceModelQueries = spyOnExistenceQueries(
+      sourceDb,
+      ConcreteEntityTypes.Model
+    );
     const markExists = vi.spyOn(EntityExistenceCache.prototype, "markExists");
     const targetEditTxn = createStartedEditTxn(targetDb);
     const transformer = new IModelTransformer({
@@ -370,30 +398,9 @@ describe("EntityExistenceCache", () => {
     try {
       await transformer.process();
 
-      const normalizeQuery = (query: string) =>
-        query.replace(/\s+/g, " ").trim().toLowerCase();
-      const modelExistenceQueries = createQueryReader.mock.calls.filter(
-        ([query]) => {
-          const normalizedQuery = normalizeQuery(query);
-          return (
-            normalizedQuery.includes("from biscore:model") &&
-            normalizedQuery.includes("idset(:ids)")
-          );
-        }
-      );
-      const individualModelExistenceQueries =
-        createQueryReader.mock.calls.filter(([query]) => {
-          const normalizedQuery = normalizeQuery(query);
-          return (
-            normalizedQuery.includes("from biscore:model") &&
-            /where ecinstanceid\s*=\s*:id\b/.test(normalizedQuery)
-          );
-        });
-
       // Every physical object references the same model, which was exported from the
       // source before them and is therefore already known to exist.
-      expect(modelExistenceQueries).toHaveLength(0);
-      expect(individualModelExistenceQueries).toHaveLength(0);
+      expect(sourceModelQueries.queriedReferences()).toHaveLength(0);
       expect(
         markExists.mock.calls.some(
           ([db, reference]) =>
@@ -403,7 +410,7 @@ describe("EntityExistenceCache", () => {
       ).to.be.false;
       processSucceeded = true;
     } finally {
-      createQueryReader.mockRestore();
+      sourceModelQueries.restore();
       markExists.mockRestore();
       transformer.dispose();
       targetEditTxn.end(processSucceeded ? "save" : "abandon");
@@ -446,7 +453,10 @@ describe("EntityExistenceCache", () => {
       rootSubject: { name: "ParentChildTarget" },
     });
 
-    const createQueryReader = vi.spyOn(sourceDb, "createQueryReader");
+    const sourceElementQueries = spyOnExistenceQueries(
+      sourceDb,
+      ConcreteEntityTypes.Element
+    );
     const targetEditTxn = createStartedEditTxn(targetDb);
     const transformer = new IModelTransformer({
       source: sourceDb,
@@ -456,18 +466,9 @@ describe("EntityExistenceCache", () => {
     try {
       await transformer.process();
 
-      const elementExistenceQueries = createQueryReader.mock.calls.filter(
-        ([query]) => {
-          const normalizedQuery = query.replace(/\s+/g, " ").toLowerCase();
-          return (
-            normalizedQuery.includes("from biscore:element") &&
-            normalizedQuery.includes("invirtualset(:ids, ecinstanceid)")
-          );
-        }
-      );
       // Each parent is exported before its children, so no child reference
       // needs a source existence query.
-      expect(elementExistenceQueries).toHaveLength(0);
+      expect(sourceElementQueries.queriedReferences()).toHaveLength(0);
       expect(
         await targetDb
           .createQueryReader(
@@ -479,7 +480,7 @@ describe("EntityExistenceCache", () => {
       ).toEqual([[parentCount * childrenPerParent]]);
       processSucceeded = true;
     } finally {
-      createQueryReader.mockRestore();
+      sourceElementQueries.restore();
       transformer.dispose();
       targetEditTxn.end(processSucceeded ? "save" : "abandon");
       sourceDb.close();
