@@ -3,6 +3,9 @@ Release Tag;API Item Type;API Item Name
 public;class;ChangedInstanceIds
 public;type;ChangedInstanceIdsInitOptions
 public;class;ChangedInstanceOps
+beta;interface;ChangesetDeletionRecord
+beta;type;ChangesetDeletionRecordsByChangeset
+beta;interface;ChangesetScanResult
 beta;interface;ElementBulkDeleteError
 public;type;ExportChangesOptions
 beta;type;ExporterInitOptions

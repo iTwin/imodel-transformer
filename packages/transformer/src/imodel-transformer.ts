@@ -10,6 +10,11 @@ export * from "./IModelTransformContext";
 export * from "./schema-processing/SchemaProcessingStrategy";
 export * from "./IModelTransformerError";
 export * from "./BranchProvenanceInitializer";
+export type {
+  ChangesetDeletionRecord,
+  ChangesetDeletionRecordsByChangeset,
+  ChangesetScanResult,
+} from "./ChangesetScanner";
 
 import * as semver from "semver";
 import { ITwinError } from "@itwin/core-bentley";

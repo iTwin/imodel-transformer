@@ -112,6 +112,7 @@ import {
   ChangesetDeletionRecord,
   ChangesetDeletionRecordsByChangeset,
   ChangesetScanner,
+  ChangesetScanResult,
 } from "./ChangesetScanner";
 import {
   IModelTransformerError,
@@ -2131,7 +2132,7 @@ export class IModelTransformer extends IModelExportHandler {
   /** state to prevent reinitialization, @see [[initialize]] */
   private _initialized = false;
   private _sourceChangeDataState: ChangeDataState = "uninited";
-  /** length === 0 when _changeDataState = "no-change", length > 0 means "has-changes", otherwise undefined  */
+  /** Changeset files downloaded by the default [[scanChanges]]. Undefined when no changesets were downloaded. */
   private _csFileProps?: ChangesetFileProps[] = undefined;
   private _deletionRecordsByChangeset?: ChangesetDeletionRecordsByChangeset;
 
@@ -2164,26 +2165,31 @@ export class IModelTransformer extends IModelExportHandler {
   private async initializeChangesetScanAndExporter(
     exporterInitOptions: ExporterInitOptions
   ): Promise<void> {
+    const ranges = this._changesetRanges;
     if (
-      this._csFileProps !== undefined &&
-      this._csFileProps.length > 0 &&
+      ranges !== undefined &&
+      ranges.length > 0 &&
       this.sourceDb.isBriefcaseDb()
     ) {
-      const changedInstanceIds =
+      let changedInstanceIds =
         this.exporter.sourceDbChanges ??
         ("changedInstanceIds" in exporterInitOptions
           ? exporterInitOptions.changedInstanceIds
-          : new ChangedInstanceIds(this.sourceDb));
-      this._deletionRecordsByChangeset = await ChangesetScanner.scan(
-        this.sourceDb,
-        this._csFileProps,
-        changedInstanceIds,
-        {
-          populateChangedInstanceIds:
-            this.exporter.sourceDbChanges === undefined &&
-            !("changedInstanceIds" in exporterInitOptions),
-        }
-      );
+          : undefined);
+      if (changedInstanceIds !== undefined) {
+        // The caller supplied changed IDs, so only deletion metadata is read.
+        this._deletionRecordsByChangeset = await ChangesetScanner.scan(
+          this.sourceDb,
+          await this.downloadChangesets(ranges),
+          changedInstanceIds,
+          { populateChangedInstanceIds: false }
+        );
+      } else {
+        const scanResult = await this.scanChanges(ranges);
+        changedInstanceIds = scanResult.changedInstanceIds;
+        this._deletionRecordsByChangeset =
+          scanResult.deletionRecordsByChangeset;
+      }
       await this.exporter.initialize({
         changedInstanceIds,
         skipPropagateChangesToRootElements:
@@ -2195,9 +2201,51 @@ export class IModelTransformer extends IModelExportHandler {
   }
 
   /**
-   * Reads all the changeset files in the private member of the transformer: _csFileProps
-   * and finds the corresponding target entity for any deleted source entities and remaps the sourceId to the targetId.
-   * This function returns early if csFileProps is undefined or is of length 0.
+   * Reads the source changes for the changeset ranges being processed. Override to supply changes from
+   * another source, such as a precomputed cache, and call `super.scanChanges()` for any ranges the
+   * override cannot cover.
+   * @param ranges Ordered, inclusive `[first, last]` changeset index ranges. They already exclude changesets
+   * that must be skipped, such as those pushed by a previous synchronization in the other direction, so an
+   * override must cover exactly these ranges.
+   * @returns The changed instance IDs to export and the metadata used to remap deleted instances.
+   * @note The default implementation downloads the changesets and reads them with `ChangesetReader`.
+   * @note Not called when the exporter already has changed instance IDs, for example when `changedInstanceIds`
+   * is passed in [[IModelTransformOptions.argsForProcessChanges]].
+   * @beta
+   */
+  protected async scanChanges(
+    ranges: [number, number][]
+  ): Promise<ChangesetScanResult> {
+    const changedInstanceIds = new ChangedInstanceIds(this.sourceDb);
+    const deletionRecordsByChangeset = await ChangesetScanner.scan(
+      this.sourceDb,
+      await this.downloadChangesets(ranges),
+      changedInstanceIds
+    );
+    return { changedInstanceIds, deletionRecordsByChangeset };
+  }
+
+  private async downloadChangesets(
+    ranges: [number, number][]
+  ): Promise<ChangesetFileProps[]> {
+    const csFileProps: ChangesetFileProps[] = [];
+    for (const [first, end] of ranges) {
+      // TODO: should the first changeset in a reverse sync really be included even though its 'initialized branch provenance'? The answer is no, its a bug that needs to be fixed.
+      const fileProps = await BriefcaseManager.downloadChangesets({
+        iModelId: this.sourceDb.iModelId,
+        targetDir: BriefcaseManager.getChangeSetsPath(this.sourceDb.iModelId),
+        range: { first, end },
+      });
+      csFileProps.push(...fileProps);
+    }
+    this._csFileProps = csFileProps;
+    return csFileProps;
+  }
+
+  /**
+   * Finds the corresponding target entity for any deleted source entities and remaps the sourceId to the targetId,
+   * using the deletion records read for the changeset ranges being processed.
+   * This function returns early if there are no changeset ranges to process.
    * @returns void
    */
   private async processChangesets(): Promise<void> {
@@ -2209,8 +2257,8 @@ export class IModelTransformer extends IModelExportHandler {
     if (this.exporter.sourceDbChanges)
       await this.addCustomChanges(this.exporter.sourceDbChanges);
 
-    const csFileProps = this._csFileProps;
-    if (csFileProps === undefined || csFileProps.length === 0) {
+    const ranges = this._changesetRanges;
+    if (ranges === undefined || ranges.length === 0) {
       if (
         this.exporter.sourceDbChanges === undefined ||
         !this.exporter.sourceDbChanges.hasChanges
@@ -2483,7 +2531,7 @@ export class IModelTransformer extends IModelExportHandler {
     const noChanges = syncVersion.index === this.sourceDb.changeset.index;
     if (noChanges) {
       this._sourceChangeDataState = "no-changes";
-      this._csFileProps = [];
+      this._changesetRanges = [];
       return;
     }
     const startChangeset =
@@ -2540,21 +2588,9 @@ export class IModelTransformer extends IModelExportHandler {
     );
     Logger.logTrace(loggerCategory, `ranges: ${this._changesetRanges}`);
 
-    const csFileProps: ChangesetFileProps[] = [];
-    for (const [first, end] of this._changesetRanges) {
-      // TODO: should the first changeset in a reverse sync really be included even though its 'initialized branch provenance'? The answer is no, its a bug that needs to be fixed.
-      const fileProps = await BriefcaseManager.downloadChangesets({
-        iModelId: this.sourceDb.iModelId,
-        targetDir: BriefcaseManager.getChangeSetsPath(this.sourceDb.iModelId),
-        range: { first, end },
-      });
-      csFileProps.push(...fileProps);
-    }
-    this._csFileProps = csFileProps;
-
-    /** Theres a possibility that our csFileProps length is still 0 here, since we skip cs indices found in the pendingSync and pendingReverseSync indices arrays. */
+    /** Skipping indices found in the pendingSync and pendingReverseSync arrays can leave no ranges to process. */
     this._sourceChangeDataState =
-      this._csFileProps.length === 0 ? "no-changes" : "has-changes";
+      this._changesetRanges.length === 0 ? "no-changes" : "has-changes";
   }
 
   /** Asserts that the EditTxn is active before any write operations. */

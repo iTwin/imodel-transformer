@@ -16,6 +16,28 @@ Existing export callbacks keep the same arguments and parent-before-child order.
 
 See [Incremental exports](../learning/transformer/index.md#incremental-exports) for callback and customization details.
 
+## Overridable changeset scanning
+
+`IModelTransformer` now reads source changes through the protected `scanChanges(ranges)` method. Override it to supply changed instance IDs and deletion metadata from another source, such as a precomputed cache, instead of downloading and reading changesets. Call `super.scanChanges()` for any ranges the override can't cover:
+
+```ts
+class CachedChangesTransformer extends IModelTransformer {
+  protected override async scanChanges(
+    ranges: [number, number][]
+  ): Promise<ChangesetScanResult> {
+    const cached = await myCache.tryGetChanges(this.sourceDb, ranges);
+    return cached ?? super.scanChanges(ranges);
+  }
+}
+```
+
+`ranges` lists the inclusive changeset index ranges to process. It already excludes changesets that synchronization must skip, such as those pushed by a previous synchronization in the other direction, so an override must cover exactly these ranges. The override returns a `ChangesetScanResult`:
+
+- `changedInstanceIds`: the changes to export. Use `ChangedInstanceIds.addAspectOwnerElementIds()` to record the owning elements of changed aspects.
+- `deletionRecordsByChangeset`: one array of `ChangesetDeletionRecord`s per changeset, used to find the target entities of deleted source entities.
+
+The default `scanChanges` now downloads the changesets, so an override that covers every range downloads none. `scanChanges` isn't called when `changedInstanceIds` is passed in `argsForProcessChanges`.
+
 ## Breaking change: batched incremental element deletion
 
 Incremental synchronization now processes element deletions as one batch. `IModelExporter.exportChanges()` passes the deleted source IDs to `IModelExportHandler.onDeleteElements()`. `IModelTransformer` maps the IDs once, and `IModelImporter.deleteElements()` submits the target roots through the native bulk-delete API. Bulk deletion preserves the previous behavior for child elements, modeled contents, and elements whose codes are scoped by a deleted tree.

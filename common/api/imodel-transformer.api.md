@@ -49,6 +49,8 @@ import { Transform } from '@itwin/core-geometry';
 // @public
 export class ChangedInstanceIds {
     constructor(db: IModelDb);
+    // @beta
+    addAspectOwnerElementIds(elementIds: Id64Arg): void;
     addChange(change: ChangeInstance): Promise<void>;
     // @internal
     addChanges(changes: Iterable<ChangeInstance>): Promise<void>;
@@ -60,7 +62,7 @@ export class ChangedInstanceIds {
     addCustomModelChange(changeType: SqliteChangeOp, ids: Id64Arg): Promise<void>;
     // (undocumented)
     aspect: ChangedInstanceOps;
-    // @internal
+    // @beta
     get aspectOwnerElementIds(): ReadonlySet<Id64String>;
     // (undocumented)
     codeSpec: ChangedInstanceOps;
@@ -91,6 +93,29 @@ export class ChangedInstanceOps {
     get isEmpty(): boolean;
     // (undocumented)
     updateIds: Set<string>;
+}
+
+// @beta
+export interface ChangesetDeletionRecord {
+    classFullName?: string;
+    ecClassId: Id64String;
+    ecInstanceId: Id64String;
+    elementId?: Id64String;
+    federationGuid?: string;
+    identifier?: string;
+    kind?: string;
+    scopeId?: Id64String;
+    sourceECInstanceId?: Id64String;
+    targetECInstanceId?: Id64String;
+}
+
+// @beta
+export type ChangesetDeletionRecordsByChangeset = ChangesetDeletionRecord[][];
+
+// @beta
+export interface ChangesetScanResult {
+    changedInstanceIds: ChangedInstanceIds;
+    deletionRecordsByChangeset: ChangesetDeletionRecordsByChangeset;
 }
 
 // @beta
@@ -359,6 +384,7 @@ export class IModelTransformer extends IModelExportHandler {
     static get provenanceElementClasses(): (typeof Entity)[];
     // (undocumented)
     protected _provenanceManager: ProvenanceManager;
+    protected scanChanges(ranges: [number, number][]): Promise<ChangesetScanResult>;
     protected _schemaExportDir: string;
     protected shouldDetectDeletes(): Promise<boolean>;
     shouldExportCodeSpec(_sourceCodeSpec: CodeSpec): Promise<boolean>;

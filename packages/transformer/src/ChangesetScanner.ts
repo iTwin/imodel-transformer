@@ -21,14 +21,14 @@ import {
 /**
  * Metadata retained from a deleted EC instance for later target remapping.
  * Properties are optional when the deleted instance did not contain that value.
- * @internal
+ * @beta
  */
 export interface ChangesetDeletionRecord {
   /** ID of the deleted source instance. */
   ecInstanceId: Id64String;
   /** EC class ID of the deleted source instance. */
   ecClassId: Id64String;
-  /** Full EC class name resolved from [[ecClassId]]. */
+  /** Full EC class name resolved from [[ecClassId]]. Set it for deleted relationships and ExternalSourceAspects. */
   classFullName?: string;
   /** Federation GUID used to find the corresponding target element. */
   federationGuid?: string;
@@ -51,9 +51,20 @@ export interface ChangesetDeletionRecord {
  * operation sets but not the properties needed to remap deleted instances.
  * Grouping keeps scoped ExternalSourceAspect metadata paired with deletions
  * from the same changeset.
- * @internal
+ * @beta
  */
 export type ChangesetDeletionRecordsByChangeset = ChangesetDeletionRecord[][];
+
+/**
+ * Changes read from a range of source changesets for [[IModelTransformer.scanChanges]].
+ * @beta
+ */
+export interface ChangesetScanResult {
+  /** Changed instance IDs, including the owning elements of changed aspects. */
+  changedInstanceIds: ChangedInstanceIds;
+  /** Deleted-instance metadata, with one array per changeset in processing order. */
+  deletionRecordsByChangeset: ChangesetDeletionRecordsByChangeset;
+}
 
 /**
  * Reads each changeset once, unifies table changes into EC instance changes,

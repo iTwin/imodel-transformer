@@ -2000,10 +2000,19 @@ export class ChangedInstanceIds {
   private readonly _aspectOwnerElementIds = new Set<Id64String>();
 
   /** Element IDs that own the aspects represented by `aspect` changes.
-   * @internal
+   * The exporter revisits these elements to export their aspects.
+   * @beta
    */
   public get aspectOwnerElementIds(): ReadonlySet<Id64String> {
     return this._aspectOwnerElementIds;
+  }
+
+  /** Records elements that own changed aspects, for callers that populate `aspect` changes directly.
+   * @beta
+   */
+  public addAspectOwnerElementIds(elementIds: Id64Arg): void {
+    for (const elementId of Id64.iterable(elementIds))
+      this._aspectOwnerElementIds.add(elementId);
   }
 
   private _db: IModelDb;
