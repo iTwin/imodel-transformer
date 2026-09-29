@@ -7199,6 +7199,125 @@ describe("IModelTransformerHub", () => {
       shouldExport.mockRestore();
     });
 
+    it("should map a changed child's unchanged parent that is found in the target by Code", async () => {
+      const { categoryId, subCategoryId } =
+        await insertSubCategoryUnderRejectedCategory();
+      const targetCategoryId = withEditTxn(targetDb, "insert category", (txn) =>
+        SpatialCategory.insert(
+          txn,
+          IModel.dictionaryId,
+          "RejectedCategory",
+          new SubCategoryAppearance()
+        )
+      );
+      const onExportElement = vi.spyOn(
+        RejectingTransformer.prototype,
+        "onExportElement"
+      );
+
+      await transformRejecting([], processChanges);
+
+      expect(
+        targetDb.elements.queryElementIdByCode(
+          SubCategory.createCode(targetDb, targetCategoryId, "NewSubCategory")
+        )
+      ).to.not.equal(undefined);
+      // The lookup does not run export hooks for the unchanged category, which is never imported.
+      expect(
+        onExportElement.mock.calls.filter(
+          ([element]) => element.id === categoryId
+        )
+      ).to.have.length(0);
+      expect(
+        onExportElement.mock.calls.filter(
+          ([element]) => element.id === subCategoryId
+        )
+      ).to.have.length(1);
+      onExportElement.mockRestore();
+    });
+
+    it("should throw DependencyMappingMissing when a changed element requires a changed category that shouldExportElement rejects", async () => {
+      const modelId = await pushSource("insert model", (txn) =>
+        PhysicalModel.insert(txn, IModel.rootSubjectId, "PhysicalModel")
+      );
+      await transformRejecting([]);
+      const { categoryId, elementId } = await pushSource(
+        "insert category and physical object",
+        (txn) => {
+          const category = SpatialCategory.insert(
+            txn,
+            IModel.dictionaryId,
+            "RejectedCategory",
+            new SubCategoryAppearance()
+          );
+          return {
+            categoryId: category,
+            elementId: txn.insertElement({
+              classFullName: PhysicalObject.classFullName,
+              model: modelId,
+              category,
+              code: Code.createEmpty(),
+            } as GeometricElementProps),
+          };
+        }
+      );
+
+      await expectTransformerError(
+        transformRejecting([categoryId], processChanges),
+        IModelTransformerError.DependencyMappingMissing,
+        `Element ${elementId} requires element ${categoryId}, which was not exported because the export filter rejects it or one of its ancestors. Accept element ${categoryId} and its ancestors, or reject element ${elementId}.`
+      );
+    });
+
+    it("should throw DependencyMappingMissing when a changed element requires a changed category whose unchanged parent shouldExportElement rejects", async () => {
+      const { modelId, parentCategoryId } = await pushSource(
+        "insert model and parent category",
+        (txn) => ({
+          modelId: PhysicalModel.insert(
+            txn,
+            IModel.rootSubjectId,
+            "PhysicalModel"
+          ),
+          parentCategoryId: SpatialCategory.insert(
+            txn,
+            IModel.dictionaryId,
+            "RejectedParentCategory",
+            new SubCategoryAppearance()
+          ),
+        })
+      );
+      await transformRejecting([parentCategoryId]);
+      const categoryId = await pushSource(
+        "insert child category and physical object",
+        (txn) => {
+          const category = txn.insertElement({
+            classFullName: SpatialCategory.classFullName,
+            model: IModel.dictionaryId,
+            code: SpatialCategory.createCode(
+              sourceDb,
+              IModel.dictionaryId,
+              "ChildCategory"
+            ),
+            parent: new ElementOwnsChildElements(parentCategoryId),
+          });
+          txn.insertElement({
+            classFullName: PhysicalObject.classFullName,
+            model: modelId,
+            category,
+            code: Code.createEmpty(),
+          } as GeometricElementProps);
+          return category;
+        }
+      );
+
+      // The element is exported before its category's rejected parent is filtered, so the error is about the category.
+      await expectTransformerError(
+        transformRejecting([parentCategoryId], processChanges),
+        IModelTransformerError.DependencyMappingMissing,
+        `Element ${categoryId} requires element ${parentCategoryId}, which the export filter rejects. Accept element ${parentCategoryId}, or reject element ${categoryId} and every element that requires it.`
+      );
+    });
+
     it("should throw DependencyMappingMissing when a changed element requires an unchanged category that shouldExportElement rejects", async () => {
       const { modelId, categoryId } = await pushSource(
         "insert model and category",
@@ -7229,7 +7348,7 @@ describe("IModelTransformerHub", () => {
       await expectTransformerError(
         transformRejecting([categoryId], processChanges),
         IModelTransformerError.DependencyMappingMissing,
-        `Element ${elementId} requires element ${categoryId}, which the export filter rejects. Reject element ${elementId} as well, or accept element ${categoryId}.`
+        `Element ${elementId} requires element ${categoryId}, which the export filter rejects. Accept element ${categoryId}, or reject element ${elementId} and every element that requires it.`
       );
     });
 

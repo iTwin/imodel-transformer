@@ -186,6 +186,7 @@ export abstract class IModelExportHandler {
 
   /** Called when element is skipped instead of exported.
    * @note When an element is skipped, exporter will not export any of its child elements. Because of this, [[onSkipElement]] will not be invoked for any children of a "skipped" element.
+   * @note During [IModelExporter.exportChanges]($transformer), an unchanged ancestor is filtered only when a changed descendant is reached. An element excluded by ID below it may therefore receive [[onSkipElement]] before the ancestor is rejected.
    */
   public async onSkipElement(_elementId: Id64String): Promise<void> {}
 

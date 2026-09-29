@@ -223,6 +223,29 @@ describe("IModelExporter changed-element traversal", () => {
     }
   );
 
+  it("skips an excluded element before filtering its rejected unchanged ancestor", async () => {
+    const { sourceDb, ids, handler, exporter, changes } = setupChangesMode(
+      "ExcludedUnderRejectedAncestor"
+    );
+    try {
+      exporter.excludeElement(ids.get("A1")!);
+      changes.element.insertIds.add(ids.get("A2")!);
+      handler.rejectedIds.add(ids.get("A")!);
+
+      await exporter.exportModelContents(IModel.repositoryModelId);
+
+      // A is filtered only when A2 is reached, after A1 was skipped; a full export would skip only A.
+      expect(handler.events).to.deep.equal([
+        ["skip", ids.get("A1")!],
+        ["should", IModel.rootSubjectId],
+        ["should", ids.get("A")!],
+        ["skip", ids.get("A")!],
+      ]);
+    } finally {
+      sourceDb.close();
+    }
+  });
+
   it("fires onSkipElement for unchanged excluded elements and prunes their subtree", async () => {
     const { sourceDb, ids, handler, exporter, changes } =
       setupChangesMode("UnchangedExcluded");
