@@ -27,6 +27,8 @@ export enum IModelTransformerError {
   DependencyVersionMismatch = "dependency-version-mismatch",
   /** A required edit transaction is not active. */
   EditTxnNotActive = "edit-txn-not-active",
+  /** Elements outside the requested element trees still reference an element in them, so nothing was deleted. */
+  ElementBulkDeleteBlocked = "element-bulk-delete-blocked",
   /** Native bulk deletion failed for one or more requested element trees. */
   ElementBulkDeleteFailed = "element-bulk-delete-failed",
   /** An element identifier cannot be preserved in the target. */

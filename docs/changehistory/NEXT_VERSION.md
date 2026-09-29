@@ -63,7 +63,19 @@ protected override async onDeleteElements(
 
 Calls to the public `IModelImporter.deleteElement(elementId)` method do not need to change. The method passes its target ID to the batch extension point as a one-element set.
 
-If native deletion fails for any root, `IModelImporter.deleteElements()` throws an `ElementBulkDeleteError` with scope `IModelTransformerErrorScope` and key `IModelTransformerError.ElementBulkDeleteFailed`. The error reports `status`, `sqlDeleteStatus`, and `failedIds`. A partial failure leaves successful deletions pending in the caller-owned target transaction. Abandon that transaction before correcting the dependency and retrying.
+A batch deletes either all of its element trees or none of them. A batch can include an element together with the category it uses. The importer deletes the element before the tree that contains the category, so such a batch takes two native operations instead of one.
+
+If an element outside the batch still references an element in it, for example through its category or code scope, `IModelImporter.deleteElements()` deletes nothing and throws an `ElementBulkDeleteBlockedError` with scope `IModelTransformerErrorScope` and key `IModelTransformerError.ElementBulkDeleteBlocked`. `blockedReferences` maps each blocked element to one element that still references it.
+
+If a native operation fails anyway, for example because of a reference from a domain schema, `IModelImporter.deleteElements()` throws an `ElementBulkDeleteError` with key `IModelTransformerError.ElementBulkDeleteFailed`. The error reports `status`, `sqlDeleteStatus`, and `failedIds`. Deletions from that and earlier native operations stay pending in the caller-owned target transaction. Abandon that transaction before correcting the dependency and retrying.
+
+Batched deletion is 8 to 10 times faster than the previous per-element deletion. Checking references before deleting costs 3% to 7% on ordinary batches and 14% to 20% on batches that also delete categories their own elements use. Per-element deletion also silently kept a category when it came before its elements in the batch. The following medians come from interleaved runs of `IModelImporter` deletion on core-backend 5.13.0 with 100,000 physical elements and 100 spatial categories:
+
+| Requested elements              | Per-element deletion (2.0.0-dev.50)       | One native call without reference checks      | Batched deletion with reference checks |
+| ------------------------------- | ----------------------------------------- | --------------------------------------------- | -------------------------------------- |
+| Elements, then their categories | 19.4 s                                    | 1.96 s, throws, and the 100 categories remain | 2.35 s                                 |
+| Categories, then their elements | 19.3 s, silently keeps all 100 categories | 1.91 s, throws, and the 100 categories remain | 2.18 s                                 |
+| Elements only                   | 21.0 s                                    | 1.97 s                                        | 2.03 s                                 |
 
 ## Schema-processing strategies
 

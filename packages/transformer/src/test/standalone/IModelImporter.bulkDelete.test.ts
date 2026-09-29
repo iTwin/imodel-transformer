@@ -24,8 +24,12 @@ import {
   SubCategoryAppearance,
 } from "@itwin/core-common";
 import { expect, vi } from "vitest";
-import { findBulkDeleteRoots } from "../../ElementBulkDelete";
-import { ElementBulkDeleteError, IModelImporter } from "../../IModelImporter";
+import { planBulkDelete } from "../../ElementBulkDelete";
+import {
+  ElementBulkDeleteBlockedError,
+  ElementBulkDeleteError,
+  IModelImporter,
+} from "../../IModelImporter";
 import { IModelTransformerError } from "../../IModelTransformerError";
 import {
   createStartedEditTxn,
@@ -72,6 +76,15 @@ function insertPhysicalObject(
         }
       : {}),
   } as PhysicalElementProps);
+}
+
+async function planPhases(
+  db: IModelDb,
+  elementIds: ReadonlySet<Id64String>
+): Promise<Set<Id64String>[]> {
+  const plan = await planBulkDelete(db, elementIds);
+  expect(plan.blockedReferences.size).to.equal(0);
+  return plan.phases.map((roots) => new Set(roots));
 }
 
 function createTargetDb(testName: string): StandaloneDb {
@@ -185,9 +198,9 @@ describe("IModelImporter bulk element deletion", () => {
         };
       });
       const explicitRoots = new Set([ids.rootId]);
-      expect(await findBulkDeleteRoots(targetDb, explicitRoots)).to.deep.equal(
-        new Set([ids.rootId, ids.firstCodeRootId, ids.secondCodeRootId])
-      );
+      expect(await planPhases(targetDb, explicitRoots)).to.deep.equal([
+        new Set([ids.rootId, ids.firstCodeRootId, ids.secondCodeRootId]),
+      ]);
 
       const editTxn = createStartedEditTxn(targetDb);
       const nativeDeleteSpy = vi.spyOn(editTxn, "deleteElements");
@@ -232,9 +245,9 @@ describe("IModelImporter bulk element deletion", () => {
         return { rootId, childId };
       });
       const roots = new Set([ids.rootId, ids.childId, "0xdead"]);
-      expect(await findBulkDeleteRoots(targetDb, roots)).to.deep.equal(
-        new Set([ids.rootId, ids.childId])
-      );
+      expect(await planPhases(targetDb, roots)).to.deep.equal([
+        new Set([ids.rootId, ids.childId]),
+      ]);
 
       const editTxn = createStartedEditTxn(targetDb);
       const nativeDeleteSpy = vi.spyOn(editTxn, "deleteElements");
@@ -298,9 +311,9 @@ describe("IModelImporter bulk element deletion", () => {
         };
       });
       const explicitRoots = new Set([ids.modelId]);
-      expect(await findBulkDeleteRoots(targetDb, explicitRoots)).to.deep.equal(
-        new Set([ids.modelId, ids.codeScopeDependentId])
-      );
+      expect(await planPhases(targetDb, explicitRoots)).to.deep.equal([
+        new Set([ids.modelId, ids.codeScopeDependentId]),
+      ]);
 
       const editTxn = createStartedEditTxn(targetDb);
       const nativeDeleteSpy = vi.spyOn(editTxn, "deleteElements");
@@ -369,9 +382,9 @@ describe("IModelImporter bulk element deletion", () => {
         ids.outerModelId,
         ids.nestedCategoryId,
       ]);
-      expect(await findBulkDeleteRoots(targetDb, explicitRoots)).to.deep.equal(
-        expectedDeleteRoots
-      );
+      expect(await planPhases(targetDb, explicitRoots)).to.deep.equal([
+        expectedDeleteRoots,
+      ]);
 
       const editTxn = createStartedEditTxn(targetDb);
       const nativeDeleteSpy = vi.spyOn(editTxn, "deleteElements");
@@ -404,52 +417,228 @@ describe("IModelImporter bulk element deletion", () => {
     }
   });
 
-  it("reports partial native failures without retrying individual roots", async () => {
-    const targetDb = createTargetDb("PartialFailure");
+  it("deletes an element and the category it uses in one batch", async () => {
+    const targetDb = createTargetDb("ElementAndCategory");
     try {
-      const ids = withEditTxn(
-        targetDb,
-        "insert constrained deletion",
-        (txn) => {
-          const modelId = PhysicalModel.insert(
-            txn,
-            IModel.rootSubjectId,
-            "Physical model"
-          );
-          const categoryId = SpatialCategory.insert(
-            txn,
-            IModel.dictionaryId,
-            "Used spatial category",
-            new SubCategoryAppearance()
-          );
-          insertPhysicalObject(txn, { modelId, categoryId });
-          const independentId = Subject.insert(
-            txn,
-            IModel.rootSubjectId,
-            "Independent"
-          );
-          return { categoryId, independentId };
-        }
-      );
+      const ids = withEditTxn(targetDb, "insert categorized element", (txn) => {
+        const modelId = PhysicalModel.insert(
+          txn,
+          IModel.rootSubjectId,
+          "Physical model"
+        );
+        const categoryId = SpatialCategory.insert(
+          txn,
+          IModel.dictionaryId,
+          "Deleted category",
+          new SubCategoryAppearance()
+        );
+        const elementId = insertPhysicalObject(txn, { modelId, categoryId });
+        return {
+          categoryId,
+          defaultSubCategoryId: IModelDb.getDefaultSubCategoryId(categoryId),
+          elementId,
+        };
+      });
+      const roots = new Set([ids.categoryId, ids.elementId]);
+      expect(await planPhases(targetDb, roots)).to.deep.equal([
+        new Set([ids.elementId]),
+        new Set([ids.categoryId]),
+      ]);
+
+      const editTxn = createStartedEditTxn(targetDb);
+      const nativeDeleteSpy = vi.spyOn(editTxn, "deleteElements");
+      await new IModelImporter(editTxn).deleteElements(roots);
+
+      expect(nativeDeleteSpy).toHaveBeenCalledTimes(2);
+      for (const id of Object.values(ids))
+        expect(targetDb.elements.tryGetElement(id)).to.be.undefined;
+      editTxn.end("abandon");
+    } finally {
+      targetDb.close();
+    }
+  });
+
+  it("deletes a chain of definition containers whose nested category is used by a deleted element", async () => {
+    const targetDb = createTargetDb("DefinitionChain");
+    try {
+      const ids = withEditTxn(targetDb, "insert definition chain", (txn) => {
+        const definitionModelId = DefinitionModel.insert(
+          txn,
+          IModel.rootSubjectId,
+          "Definition model"
+        );
+        const outerContainerId = DefinitionContainer.insert(
+          txn,
+          definitionModelId,
+          Code.createEmpty()
+        );
+        const innerContainerId = DefinitionContainer.insert(
+          txn,
+          outerContainerId,
+          Code.createEmpty()
+        );
+        const categoryId = SpatialCategory.insert(
+          txn,
+          innerContainerId,
+          "Nested category",
+          new SubCategoryAppearance()
+        );
+        const modelId = PhysicalModel.insert(
+          txn,
+          IModel.rootSubjectId,
+          "Physical model"
+        );
+        const elementId = insertPhysicalObject(txn, { modelId, categoryId });
+        return { outerContainerId, innerContainerId, categoryId, elementId };
+      });
+      const roots = new Set([ids.outerContainerId, ids.elementId]);
+      expect(await planPhases(targetDb, roots)).to.deep.equal([
+        new Set([ids.elementId]),
+        new Set([ids.outerContainerId, ids.categoryId]),
+      ]);
+
+      const editTxn = createStartedEditTxn(targetDb);
+      await new IModelImporter(editTxn).deleteElements(roots);
+
+      for (const id of Object.values(ids))
+        expect(targetDb.elements.tryGetElement(id)).to.be.undefined;
+      editTxn.end("abandon");
+    } finally {
+      targetDb.close();
+    }
+  });
+
+  it("deletes a tree that contains both a category and an element that uses it", async () => {
+    const targetDb = createTargetDb("CategoryAndUserInOneTree");
+    try {
+      const ids = withEditTxn(targetDb, "insert subject tree", (txn) => {
+        const subjectId = Subject.insert(txn, IModel.rootSubjectId, "Subject");
+        const definitionModelId = DefinitionModel.insert(
+          txn,
+          subjectId,
+          "Definition model"
+        );
+        const categoryId = SpatialCategory.insert(
+          txn,
+          definitionModelId,
+          "Category",
+          new SubCategoryAppearance()
+        );
+        const modelId = PhysicalModel.insert(txn, subjectId, "Physical model");
+        const elementId = insertPhysicalObject(txn, { modelId, categoryId });
+        return { subjectId, definitionModelId, categoryId, modelId, elementId };
+      });
+      const roots = new Set([ids.subjectId]);
+      expect(await planPhases(targetDb, roots)).to.deep.equal([
+        new Set([ids.elementId]),
+        new Set([ids.subjectId, ids.categoryId]),
+      ]);
+
+      const editTxn = createStartedEditTxn(targetDb);
+      await new IModelImporter(editTxn).deleteElements(roots);
+
+      for (const id of Object.values(ids))
+        expect(targetDb.elements.tryGetElement(id)).to.be.undefined;
+      editTxn.end("abandon");
+    } finally {
+      targetDb.close();
+    }
+  });
+
+  it("deletes nothing when an element outside the batch still uses a deleted category", async () => {
+    const targetDb = createTargetDb("CategoryStillInUse");
+    try {
+      const ids = withEditTxn(targetDb, "insert used category", (txn) => {
+        const modelId = PhysicalModel.insert(
+          txn,
+          IModel.rootSubjectId,
+          "Physical model"
+        );
+        const categoryId = SpatialCategory.insert(
+          txn,
+          IModel.dictionaryId,
+          "Used spatial category",
+          new SubCategoryAppearance()
+        );
+        const deletedElementId = insertPhysicalObject(txn, {
+          modelId,
+          categoryId,
+        });
+        const survivorId = insertPhysicalObject(txn, { modelId, categoryId });
+        const independentId = Subject.insert(
+          txn,
+          IModel.rootSubjectId,
+          "Independent"
+        );
+        return {
+          modelId,
+          categoryId,
+          defaultSubCategoryId: IModelDb.getDefaultSubCategoryId(categoryId),
+          deletedElementId,
+          survivorId,
+          independentId,
+        };
+      });
       const editTxn = createStartedEditTxn(targetDb);
       const nativeDeleteSpy = vi.spyOn(editTxn, "deleteElements");
       const error = (await expectTransformerError(
         async () =>
           new IModelImporter(editTxn).deleteElements(
-            new Set([ids.categoryId, ids.independentId])
+            new Set([ids.categoryId, ids.deletedElementId, ids.independentId])
           ),
+        IModelTransformerError.ElementBulkDeleteBlocked,
+        `Bulk element deletion blocked: elements outside the deleted trees still reference ${ids.categoryId} (referenced by ${ids.survivorId})`
+      )) as ElementBulkDeleteBlockedError;
+
+      expect(error.blockedReferences).to.deep.equal(
+        new Map([[ids.categoryId, ids.survivorId]])
+      );
+      expect(nativeDeleteSpy).not.toHaveBeenCalled();
+      for (const id of [
+        ids.categoryId,
+        ids.defaultSubCategoryId,
+        ids.deletedElementId,
+        ids.survivorId,
+        ids.independentId,
+      ])
+        expect(targetDb.elements.tryGetElement(id)).to.not.be.undefined;
+      // The category remains usable in the same transaction.
+      insertPhysicalObject(editTxn, {
+        modelId: ids.modelId,
+        categoryId: ids.categoryId,
+      });
+      editTxn.end("abandon");
+    } finally {
+      targetDb.close();
+    }
+  });
+
+  it("reports native failures without retrying individual roots", async () => {
+    const targetDb = createTargetDb("NativeFailure");
+    try {
+      const independentId = withEditTxn(targetDb, "insert subject", (txn) =>
+        Subject.insert(txn, IModel.rootSubjectId, "Independent")
+      );
+      const editTxn = createStartedEditTxn(targetDb);
+      // Simulates a reference that the transformer does not check before deletion, such as one from a domain schema.
+      const nativeDeleteSpy = vi
+        .spyOn(editTxn, "deleteElements")
+        .mockReturnValue({
+          status: BulkDeleteElementsStatus.PartialSuccess,
+          sqlDeleteStatus: DbResult.BE_SQLITE_OK,
+          failedIds: new Set([independentId]),
+        });
+      const error = (await expectTransformerError(
+        async () =>
+          new IModelImporter(editTxn).deleteElements(new Set([independentId])),
         IModelTransformerError.ElementBulkDeleteFailed,
-        /Bulk element deletion failed: status PartialSuccess/
+        `Bulk element deletion failed: status PartialSuccess, SQLite status ${DbResult.BE_SQLITE_OK}, failed element IDs: ${independentId}`
       )) as ElementBulkDeleteError;
 
       expect(error.status).to.equal(BulkDeleteElementsStatus.PartialSuccess);
       expect(error.sqlDeleteStatus).to.equal(DbResult.BE_SQLITE_OK);
-      expect(error.failedIds).to.deep.equal(new Set([ids.categoryId]));
+      expect(error.failedIds).to.deep.equal(new Set([independentId]));
       expect(nativeDeleteSpy).toHaveBeenCalledOnce();
-      expect(targetDb.elements.tryGetElement(ids.categoryId)).to.not.be
-        .undefined;
-      expect(targetDb.elements.tryGetElement(ids.independentId)).to.be
-        .undefined;
       editTxn.end("abandon");
     } finally {
       targetDb.close();
