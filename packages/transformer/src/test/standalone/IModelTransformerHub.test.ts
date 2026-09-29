@@ -3874,27 +3874,32 @@ describe("IModelTransformerHub", () => {
       secondTransformEditTxn.end();
       await saveAndPushChanges(targetDb, "Second transformation");
 
-      const targetElementIds = targetDb.queryEntityIds({
-        from: Subject.classFullName,
-        where: "Parent.Id != ?",
-        bindings: [IModel.rootSubjectId],
-      });
-      targetElementIds.forEach((elementId) => {
-        const targetAspects = targetDb.elements.getAspects(
-          elementId,
-          ExternalSourceAspect.classFullName
-        ) as ExternalSourceAspect[];
-        const sourceAspects = sourceDb.elements.getAspects(
-          elementId,
-          ExternalSourceAspect.classFullName
-        ) as ExternalSourceAspect[];
-        expect(targetAspects.length).to.be.equal(sourceAspects.length + 1); // +1 because provenance aspect was added
-        const aspectAddedAfterFirstTransformation = targetAspects.find(
-          (aspect) =>
-            aspect.identifier === "aspectAddedAfterFirstTransformation"
+      const documentIdentifiers = (db: IModelDb, elementId: Id64String) =>
+        (
+          db.elements.getAspects(
+            elementId,
+            ExternalSourceAspect.classFullName
+          ) as ExternalSourceAspect[]
+        )
+          .filter((aspect) => aspect.kind === "Document")
+          .map((aspect) => aspect.identifier)
+          .sort();
+      expect(documentIdentifiers(sourceDb, elementIds[0])).to.deep.equal([
+        "0",
+        "1",
+        "2",
+        "3",
+        "4",
+        "aspectAddedAfterFirstTransformation",
+      ]);
+      expect(documentIdentifiers(sourceDb, elementIds[1])).to.deep.equal([]);
+      for (const elementId of elementIds) {
+        const targetElementId =
+          transformer2.context.findTargetElementId(elementId);
+        expect(documentIdentifiers(targetDb, targetElementId)).to.deep.equal(
+          documentIdentifiers(sourceDb, elementId)
         );
-        expect(aspectAddedAfterFirstTransformation).to.not.be.undefined;
-      });
+      }
     } finally {
       await transformerTestHub.deleteIModel({
         iTwinId,

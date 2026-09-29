@@ -7,16 +7,25 @@ import { expect } from "vitest";
 import {
   EditTxn,
   ElementAspect,
+  ElementOwnsExternalSourceAspects,
   ElementOwnsMultiAspects,
   ElementOwnsUniqueAspect,
+  ExternalSourceAspect,
   IModelDb,
   SnapshotDb,
   Subject,
   withEditTxn,
 } from "@itwin/core-backend";
 import { Id64String } from "@itwin/core-bentley";
-import { ElementAspectProps, IModel } from "@itwin/core-common";
-import { IModelTransformer } from "../../IModelTransformer";
+import {
+  ElementAspectProps,
+  ExternalSourceAspectProps,
+  IModel,
+} from "@itwin/core-common";
+import {
+  IModelTransformer,
+  IModelTransformOptions,
+} from "../../IModelTransformer";
 import {
   CountingIModelImporter,
   createStartedEditTxn,
@@ -171,15 +180,16 @@ describe("ElementAspect reconciliation", () => {
 
   async function transform(
     run: (transformer: IModelTransformer) => Promise<void> = async (t) =>
-      t.process()
+      t.process(),
+    options?: IModelTransformOptions
   ): Promise<{ importer: AspectCountingImporter; targetOwners: Id64String[] }> {
     const editTxn = createStartedEditTxn(targetDb);
     try {
       const importer = new AspectCountingImporter(editTxn);
-      const transformer = new IModelTransformer({
-        source: sourceDb,
-        target: importer,
-      });
+      const transformer = new IModelTransformer(
+        { source: sourceDb, target: importer },
+        options
+      );
       await run(transformer);
       const targetOwners = owners.map((id) =>
         transformer.context.findTargetElementId(id)
@@ -312,6 +322,47 @@ describe("ElementAspect reconciliation", () => {
     const third = await transform();
     expectTargetMatchesSource(third.targetOwners);
     expectAspectWrites(third.importer, 1, 0, 1);
+  });
+
+  it("reuses source ExternalSourceAspects whose scope maps to the target scope", async () => {
+    // These source aspects are scoped to the root Subject, which is also the
+    // default target scope, but they are not transformer provenance.
+    withEditTxn(sourceDb, "insert source provenance", (txn) => {
+      for (const identifier of ["doc-1", "doc-2"]) {
+        txn.insertAspect({
+          classFullName: ExternalSourceAspect.classFullName,
+          element: new ElementOwnsExternalSourceAspects(owners[0]),
+          scope: { id: IModel.rootSubjectId },
+          identifier,
+          kind: "Document",
+        } as ExternalSourceAspectProps);
+      }
+    });
+    const readEsas = (targetOwner: Id64String) =>
+      (
+        targetDb.elements.getAspects(
+          targetOwner,
+          ExternalSourceAspect.classFullName
+        ) as ExternalSourceAspect[]
+      )
+        .map(({ id, kind, identifier }) => ({ id, kind, identifier }))
+        .sort((a, b) => a.id.localeCompare(b.id));
+    const options = {
+      includeSourceProvenance: true,
+      forceExternalSourceAspectProvenance: true,
+    };
+
+    const first = await transform(undefined, options);
+    const before = readEsas(first.targetOwners[0]);
+    expect(before.map(({ kind }) => kind).sort()).to.deep.equal([
+      "Document",
+      "Document",
+      ExternalSourceAspect.Kind.Element,
+    ]);
+
+    const second = await transform(undefined, options);
+    expectAspectWrites(second.importer, 0, 0, 0);
+    expect(readEsas(second.targetOwners[0])).to.deep.equal(before);
   });
 
   it("deletes target aspects of classes that became empty in the source", async () => {

@@ -287,6 +287,13 @@ describe("IModelImporter", () => {
             identifier: "provenance",
             kind: ExternalSourceAspect.Kind.Element,
           } as ExternalSourceAspectProps),
+          scopedDocument: txn.insertAspect({
+            classFullName: ExternalSourceAspect.classFullName,
+            element: new ElementOwnsExternalSourceAspects(elementId),
+            scope: { id: provenanceScopeId },
+            identifier: "scoped-document",
+            kind: "Document",
+          } as ExternalSourceAspectProps),
           scopeOwned: txn.insertAspect({
             classFullName: ExternalSourceAspect.classFullName,
             element: new ElementOwnsExternalSourceAspects(provenanceScopeId),
@@ -346,9 +353,12 @@ describe("IModelImporter", () => {
       expect(hasAspect(aspectIds.nonProvenance)).to.be.false;
       expect(hasAspect(aspectIds.provenance)).to.be.true;
       expect(hasAspect(aspectIds.scopeOwned)).to.be.true;
-      expect(importer.deletedAspectCount).to.equal(3);
-      expect(importer.deletedExternalSourceIdentifiers).to.deep.equal([
+      // Only element, relationship, and scope provenance kinds are preserved.
+      expect(hasAspect(aspectIds.scopedDocument)).to.be.false;
+      expect(importer.deletedAspectCount).to.equal(4);
+      expect(importer.deletedExternalSourceIdentifiers.sort()).to.deep.equal([
         "replaceable",
+        "scoped-document",
       ]);
       editTxn.end();
     } finally {

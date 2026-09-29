@@ -8,6 +8,8 @@ Full, change, and subset transforms no longer delete and reinsert every replacea
 
 `IModelImporter.importElementUniqueAspect` and `importElementMultiAspects` now match existing target aspects of the exact class only. Aspects of derived classes are no longer matched positionally against, or updated with, base-class properties. When a unique aspect has no exact-class match, the importer deletes the owner's unique aspects of a base or derived class through `onDeleteElementAspect` before inserting it, because iModel unique-aspect writes treat those classes as one slot.
 
+With `includeSourceProvenance`, cloned source `ExternalSourceAspect`s whose scope maps to the target scope element are no longer mistaken for the transformer's own provenance. Previously they were inserted again on every run, which duplicated them. Only `Element` and `Relationship` aspects scoped to the target scope, and `Scope` aspects owned by it, are treated as transformer provenance.
+
 See [Processing ElementAspects](../learning/transformer/element-aspect-processing.md) for details.
 
 ## Context-based provenance resolution for incremental deletions

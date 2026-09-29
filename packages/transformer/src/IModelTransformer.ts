@@ -97,6 +97,7 @@ import {
   IModelExportHandler,
 } from "./IModelExporter";
 import { IModelImporter, OptimizeGeometryOptions } from "./IModelImporter";
+import { isTransformerProvenanceAspect } from "./ElementAspectCleanup";
 import { TransformerLoggerCategory } from "./TransformerLoggerCategory";
 import { IModelCloneContext } from "./IModelCloneContext";
 import type { IModelTransformContext } from "./IModelTransformContext";
@@ -1998,7 +1999,7 @@ export class IModelTransformer extends IModelExportHandler {
       (a) => {
         const isExternalSourceAspectFromTransformer =
           a instanceof ExternalSourceAspect &&
-          a.scope?.id === this.targetScopeElementId;
+          isTransformerProvenanceAspect(a, this.targetScopeElementId);
         return (
           !this._options.includeSourceProvenance ||
           !isExternalSourceAspectFromTransformer

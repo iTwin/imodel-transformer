@@ -104,16 +104,24 @@ function replaceableAspectQuery(
   }
   // ExternalSourceAspect is a multi-aspect, so provenance aspects are only found
   // when querying ElementMultiAspect. For each candidate, check whether it is a
-  // provenance aspect rather than listing every provenance aspect.
+  // provenance aspect rather than listing every provenance aspect. This must
+  // match isTransformerProvenanceAspect.
   if (
     provenanceScopeId !== undefined &&
     aspectClassFullName === ElementMultiAspect.classFullName
   ) {
-    params.bindId("provenanceScopeId", provenanceScopeId);
+    params
+      .bindId("provenanceScopeId", provenanceScopeId)
+      .bindString("elementKind", ExternalSourceAspect.Kind.Element)
+      .bindString("relationshipKind", ExternalSourceAspect.Kind.Relationship)
+      .bindString("scopeKind", ExternalSourceAspect.Kind.Scope);
     conditions.push(`NOT EXISTS (
       SELECT 1 FROM ${ExternalSourceAspect.classFullName} esa
       WHERE esa.ECInstanceId = aspect.ECInstanceId
-        AND (esa.Element.Id = :provenanceScopeId OR esa.Scope.Id = :provenanceScopeId)
+        AND (
+          (esa.Scope.Id = :provenanceScopeId AND esa.Kind IN (:elementKind, :relationshipKind))
+          OR (esa.Element.Id = :provenanceScopeId AND esa.Kind = :scopeKind)
+        )
     )`);
   }
   const whereClause =
@@ -123,6 +131,23 @@ function replaceableAspectQuery(
     INNER JOIN IdSet(:elementIds) ids ON ids.id = aspect.Element.Id
     ${whereClause}`;
   return { ecsql, params };
+}
+
+/** Whether an ExternalSourceAspect is provenance that a transformation into `provenanceScopeId` writes: element or relationship provenance scoped to it, or scope provenance owned by it.
+ * Other ExternalSourceAspects, including source provenance cloned with a scope that maps to `provenanceScopeId`, are replaceable.
+ * @internal
+ */
+export function isTransformerProvenanceAspect(
+  aspect: ExternalSourceAspect,
+  provenanceScopeId: Id64String
+): boolean {
+  return (
+    (aspect.scope?.id === provenanceScopeId &&
+      (aspect.kind === ExternalSourceAspect.Kind.Element ||
+        aspect.kind === ExternalSourceAspect.Kind.Relationship)) ||
+    (aspect.element.id === provenanceScopeId &&
+      aspect.kind === ExternalSourceAspect.Kind.Scope)
+  );
 }
 
 /** Returns the aspect, or undefined if it no longer exists.
