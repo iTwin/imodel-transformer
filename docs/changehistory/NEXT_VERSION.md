@@ -69,6 +69,8 @@ If an element outside the batch still references an element in it, for example t
 
 If a native operation fails anyway, for example because of a reference from a domain schema, `IModelImporter.deleteElements()` throws an `ElementBulkDeleteError` with key `IModelTransformerError.ElementBulkDeleteFailed`. The error reports `status`, `sqlDeleteStatus`, and `failedIds`. Deletions from that and earlier native operations stay pending in the caller-owned target transaction. Abandon that transaction before correcting the dependency and retrying.
 
+For what a deletion removes, how the importer orders native deletion calls, and an error-handling example, see the [Deleting elements learning guide](../learning/transformer/element-deletion.md).
+
 Batched deletion is 8 to 10 times faster than the previous per-element deletion. Checking references before deleting costs 3% to 7% on ordinary batches and 14% to 20% on batches that also delete categories their own elements use. Per-element deletion also silently kept a category when it came before its elements in the batch. The following medians come from interleaved runs of `IModelImporter` deletion on core-backend 5.13.0 with 100,000 physical elements and 100 spatial categories:
 
 | Requested elements              | Per-element deletion (2.0.0-dev.50)       | One native call without reference checks      | Batched deletion with reference checks |
