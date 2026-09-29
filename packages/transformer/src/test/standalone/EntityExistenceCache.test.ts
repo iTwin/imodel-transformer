@@ -345,7 +345,7 @@ describe("EntityExistenceCache", () => {
     db.close();
   });
 
-  it("batches repeated source model existence checks", async () => {
+  it("skips source existence queries for previously exported models", async () => {
     const elementCount = 20;
     const { db: sourceDb } = createDbWithPhysicalObjects(
       "ManyElementsSource.bim",
@@ -405,6 +405,81 @@ describe("EntityExistenceCache", () => {
     } finally {
       createQueryReader.mockRestore();
       markExists.mockRestore();
+      transformer.dispose();
+      targetEditTxn.end(processSucceeded ? "save" : "abandon");
+      sourceDb.close();
+      targetDb.close();
+    }
+  });
+
+  it("skips source existence queries for previously exported parent elements", async () => {
+    const parentCount = 5;
+    const childrenPerParent = 4;
+    const {
+      db: sourceDb,
+      categoryId,
+      modelId,
+      objIds,
+    } = createDbWithPhysicalObjects("ParentChildSource.bim", parentCount);
+    withEditTxn(sourceDb, "insert child elements", (txn) => {
+      for (const parentId of objIds) {
+        for (let index = 0; index < childrenPerParent; index++) {
+          const childProps: PhysicalElementProps = {
+            classFullName: PhysicalObject.classFullName,
+            model: modelId,
+            category: categoryId,
+            code: Code.createEmpty(),
+            parent: {
+              id: parentId,
+              relClassName: "BisCore:ElementOwnsChildElements",
+            },
+          };
+          txn.insertElement(childProps);
+        }
+      }
+    });
+    const targetDbPath = IModelTransformerTestUtils.prepareOutputFile(
+      "EntityExistenceCache",
+      "ParentChildTarget.bim"
+    );
+    const targetDb = SnapshotDb.createEmpty(targetDbPath, {
+      rootSubject: { name: "ParentChildTarget" },
+    });
+
+    const createQueryReader = vi.spyOn(sourceDb, "createQueryReader");
+    const targetEditTxn = createStartedEditTxn(targetDb);
+    const transformer = new IModelTransformer({
+      source: sourceDb,
+      target: targetEditTxn,
+    });
+    let processSucceeded = false;
+    try {
+      await transformer.process();
+
+      const elementExistenceQueries = createQueryReader.mock.calls.filter(
+        ([query]) => {
+          const normalizedQuery = query.replace(/\s+/g, " ").toLowerCase();
+          return (
+            normalizedQuery.includes("from biscore:element") &&
+            normalizedQuery.includes("invirtualset(:ids, ecinstanceid)")
+          );
+        }
+      );
+      // Each parent is exported before its children, so no child reference
+      // needs a source existence query.
+      expect(elementExistenceQueries).toHaveLength(0);
+      expect(
+        await targetDb
+          .createQueryReader(
+            "SELECT count(*) FROM Generic.PhysicalObject WHERE Parent.Id IS NOT NULL",
+            undefined,
+            { usePrimaryConn: true }
+          )
+          .toArray()
+      ).toEqual([[parentCount * childrenPerParent]]);
+      processSucceeded = true;
+    } finally {
+      createQueryReader.mockRestore();
       transformer.dispose();
       targetEditTxn.end(processSucceeded ? "save" : "abandon");
       sourceDb.close();
