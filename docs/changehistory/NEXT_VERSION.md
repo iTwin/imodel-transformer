@@ -1,5 +1,28 @@
 # Next release notes
 
+## Context-based provenance resolution for incremental deletions
+
+`IModelTransformer.process()` now resolves guidless incremental element
+deletions from its transformation context, which is populated from matching
+federation GUIDs and current-scope element provenance before changes are
+processed. This removes the additional per-deletion provenance query while
+preserving changeset order, recreation handling, federation-GUID-first
+resolution, scope isolation, relationship deletion behavior, and database
+error propagation.
+
+ElementAspect deletions, identified by their ECClass, no longer enter element
+deletion handling. Aspects are synchronized through their owning elements, and
+their IDs are not element IDs, so looking them up as element deletions only
+added work and could match an unrelated element with the same numeric ID.
+
+Deletion processing now also honors a valid context remap supplied by
+`addCustomChanges()` after provenance initialization. A conflicting remap made
+before `process()` can still be replaced while the context is initialized from
+the current scope. Context mappings are not target-existence checks, so custom
+remaps must identify a valid target element. If duplicate current-scope element
+provenance exists for one source identifier, the earliest
+`ExternalSourceAspect` remains authoritative.
+
 ## Set-based element hierarchy traversal in full exports
 
 `IModelExporter` now discovers element hierarchies during full exports (`exportAll()`, `exportModelContents()`, `exportChildElements()`) with a single streamed recursive ECSQL query per traversal root instead of one `queryChildren()` round trip per visited element. Observable export behavior is unchanged for root order, sibling order (ECInstanceId ascending), depth-first pre-order, element filtering, subtree suppression, and exporter callbacks. The streamed loop yields while consuming every result row, including descendants skipped inside rejected subtrees, so large exports remain responsive.
@@ -12,7 +35,9 @@ The streamed traversal relies on SQLite's documented recursive-CTE queue behavio
 
 `IModelExporter.exportChanges()` now finds elements marked as inserted or updated, elements excluded by ID, and the parents needed to reach them in one query. It visits only those paths instead of checking every element in each changed model. `IModelTransformer.process()` uses the same behavior when `argsForProcessChanges` is set. This reduces traversal work when changes affect a small part of a large iModel. Model discovery and other export phases are unchanged.
 
-Existing export callbacks keep the same arguments and parent-before-child order. Unchanged parents needed only to reach changed descendants do not trigger callbacks. Unchanged elements excluded by ID still trigger `onSkipElement`, and modeled elements continue through the existing model filters. Custom `IModelExporter` subclasses that override `exportElement` or `exportChildElements` use the previous traversal so those overrides continue to receive every element.
+Existing export callbacks keep the same arguments and parent-before-child order. Unchanged ancestors are not exported. When the exporter reaches a changed element, it calls `shouldExportElement` once for each unchanged ancestor that has not been checked yet, starting at the top. If an ancestor is rejected, `onSkipElement` is called for it and its descendants are skipped, as in a full export. Unchanged elements excluded by ID still trigger `onSkipElement`, and modeled elements continue through the existing model filters. Custom `IModelExporter` subclasses that override `exportElement` or `exportChildElements` use the previous traversal so those overrides continue to receive every element.
+
+A changed element can require an unchanged element that has no mapping in the target, such as its category. `IModelTransformer` does not insert unchanged elements, so it now throws `ITwinError` with key `DependencyMappingMissing` when it cannot map one. Previously, a required parent that was missing from the target could make change processing recurse until the process ran out of memory. It also throws this error when a changed required element is not exported because the filter rejects it or one of its ancestors; previously the import failed later with a less specific error. See [Filtering during change processing](../learning/transformer/index.md#filtering-during-change-processing) for when this error occurs and how to fix it.
 
 See [Incremental exports](../learning/transformer/index.md#incremental-exports) for callback and customization details.
 

@@ -22,6 +22,7 @@ import {
   DocumentListModel,
   Drawing,
   DrawingModel,
+  EditTxn,
   // eslint-disable-next-line @typescript-eslint/no-redeclare
   Element,
   ElementGroupsMembers,
@@ -44,6 +45,7 @@ import {
   SnapshotDb,
   SpatialCategory,
   SpatialViewDefinition,
+  SubCategory,
   Subject,
   SubjectOwnsPartitionElements,
   SubjectOwnsSubjects,
@@ -92,6 +94,7 @@ import {
   TransformerLoggerCategory,
 } from "../../imodel-transformer";
 import { ProvenanceManager } from "../../ProvenanceManager";
+import { ChangesetScanner } from "../../ChangesetScanner";
 import {
   assertTransformerError,
   CountingIModelImporter,
@@ -7089,6 +7092,267 @@ describe("IModelTransformerHub", () => {
       secondEditTxn.end();
     });
 
+    /** Rejects fixed elements, like a filter based on categories or a saved view. */
+    class RejectingTransformer extends IModelTransformer {
+      private readonly _rejectedIds: ReadonlySet<Id64String>;
+
+      public constructor(
+        source: IModelDb,
+        target: EditTxn,
+        rejectedIds: Id64String[],
+        options?: IModelTransformOptions
+      ) {
+        super({ source, target }, options);
+        this._rejectedIds = new Set(rejectedIds);
+      }
+
+      public override async shouldExportElement(sourceElement: Element) {
+        return !this._rejectedIds.has(sourceElement.id);
+      }
+    }
+
+    /** Transforms while rejecting the given elements, then pushes the target; abandons the target changes on failure. */
+    async function transformRejecting(
+      rejectedIds: Id64String[],
+      options?: IModelTransformOptions
+    ) {
+      const editTxn = createStartedEditTxn(targetDb);
+      const transformer = new RejectingTransformer(
+        sourceDb,
+        editTxn,
+        rejectedIds,
+        options
+      );
+      try {
+        await transformer.process();
+        editTxn.end();
+      } finally {
+        transformer.dispose();
+        if (editTxn.isActive) editTxn.end("abandon");
+      }
+      await targetDb.pushChanges({
+        description: "transform",
+        retainLocks: true,
+      });
+    }
+
+    const processChanges: IModelTransformOptions = {
+      argsForProcessChanges: {},
+    };
+
+    async function pushSource<T>(
+      description: string,
+      write: (txn: EditTxn) => T
+    ) {
+      const result = withEditTxn(sourceDb, description, write);
+      await sourceDb.pushChanges({ description, retainLocks: true });
+      return result;
+    }
+
+    /** Inserts a category that a full run rejects, then a subcategory under it. */
+    async function insertSubCategoryUnderRejectedCategory() {
+      const categoryId = await pushSource("insert category", (txn) =>
+        SpatialCategory.insert(
+          txn,
+          IModel.dictionaryId,
+          "RejectedCategory",
+          new SubCategoryAppearance()
+        )
+      );
+      await transformRejecting([categoryId]);
+      const subCategoryId = await pushSource("insert subcategory", (txn) =>
+        SubCategory.insert(
+          txn,
+          categoryId,
+          "NewSubCategory",
+          new SubCategoryAppearance()
+        )
+      );
+      return { categoryId, subCategoryId };
+    }
+
+    it("should skip a changed child when shouldExportElement rejects its unchanged parent", async () => {
+      const { categoryId } = await insertSubCategoryUnderRejectedCategory();
+
+      // Completing proves the subcategory was skipped: importing it without its category would throw.
+      await transformRejecting([categoryId], processChanges);
+    });
+
+    it("should throw DependencyMappingMissing when a changed child requires an unchanged parent that is not in the target", async () => {
+      const { categoryId, subCategoryId } =
+        await insertSubCategoryUnderRejectedCategory();
+
+      const shouldExport = vi.spyOn(
+        RejectingTransformer.prototype,
+        "shouldExportElement"
+      );
+
+      // The filter now accepts the category, but nobody added it in addCustomChanges.
+      await expectTransformerError(
+        transformRejecting([], processChanges),
+        IModelTransformerError.DependencyMappingMissing,
+        `Element ${subCategoryId} requires unchanged element ${categoryId}, which is not in the target iModel. Change processing does not insert unchanged elements; to insert element ${categoryId}, add it in addCustomChanges.`
+      );
+      // The traversal filtered the category; mapping the subcategory reuses that result.
+      expect(
+        shouldExport.mock.calls.filter(([element]) => element.id === categoryId)
+      ).to.have.length(1);
+      shouldExport.mockRestore();
+    });
+
+    it("should map a changed child's unchanged parent that is found in the target by Code", async () => {
+      const { categoryId, subCategoryId } =
+        await insertSubCategoryUnderRejectedCategory();
+      const targetCategoryId = withEditTxn(targetDb, "insert category", (txn) =>
+        SpatialCategory.insert(
+          txn,
+          IModel.dictionaryId,
+          "RejectedCategory",
+          new SubCategoryAppearance()
+        )
+      );
+      const onExportElement = vi.spyOn(
+        RejectingTransformer.prototype,
+        "onExportElement"
+      );
+
+      await transformRejecting([], processChanges);
+
+      expect(
+        targetDb.elements.queryElementIdByCode(
+          SubCategory.createCode(targetDb, targetCategoryId, "NewSubCategory")
+        )
+      ).to.not.equal(undefined);
+      // The lookup does not run export hooks for the unchanged category, which is never imported.
+      expect(
+        onExportElement.mock.calls.filter(
+          ([element]) => element.id === categoryId
+        )
+      ).to.have.length(0);
+      expect(
+        onExportElement.mock.calls.filter(
+          ([element]) => element.id === subCategoryId
+        )
+      ).to.have.length(1);
+      onExportElement.mockRestore();
+    });
+
+    it("should throw DependencyMappingMissing when a changed element requires a changed category that shouldExportElement rejects", async () => {
+      const modelId = await pushSource("insert model", (txn) =>
+        PhysicalModel.insert(txn, IModel.rootSubjectId, "PhysicalModel")
+      );
+      await transformRejecting([]);
+      const { categoryId, elementId } = await pushSource(
+        "insert category and physical object",
+        (txn) => {
+          const category = SpatialCategory.insert(
+            txn,
+            IModel.dictionaryId,
+            "RejectedCategory",
+            new SubCategoryAppearance()
+          );
+          return {
+            categoryId: category,
+            elementId: txn.insertElement({
+              classFullName: PhysicalObject.classFullName,
+              model: modelId,
+              category,
+              code: Code.createEmpty(),
+            } as GeometricElementProps),
+          };
+        }
+      );
+
+      await expectTransformerError(
+        transformRejecting([categoryId], processChanges),
+        IModelTransformerError.DependencyMappingMissing,
+        `Element ${elementId} requires element ${categoryId}, which was not exported because the export filter rejects it or one of its ancestors. Accept element ${categoryId} and its ancestors, or reject element ${elementId}.`
+      );
+    });
+
+    it("should throw DependencyMappingMissing when a changed element requires a changed category whose unchanged parent shouldExportElement rejects", async () => {
+      const { modelId, parentCategoryId } = await pushSource(
+        "insert model and parent category",
+        (txn) => ({
+          modelId: PhysicalModel.insert(
+            txn,
+            IModel.rootSubjectId,
+            "PhysicalModel"
+          ),
+          parentCategoryId: SpatialCategory.insert(
+            txn,
+            IModel.dictionaryId,
+            "RejectedParentCategory",
+            new SubCategoryAppearance()
+          ),
+        })
+      );
+      await transformRejecting([parentCategoryId]);
+      const categoryId = await pushSource(
+        "insert child category and physical object",
+        (txn) => {
+          const category = txn.insertElement({
+            classFullName: SpatialCategory.classFullName,
+            model: IModel.dictionaryId,
+            code: SpatialCategory.createCode(
+              sourceDb,
+              IModel.dictionaryId,
+              "ChildCategory"
+            ),
+            parent: new ElementOwnsChildElements(parentCategoryId),
+          });
+          txn.insertElement({
+            classFullName: PhysicalObject.classFullName,
+            model: modelId,
+            category,
+            code: Code.createEmpty(),
+          } as GeometricElementProps);
+          return category;
+        }
+      );
+
+      // The element is exported before its category's rejected parent is filtered, so the error is about the category.
+      await expectTransformerError(
+        transformRejecting([parentCategoryId], processChanges),
+        IModelTransformerError.DependencyMappingMissing,
+        `Element ${categoryId} requires element ${parentCategoryId}, which the export filter rejects. Accept element ${parentCategoryId}, or reject element ${categoryId} and every element that requires it.`
+      );
+    });
+
+    it("should throw DependencyMappingMissing when a changed element requires an unchanged category that shouldExportElement rejects", async () => {
+      const { modelId, categoryId } = await pushSource(
+        "insert model and category",
+        (txn) => ({
+          modelId: PhysicalModel.insert(
+            txn,
+            IModel.rootSubjectId,
+            "PhysicalModel"
+          ),
+          categoryId: SpatialCategory.insert(
+            txn,
+            IModel.dictionaryId,
+            "RejectedCategory",
+            new SubCategoryAppearance()
+          ),
+        })
+      );
+      await transformRejecting([categoryId]);
+      const elementId = await pushSource("insert physical object", (txn) =>
+        txn.insertElement({
+          classFullName: PhysicalObject.classFullName,
+          model: modelId,
+          category: categoryId,
+          code: Code.createEmpty(),
+        } as GeometricElementProps)
+      );
+
+      await expectTransformerError(
+        transformRejecting([categoryId], processChanges),
+        IModelTransformerError.DependencyMappingMissing,
+        `Element ${elementId} requires element ${categoryId}, which the export filter rejects. Accept element ${categoryId}, or reject element ${elementId} and every element that requires it.`
+      );
+    });
+
     it("should still export updated aspects when the owning element is unchanged during processChanges", async () => {
       // Import a schema with a custom UniqueAspect so we can test aspect-only updates
       // without interference from the provenance system
@@ -7215,6 +7479,18 @@ describe("IModelTransformerHub", () => {
         sourceDb,
         "DynamicTestSchema:DynamicPhysicalElement"
       );
+      const aspectId = withEditTxn(
+        sourceDb,
+        "insert aspect excluded from element provenance lookup",
+        (txn) =>
+          txn.insertAspect({
+            classFullName: ExternalSourceAspect.classFullName,
+            element: new ElementOwnsExternalSourceAspects(elementId),
+            scope: { id: IModel.rootSubjectId },
+            kind: "Document",
+            identifier: "deleted-aspect",
+          } as ExternalSourceAspectProps)
+      );
       await sourceDb.pushChanges({
         description: "Initial schema and element creation",
         retainLocks: true,
@@ -7266,6 +7542,17 @@ describe("IModelTransformerHub", () => {
       );
       await transformer.processSchemas();
       const openFileSpy = vi.spyOn(ChangesetReader, "openFile");
+      const processedDeletionIds: Id64String[] = [];
+      const processDeletedOp =
+        transformer["processDeletedOp"].bind(transformer);
+      transformer["processDeletedOp"] = async (...args) => {
+        processedDeletionIds.push(args[0].ecInstanceId);
+        return processDeletedOp(...args);
+      };
+      const findTargetElementIdSpy = vi.spyOn(
+        transformer.context,
+        "findTargetElementId"
+      );
       try {
         await transformer.process();
         secondTransformEditTxn.end();
@@ -7288,6 +7575,9 @@ describe("IModelTransformerHub", () => {
         ).to.deep.equal(
           selectedChangesetPaths.map(() => PropertyFilter.BisCoreElement)
         );
+        expect(findTargetElementIdSpy).toHaveBeenCalledWith(elementId);
+        expect(processedDeletionIds).toContain(elementId);
+        expect(processedDeletionIds).not.toContain(aspectId);
       } finally {
         openFileSpy.mockRestore();
       }
@@ -7301,6 +7591,303 @@ describe("IModelTransformerHub", () => {
         targetElement2,
         "Element should be deleted in target iModel"
       ).to.equal(Id64.invalid);
+    });
+
+    it("classifies aspect deletions by class rather than owner metadata", async () => {
+      const { subjectId, aspectId } = withEditTxn(
+        sourceDb,
+        "insert subject with aspect",
+        (txn) => {
+          const insertedSubjectId = Subject.insert(
+            txn,
+            IModel.rootSubjectId,
+            "Aspect classification"
+          );
+          const insertedAspectId = txn.insertAspect({
+            classFullName: ExternalSourceAspect.classFullName,
+            element: new ElementOwnsExternalSourceAspects(insertedSubjectId),
+            scope: { id: IModel.rootSubjectId },
+            kind: "Document",
+            identifier: "classified-aspect",
+          } as ExternalSourceAspectProps);
+          return { subjectId: insertedSubjectId, aspectId: insertedAspectId };
+        }
+      );
+      await sourceDb.pushChanges({
+        description: "Insert subject with aspect",
+        retainLocks: true,
+      });
+
+      const initialEditTxn = createStartedEditTxn(targetDb);
+      let transformer = new IModelTransformer({
+        source: sourceDb,
+        target: initialEditTxn,
+      });
+      await transformer.process();
+      const targetSubjectId =
+        transformer.context.findTargetElementId(subjectId);
+      transformer.dispose();
+      initialEditTxn.end();
+      await targetDb.pushChanges({
+        description: "Initial aspect classification transformation",
+        retainLocks: true,
+      });
+      expect(Id64.isValid(targetSubjectId)).to.be.true;
+
+      withEditTxn(sourceDb, "delete subject with aspect", (txn) => {
+        txn.deleteElement(subjectId);
+      });
+      await sourceDb.pushChanges({
+        description: "Delete subject with aspect",
+        retainLocks: true,
+      });
+
+      // Swap the owner metadata so only the ECClass can distinguish the records.
+      const scan = ChangesetScanner.scan.bind(ChangesetScanner);
+      let scanCalls = 0;
+      const scanSpy = vi
+        .spyOn(ChangesetScanner, "scan")
+        .mockImplementation(async (...args) => {
+          scanCalls++;
+          const recordsByChangeset = await scan(...args);
+          for (const record of recordsByChangeset.flat()) {
+            if (
+              record.classFullName === ExternalSourceAspect.classFullName &&
+              record.ecInstanceId === aspectId
+            )
+              record.elementId = undefined;
+            else if (
+              record.classFullName === Subject.classFullName &&
+              record.ecInstanceId === subjectId
+            )
+              record.elementId = subjectId;
+          }
+          return recordsByChangeset;
+        });
+      const changesEditTxn = createStartedEditTxn(targetDb);
+      transformer = new IModelTransformer(
+        { source: sourceDb, target: changesEditTxn },
+        { argsForProcessChanges: {} }
+      );
+      const processedDeletions: string[] = [];
+      const processDeletedOp =
+        transformer["processDeletedOp"].bind(transformer);
+      transformer["processDeletedOp"] = async (...args) => {
+        processedDeletions.push(
+          `${args[0].classFullName}:${args[0].ecInstanceId}`
+        );
+        return processDeletedOp(...args);
+      };
+      try {
+        await transformer.process();
+      } finally {
+        scanSpy.mockRestore();
+        transformer.dispose();
+        changesEditTxn.end();
+      }
+
+      expect(processedDeletions).toContain(
+        `${Subject.classFullName}:${subjectId}`
+      );
+      expect(processedDeletions).not.toContain(
+        `${ExternalSourceAspect.classFullName}:${aspectId}`
+      );
+      expect(targetDb.elements.tryGetElement(targetSubjectId)).toBeUndefined();
+      expect(scanCalls).to.equal(1);
+    });
+
+    it("honors a guidless deletion remap and ignores a missing mapping", async () => {
+      const sourceSubjectId = withEditTxn(
+        sourceDb,
+        "insert guidless source subject",
+        (txn) => {
+          const subject = Subject.create(
+            sourceDb,
+            IModel.rootSubjectId,
+            "Context mapped source"
+          );
+          subject.federationGuid = Guid.empty;
+          return subject.insert(txn);
+        }
+      );
+      await sourceDb.pushChanges({
+        description: "Insert guidless source subject",
+        retainLocks: true,
+      });
+
+      const initialEditTxn = createStartedEditTxn(targetDb);
+      const transformer = new IModelTransformer({
+        source: sourceDb,
+        target: initialEditTxn,
+      });
+      await transformer.process();
+      const provenanceTargetId =
+        transformer.context.findTargetElementId(sourceSubjectId);
+      transformer.dispose();
+      initialEditTxn.end();
+      await targetDb.pushChanges({
+        description: "Initial guidless subject transformation",
+        retainLocks: true,
+      });
+
+      const customTargetId = withEditTxn(
+        targetDb,
+        "insert custom deletion target",
+        (txn) =>
+          Subject.insert(txn, IModel.rootSubjectId, "Custom deletion target")
+      );
+      await targetDb.pushChanges({
+        description: "Insert custom deletion target",
+        retainLocks: true,
+      });
+
+      const unmappedSourceId = withEditTxn(
+        sourceDb,
+        "insert never-synchronized guidless subject",
+        (txn) => {
+          const subject = Subject.create(
+            sourceDb,
+            IModel.rootSubjectId,
+            "Never synchronized"
+          );
+          subject.federationGuid = Guid.empty;
+          return subject.insert(txn);
+        }
+      );
+      await sourceDb.pushChanges({
+        description: "Insert never-synchronized guidless subject",
+        retainLocks: true,
+      });
+
+      withEditTxn(sourceDb, "delete guidless source subjects", (txn) => {
+        txn.deleteElement(sourceSubjectId);
+        txn.deleteElement(unmappedSourceId);
+      });
+      await sourceDb.pushChanges({
+        description: "Delete guidless source subjects",
+        retainLocks: true,
+      });
+
+      class CustomDeletionRemapTransformer extends IModelTransformer {
+        public override async addCustomChanges(): Promise<void> {
+          expect(this.context.findTargetElementId(sourceSubjectId)).to.equal(
+            provenanceTargetId
+          );
+          this.context.remapElement(sourceSubjectId, customTargetId);
+        }
+      }
+
+      const changesEditTxn = createStartedEditTxn(targetDb);
+      const changesTransformer = new CustomDeletionRemapTransformer(
+        { source: sourceDb, target: changesEditTxn },
+        { argsForProcessChanges: {} }
+      );
+      const addCustomChangesSpy = vi.spyOn(
+        changesTransformer,
+        "addCustomChanges"
+      );
+      await changesTransformer.process();
+      expect(
+        changesTransformer.context.findTargetElementId(unmappedSourceId)
+      ).to.equal(Id64.invalid);
+      changesTransformer.dispose();
+      changesEditTxn.end();
+
+      expect(addCustomChangesSpy).toHaveBeenCalledOnce();
+      expect(targetDb.elements.tryGetElement(customTargetId)).toBeUndefined();
+      expect(targetDb.elements.tryGetElement(provenanceTargetId)).toBeDefined();
+    });
+
+    it("preserves a remapped guidless target when its source is recreated across changesets", async () => {
+      const sourceSubjectId = withEditTxn(
+        sourceDb,
+        "insert original guidless subject",
+        (txn) => {
+          const subject = Subject.create(
+            sourceDb,
+            IModel.rootSubjectId,
+            "Guidless recreation"
+          );
+          subject.federationGuid = Guid.empty;
+          return subject.insert(txn);
+        }
+      );
+      await sourceDb.pushChanges({
+        description: "Insert original guidless subject",
+        retainLocks: true,
+      });
+
+      const initialEditTxn = createStartedEditTxn(targetDb);
+      let transformer = new IModelTransformer({
+        source: sourceDb,
+        target: initialEditTxn,
+      });
+      await transformer.process();
+      const targetSubjectId =
+        transformer.context.findTargetElementId(sourceSubjectId);
+      transformer.dispose();
+      initialEditTxn.end();
+      await targetDb.pushChanges({
+        description: "Initial guidless subject transformation",
+        retainLocks: true,
+      });
+
+      withEditTxn(sourceDb, "delete original guidless subject", (txn) => {
+        txn.deleteElement(sourceSubjectId);
+      });
+      await sourceDb.pushChanges({
+        description: "Delete original guidless subject",
+        retainLocks: true,
+      });
+      const startChangeset = sourceDb.changeset;
+
+      const recreatedSourceSubjectId = withEditTxn(
+        sourceDb,
+        "recreate guidless subject",
+        (txn) => {
+          const subject = Subject.create(
+            sourceDb,
+            IModel.rootSubjectId,
+            "Guidless recreation"
+          );
+          subject.federationGuid = Guid.empty;
+          subject.userLabel = "Recreated guidless subject";
+          return subject.insert(txn);
+        }
+      );
+      await sourceDb.pushChanges({
+        description: "Recreate guidless subject",
+        retainLocks: true,
+      });
+
+      class GuidlessRecreationTransformer extends IModelTransformer {
+        public override async addCustomChanges(): Promise<void> {
+          expect(this.context.findTargetElementId(sourceSubjectId)).to.equal(
+            targetSubjectId
+          );
+          this.context.remapElement(recreatedSourceSubjectId, targetSubjectId);
+        }
+      }
+
+      const changesEditTxn = createStartedEditTxn(targetDb);
+      transformer = new GuidlessRecreationTransformer(
+        { source: sourceDb, target: changesEditTxn },
+        { argsForProcessChanges: { startChangeset } }
+      );
+      await transformer.process();
+      transformer.dispose();
+      changesEditTxn.end();
+
+      expect(
+        targetDb.elements.getElement<Subject>(targetSubjectId).userLabel
+      ).to.equal("Recreated guidless subject");
+      expect(
+        count(
+          targetDb,
+          Subject.classFullName,
+          `Parent.Id = ${IModel.rootSubjectId}`
+        )
+      ).to.equal(1);
     });
 
     it("should leave model contents correct when model partition was recreated with different federation guid and the same code value", async () => {
@@ -7571,6 +8158,7 @@ describe("IModelTransformerHub", () => {
             sourcePhysicalModelId,
             "TestClassElement"
           ),
+          federationGuid: Guid.empty,
           userLabel: "TestClassElement",
           SourceProperty1: "value1",
         } as GeometricElementProps);

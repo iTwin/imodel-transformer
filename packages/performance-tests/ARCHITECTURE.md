@@ -49,6 +49,12 @@ arms produced the same structural workload. It does not assert source-to-target
 correctness; detailed transformation correctness remains the responsibility of the
 transformer test suite.
 
+The `standalone-drive-relationship-processing` scenario prepares that same stock
+full transformation outside the timed operation, retaining its transformer and
+source-to-target element mappings. It then measures only
+`processRelationships(ElementDrivesElement.classFullName)`. Finalization,
+saving, and output-shape validation remain untimed.
+
 #### Recipe
 
 A recipe defines the deterministic iModel generated for a fixture. It describes

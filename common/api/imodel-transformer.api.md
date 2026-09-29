@@ -180,6 +180,8 @@ export class IModelExporter {
     exportRelationships(baseRelClassFullName: string): Promise<void>;
     exportSchemas(): Promise<void>;
     exportSubModels(parentModelId: Id64String): Promise<void>;
+    // @internal
+    getUnchangedAncestorFilterResult(elementId: Id64String): boolean | undefined;
     protected get handler(): IModelExportHandler;
     initialize(options: ExporterInitOptions): Promise<void>;
     progressInterval: number;

@@ -14,7 +14,18 @@ import {
   listRegisteredScenarios,
 } from "../../src/catalogs/BenchmarkRegistry.js";
 import { validateFixtureDescriptor } from "../../src/fixtures/FixtureDescriptor.js";
+import { hierarchicalIncrementalRecipe } from "../../src/fixtures/recipes/hierarchicalIncremental.js";
 import { largeBaseIncrementalRecipe } from "../../src/fixtures/recipes/largeBaseIncremental.js";
+import {
+  realisticBuildingExpectedCounts,
+  realisticBuildingTransformParameters,
+  realisticBuildingTransformRecipe,
+} from "../../src/fixtures/recipes/realisticBuildingTransform.js";
+import {
+  realisticBuildingTransformLargeParameters,
+  realisticBuildingTransformLargeRecipe,
+  realisticBuildingTransformLargeSourceExpectedCounts,
+} from "../../src/fixtures/recipes/realisticBuildingTransformLarge.js";
 import {
   assertScenarioSupportsFixture,
   resolveBenchmarkRun,
@@ -33,7 +44,7 @@ describe("quick performance scenario catalog", () => {
 
   it("rejects unknown scenarios", () => {
     expect(() => getScenarioDefinition("not-a-scenario")).to.throw(
-      'Unknown quick performance scenario "not-a-scenario". Available scenarios: incremental-synchronization, large-base-incremental-synchronization, changeset-scanning, schema-processing, standalone-full-transformation'
+      'Unknown quick performance scenario "not-a-scenario". Available scenarios: incremental-synchronization, large-base-incremental-synchronization, changeset-scanning, schema-processing, standalone-full-transformation, standalone-drive-relationship-processing'
     );
   });
 
@@ -70,6 +81,155 @@ describe("quick performance scenario catalog", () => {
     expect(base.elements / changed).to.equal(1_000);
   });
 
+  it("registers the deletion-heavy fixture for incremental comparison", () => {
+    const resolved = resolveBenchmarkRun(
+      "incremental-synchronization",
+      "deletion-heavy-incremental"
+    );
+
+    expect(resolved.descriptor).to.deep.include({
+      id: "deletion-heavy-incremental",
+      version: 1,
+    });
+    expect(resolved.descriptor.layout).to.deep.include({
+      recipe: "deletion-heavy-incremental",
+      topology: "source-and-empty-target",
+    });
+    expect(resolved.descriptor.scenarioClaims).to.include.members([
+      "incremental synchronization",
+      "element deletion",
+    ]);
+    expect(resolved.descriptor.distribution).to.deep.include({
+      base: {
+        aspects: 20_050,
+        elements: 10_025,
+        geometricElements: 0,
+        relationships: 0,
+      },
+      operations: {
+        aspects: { deletes: 20_000, inserts: 0, updates: 0 },
+        elements: { deletes: 10_000, inserts: 0, updates: 0 },
+        relationships: { deletes: 0, inserts: 0, updates: 0 },
+        geometryUpdates: 0,
+        sourceChangesets: 1,
+      },
+    });
+  });
+
+  it("registers the realistic synthetic building fixture as an opt-in full transform", () => {
+    const resolved = resolveBenchmarkRun(
+      "standalone-full-transformation",
+      "realistic-building-transform"
+    );
+    expect(resolved.descriptor.layout.topology).to.equal(
+      "standalone-source-and-empty-target"
+    );
+    expect(resolved.descriptor.scenarioClaims).to.include(
+      "full transformation"
+    );
+    expect(resolved.descriptor.scenarioClaims).to.include(
+      "drive relationship processing"
+    );
+    expect(resolved.descriptor.distribution.base).to.deep.equal({
+      aspects:
+        realisticBuildingTransformParameters.multiAspectCount +
+        realisticBuildingTransformParameters.uniqueAspectCount,
+      elements: realisticBuildingExpectedCounts.elements,
+      geometricElements: realisticBuildingExpectedCounts.geometricElements,
+      relationships:
+        realisticBuildingExpectedCounts.refersToRelationships +
+        realisticBuildingExpectedCounts.drivesRelationships,
+    });
+  });
+
+  it("keeps realistic-building geometry, aspects, and relationships independently configurable", () => {
+    const distribution = realisticBuildingTransformRecipe.distribution({
+      ...realisticBuildingTransformParameters,
+      geometryBearingElementCount: 0,
+      geometryPartCount: 0,
+      multiAspectCount: 0,
+      uniqueAspectCount: 0,
+      refersToRelationshipCount: 0,
+      drivesRelationshipCount: 0,
+    });
+    expect(distribution.base).to.deep.equal({
+      aspects: 0,
+      elements: realisticBuildingTransformParameters.elementCount,
+      geometricElements:
+        realisticBuildingTransformParameters.geometricElementCount,
+      relationships: 0,
+    });
+  });
+
+  it("registers the large realistic synthetic building fixture as an opt-in full transform", () => {
+    const resolved = resolveBenchmarkRun(
+      "standalone-full-transformation",
+      "realistic-building-transform-large"
+    );
+    expect(resolved.descriptor.layout.topology).to.equal(
+      "standalone-source-and-empty-target"
+    );
+    expect(resolved.descriptor.scenarioClaims).to.include(
+      "full transformation"
+    );
+    expect(resolved.descriptor.scenarioClaims).to.include(
+      "drive relationship processing"
+    );
+    expect(resolved.descriptor.distribution.base).to.deep.equal({
+      aspects:
+        realisticBuildingTransformLargeParameters.includedUniqueAspectCount +
+        realisticBuildingTransformLargeParameters.includedMultiAspectCount +
+        realisticBuildingTransformLargeParameters.externalSourceAspectCount,
+      elements: realisticBuildingTransformLargeSourceExpectedCounts.elements,
+      geometricElements:
+        realisticBuildingTransformLargeSourceExpectedCounts.geometricElements,
+      relationships:
+        realisticBuildingTransformLargeSourceExpectedCounts.refersToRelationships +
+        realisticBuildingTransformLargeSourceExpectedCounts.drivesRelationships,
+    });
+  });
+
+  it("registers both realistic fixtures for drive relationship processing", () => {
+    for (const fixtureId of [
+      "realistic-building-transform",
+      "realistic-building-transform-large",
+    ]) {
+      const resolvedDriveRun = resolveBenchmarkRun(
+        "standalone-drive-relationship-processing",
+        fixtureId
+      );
+      expect(resolvedDriveRun.descriptor.layout.topology).to.equal(
+        "standalone-source-and-empty-target"
+      );
+      expect(resolvedDriveRun.descriptor.scenarioClaims).to.include(
+        "drive relationship processing"
+      );
+    }
+  });
+
+  it("keeps large realistic-building geometry, aspects, and relationships independently configurable", () => {
+    const distribution = realisticBuildingTransformLargeRecipe.distribution({
+      ...realisticBuildingTransformLargeParameters,
+      geometryBearingElementCount: 0,
+      geometryPartCount: 0,
+      includedUniqueAspectCount: 0,
+      includedUniqueAspectClassCount: 0,
+      includedMultiAspectCount: 0,
+      includedMultiAspectClassCount: 0,
+      externalSourceAspectCount: 0,
+      externalSourceAspectOwnerCount: 0,
+      refersToRelationshipCount: 0,
+      drivesRelationshipCount: 0,
+    });
+    expect(distribution.base).to.deep.equal({
+      aspects: 0,
+      elements: realisticBuildingTransformLargeParameters.elementCount,
+      geometricElements:
+        realisticBuildingTransformLargeParameters.geometricElementCount,
+      relationships: 0,
+    });
+  });
+
   it("derives the large-base workload from scale", () => {
     const distribution = largeBaseIncrementalRecipe.distribution({ scale: 50 });
     expect(distribution.base.elements).to.equal(100_000);
@@ -89,6 +249,29 @@ describe("quick performance scenario catalog", () => {
       expect(() => largeBaseIncrementalRecipe.distribution({ scale })).to.throw(
         "Large-base fixture scale must be a positive integer"
       );
+    }
+  );
+
+  it("registers the hierarchical fixture for incremental synchronization", () => {
+    const resolved = resolveBenchmarkRun(
+      "incremental-synchronization",
+      "hierarchical-incremental"
+    );
+    expect(resolved.descriptor.scenarioClaims).to.include("element hierarchy");
+    // each changed part needs its own assembly, and half of the assemblies stay unchanged
+    const { base, operations } = resolved.descriptor.distribution;
+    expect(base.elements).to.equal(11_000);
+    expect(operations.elements.inserts).to.equal(250);
+    expect(operations.elements.updates).to.equal(250);
+    expect(operations.sourceChangesets).to.equal(2);
+  });
+
+  it.each([0, -1, 1.5])(
+    "rejects invalid hierarchical fixture scale %s",
+    (scale) => {
+      expect(() =>
+        hierarchicalIncrementalRecipe.distribution({ scale })
+      ).to.throw("Hierarchical fixture scale must be a positive integer");
     }
   );
 
