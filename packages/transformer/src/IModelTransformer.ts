@@ -2297,6 +2297,14 @@ export class IModelTransformer extends IModelExportHandler {
     )) {
       relationshipECClassIds.add(row.ECInstanceId);
     }
+    const elementAspectECClassIds = new Set<string>();
+    for await (const row of this.sourceDb.createQueryReader(
+      "SELECT ECInstanceId FROM ECDbMeta.ECClassDef where ECInstanceId IS (BisCore.ElementAspect)",
+      undefined,
+      { usePrimaryConn: true }
+    )) {
+      elementAspectECClassIds.add(row.ECInstanceId);
+    }
 
     // For later use when processing deletes.
     const alreadyImportedElementInserts = new Set<Id64String>();
@@ -2321,6 +2329,8 @@ export class IModelTransformer extends IModelExportHandler {
     );
 
     this._deletedSourceRelationshipData = new Map();
+    const isElementAspectDeletion = (change: ChangesetDeletionRecord) =>
+      elementAspectECClassIds.has(change.ecClassId);
 
     for (const changes of deletionRecordsByChangeset) {
       /** a map of element ids to this transformation scope's ESA data for that element, in case the ESA is deleted in the target */
@@ -2339,6 +2349,7 @@ export class IModelTransformer extends IModelExportHandler {
       // Loop to process deletes.
       for (const change of changes) {
         if (relationshipECClassIdsToSkip.has(change.ecClassId)) continue;
+        if (isElementAspectDeletion(change)) continue;
         await this.processDeletedOp(
           change,
           elemIdToScopeEsa,
@@ -2494,10 +2505,9 @@ export class IModelTransformer extends IModelExportHandler {
         this.sourceDb ===
           (await this._provenanceManager.getProvenanceSourceDb())
       ) {
-        targetId =
-          await this._provenanceManager.queryProvenanceForElement(
-            changedInstanceId
-          );
+        const contextTargetId =
+          this.context.findTargetElementId(changedInstanceId);
+        if (Id64.isValidId64(contextTargetId)) targetId = contextTargetId;
       }
       // since we are processing one changeset at a time, we can see local source deletes
       // of entities that were never synced and can be safely ignored
@@ -2506,7 +2516,7 @@ export class IModelTransformer extends IModelExportHandler {
 
       if (targetId === undefined) {
         throw new Error(
-          "targetId should be acquired from source id or element provenance"
+          "targetId should be acquired from source id or transformation context"
         );
       }
 
