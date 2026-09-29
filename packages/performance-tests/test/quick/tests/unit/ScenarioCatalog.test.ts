@@ -14,6 +14,7 @@ import {
   listRegisteredScenarios,
 } from "../../src/catalogs/BenchmarkRegistry.js";
 import { validateFixtureDescriptor } from "../../src/fixtures/FixtureDescriptor.js";
+import { hierarchicalIncrementalRecipe } from "../../src/fixtures/recipes/hierarchicalIncremental.js";
 import { largeBaseIncrementalRecipe } from "../../src/fixtures/recipes/largeBaseIncremental.js";
 import { referenceHeavyTransformRecipe } from "../../src/fixtures/recipes/referenceHeavyTransform.js";
 import {
@@ -279,6 +280,29 @@ describe("quick performance scenario catalog", () => {
       expect(() => largeBaseIncrementalRecipe.distribution({ scale })).to.throw(
         "Large-base fixture scale must be a positive integer"
       );
+    }
+  );
+
+  it("registers the hierarchical fixture for incremental synchronization", () => {
+    const resolved = resolveBenchmarkRun(
+      "incremental-synchronization",
+      "hierarchical-incremental"
+    );
+    expect(resolved.descriptor.scenarioClaims).to.include("element hierarchy");
+    // each changed part needs its own assembly, and half of the assemblies stay unchanged
+    const { base, operations } = resolved.descriptor.distribution;
+    expect(base.elements).to.equal(11_000);
+    expect(operations.elements.inserts).to.equal(250);
+    expect(operations.elements.updates).to.equal(250);
+    expect(operations.sourceChangesets).to.equal(2);
+  });
+
+  it.each([0, -1, 1.5])(
+    "rejects invalid hierarchical fixture scale %s",
+    (scale) => {
+      expect(() =>
+        hierarchicalIncrementalRecipe.distribution({ scale })
+      ).to.throw("Hierarchical fixture scale must be a positive integer");
     }
   );
 

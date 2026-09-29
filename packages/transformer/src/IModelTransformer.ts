@@ -1289,13 +1289,105 @@ export class IModelTransformer extends IModelExportHandler {
     if (unresolvedReferences.length > 0) {
       for (const reference of unresolvedReferences) {
         const processState = await this.getElemTransformState(reference);
-        // must export element first
         if (processState.needsElemImport)
-          await this.exporter.exportElement(reference);
+          await this.resolveRequiredElement(sourceElement.id, reference);
         if (processState.needsModelImport)
           await this.exporter.exportModel(reference);
       }
     }
+  }
+
+  /** Makes sure an element that a changed element requires is mapped in the target before the changed element is imported.
+   * A changed required element is exported. An unchanged one is only looked up in the target: change processing does not insert it, and exporting it would visit its children, which can include the element that requires it.
+   * @throws [[IModelTransformerError.DependencyMappingMissing]] if the required element is still not mapped.
+   */
+  private async resolveRequiredElement(
+    elementId: Id64String,
+    referenceId: Id64String
+  ): Promise<void> {
+    const changes = this.exporter.sourceDbChanges;
+    const referenceChanged =
+      changes === undefined ||
+      changes.element.insertIds.has(referenceId) ||
+      changes.element.updateIds.has(referenceId);
+    let accepted = true;
+    if (referenceChanged) {
+      await this.exporter.exportElement(referenceId);
+    } else {
+      const reference = this.sourceDb.elements.getElement({
+        id: referenceId,
+        wantGeometry: this.exporter.wantGeometry,
+        wantBRepData: this.exporter.wantGeometry,
+      });
+      // A required parent reached by the traversal has already been filtered.
+      accepted =
+        this.exporter.getUnchangedAncestorFilterResult(referenceId) ??
+        (await this.exporter.shouldExportElement(reference));
+      if (accepted)
+        await this.findExistingTargetElement(
+          reference,
+          await this.onTransformElement(reference)
+        );
+    }
+    if (Id64.isValid(this.context.findTargetElementId(referenceId))) return;
+
+    let message: string;
+    if (referenceChanged)
+      message = `Element ${elementId} requires element ${referenceId}, which was not exported because the export filter rejects it or one of its ancestors. Accept element ${referenceId} and its ancestors, or reject element ${elementId}.`;
+    else if (accepted)
+      message = `Element ${elementId} requires unchanged element ${referenceId}, which is not in the target iModel. Change processing does not insert unchanged elements; to insert element ${referenceId}, add it in addCustomChanges.`;
+    else
+      message = `Element ${elementId} requires element ${referenceId}, which the export filter rejects. Accept element ${referenceId}, or reject element ${elementId} and every element that requires it.`;
+    ITwinError.throwError({
+      iTwinErrorId: {
+        scope: IModelTransformerErrorScope,
+        key: IModelTransformerError.DependencyMappingMissing,
+      },
+      message,
+    });
+  }
+
+  /** Finds the existing target element for a source element by FederationGuid, then by Code, and records the mapping.
+   * @note Updates `targetElementProps.code` as the Code lookup requires.
+   * @returns the target element's id, or `Id64.invalid` if none is found.
+   */
+  private async findExistingTargetElement(
+    sourceElement: Element,
+    targetElementProps: ElementProps
+  ): Promise<Id64String> {
+    if (
+      this.context.isBetweenIModels &&
+      sourceElement.federationGuid !== undefined
+    ) {
+      const targetElementId = this.targetDb.elements.getIdFromFederationGuid(
+        sourceElement.federationGuid
+      );
+      if (targetElementId !== undefined && Id64.isValid(targetElementId)) {
+        this.context.remapElement(sourceElement.id, targetElementId); // record that the targetElement was found
+        return targetElementId;
+      }
+    }
+
+    // check by Code as long as the CodeScope is valid (invalid means a missing reference so not worth checking)
+    if (!Id64.isValidId64(targetElementProps.code.scope)) return Id64.invalid;
+    // respond the same way to undefined code value as the @see Code class, but don't use that class because it trims
+    // whitespace from the value, and there are iModels out there with untrimmed whitespace that we ought not to trim
+    targetElementProps.code.value = targetElementProps.code.value ?? "";
+    const maybeTargetElementId = await this.queryElementIdByCode(
+      this.targetDb,
+      targetElementProps.code as Required<CodeProps>
+    );
+    if (maybeTargetElementId === undefined) return Id64.invalid;
+    const maybeTargetElem =
+      this.targetDb.elements.getElement(maybeTargetElementId);
+    if (maybeTargetElem.classFullName !== targetElementProps.classFullName) {
+      targetElementProps.code = Code.createEmpty(); // clear out invalid code
+      return Id64.invalid;
+    }
+    // ensure code remapping doesn't change the target class
+    this.context.remapElement(sourceElement.id, maybeTargetElementId); // record that the targetElement was found by Code
+    this._targetElementIdsRemappedByCode.add(maybeTargetElementId);
+    return maybeTargetElementId;
   }
 
   private async getElemTransformState(elementId: Id64String) {
@@ -1370,47 +1462,12 @@ export class IModelTransformer extends IModelExportHandler {
       targetElementProps = await this.onTransformElement(sourceElement);
     }
 
-    // if an existing remapping was not yet found, check by FederationGuid
-    if (
-      this.context.isBetweenIModels &&
-      !Id64.isValid(targetElementId) &&
-      sourceElement.federationGuid !== undefined
-    ) {
-      targetElementId =
-        this.targetDb.elements.getIdFromFederationGuid(
-          sourceElement.federationGuid
-        ) ?? Id64.invalid;
-      if (Id64.isValid(targetElementId))
-        this.context.remapElement(sourceElement.id, targetElementId); // record that the targetElement was found
-    }
-
-    // if an existing remapping was not yet found, check by Code as long as the CodeScope is valid (invalid means a missing reference so not worth checking)
-    if (
-      !Id64.isValidId64(targetElementId) &&
-      Id64.isValidId64(targetElementProps.code.scope)
-    ) {
-      // respond the same way to undefined code value as the @see Code class, but don't use that class because it trims
-      // whitespace from the value, and there are iModels out there with untrimmed whitespace that we ought not to trim
-      targetElementProps.code.value = targetElementProps.code.value ?? "";
-      const maybeTargetElementId = await this.queryElementIdByCode(
-        this.targetDb,
-        targetElementProps.code as Required<CodeProps>
+    // if an existing remapping was not yet found, check by FederationGuid and then by Code
+    if (!Id64.isValid(targetElementId))
+      targetElementId = await this.findExistingTargetElement(
+        sourceElement,
+        targetElementProps
       );
-      if (undefined !== maybeTargetElementId) {
-        const maybeTargetElem =
-          this.targetDb.elements.getElement(maybeTargetElementId);
-        if (
-          maybeTargetElem.classFullName === targetElementProps.classFullName
-        ) {
-          // ensure code remapping doesn't change the target class
-          targetElementId = maybeTargetElementId;
-          this.context.remapElement(sourceElement.id, targetElementId); // record that the targetElement was found by Code
-          this._targetElementIdsRemappedByCode.add(targetElementId);
-        } else {
-          targetElementProps.code = Code.createEmpty(); // clear out invalid code
-        }
-      }
-    }
 
     if (!this.hasElementChanged(sourceElement)) {
       Logger.logTrace(
