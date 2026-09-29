@@ -45,7 +45,6 @@ export class ElementAspectCleanup {
     }
     if (targetElementIds.size === 0) return;
 
-    const ids = new Set<Id64String>(targetElementIds);
     const targetExcludedElementAspectClassFullNames = [
       ...excludedElementAspectClassFullNames,
     ].filter((classFullName) => this._targetDb.containsClass(classFullName));
@@ -53,35 +52,19 @@ export class ElementAspectCleanup {
       ElementUniqueAspect.classFullName,
       ElementMultiAspect.classFullName,
     ]) {
+      const { ecsql, params } = replaceableAspectQuery(
+        aspectClassFullName,
+        targetElementIds,
+        targetExcludedElementAspectClassFullNames,
+        provenanceScopeId,
+        pageSize
+      );
       while (true) {
-        const params = new QueryBinder().bindIdSet("elementIds", ids);
-        let whereClause = "TRUE";
-        if (provenanceScopeId !== undefined) {
-          params.bindId("provenanceScopeId", provenanceScopeId);
-          whereClause += ` AND ECInstanceId NOT IN (
-            SELECT ECInstanceId FROM ${ExternalSourceAspect.classFullName}
-            WHERE Element.Id = :provenanceScopeId OR Scope.Id = :provenanceScopeId
-          )`;
-        }
-        if (targetExcludedElementAspectClassFullNames.length > 0) {
-          whereClause += ` AND ECInstanceId NOT IN (
-            SELECT ECInstanceId FROM ${aspectClassFullName}
-            WHERE ECClassId IS (${[
-              ...targetExcludedElementAspectClassFullNames,
-            ].join(", ")})
-          )`;
-        }
-
-        const query = `SELECT aspect.ECInstanceId as id
-          FROM ${aspectClassFullName} aspect
-          INNER JOIN IdSet(:elementIds) ids ON ids.id = aspect.Element.Id
-          WHERE ${whereClause}
-          LIMIT ${pageSize}`;
         // Drain the full page before deleting: mutating a table while a reader is still
         // scanning it is unsafe.
         const candidateIds: Id64String[] = [];
         for await (const row of this._targetDb.createQueryReader(
-          query,
+          ecsql,
           params,
           { usePrimaryConn: true }
         )) {
@@ -96,4 +79,43 @@ export class ElementAspectCleanup {
       }
     }
   }
+}
+
+/** Builds the page query for aspects of `aspectClassFullName` owned by `elementIds`, skipping excluded classes and provenance aspects for `provenanceScopeId`. */
+function replaceableAspectQuery(
+  aspectClassFullName: string,
+  elementIds: ReadonlySet<Id64String>,
+  excludedClassFullNames: readonly string[],
+  provenanceScopeId: Id64String | undefined,
+  pageSize: number
+): { ecsql: string; params: QueryBinder } {
+  const params = new QueryBinder().bindIdSet("elementIds", elementIds);
+  const conditions: string[] = [];
+  if (excludedClassFullNames.length > 0) {
+    conditions.push(
+      `aspect.ECClassId IS NOT (${excludedClassFullNames.join(", ")})`
+    );
+  }
+  // ExternalSourceAspect is a multi-aspect, so provenance aspects are only found
+  // when querying ElementMultiAspect. For each candidate, check whether it is a
+  // provenance aspect rather than listing every provenance aspect on each page.
+  if (
+    provenanceScopeId !== undefined &&
+    aspectClassFullName === ElementMultiAspect.classFullName
+  ) {
+    params.bindId("provenanceScopeId", provenanceScopeId);
+    conditions.push(`NOT EXISTS (
+      SELECT 1 FROM ${ExternalSourceAspect.classFullName} esa
+      WHERE esa.ECInstanceId = aspect.ECInstanceId
+        AND (esa.Element.Id = :provenanceScopeId OR esa.Scope.Id = :provenanceScopeId)
+    )`);
+  }
+  const whereClause =
+    conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
+  const ecsql = `SELECT aspect.ECInstanceId as id
+    FROM ${aspectClassFullName} aspect
+    INNER JOIN IdSet(:elementIds) ids ON ids.id = aspect.Element.Id
+    ${whereClause}
+    LIMIT ${pageSize}`;
+  return { ecsql, params };
 }

@@ -1,0 +1,7 @@
+{
+  "type": "patch",
+  "comment": "Resolve guidless incremental element deletions from the transformation context populated by scoped provenance and federation GUID mappings",
+  "packageName": "@itwin/imodel-transformer",
+  "email": "DanRod1999@users.noreply.github.com",
+  "dependentChangeType": "patch"
+}

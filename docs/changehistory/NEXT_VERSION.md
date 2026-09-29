@@ -16,6 +16,29 @@ active `EditTxn`. Full and change-processing workflows still validate before
 finalization or saving; callers of low-level processing APIs should continue to
 abandon the transaction when processing fails.
 
+## Context-based provenance resolution for incremental deletions
+
+`IModelTransformer.process()` now resolves guidless incremental element
+deletions from its transformation context, which is populated from matching
+federation GUIDs and current-scope element provenance before changes are
+processed. This removes the additional per-deletion provenance query while
+preserving changeset order, recreation handling, federation-GUID-first
+resolution, scope isolation, relationship deletion behavior, and database
+error propagation.
+
+ElementAspect deletions, identified by their ECClass, no longer enter element
+deletion handling. Aspects are synchronized through their owning elements, and
+their IDs are not element IDs, so looking them up as element deletions only
+added work and could match an unrelated element with the same numeric ID.
+
+Deletion processing now also honors a valid context remap supplied by
+`addCustomChanges()` after provenance initialization. A conflicting remap made
+before `process()` can still be replaced while the context is initialized from
+the current scope. Context mappings are not target-existence checks, so custom
+remaps must identify a valid target element. If duplicate current-scope element
+provenance exists for one source identifier, the earliest
+`ExternalSourceAspect` remains authoritative.
+
 ## Set-based element hierarchy traversal in full exports
 
 `IModelExporter` now discovers element hierarchies during full exports (`exportAll()`, `exportModelContents()`, `exportChildElements()`) with a single streamed recursive ECSQL query per traversal root instead of one `queryChildren()` round trip per visited element. Observable export behavior is unchanged for root order, sibling order (ECInstanceId ascending), depth-first pre-order, element filtering, subtree suppression, and exporter callbacks. The streamed loop yields while consuming every result row, including descendants skipped inside rejected subtrees, so large exports remain responsive.
