@@ -92,6 +92,7 @@ import {
   TransformerLoggerCategory,
 } from "../../imodel-transformer";
 import { ProvenanceManager } from "../../ProvenanceManager";
+import { ChangesetScanner } from "../../ChangesetScanner";
 import {
   assertTransformerError,
   CountingIModelImporter,
@@ -7215,6 +7216,18 @@ describe("IModelTransformerHub", () => {
         sourceDb,
         "DynamicTestSchema:DynamicPhysicalElement"
       );
+      const aspectId = withEditTxn(
+        sourceDb,
+        "insert aspect excluded from element provenance lookup",
+        (txn) =>
+          txn.insertAspect({
+            classFullName: ExternalSourceAspect.classFullName,
+            element: new ElementOwnsExternalSourceAspects(elementId),
+            scope: { id: IModel.rootSubjectId },
+            kind: "Document",
+            identifier: "deleted-aspect",
+          } as ExternalSourceAspectProps)
+      );
       await sourceDb.pushChanges({
         description: "Initial schema and element creation",
         retainLocks: true,
@@ -7266,6 +7279,17 @@ describe("IModelTransformerHub", () => {
       );
       await transformer.processSchemas();
       const openFileSpy = vi.spyOn(ChangesetReader, "openFile");
+      const processedDeletionIds: Id64String[] = [];
+      const processDeletedOp =
+        transformer["processDeletedOp"].bind(transformer);
+      transformer["processDeletedOp"] = async (...args) => {
+        processedDeletionIds.push(args[0].ecInstanceId);
+        return processDeletedOp(...args);
+      };
+      const findTargetElementIdSpy = vi.spyOn(
+        transformer.context,
+        "findTargetElementId"
+      );
       try {
         await transformer.process();
         secondTransformEditTxn.end();
@@ -7288,6 +7312,9 @@ describe("IModelTransformerHub", () => {
         ).to.deep.equal(
           selectedChangesetPaths.map(() => PropertyFilter.BisCoreElement)
         );
+        expect(findTargetElementIdSpy).toHaveBeenCalledWith(elementId);
+        expect(processedDeletionIds).toContain(elementId);
+        expect(processedDeletionIds).not.toContain(aspectId);
       } finally {
         openFileSpy.mockRestore();
       }
@@ -7301,6 +7328,303 @@ describe("IModelTransformerHub", () => {
         targetElement2,
         "Element should be deleted in target iModel"
       ).to.equal(Id64.invalid);
+    });
+
+    it("classifies aspect deletions by class rather than owner metadata", async () => {
+      const { subjectId, aspectId } = withEditTxn(
+        sourceDb,
+        "insert subject with aspect",
+        (txn) => {
+          const insertedSubjectId = Subject.insert(
+            txn,
+            IModel.rootSubjectId,
+            "Aspect classification"
+          );
+          const insertedAspectId = txn.insertAspect({
+            classFullName: ExternalSourceAspect.classFullName,
+            element: new ElementOwnsExternalSourceAspects(insertedSubjectId),
+            scope: { id: IModel.rootSubjectId },
+            kind: "Document",
+            identifier: "classified-aspect",
+          } as ExternalSourceAspectProps);
+          return { subjectId: insertedSubjectId, aspectId: insertedAspectId };
+        }
+      );
+      await sourceDb.pushChanges({
+        description: "Insert subject with aspect",
+        retainLocks: true,
+      });
+
+      const initialEditTxn = createStartedEditTxn(targetDb);
+      let transformer = new IModelTransformer({
+        source: sourceDb,
+        target: initialEditTxn,
+      });
+      await transformer.process();
+      const targetSubjectId =
+        transformer.context.findTargetElementId(subjectId);
+      transformer.dispose();
+      initialEditTxn.end();
+      await targetDb.pushChanges({
+        description: "Initial aspect classification transformation",
+        retainLocks: true,
+      });
+      expect(Id64.isValid(targetSubjectId)).to.be.true;
+
+      withEditTxn(sourceDb, "delete subject with aspect", (txn) => {
+        txn.deleteElement(subjectId);
+      });
+      await sourceDb.pushChanges({
+        description: "Delete subject with aspect",
+        retainLocks: true,
+      });
+
+      // Swap the owner metadata so only the ECClass can distinguish the records.
+      const scan = ChangesetScanner.scan.bind(ChangesetScanner);
+      let scanCalls = 0;
+      const scanSpy = vi
+        .spyOn(ChangesetScanner, "scan")
+        .mockImplementation(async (...args) => {
+          scanCalls++;
+          const recordsByChangeset = await scan(...args);
+          for (const record of recordsByChangeset.flat()) {
+            if (
+              record.classFullName === ExternalSourceAspect.classFullName &&
+              record.ecInstanceId === aspectId
+            )
+              record.elementId = undefined;
+            else if (
+              record.classFullName === Subject.classFullName &&
+              record.ecInstanceId === subjectId
+            )
+              record.elementId = subjectId;
+          }
+          return recordsByChangeset;
+        });
+      const changesEditTxn = createStartedEditTxn(targetDb);
+      transformer = new IModelTransformer(
+        { source: sourceDb, target: changesEditTxn },
+        { argsForProcessChanges: {} }
+      );
+      const processedDeletions: string[] = [];
+      const processDeletedOp =
+        transformer["processDeletedOp"].bind(transformer);
+      transformer["processDeletedOp"] = async (...args) => {
+        processedDeletions.push(
+          `${args[0].classFullName}:${args[0].ecInstanceId}`
+        );
+        return processDeletedOp(...args);
+      };
+      try {
+        await transformer.process();
+      } finally {
+        scanSpy.mockRestore();
+        transformer.dispose();
+        changesEditTxn.end();
+      }
+
+      expect(processedDeletions).toContain(
+        `${Subject.classFullName}:${subjectId}`
+      );
+      expect(processedDeletions).not.toContain(
+        `${ExternalSourceAspect.classFullName}:${aspectId}`
+      );
+      expect(targetDb.elements.tryGetElement(targetSubjectId)).toBeUndefined();
+      expect(scanCalls).to.equal(1);
+    });
+
+    it("honors a guidless deletion remap and ignores a missing mapping", async () => {
+      const sourceSubjectId = withEditTxn(
+        sourceDb,
+        "insert guidless source subject",
+        (txn) => {
+          const subject = Subject.create(
+            sourceDb,
+            IModel.rootSubjectId,
+            "Context mapped source"
+          );
+          subject.federationGuid = Guid.empty;
+          return subject.insert(txn);
+        }
+      );
+      await sourceDb.pushChanges({
+        description: "Insert guidless source subject",
+        retainLocks: true,
+      });
+
+      const initialEditTxn = createStartedEditTxn(targetDb);
+      const transformer = new IModelTransformer({
+        source: sourceDb,
+        target: initialEditTxn,
+      });
+      await transformer.process();
+      const provenanceTargetId =
+        transformer.context.findTargetElementId(sourceSubjectId);
+      transformer.dispose();
+      initialEditTxn.end();
+      await targetDb.pushChanges({
+        description: "Initial guidless subject transformation",
+        retainLocks: true,
+      });
+
+      const customTargetId = withEditTxn(
+        targetDb,
+        "insert custom deletion target",
+        (txn) =>
+          Subject.insert(txn, IModel.rootSubjectId, "Custom deletion target")
+      );
+      await targetDb.pushChanges({
+        description: "Insert custom deletion target",
+        retainLocks: true,
+      });
+
+      const unmappedSourceId = withEditTxn(
+        sourceDb,
+        "insert never-synchronized guidless subject",
+        (txn) => {
+          const subject = Subject.create(
+            sourceDb,
+            IModel.rootSubjectId,
+            "Never synchronized"
+          );
+          subject.federationGuid = Guid.empty;
+          return subject.insert(txn);
+        }
+      );
+      await sourceDb.pushChanges({
+        description: "Insert never-synchronized guidless subject",
+        retainLocks: true,
+      });
+
+      withEditTxn(sourceDb, "delete guidless source subjects", (txn) => {
+        txn.deleteElement(sourceSubjectId);
+        txn.deleteElement(unmappedSourceId);
+      });
+      await sourceDb.pushChanges({
+        description: "Delete guidless source subjects",
+        retainLocks: true,
+      });
+
+      class CustomDeletionRemapTransformer extends IModelTransformer {
+        public override async addCustomChanges(): Promise<void> {
+          expect(this.context.findTargetElementId(sourceSubjectId)).to.equal(
+            provenanceTargetId
+          );
+          this.context.remapElement(sourceSubjectId, customTargetId);
+        }
+      }
+
+      const changesEditTxn = createStartedEditTxn(targetDb);
+      const changesTransformer = new CustomDeletionRemapTransformer(
+        { source: sourceDb, target: changesEditTxn },
+        { argsForProcessChanges: {} }
+      );
+      const addCustomChangesSpy = vi.spyOn(
+        changesTransformer,
+        "addCustomChanges"
+      );
+      await changesTransformer.process();
+      expect(
+        changesTransformer.context.findTargetElementId(unmappedSourceId)
+      ).to.equal(Id64.invalid);
+      changesTransformer.dispose();
+      changesEditTxn.end();
+
+      expect(addCustomChangesSpy).toHaveBeenCalledOnce();
+      expect(targetDb.elements.tryGetElement(customTargetId)).toBeUndefined();
+      expect(targetDb.elements.tryGetElement(provenanceTargetId)).toBeDefined();
+    });
+
+    it("preserves a remapped guidless target when its source is recreated across changesets", async () => {
+      const sourceSubjectId = withEditTxn(
+        sourceDb,
+        "insert original guidless subject",
+        (txn) => {
+          const subject = Subject.create(
+            sourceDb,
+            IModel.rootSubjectId,
+            "Guidless recreation"
+          );
+          subject.federationGuid = Guid.empty;
+          return subject.insert(txn);
+        }
+      );
+      await sourceDb.pushChanges({
+        description: "Insert original guidless subject",
+        retainLocks: true,
+      });
+
+      const initialEditTxn = createStartedEditTxn(targetDb);
+      let transformer = new IModelTransformer({
+        source: sourceDb,
+        target: initialEditTxn,
+      });
+      await transformer.process();
+      const targetSubjectId =
+        transformer.context.findTargetElementId(sourceSubjectId);
+      transformer.dispose();
+      initialEditTxn.end();
+      await targetDb.pushChanges({
+        description: "Initial guidless subject transformation",
+        retainLocks: true,
+      });
+
+      withEditTxn(sourceDb, "delete original guidless subject", (txn) => {
+        txn.deleteElement(sourceSubjectId);
+      });
+      await sourceDb.pushChanges({
+        description: "Delete original guidless subject",
+        retainLocks: true,
+      });
+      const startChangeset = sourceDb.changeset;
+
+      const recreatedSourceSubjectId = withEditTxn(
+        sourceDb,
+        "recreate guidless subject",
+        (txn) => {
+          const subject = Subject.create(
+            sourceDb,
+            IModel.rootSubjectId,
+            "Guidless recreation"
+          );
+          subject.federationGuid = Guid.empty;
+          subject.userLabel = "Recreated guidless subject";
+          return subject.insert(txn);
+        }
+      );
+      await sourceDb.pushChanges({
+        description: "Recreate guidless subject",
+        retainLocks: true,
+      });
+
+      class GuidlessRecreationTransformer extends IModelTransformer {
+        public override async addCustomChanges(): Promise<void> {
+          expect(this.context.findTargetElementId(sourceSubjectId)).to.equal(
+            targetSubjectId
+          );
+          this.context.remapElement(recreatedSourceSubjectId, targetSubjectId);
+        }
+      }
+
+      const changesEditTxn = createStartedEditTxn(targetDb);
+      transformer = new GuidlessRecreationTransformer(
+        { source: sourceDb, target: changesEditTxn },
+        { argsForProcessChanges: { startChangeset } }
+      );
+      await transformer.process();
+      transformer.dispose();
+      changesEditTxn.end();
+
+      expect(
+        targetDb.elements.getElement<Subject>(targetSubjectId).userLabel
+      ).to.equal("Recreated guidless subject");
+      expect(
+        count(
+          targetDb,
+          Subject.classFullName,
+          `Parent.Id = ${IModel.rootSubjectId}`
+        )
+      ).to.equal(1);
     });
 
     it("should leave model contents correct when model partition was recreated with different federation guid and the same code value", async () => {
@@ -7571,6 +7895,7 @@ describe("IModelTransformerHub", () => {
             sourcePhysicalModelId,
             "TestClassElement"
           ),
+          federationGuid: Guid.empty,
           userLabel: "TestClassElement",
           SourceProperty1: "value1",
         } as GeometricElementProps);
