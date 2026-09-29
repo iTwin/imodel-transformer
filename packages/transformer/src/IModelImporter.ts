@@ -58,6 +58,22 @@ import { EntityExistenceCache } from "./EntityExistenceCache";
 
 const loggerCategory: string = TransformerLoggerCategory.IModelImporter;
 
+/** Lists the first blocked references for an error message. The error's `blockedReferences` holds all of them. */
+function formatBlockedReferences(
+  blockedReferences: ReadonlyMap<Id64String, Id64String>
+): string {
+  const maxListed = 10;
+  const listed = [...blockedReferences]
+    .slice(0, maxListed)
+    .map(
+      ([elementId, referencingId]) =>
+        `${elementId} (referenced by ${referencingId})`
+    )
+    .join(", ");
+  const unlisted = blockedReferences.size - maxListed;
+  return unlisted > 0 ? `${listed}, and ${unlisted} more` : listed;
+}
+
 /** Error thrown when elements outside the requested element trees still reference an element in them. Nothing is deleted.
  * @beta
  */
@@ -513,14 +529,9 @@ export class IModelImporter {
           scope: IModelTransformerErrorScope,
           key: IModelTransformerError.ElementBulkDeleteBlocked,
         },
-        message: `Bulk element deletion blocked: elements outside the deleted trees still reference ${[
-          ...plan.blockedReferences,
-        ]
-          .map(
-            ([elementId, referencingId]) =>
-              `${elementId} (referenced by ${referencingId})`
-          )
-          .join(", ")}`,
+        message: `Bulk element deletion blocked: elements outside the deleted trees still reference ${formatBlockedReferences(
+          plan.blockedReferences
+        )}`,
         blockedReferences: plan.blockedReferences,
       });
     }

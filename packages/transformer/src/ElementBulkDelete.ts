@@ -98,10 +98,13 @@ export async function planBulkDelete(
     };
   }
 
-  // Otherwise delete the category users and their code dependents as roots of their own.
+  // Otherwise delete the category users and their code dependents as roots of their own. Core refuses to delete
+  // an element whose code scopes an element deleted in a later call, so the first call also takes code dependents
+  // that have a parent. They are all in the trees; one outside them would have blocked the plan above.
   const userTrees = await queryDeletionTrees(
     targetDb,
-    usersOfDeletedCategories
+    usersOfDeletedCategories,
+    true
   );
   const remainingRoots = [...trees.roots].filter(
     (id) => !userTrees.rootsByElement.has(id)
@@ -114,26 +117,32 @@ export async function planBulkDelete(
 /** Finds the native deletion roots and every element their deletion removes.
  *
  * Native deletion already cascades through child elements and modeled contents. This query follows
- * those dependencies to find top-level elements whose codes are scoped by an element in a deleted
- * tree. Each code-dependent element becomes another native deletion root.
+ * those dependencies to find elements whose codes are scoped by an element in a deleted tree. Each
+ * code-dependent element becomes another native deletion root. Only top-level code dependents are
+ * included unless `includeParentedCodeDependents` is true.
  */
 async function queryDeletionTrees(
   targetDb: IModelDb,
-  elementIds: ReadonlySet<Id64String>
+  elementIds: ReadonlySet<Id64String>,
+  includeParentedCodeDependents = false
 ): Promise<DeletionTrees> {
   const roots: Id64Set = new Set<Id64String>();
   // An element has more than one root only when requested trees overlap. UNION in the query already removes duplicate
   // (element, root) pairs, so an array holds distinct roots without allocating a Set per element.
   const rootsByElement = new Map<Id64String, Id64String[]>();
   // CascadeIds pairs each traversed element with a root that the native API must delete. The anchor
-  // adds requested roots that still exist. Recursive branches walk child elements and modeled
-  // contents while preserving DeleteRootId. A top-level element whose code is scoped by anything
-  // already traversed becomes a new root, so recursion also covers its tree and code dependents.
+  // adds requested elements that still exist, except those whose parent or modeled element is also
+  // requested: the recursion reaches them anyway, and anchoring them too would walk a nested tree once
+  // per requested ancestor. Recursive branches walk child elements and modeled contents while
+  // preserving DeleteRootId. An element whose code is scoped by anything already traversed becomes a
+  // new root, so recursion also covers its tree and code dependents.
   const query = `
     WITH RECURSIVE CascadeIds(Id, DeleteRootId) AS (
       SELECT element.ECInstanceId, element.ECInstanceId
       FROM bis.Element element
       INNER JOIN IdSet(:elementIds) ids ON ids.id = element.ECInstanceId
+      WHERE (element.Parent.Id IS NULL OR element.Parent.Id NOT IN (SELECT id FROM IdSet(:elementIds)))
+        AND element.Model.Id NOT IN (SELECT id FROM IdSet(:elementIds))
       UNION
       SELECT child.ECInstanceId, deletionParent.DeleteRootId
       FROM bis.Element child
@@ -146,7 +155,7 @@ async function queryDeletionTrees(
       SELECT codeDependent.ECInstanceId, codeDependent.ECInstanceId
       FROM bis.Element codeDependent
       INNER JOIN CascadeIds scope ON codeDependent.CodeScope.Id = scope.Id
-      WHERE codeDependent.Parent.Id IS NULL
+      ${includeParentedCodeDependents ? "" : "WHERE codeDependent.Parent.Id IS NULL"}
     )
     SELECT Id AS id, DeleteRootId AS rootId FROM CascadeIds
   `;

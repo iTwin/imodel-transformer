@@ -245,8 +245,9 @@ describe("IModelImporter bulk element deletion", () => {
         return { rootId, childId };
       });
       const roots = new Set([ids.rootId, ids.childId, "0xdead"]);
+      // The child is deleted with its requested parent, so it is not a root of its own.
       expect(await planPhases(targetDb, roots)).to.deep.equal([
-        new Set([ids.rootId, ids.childId]),
+        new Set([ids.rootId]),
       ]);
 
       const editTxn = createStartedEditTxn(targetDb);
@@ -254,7 +255,7 @@ describe("IModelImporter bulk element deletion", () => {
       await new IModelImporter(editTxn).deleteElements(roots);
 
       expect(new Set(nativeDeleteSpy.mock.calls[0][0])).to.deep.equal(
-        new Set([ids.rootId, ids.childId])
+        new Set([ids.rootId])
       );
       expect(targetDb.elements.tryGetElement(ids.rootId)).to.be.undefined;
       expect(targetDb.elements.tryGetElement(ids.childId)).to.be.undefined;
@@ -545,6 +546,108 @@ describe("IModelImporter bulk element deletion", () => {
     }
   });
 
+  it("deletes a code dependent with a parent before the category user that scopes its code", async () => {
+    const targetDb = createTargetDb("ParentedCodeDependentOfCategoryUser");
+    try {
+      const ids = withEditTxn(targetDb, "insert subject tree", (txn) => {
+        const subjectId = Subject.insert(txn, IModel.rootSubjectId, "Subject");
+        const definitionModelId = DefinitionModel.insert(
+          txn,
+          subjectId,
+          "Definition model"
+        );
+        const categoryId = SpatialCategory.insert(
+          txn,
+          definitionModelId,
+          "Category",
+          new SubCategoryAppearance()
+        );
+        const keptCategoryId = SpatialCategory.insert(
+          txn,
+          IModel.dictionaryId,
+          "Kept category",
+          new SubCategoryAppearance()
+        );
+        const codeSpecId = targetDb.codeSpecs.insert(
+          txn,
+          "RelatedElementCodeSpec",
+          CodeScopeSpec.Type.RelatedElement
+        );
+        const modelId = PhysicalModel.insert(txn, subjectId, "Physical model");
+        const userId = insertPhysicalObject(txn, { modelId, categoryId });
+        const parentId = insertPhysicalObject(txn, {
+          modelId,
+          categoryId: keptCategoryId,
+        });
+        const dependentId = insertPhysicalObject(txn, {
+          modelId,
+          categoryId: keptCategoryId,
+          parentId,
+          codeSpecId,
+          codeScope: userId,
+          codeValue: "scoped-by-category-user",
+        });
+        return { subjectId, categoryId, userId, parentId, dependentId };
+      });
+      const roots = new Set([ids.subjectId]);
+      expect(await planPhases(targetDb, roots)).to.deep.equal([
+        new Set([ids.userId, ids.dependentId]),
+        new Set([ids.subjectId, ids.categoryId]),
+      ]);
+
+      const editTxn = createStartedEditTxn(targetDb);
+      await new IModelImporter(editTxn).deleteElements(roots);
+
+      for (const id of Object.values(ids))
+        expect(targetDb.elements.tryGetElement(id)).to.be.undefined;
+      editTxn.end("abandon");
+    } finally {
+      targetDb.close();
+    }
+  });
+
+  it("deletes a deep chain of requested elements as one root", async () => {
+    const targetDb = createTargetDb("DeepRequestedChain");
+    try {
+      const chainIds = withEditTxn(targetDb, "insert chain", (txn) => {
+        const modelId = PhysicalModel.insert(
+          txn,
+          IModel.rootSubjectId,
+          "Physical model"
+        );
+        const categoryId = SpatialCategory.insert(
+          txn,
+          IModel.dictionaryId,
+          "Spatial category",
+          new SubCategoryAppearance()
+        );
+        const ids: Id64String[] = [];
+        for (let i = 0; i < 500; i++)
+          ids.push(
+            insertPhysicalObject(txn, {
+              modelId,
+              categoryId,
+              parentId: ids[i - 1],
+            })
+          );
+        return ids;
+      });
+      // Each requested element is walked once, not once per requested ancestor.
+      expect(await planPhases(targetDb, new Set(chainIds))).to.deep.equal([
+        new Set([chainIds[0]]),
+      ]);
+
+      const editTxn = createStartedEditTxn(targetDb);
+      await new IModelImporter(editTxn).deleteElements(new Set(chainIds));
+
+      for (const id of chainIds)
+        expect(targetDb.elements.tryGetElement(id)).to.be.undefined;
+      editTxn.end("abandon");
+    } finally {
+      targetDb.close();
+    }
+  });
+
   it("deletes nothing when an element outside the batch still uses a deleted category", async () => {
     const targetDb = createTargetDb("CategoryStillInUse");
     try {
@@ -607,6 +710,61 @@ describe("IModelImporter bulk element deletion", () => {
         modelId: ids.modelId,
         categoryId: ids.categoryId,
       });
+      editTxn.end("abandon");
+    } finally {
+      targetDb.close();
+    }
+  });
+
+  it("lists at most ten blocked references in the error message", async () => {
+    const targetDb = createTargetDb("ManyBlockedReferences");
+    try {
+      const blockedReferences = withEditTxn(
+        targetDb,
+        "insert used categories",
+        (txn) => {
+          const modelId = PhysicalModel.insert(
+            txn,
+            IModel.rootSubjectId,
+            "Physical model"
+          );
+          const references = new Map<Id64String, Id64String>();
+          for (let i = 0; i < 12; i++) {
+            const categoryId = SpatialCategory.insert(
+              txn,
+              IModel.dictionaryId,
+              `Used category ${i}`,
+              new SubCategoryAppearance()
+            );
+            references.set(
+              categoryId,
+              insertPhysicalObject(txn, { modelId, categoryId })
+            );
+          }
+          return references;
+        }
+      );
+      const editTxn = createStartedEditTxn(targetDb);
+      const error = (await expectTransformerError(
+        async () =>
+          new IModelImporter(editTxn).deleteElements(
+            new Set(blockedReferences.keys())
+          ),
+        IModelTransformerError.ElementBulkDeleteBlocked,
+        /, and 2 more$/
+      )) as ElementBulkDeleteBlockedError;
+
+      // The error keeps every blocked reference; the message lists the first ten.
+      expect([...error.blockedReferences].sort()).to.deep.equal(
+        [...blockedReferences].sort()
+      );
+      const listed = [...error.blockedReferences]
+        .slice(0, 10)
+        .map(([id, referencingId]) => `${id} (referenced by ${referencingId})`)
+        .join(", ");
+      expect(error.message).to.equal(
+        `Bulk element deletion blocked: elements outside the deleted trees still reference ${listed}, and 2 more`
+      );
       editTxn.end("abandon");
     } finally {
       targetDb.close();
