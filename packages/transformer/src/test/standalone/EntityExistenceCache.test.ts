@@ -377,7 +377,7 @@ describe("EntityExistenceCache", () => {
           const normalizedQuery = normalizeQuery(query);
           return (
             normalizedQuery.includes("from biscore:model") &&
-            normalizedQuery.includes("invirtualset(:ids, ecinstanceid)")
+            normalizedQuery.includes("idset(:ids)")
           );
         }
       );

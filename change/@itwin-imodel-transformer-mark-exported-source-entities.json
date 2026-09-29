@@ -1,6 +1,6 @@
 {
   "type": "patch",
-  "comment": "Skip source existence queries for references to entities the transformer has already exported when danglingReferencesBehavior is 'reject'",
+  "comment": "Skip source existence queries for references to entities the transformer has already exported when danglingReferencesBehavior is 'reject', and look up remaining references by primary key instead of scanning the whole table",
   "packageName": "@itwin/imodel-transformer",
   "email": "DanRod1999@users.noreply.github.com",
   "dependentChangeType": "patch"
