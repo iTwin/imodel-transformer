@@ -44,7 +44,11 @@ import {
 } from "@itwin/core-backend";
 import type { RelationshipPropsForDelete } from "./IModelTransformer";
 import { strict as assert } from "node:assert";
-import { ElementAspectCleanup, tryGetAspect } from "./ElementAspectCleanup";
+import {
+  ElementAspectCleanup,
+  isSameClass,
+  tryGetAspect,
+} from "./ElementAspectCleanup";
 import {
   EntityClass,
   PropertyType,
@@ -589,10 +593,12 @@ export class IModelImporter {
     aspectProps: ElementAspectProps
   ): Promise<Id64String> {
     const elementId = aspectProps.element.id;
-    const existing = this.targetDb.elements
-      .getAspects(elementId, aspectProps.classFullName)
-      .find((aspect) => isSameClass(aspect, aspectProps.classFullName));
+    const existing = this.getTargetAspects(
+      elementId,
+      aspectProps.classFullName
+    )[0];
     if (existing === undefined) {
+      this._elementAspectCleanup.invalidate(elementId);
       // iModel unique-aspect writes treat base and derived classes as one slot:
       // inserting replaces an aspect of a derived class, and deleting an aspect
       // of a base class also deletes derived ones. Delete related aspects first
@@ -610,9 +616,27 @@ export class IModelImporter {
     this._elementAspectCleanup.retain(existing.id);
     if (hasEntityChanged(existing, aspectProps)) {
       aspectProps.id = existing.id;
+      this._elementAspectCleanup.invalidate(elementId);
       await this.onUpdateElementAspect(aspectProps);
     }
     return existing.id;
+  }
+
+  /** Returns the element's target aspects of exactly `classFullName`, in ECInstanceId order.
+   * Inside a transformer owner batch these come from the batch's loaded aspects; otherwise from the target iModel.
+   */
+  private getTargetAspects(
+    elementId: Id64String,
+    classFullName: string
+  ): ElementAspect[] {
+    return (
+      this._elementAspectCleanup.getAspects(elementId, classFullName) ??
+      // getAspects is polymorphic; keep only the exact class so aspects of a
+      // derived class are handled with their own class.
+      this.targetDb.elements
+        .getAspects(elementId, classFullName)
+        .filter((aspect) => isSameClass(aspect, classFullName))
+    );
   }
 
   /** Returns the element's unique aspects whose class is a base or derived class of `classFullName`, excluding that class itself. */
@@ -679,15 +703,12 @@ export class IModelImporter {
       aspectClassFullName,
       proposedAspects,
     ] of proposedAspectsByClass) {
-      // getAspects is polymorphic; match only aspects of the proposed class so
-      // subclass aspects are handled by their own group.
-      const currentAspects = this.targetDb.elements
-        .getAspects(elementId, aspectClassFullName)
+      const currentAspects = this.getTargetAspects(
+        elementId,
+        aspectClassFullName
+      )
         .map((props, index) => ({ props, index }) as const)
-        .filter(
-          ({ props }) =>
-            isSameClass(props, aspectClassFullName) && filterFunc(props)
-        );
+        .filter(({ props }) => filterFunc(props));
       for (const { props } of currentAspects)
         this._elementAspectCleanup.retain(props.id);
 
@@ -699,10 +720,12 @@ export class IModelImporter {
             id = currentAspects[index].props.id;
             props.id = id;
             if (hasEntityChanged(currentAspects[index].props, props)) {
+              this._elementAspectCleanup.invalidate(elementId);
               await this.onUpdateElementAspect(props);
             }
             id = props.id;
           } else {
+            this._elementAspectCleanup.invalidate(elementId);
             id = await this.onInsertElementAspect(props);
           }
           result[resultIndex] = id;
@@ -716,10 +739,12 @@ export class IModelImporter {
             const id = props.id;
             proposedProps.id = id;
             if (hasEntityChanged(props, proposedProps)) {
+              this._elementAspectCleanup.invalidate(elementId);
               await this.onUpdateElementAspect(proposedProps);
             }
             result[resultIndex] = id;
           } else {
+            this._elementAspectCleanup.invalidate(elementId);
             await this.onDeleteElementAspect(props);
           }
         }
@@ -1052,13 +1077,6 @@ export class IModelImporter {
   public finalize(): void {
     this.resolveDuplicateCodeValues();
   }
-}
-
-function isSameClass(aspect: ElementAspect, classFullName: string): boolean {
-  return (
-    aspect.classFullName.toLowerCase() ===
-    classFullName.replace(".", ":").toLowerCase()
-  );
 }
 
 /** Returns true if a change within an Entity is detected.

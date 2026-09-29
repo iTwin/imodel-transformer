@@ -98,6 +98,7 @@ import {
 } from "./IModelExporter";
 import { IModelImporter, OptimizeGeometryOptions } from "./IModelImporter";
 import { isTransformerProvenanceAspect } from "./ElementAspectCleanup";
+import type { ElementAspectExportCompletion } from "./ElementAspectExportCoordinator";
 import { TransformerLoggerCategory } from "./TransformerLoggerCategory";
 import { IModelCloneContext } from "./IModelCloneContext";
 import type { IModelTransformContext } from "./IModelTransformContext";
@@ -1934,13 +1935,13 @@ export class IModelTransformer extends IModelExportHandler {
     return this.context.findTargetElementId(aspect.element.id) !== Id64.invalid;
   }
 
-  /** Records the replaceable target aspects of an owner batch before its source aspects are imported.
-   * The returned callback deletes the recorded aspects that the importer did not reuse.
+  /** Records the target aspects of an owner batch before its source aspects are imported.
+   * The returned callback deletes the recorded replaceable aspects that the importer did not reuse, or discards the recorded state if the export failed.
    */
   private async prepareElementAspects(
     excludedElementAspectClassFullNames: ReadonlySet<string>,
     elementIds?: ReadonlySet<Id64String>
-  ): Promise<(() => Promise<void>) | undefined> {
+  ): Promise<ElementAspectExportCompletion | undefined> {
     if (!this.exporter.visitElements) return undefined;
 
     if (elementIds === undefined) return undefined;
@@ -1959,7 +1960,10 @@ export class IModelTransformer extends IModelExportHandler {
       excludedElementAspectClassFullNames,
       this.targetScopeElementId
     );
-    return async () => cleanup.deleteUnretained();
+    return async (exported) => {
+      if (exported) await cleanup.deleteUnretained();
+      else cleanup.discard();
+    };
   }
 
   /** Override of [IModelExportHandler.onExportElementUniqueAspect]($transformer) that imports an ElementUniqueAspect into the target iModel when it is exported from the source iModel.

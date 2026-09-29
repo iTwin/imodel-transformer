@@ -16,11 +16,14 @@ import { IModelError, QueryBinder } from "@itwin/core-common";
 
 /** Deletes replaceable ElementAspects of target owners that an owner batch did not reuse, while preserving excluded classes and transformer provenance aspects.
  *
- * Usage per owner batch: [[collect]] the replaceable aspects the owners have before import, let the importer [[retain]] each aspect it reuses or deletes itself, then [[deleteUnretained]] to delete the rest.
+ * Usage per owner batch: [[collect]] the aspects the owners have before import, let the importer [[retain]] each aspect it reuses or deletes itself, then [[deleteUnretained]] to delete the rest, or [[discard]] the batch if its export failed.
+ * While a batch is active, [[getAspects]] answers target aspect reads for its owners from the aspects loaded by [[collect]], so the importer doesn't query each owner separately.
  * @internal
  */
 export class ElementAspectCleanup {
   private _candidateIds = new Set<Id64String>();
+  /** Every target aspect of each batch owner that has not been written since [[collect]], keyed by owner. */
+  private _aspectsByOwner = new Map<Id64String, ElementAspect[]>();
 
   public constructor(
     private readonly _targetDb: IModelDb,
@@ -37,6 +40,7 @@ export class ElementAspectCleanup {
     provenanceScopeId?: Id64String
   ): Promise<void> {
     this._candidateIds = new Set<Id64String>();
+    this._aspectsByOwner = new Map<Id64String, ElementAspect[]>();
     if (targetElementIds.size === 0) return;
 
     const targetExcludedElementAspectClassFullNames = [
@@ -58,6 +62,41 @@ export class ElementAspectCleanup {
         this._candidateIds.add(row.id);
       }
     }
+
+    // Load every aspect, including excluded classes and provenance, so reads
+    // answer exactly what getAspects would for these owners.
+    for (const elementId of targetElementIds)
+      this._aspectsByOwner.set(elementId, []);
+    for await (const aspect of this._targetDb.elements.queryAspects({
+      elementIds: [...targetElementIds],
+      groupByOwner: true,
+      usePrimaryConn: true,
+    })) {
+      this._aspectsByOwner.get(aspect.element.id)?.push(aspect);
+    }
+  }
+
+  /** Returns the owner's target aspects of exactly `classFullName`, in ECInstanceId order, from the aspects loaded by [[collect]].
+   * Returns undefined when the owner is not in the active batch or has been written since [[collect]]; the caller must then read the target.
+   */
+  public getAspects(
+    elementId: Id64String,
+    classFullName: string
+  ): ElementAspect[] | undefined {
+    return this._aspectsByOwner
+      .get(elementId)
+      ?.filter((aspect) => isSameClass(aspect, classFullName));
+  }
+
+  /** Stops answering reads for an owner from the loaded aspects. Call after writing any of its aspects. */
+  public invalidate(elementId: Id64String): void {
+    this._aspectsByOwner.delete(elementId);
+  }
+
+  /** Discards the batch without deleting anything. */
+  public discard(): void {
+    this._candidateIds = new Set<Id64String>();
+    this._aspectsByOwner = new Map<Id64String, ElementAspect[]>();
   }
 
   /** Removes an aspect from the deletion candidates because the importer reused or already deleted it. */
@@ -70,7 +109,7 @@ export class ElementAspectCleanup {
    */
   public async deleteUnretained(): Promise<void> {
     const candidateIds = this._candidateIds;
-    this._candidateIds = new Set<Id64String>();
+    this.discard();
     if (candidateIds.size === 0) return;
 
     if (!this._editTxn.isActive) {
@@ -147,6 +186,19 @@ export function isTransformerProvenanceAspect(
         aspect.kind === ExternalSourceAspect.Kind.Relationship)) ||
     (aspect.element.id === provenanceScopeId &&
       aspect.kind === ExternalSourceAspect.Kind.Scope)
+  );
+}
+
+/** Whether an aspect is exactly of class `classFullName`, which may use either `:` or `.` as the separator.
+ * @internal
+ */
+export function isSameClass(
+  aspect: ElementAspect,
+  classFullName: string
+): boolean {
+  return (
+    aspect.classFullName.toLowerCase() ===
+    classFullName.replace(".", ":").toLowerCase()
   );
 }
 

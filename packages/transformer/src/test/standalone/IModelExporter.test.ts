@@ -306,8 +306,9 @@ describe("IModelExporter", () => {
     coordinator.setPreparation(async (_excludedClasses, ownerBatch) => {
       preparedOwnerBatchSizes.push(ownerBatch.size);
       steps.push(`prepare ${ownerBatch.size}`);
-      return async () => {
+      return async (exported) => {
         steps.push(`complete ${ownerBatch.size}`);
+        expect(exported).to.equal(true);
       };
     });
     const ownerIds = new Set<Id64String>();
@@ -327,6 +328,25 @@ describe("IModelExporter", () => {
     expect(steps.filter((step) => step.startsWith("complete"))).to.have.length(
       3
     );
+  });
+
+  it("completes a failed owner group as not exported and rethrows its error", async () => {
+    const completions: boolean[] = [];
+    const coordinator = new ElementAspectExportCoordinator(
+      1_000,
+      () => new Set<string>(),
+      async () => {
+        throw new Error("aspect export failed");
+      }
+    );
+    coordinator.setPreparation(async () => async (exported) => {
+      completions.push(exported);
+    });
+
+    await expect(
+      coordinator.exportOwners(new Set([Id64.fromLocalAndBriefcaseIds(1, 0)]))
+    ).rejects.toThrow("aspect export failed");
+    expect(completions).to.deep.equal([false]);
   });
 
   it("deduplicates owners across scope batches and resets at outer scope boundaries", async () => {

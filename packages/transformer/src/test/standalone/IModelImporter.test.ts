@@ -3,7 +3,7 @@
  * See LICENSE.md in the project root for license terms and full copyright notice.
  *--------------------------------------------------------------------------------------------*/
 
-import { expect } from "vitest";
+import { expect, vi } from "vitest";
 import {
   ElementAspect,
   ElementOwnsExternalSourceAspects,
@@ -202,6 +202,87 @@ describe("IModelImporter", () => {
         `${baseUnique}=base`,
         "TestExactClassSchema:DerivedMulti=derived",
       ]);
+    } finally {
+      targetDb.close();
+    }
+  });
+
+  it("aspect imports inside an owner batch read loaded aspects and see their own writes", async () => {
+    const targetDb = StandaloneDb.createEmpty(
+      IModelTransformerTestUtils.prepareOutputFile(
+        "IModelImporter",
+        "BatchedAspectReads.bim"
+      ),
+      { rootSubject: { name: "BatchedAspectReads" } }
+    );
+    try {
+      await targetDb.importSchemaStrings([
+        `<?xml version="1.0" encoding="UTF-8"?>
+<ECSchema schemaName="TestBatchedReadsSchema" alias="tbrs" version="01.00.00" xmlns="http://www.bentley.com/schemas/Bentley.ECXML.3.1">
+  <ECSchemaReference name="BisCore" version="01.00.04" alias="bis"/>
+  <ECEntityClass typeName="BatchMulti">
+    <BaseClass>bis:ElementMultiAspect</BaseClass>
+    <ECProperty propertyName="Value" typeName="string"/>
+  </ECEntityClass>
+  <ECEntityClass typeName="BatchUnique">
+    <BaseClass>bis:ElementUniqueAspect</BaseClass>
+    <ECProperty propertyName="Value" typeName="string"/>
+  </ECEntityClass>
+</ECSchema>`,
+      ]);
+      const multi = "TestBatchedReadsSchema:BatchMulti";
+      const unique = "TestBatchedReadsSchema:BatchUnique";
+      const elementId = withEditTxn(targetDb, "insert owner", (txn) =>
+        Subject.insert(txn, IModel.rootSubjectId, "Owner")
+      );
+      const multiProps = (value: string) =>
+        ({
+          classFullName: multi,
+          element: new ElementOwnsMultiAspects(elementId),
+          value,
+        }) as ElementAspectProps;
+      const uniqueProps = (value: string) =>
+        ({
+          classFullName: unique,
+          element: new ElementOwnsUniqueAspect(elementId),
+          value,
+        }) as ElementAspectProps;
+
+      const editTxn = createStartedEditTxn(targetDb);
+      const importer = new IModelImporter(editTxn);
+      const cleanup = importer.elementAspectCleanup;
+      const getAspects = vi.spyOn(targetDb.elements, "getAspects");
+      await cleanup.collect(new Set([elementId]), new Set<string>());
+
+      // The first reads come from the batch's loaded aspects.
+      const [firstMultiId] = await importer.importElementMultiAspects([
+        multiProps("first"),
+      ]);
+      expect(getAspects).not.toHaveBeenCalled();
+      // After writing to the owner, reads go to the target and see the insert.
+      const firstUniqueId = await importer.importElementUniqueAspect(
+        uniqueProps("first")
+      );
+      const [secondMultiId] = await importer.importElementMultiAspects([
+        multiProps("second"),
+      ]);
+      const secondUniqueId = await importer.importElementUniqueAspect(
+        uniqueProps("second")
+      );
+      expect(getAspects).toHaveBeenCalled();
+      getAspects.mockRestore();
+      expect(secondMultiId).to.equal(firstMultiId);
+      expect(secondUniqueId).to.equal(firstUniqueId);
+
+      await cleanup.deleteUnretained();
+      expect(cleanup.getAspects(elementId, multi)).to.equal(undefined);
+      editTxn.end();
+
+      const values = targetDb.elements
+        .getAspects(elementId)
+        .map((aspect) => `${aspect.classFullName}=${aspect.asAny.value}`)
+        .sort();
+      expect(values).to.deep.equal([`${multi}=second`, `${unique}=second`]);
     } finally {
       targetDb.close();
     }

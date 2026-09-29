@@ -3,7 +3,7 @@
  * See LICENSE.md in the project root for license terms and full copyright notice.
  *--------------------------------------------------------------------------------------------*/
 
-import { expect } from "vitest";
+import { expect, vi } from "vitest";
 import {
   EditTxn,
   ElementAspect,
@@ -229,7 +229,12 @@ describe("ElementAspect reconciliation", () => {
     expectTargetMatchesSource(first.targetOwners);
     const before = first.targetOwners.map((id) => readAspects(targetDb, id));
 
+    // Owner batches load their target aspects up front, so an unchanged rerun
+    // does not read each owner's aspects separately.
+    const getAspects = vi.spyOn(targetDb.elements, "getAspects");
     const second = await transform();
+    expect(getAspects).not.toHaveBeenCalled();
+    getAspects.mockRestore();
     expectAspectWrites(second.importer, 0, 0, 0);
     expect(
       second.targetOwners.map((id) => readAspects(targetDb, id))
