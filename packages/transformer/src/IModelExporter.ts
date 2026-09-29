@@ -338,7 +338,7 @@ export class IModelExporter {
     forest?: Promise<ChangedElementForest | undefined>;
     useForest: boolean;
   };
-  /** Unchanged elements on the current change-processing path. Each is filtered only when a changed descendant is reached. */
+  /** Accepted unchanged elements on the current change-processing path. */
   private readonly _unchangedAncestors: {
     elementId: Id64String;
     accepted?: boolean;
@@ -1114,8 +1114,8 @@ export class IModelExporter {
     const childVisit = await this.exportElementShallow(elementId);
     if (childVisit === "visit") return this.exportChildElements(elementId);
     if (childVisit === "passThrough") {
-      // The element's own filter result is decided later, if a changed descendant is reached.
-      this._unchangedAncestors.push({ elementId });
+      // The unchanged element was accepted by the filter; record it for required-reference mapping.
+      this._unchangedAncestors.push({ elementId, accepted: true });
       try {
         await this.exportChildElements(elementId);
       } finally {
@@ -1135,38 +1135,12 @@ export class IModelExporter {
     )?.accepted;
   }
 
-  /** Filters the unchanged ancestors of a changed element, top-down, once each.
-   * @returns `false` if an ancestor is rejected.
-   */
-  private async acceptUnchangedAncestors(): Promise<boolean> {
-    for (const ancestor of this._unchangedAncestors) {
-      if (ancestor.accepted === undefined) {
-        const element = this.sourceDb.elements.getElement({
-          id: ancestor.elementId,
-          wantGeometry: this.wantGeometry,
-          wantBRepData: this.wantGeometry,
-        });
-        ancestor.accepted = await this.shouldExportElement(element);
-        if (!ancestor.accepted)
-          await this.handler.onSkipElement(ancestor.elementId);
-      }
-      if (!ancestor.accepted) return false;
-    }
-    return true;
-  }
-
   /** Runs the export callbacks for a single element without visiting its children.
    * @returns how to continue with the element's children: skip them, visit them, or pass through an unchanged element to reach changed descendants.
    */
   private async exportElementShallow(
     elementId: Id64String
   ): Promise<"skip" | "visit" | "passThrough"> {
-    // Descendants of a rejected unchanged ancestor are skipped, as in a full export.
-    if (
-      this._unchangedAncestors.some((ancestor) => ancestor.accepted === false)
-    )
-      return "skip";
-
     // Return early if the elementId is already excluded so it does not need to be loaded.
     if (this._excludedElementIds.has(elementId)) {
       Logger.logInfo(loggerCategory, `Excluded element ${elementId} by Id`);
@@ -1179,12 +1153,6 @@ export class IModelExporter {
       : this._sourceDbChanges?.element.updateIds.has(elementId)
         ? true
         : undefined;
-
-    // An unchanged element may still connect a changed descendant to its model root.
-    if (this._sourceDbChanges !== undefined && isUpdate === undefined)
-      return "passThrough";
-
-    if (!(await this.acceptUnchangedAncestors())) return "skip";
 
     const element = this.sourceDb.elements.getElement({
       id: elementId,
@@ -1199,6 +1167,9 @@ export class IModelExporter {
     );
     // the order and `await`ing of calls beyond here is depended upon by the IModelTransformer for a current bug workaround
     if (await this.shouldExportElement(element)) {
+      // An accepted unchanged element may still connect a changed descendant to its model root.
+      if (this._sourceDbChanges !== undefined && isUpdate === undefined)
+        return "passThrough";
       await this.handler.preExportElement(element);
       await this.handler.onExportElement(element, isUpdate);
       await this.trackProgress();
