@@ -2,7 +2,7 @@
 
 ## Unchanged ElementAspects are no longer rewritten
 
-Full, change, and subset transforms no longer delete and reinsert every replaceable ElementAspect of each accepted owner. The importer now matches each source aspect to an existing target aspect of the same class on the same owner, updates it only if its properties differ, inserts aspects that are new, and deletes target aspects that no longer have a source counterpart. That includes aspects removed from the source and aspect classes that became empty for an owner. A rerun with no source changes writes no aspects, and unchanged aspects keep their target IDs.
+Full, change, and subset transforms no longer delete and reinsert every replaceable ElementAspect of each accepted owner. The importer now matches each source aspect to an existing target aspect of the same class on the same owner, updates it only if its properties differ, inserts aspects that are new, and deletes target aspects that no longer have a source counterpart. That includes aspects removed from the source and aspect classes that became empty for an owner. A rerun with no source changes writes no aspects, and unchanged aspects keep their target IDs. The exception is a target aspect with a value for a property that only the target schema has: each rerun updates it, keeping its ID and that value. Aspects that a source schema change moves to another class get new target IDs once.
 
 `IModelImporter.onInsertElementAspect`, `onUpdateElementAspect`, and `onDeleteElementAspect` now run only for actual inserts, updates, and deletes. Code that counted these hooks during a rerun will see fewer calls.
 

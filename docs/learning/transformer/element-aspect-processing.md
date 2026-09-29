@@ -76,6 +76,12 @@ After the owner batch is exported, cleanup deletes the recorded target aspects t
 
 iModel unique-aspect writes treat a class and its base or derived classes as one slot for an element. When a unique aspect has no exact-class match, the importer first deletes the owner's unique aspects of a base or derived class, through the deletion hook, and then inserts the new aspect.
 
+### Schema changes
+
+Matching uses the class of the aspect that the transformer sends to the importer. That is the source aspect's class, unless an `onTransformElementAspect` override changes it. If a source schema change moves aspects to another class, including a base or derived class, the moved aspects have no exact-class match on the next run. The importer inserts them with the new class, and cleanup deletes the old ones through the deletion hook, so those aspects get new target IDs once. Later reruns reuse them.
+
+A target schema upgrade that adds a property the source doesn't have causes no writes while that property is unset. If a target aspect has a value for such a property, each rerun updates that aspect. The change check sees the target-only value as a difference, but the update doesn't include the property, so the value and the aspect ID are kept.
+
 ## Customization points
 
 The public customization points are on `IModelExportHandler` and `IModelExporter`:

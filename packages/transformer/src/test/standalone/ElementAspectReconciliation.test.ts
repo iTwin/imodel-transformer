@@ -324,6 +324,93 @@ describe("ElementAspect reconciliation", () => {
     expectAspectWrites(third.importer, 1, 0, 1);
   });
 
+  // A source schema migration can move aspects to another class. The moved
+  // aspects have no exact-class match, so they are replaced once.
+  it.each([
+    {
+      to: "an unrelated class",
+      owner: 1,
+      keys: ["o1-a1", "o1-a2", "o1-a3"],
+      classFullName: multiB,
+    },
+    {
+      to: "their base class",
+      owner: 2,
+      keys: ["o2-d1"],
+      classFullName: multiA,
+    },
+    {
+      to: "a derived class",
+      owner: 1,
+      keys: ["o1-a1", "o1-a2", "o1-a3"],
+      classFullName: derivedMultiA,
+    },
+  ])(
+    "replaces multi-aspects moved to $to once and reuses them afterward",
+    async ({ owner, keys, classFullName }) => {
+      const first = await transform();
+      const readTarget = (targetOwners: Id64String[]) =>
+        targetOwners.map((targetOwner) => readAspects(targetDb, targetOwner));
+      const before = readTarget(first.targetOwners);
+
+      withEditTxn(sourceDb, "move aspects to another class", (txn) => {
+        for (const key of keys) {
+          txn.deleteAspect(sourceAspectIds[key]);
+          insertAspect(txn, classFullName, owners[owner], key);
+        }
+      });
+      const second = await transform();
+      expectTargetMatchesSource(second.targetOwners);
+      expectAspectWrites(second.importer, keys.length, 0, keys.length);
+      const after = readTarget(second.targetOwners);
+      after.forEach((aspects, i) => {
+        if (i !== owner) expect(aspects).to.deep.equal(before[i]);
+      });
+
+      const third = await transform();
+      expectAspectWrites(third.importer, 0, 0, 0);
+      expect(readTarget(third.targetOwners)).to.deep.equal(after);
+    }
+  );
+
+  it("keeps target-only property values and updates their aspects on each rerun", async () => {
+    const first = await transform();
+    // A target schema upgrade adds a property that the source doesn't have.
+    const multiAClass = `<ECEntityClass typeName="MultiA">
+    <BaseClass>bis:ElementMultiAspect</BaseClass>`;
+    await targetDb.importSchemaStrings([
+      schemaXml.replace('version="01.00.00"', 'version="01.00.01"').replace(
+        multiAClass,
+        `${multiAClass}
+    <ECProperty propertyName="Extra" typeName="string"/>`
+      ),
+    ]);
+    withEditTxn(targetDb, "save schema", () => {});
+
+    const unset = await transform();
+    expectAspectWrites(unset.importer, 0, 0, 0);
+
+    const [aspect] = targetDb.elements.getAspects(
+      first.targetOwners[1],
+      multiA
+    );
+    withEditTxn(targetDb, "set target-only value", (txn) =>
+      txn.updateAspect({
+        ...aspect.toJSON(),
+        extra: "target-only",
+      } as ElementAspectProps)
+    );
+    // The change check sees the target-only value as a difference, but the
+    // update does not clear it, so every rerun updates the aspect again.
+    for (let run = 0; run < 2; run++) {
+      const rerun = await transform();
+      expectAspectWrites(rerun.importer, 0, 1, 0);
+      expect(targetDb.elements.getAspect(aspect.id).asAny.extra).to.equal(
+        "target-only"
+      );
+    }
+  });
+
   it("reuses source ExternalSourceAspects whose scope maps to the target scope", async () => {
     // These source aspects are scoped to the root Subject, which is also the
     // default target scope, but they are not transformer provenance.
