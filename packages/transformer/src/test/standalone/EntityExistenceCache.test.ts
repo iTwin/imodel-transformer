@@ -487,4 +487,51 @@ describe("EntityExistenceCache", () => {
       targetDb.close();
     }
   });
+
+  it("does not record exported source entities when dangling references are ignored", async () => {
+    const elementCount = 5;
+    const { db: sourceDb } = createDbWithPhysicalObjects(
+      "IgnoreDanglingSource.bim",
+      elementCount
+    );
+    const targetDbPath = IModelTransformerTestUtils.prepareOutputFile(
+      "EntityExistenceCache",
+      "IgnoreDanglingTarget.bim"
+    );
+    const targetDb = SnapshotDb.createEmpty(targetDbPath, {
+      rootSubject: { name: "IgnoreDanglingTarget" },
+    });
+
+    const markExists = vi.spyOn(EntityExistenceCache.prototype, "markExists");
+    const targetEditTxn = createStartedEditTxn(targetDb);
+    const transformer = new IModelTransformer(
+      { source: sourceDb, target: targetEditTxn },
+      { danglingReferencesBehavior: "ignore" }
+    );
+    let processSucceeded = false;
+    try {
+      await transformer.process();
+
+      // "ignore" never checks the source for references, so recording would only cost memory.
+      expect(markExists.mock.calls.filter(([db]) => db === sourceDb)).toEqual(
+        []
+      );
+      expect(
+        await targetDb
+          .createQueryReader(
+            "SELECT count(*) FROM Generic.PhysicalObject",
+            undefined,
+            { usePrimaryConn: true }
+          )
+          .toArray()
+      ).toEqual([[elementCount]]);
+      processSucceeded = true;
+    } finally {
+      markExists.mockRestore();
+      transformer.dispose();
+      targetEditTxn.end(processSucceeded ? "save" : "abandon");
+      sourceDb.close();
+      targetDb.close();
+    }
+  });
 });
