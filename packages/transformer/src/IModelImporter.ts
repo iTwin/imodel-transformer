@@ -58,28 +58,20 @@ import { EntityExistenceCache } from "./EntityExistenceCache";
 
 const loggerCategory: string = TransformerLoggerCategory.IModelImporter;
 
-/** Lists the first blocked references for an error message. The error's `blockedReferences` holds all of them. */
-function formatBlockedReferences(
-  blockedReferences: ReadonlyMap<Id64String, Id64String>
+/** Lists the first kept references for a log message. */
+function formatKeptReferences(
+  keptReferences: ReadonlyMap<Id64String, Id64String>
 ): string {
   const maxListed = 10;
-  const listed = [...blockedReferences]
+  const listed = [...keptReferences]
     .slice(0, maxListed)
     .map(
       ([elementId, referencingId]) =>
         `${elementId} (referenced by ${referencingId})`
     )
     .join(", ");
-  const unlisted = blockedReferences.size - maxListed;
+  const unlisted = keptReferences.size - maxListed;
   return unlisted > 0 ? `${listed}, and ${unlisted} more` : listed;
-}
-
-/** Error thrown when elements outside the requested element trees still reference an element in them. Nothing is deleted.
- * @beta
- */
-export interface ElementBulkDeleteBlockedError extends ITwinError {
-  /** Each element in the requested trees that is still referenced, mapped to one element outside the trees that references it. */
-  readonly blockedReferences: ReadonlyMap<Id64String, Id64String>;
 }
 
 /** Error thrown when native bulk deletion fails to delete one or more requested element trees.
@@ -517,23 +509,20 @@ export class IModelImporter {
 
   /** Adds roots required by code-scope dependencies, then deletes the target element trees in as few native operations as their references allow.
    * Usually one native operation is enough. When a tree contains a category that another deleted element uses, the elements that use it are deleted first.
+   * Elements that something outside the deleted trees still references are kept, with a warning, and the rest are deleted.
    * @note An override must call `super.onDeleteElements` once to perform the deletion.
    */
   protected async onDeleteElements(
     elementIds: ReadonlySet<Id64String>
   ): Promise<void> {
     const plan = await planBulkDelete(this.targetDb, elementIds);
-    if (plan.blockedReferences.size > 0) {
-      ITwinError.throwError<ElementBulkDeleteBlockedError>({
-        iTwinErrorId: {
-          scope: IModelTransformerErrorScope,
-          key: IModelTransformerError.ElementBulkDeleteBlocked,
-        },
-        message: `Bulk element deletion blocked: elements outside the deleted trees still reference ${formatBlockedReferences(
-          plan.blockedReferences
-        )}`,
-        blockedReferences: plan.blockedReferences,
-      });
+    if (plan.keptReferences.size > 0) {
+      Logger.logWarning(
+        loggerCategory,
+        `Kept ${plan.keptReferences.size} elements that elements outside the deleted trees still reference, and the elements that contain them: ${formatKeptReferences(
+          plan.keptReferences
+        )}`
+      );
     }
     if (plan.phases.length === 0) return;
     let rootCount = 0;
@@ -571,7 +560,7 @@ export class IModelImporter {
 
   /** Deletes target element trees, using one native operation unless references between the trees require more.
    * Requested roots in [[doNotUpdateElementIds]] are skipped. This does not prevent an element in that set from being deleted as part of another root's cascade.
-   * @throws [[ElementBulkDeleteBlockedError]] if an element outside the requested trees still references an element in them. Nothing is deleted.
+   * Elements that something outside the deleted trees still references are kept, along with their child elements and sub-models and the elements that contain them. A warning lists them.
    * @throws [[ElementBulkDeleteError]] if a native operation fails for any root, for example because of a reference in a domain schema that the transformer does not check first. Deletions from that and earlier native operations stay pending in the caller-owned transaction. Abandon the transaction before retrying.
    */
   public async deleteElements(

@@ -1,6 +1,6 @@
 # Deleting elements
 
-`IModelImporter.deleteElements()` deletes a set of target elements together with everything that depends on them. It either deletes every requested element or throws before deleting anything. When every requested element is skipped or no longer exists, it returns without deleting anything. The only exception is an unexpected native failure, described in [Handling deletion errors](#handling-deletion-errors).
+`IModelImporter.deleteElements()` deletes a set of target elements together with everything that depends on them. It keeps any element that something outside the deletion still uses, logs a warning, and deletes the rest; see [Elements that are still in use](#elements-that-are-still-in-use). When every requested element is skipped or no longer exists, it returns without deleting anything. An unexpected native failure throws, as described in [Handling deletion errors](#handling-deletion-errors).
 
 ## Where deletions come from
 
@@ -18,7 +18,7 @@ Each requested element is the root of a deletion tree. The tree contains:
 - when the element is modeled by a sub-model, every element in that model, recursively;
 - every top-level element whose code scope is an element in the tree. That element becomes the root of its own tree, so its children, sub-model contents, and code-scope dependents are deleted too.
 
-The importer ignores requested IDs that no longer exist.
+A requested element whose parent, or the element that owns its model, is also requested is not a root of its own, because its ancestor's tree already contains it. The importer ignores requested IDs that no longer exist.
 
 ## How the importer deletes
 
@@ -28,7 +28,8 @@ flowchart TD
     B --> C["Find deletion trees:<br/>children, sub-model contents, code-scope dependents"]
     C --> D["Find elements that use a category in the trees<br/>or have a code scope in them"]
     D --> E{"Is any of them outside the trees?"}
-    E -->|"Yes"| F["Throw ElementBulkDeleteBlocked<br/>Nothing is deleted"]
+    E -->|"Yes"| F["Keep the elements they use<br/>and what those elements need"]
+    F -->|"Plan again"| C
     E -->|"No"| G{"Does an element in the trees use a category in the trees?"}
     G -->|"No"| H["One native call with every root"]
     G -->|"Yes"| S{"Is a category user in a tree with a used category,<br/>or does an earlier tree scope a later element's code?"}
@@ -47,16 +48,24 @@ Deleting whole trees in two calls doesn't work when an element that uses a categ
 
 The check before deletion covers the BisCore references that block deletion and aren't already inside the trees: the category of 2D and 3D geometric elements, and code scopes. Parent and model references need no check, because the trees contain every child and sub-model element. References from domain schemas aren't checked in advance. Core still validates them, and a refused root makes the importer throw `ElementBulkDeleteFailed`.
 
+## Elements that are still in use
+
+When an element outside the deletion trees still uses a category in them, or has its code scoped by an element in them, the importer keeps the element it uses instead of deleting it. For example, a category stays when a target element that didn't come from the source still uses it. The importer also keeps:
+
+- the kept element's child elements and sub-model contents, such as a category's sub-categories;
+- every element whose deletion would delete a kept element or leave its parent, model, or code scope dangling, such as the definition model that contains a kept category.
+
+Other requested elements are still deleted, including other requested contents of a kept definition model. A kept element can itself use an element that is being deleted, such as its category, so the importer plans again until nothing outside the trees uses an element in them. It then logs one warning in the `imodel-transformer.IModelImporter` category that lists up to ten kept elements, each with one element that still uses it.
+
 The importer keeps core's reference validation on for every native call and never passes `skipFKConstraintValidations`. With that option, core can delete a category that another element still uses.
 
 ## Handling deletion errors
 
-Both errors use the scope `IModelTransformerErrorScope`.
+A native call can still fail, for example because of a reference from a domain schema. The importer then throws an error with scope `IModelTransformerErrorScope`:
 
-| Key                                               | What changed in the target                                                   | What to do                                                                                                                                                                                                                                               |
-| ------------------------------------------------- | ---------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `IModelTransformerError.ElementBulkDeleteBlocked` | Nothing. The importer threw before any native call.                          | `blockedReferences` maps each blocked element to one element outside the trees that still references it. The error message lists only the first ten. Delete or change that element, or leave the blocked element in place. The transaction can continue. |
-| `IModelTransformerError.ElementBulkDeleteFailed`  | Deletions from this and earlier native calls are pending in the transaction. | Abandon the transaction before correcting the dependency and retrying. `status`, `sqlDeleteStatus`, and `failedIds` describe the failed call.                                                                                                            |
+| Key                                              | What changed in the target                                                   | What to do                                                                                                                                    |
+| ------------------------------------------------ | ---------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
+| `IModelTransformerError.ElementBulkDeleteFailed` | Deletions from this and earlier native calls are pending in the transaction. | Abandon the transaction before correcting the dependency and retrying. `status`, `sqlDeleteStatus`, and `failedIds` describe the failed call. |
 
 ```ts
 [[include:ErrorHandling.handle-bulk-delete-errors]]

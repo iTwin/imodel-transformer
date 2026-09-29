@@ -94,11 +94,6 @@ export class ChangedInstanceOps {
 }
 
 // @beta
-export interface ElementBulkDeleteBlockedError extends ITwinError {
-    readonly blockedReferences: ReadonlyMap<Id64String, Id64String>;
-}
-
-// @beta
 export interface ElementBulkDeleteError extends ITwinError {
     readonly failedIds: ReadonlySet<Id64String>;
     readonly sqlDeleteStatus: DbResult;
@@ -393,7 +388,6 @@ export enum IModelTransformerError {
     DependencyMappingMissing = "dependency-mapping-missing",
     DependencyVersionMismatch = "dependency-version-mismatch",
     EditTxnNotActive = "edit-txn-not-active",
-    ElementBulkDeleteBlocked = "element-bulk-delete-blocked",
     ElementBulkDeleteFailed = "element-bulk-delete-failed",
     ElementIdNotPreservable = "element-id-not-preservable",
     ElementIdRequired = "element-id-required",

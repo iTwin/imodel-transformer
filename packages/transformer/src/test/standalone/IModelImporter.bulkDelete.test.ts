@@ -3,7 +3,7 @@
  * See LICENSE.md in the project root for license terms and full copyright notice.
  *--------------------------------------------------------------------------------------------*/
 
-import { DbResult, Id64String } from "@itwin/core-bentley";
+import { DbResult, Id64String, Logger } from "@itwin/core-bentley";
 import {
   BulkDeleteElementsStatus,
   DefinitionContainer,
@@ -25,11 +25,7 @@ import {
 } from "@itwin/core-common";
 import { expect, vi } from "vitest";
 import { planBulkDelete } from "../../ElementBulkDelete";
-import {
-  ElementBulkDeleteBlockedError,
-  ElementBulkDeleteError,
-  IModelImporter,
-} from "../../IModelImporter";
+import { ElementBulkDeleteError, IModelImporter } from "../../IModelImporter";
 import { IModelTransformerError } from "../../IModelTransformerError";
 import {
   createStartedEditTxn,
@@ -83,7 +79,7 @@ async function planPhases(
   elementIds: ReadonlySet<Id64String>
 ): Promise<Set<Id64String>[]> {
   const plan = await planBulkDelete(db, elementIds);
-  expect(plan.blockedReferences.size).to.equal(0);
+  expect(plan.keptReferences.size).to.equal(0);
   return plan.phases.map((roots) => new Set(roots));
 }
 
@@ -648,7 +644,7 @@ describe("IModelImporter bulk element deletion", () => {
     }
   });
 
-  it("deletes nothing when an element outside the batch still uses a deleted category", async () => {
+  it("keeps a category that an element outside the batch still uses and deletes the rest", async () => {
     const targetDb = createTargetDb("CategoryStillInUse");
     try {
       const ids = withEditTxn(targetDb, "insert used category", (txn) => {
@@ -682,27 +678,41 @@ describe("IModelImporter bulk element deletion", () => {
           independentId,
         };
       });
-      const editTxn = createStartedEditTxn(targetDb);
-      const nativeDeleteSpy = vi.spyOn(editTxn, "deleteElements");
-      const error = (await expectTransformerError(
-        async () =>
-          new IModelImporter(editTxn).deleteElements(
-            new Set([ids.categoryId, ids.deletedElementId, ids.independentId])
-          ),
-        IModelTransformerError.ElementBulkDeleteBlocked,
-        `Bulk element deletion blocked: elements outside the deleted trees still reference ${ids.categoryId} (referenced by ${ids.survivorId})`
-      )) as ElementBulkDeleteBlockedError;
-
-      expect(error.blockedReferences).to.deep.equal(
-        new Map([[ids.categoryId, ids.survivorId]])
-      );
-      expect(nativeDeleteSpy).not.toHaveBeenCalled();
-      for (const id of [
+      // A source deletion lists the category's sub-categories too. They stay with the kept category.
+      const requested = new Set([
         ids.categoryId,
         ids.defaultSubCategoryId,
         ids.deletedElementId,
-        ids.survivorId,
         ids.independentId,
+      ]);
+      const plan = await planBulkDelete(targetDb, requested);
+      expect(plan.keptReferences).to.deep.equal(
+        new Map([[ids.categoryId, ids.survivorId]])
+      );
+      expect(plan.phases.map((roots) => new Set(roots))).to.deep.equal([
+        new Set([ids.deletedElementId, ids.independentId]),
+      ]);
+
+      const editTxn = createStartedEditTxn(targetDb);
+      const nativeDeleteSpy = vi.spyOn(editTxn, "deleteElements");
+      const warningSpy = vi.spyOn(Logger, "logWarning");
+      try {
+        await new IModelImporter(editTxn).deleteElements(requested);
+        expect(warningSpy).toHaveBeenCalledOnce();
+        expect(warningSpy.mock.calls[0][1]).to.contain(
+          `${ids.categoryId} (referenced by ${ids.survivorId})`
+        );
+      } finally {
+        warningSpy.mockRestore();
+      }
+
+      expect(nativeDeleteSpy).toHaveBeenCalledOnce();
+      for (const id of [ids.deletedElementId, ids.independentId])
+        expect(targetDb.elements.tryGetElement(id)).to.be.undefined;
+      for (const id of [
+        ids.categoryId,
+        ids.defaultSubCategoryId,
+        ids.survivorId,
       ])
         expect(targetDb.elements.tryGetElement(id)).to.not.be.undefined;
       // The category remains usable in the same transaction.
@@ -716,10 +726,151 @@ describe("IModelImporter bulk element deletion", () => {
     }
   });
 
-  it("lists at most ten blocked references in the error message", async () => {
-    const targetDb = createTargetDb("ManyBlockedReferences");
+  it("keeps the definition model around a kept category and deletes its other requested contents", async () => {
+    const targetDb = createTargetDb("KeptCategoryInDefinitionModel");
     try {
-      const blockedReferences = withEditTxn(
+      const ids = withEditTxn(targetDb, "insert definitions", (txn) => {
+        const definitionModelId = DefinitionModel.insert(
+          txn,
+          IModel.rootSubjectId,
+          "Definition model"
+        );
+        const usedCategoryId = SpatialCategory.insert(
+          txn,
+          definitionModelId,
+          "Used category",
+          new SubCategoryAppearance()
+        );
+        const unusedCategoryId = SpatialCategory.insert(
+          txn,
+          definitionModelId,
+          "Unused category",
+          new SubCategoryAppearance()
+        );
+        const modelId = PhysicalModel.insert(
+          txn,
+          IModel.rootSubjectId,
+          "Physical model"
+        );
+        const survivorId = insertPhysicalObject(txn, {
+          modelId,
+          categoryId: usedCategoryId,
+        });
+        return {
+          definitionModelId,
+          usedCategoryId,
+          usedSubCategoryId: IModelDb.getDefaultSubCategoryId(usedCategoryId),
+          unusedCategoryId,
+          unusedSubCategoryId:
+            IModelDb.getDefaultSubCategoryId(unusedCategoryId),
+          survivorId,
+        };
+      });
+      const requested = new Set([
+        ids.definitionModelId,
+        ids.usedCategoryId,
+        ids.usedSubCategoryId,
+        ids.unusedCategoryId,
+        ids.unusedSubCategoryId,
+      ]);
+      const plan = await planBulkDelete(targetDb, requested);
+      expect(plan.keptReferences).to.deep.equal(
+        new Map([[ids.usedCategoryId, ids.survivorId]])
+      );
+      expect(plan.phases).to.deep.equal([[ids.unusedCategoryId]]);
+
+      const editTxn = createStartedEditTxn(targetDb);
+      await new IModelImporter(editTxn).deleteElements(requested);
+
+      for (const id of [ids.unusedCategoryId, ids.unusedSubCategoryId])
+        expect(targetDb.elements.tryGetElement(id)).to.be.undefined;
+      for (const id of [
+        ids.definitionModelId,
+        ids.usedCategoryId,
+        ids.usedSubCategoryId,
+        ids.survivorId,
+      ])
+        expect(targetDb.elements.tryGetElement(id)).to.not.be.undefined;
+      editTxn.end("abandon");
+    } finally {
+      targetDb.close();
+    }
+  });
+
+  it("keeps a category used by an element that another outside reference keeps", async () => {
+    const targetDb = createTargetDb("KeptElementKeepsItsCategory");
+    try {
+      const ids = withEditTxn(targetDb, "insert references", (txn) => {
+        const modelId = PhysicalModel.insert(
+          txn,
+          IModel.rootSubjectId,
+          "Physical model"
+        );
+        const categoryId = SpatialCategory.insert(
+          txn,
+          IModel.dictionaryId,
+          "Category",
+          new SubCategoryAppearance()
+        );
+        const keptCategoryId = SpatialCategory.insert(
+          txn,
+          IModel.dictionaryId,
+          "Kept category",
+          new SubCategoryAppearance()
+        );
+        const codeSpecId = targetDb.codeSpecs.insert(
+          txn,
+          "RelatedElementCodeSpec",
+          CodeScopeSpec.Type.RelatedElement
+        );
+        const scopeId = insertPhysicalObject(txn, { modelId, categoryId });
+        const parentId = insertPhysicalObject(txn, {
+          modelId,
+          categoryId: keptCategoryId,
+        });
+        // A child whose code is scoped by the element; code-scope dependents with a parent are not deleted with their scope.
+        const outsideId = insertPhysicalObject(txn, {
+          modelId,
+          categoryId: keptCategoryId,
+          parentId,
+          codeSpecId,
+          codeScope: scopeId,
+          codeValue: "scoped-from-outside",
+        });
+        return { categoryId, scopeId, outsideId };
+      });
+      const requested = new Set([
+        ids.scopeId,
+        ids.categoryId,
+        IModelDb.getDefaultSubCategoryId(ids.categoryId),
+      ]);
+      // The first pass keeps the scope element; the second keeps the category it uses.
+      const plan = await planBulkDelete(targetDb, requested);
+      expect(plan.keptReferences).to.deep.equal(
+        new Map([
+          [ids.scopeId, ids.outsideId],
+          [ids.categoryId, ids.scopeId],
+        ])
+      );
+      expect(plan.phases).to.deep.equal([]);
+
+      const editTxn = createStartedEditTxn(targetDb);
+      const nativeDeleteSpy = vi.spyOn(editTxn, "deleteElements");
+      await new IModelImporter(editTxn).deleteElements(requested);
+
+      expect(nativeDeleteSpy).not.toHaveBeenCalled();
+      for (const id of Object.values(ids))
+        expect(targetDb.elements.tryGetElement(id)).to.not.be.undefined;
+      editTxn.end("abandon");
+    } finally {
+      targetDb.close();
+    }
+  });
+
+  it("lists at most ten kept references in the warning", async () => {
+    const targetDb = createTargetDb("ManyKeptReferences");
+    try {
+      const keptReferences = withEditTxn(
         targetDb,
         "insert used categories",
         (txn) => {
@@ -744,27 +895,29 @@ describe("IModelImporter bulk element deletion", () => {
           return references;
         }
       );
-      const editTxn = createStartedEditTxn(targetDb);
-      const error = (await expectTransformerError(
-        async () =>
-          new IModelImporter(editTxn).deleteElements(
-            new Set(blockedReferences.keys())
-          ),
-        IModelTransformerError.ElementBulkDeleteBlocked,
-        /, and 2 more$/
-      )) as ElementBulkDeleteBlockedError;
+      const requested = new Set(keptReferences.keys());
+      const plan = await planBulkDelete(targetDb, requested);
+      expect([...plan.keptReferences].sort()).to.deep.equal(
+        [...keptReferences].sort()
+      );
 
-      // The error keeps every blocked reference; the message lists the first ten.
-      expect([...error.blockedReferences].sort()).to.deep.equal(
-        [...blockedReferences].sort()
-      );
-      const listed = [...error.blockedReferences]
-        .slice(0, 10)
-        .map(([id, referencingId]) => `${id} (referenced by ${referencingId})`)
-        .join(", ");
-      expect(error.message).to.equal(
-        `Bulk element deletion blocked: elements outside the deleted trees still reference ${listed}, and 2 more`
-      );
+      const editTxn = createStartedEditTxn(targetDb);
+      const warningSpy = vi.spyOn(Logger, "logWarning");
+      try {
+        await new IModelImporter(editTxn).deleteElements(requested);
+        const listed = [...plan.keptReferences]
+          .slice(0, 10)
+          .map(
+            ([id, referencingId]) => `${id} (referenced by ${referencingId})`
+          )
+          .join(", ");
+        expect(warningSpy).toHaveBeenCalledOnce();
+        expect(warningSpy.mock.calls[0][1]).to.equal(
+          `Kept 12 elements that elements outside the deleted trees still reference, and the elements that contain them: ${listed}, and 2 more`
+        );
+      } finally {
+        warningSpy.mockRestore();
+      }
       editTxn.end("abandon");
     } finally {
       targetDb.close();

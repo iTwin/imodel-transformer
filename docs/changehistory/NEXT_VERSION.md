@@ -63,11 +63,11 @@ protected override async onDeleteElements(
 
 Calls to the public `IModelImporter.deleteElement(elementId)` method do not need to change. The method passes its target ID to the batch extension point as a one-element set.
 
-A batch deletes either all of its element trees or none of them. A batch can include an element together with the category it uses. The importer deletes the element before the tree that contains the category, so such a batch takes two native operations instead of one.
+A batch can include an element together with the category it uses. The importer deletes the element before the tree that contains the category, so such a batch takes two native operations instead of one.
 
-If an element outside the batch still references an element in it, for example through its category or code scope, `IModelImporter.deleteElements()` deletes nothing and throws an `ElementBulkDeleteBlockedError` with scope `IModelTransformerErrorScope` and key `IModelTransformerError.ElementBulkDeleteBlocked`. `blockedReferences` maps each blocked element to one element that still references it.
+If an element outside the batch still references an element in it through its category or code scope, `IModelImporter.deleteElements()` keeps the referenced element, the elements it needs, and the elements that contain it, deletes the rest, and logs a warning that lists up to ten kept elements. Per-element deletion also kept definitions that were still in use, but without a warning.
 
-If a native operation fails anyway, for example because of a reference from a domain schema, `IModelImporter.deleteElements()` throws an `ElementBulkDeleteError` with key `IModelTransformerError.ElementBulkDeleteFailed`. The error reports `status`, `sqlDeleteStatus`, and `failedIds`. Deletions from that and earlier native operations stay pending in the caller-owned target transaction. Abandon that transaction before correcting the dependency and retrying.
+If a native operation fails anyway, for example because of a reference from a domain schema, `IModelImporter.deleteElements()` throws an `ElementBulkDeleteError` with scope `IModelTransformerErrorScope` and key `IModelTransformerError.ElementBulkDeleteFailed`. The error reports `status`, `sqlDeleteStatus`, and `failedIds`. Deletions from that and earlier native operations stay pending in the caller-owned target transaction. Abandon that transaction before correcting the dependency and retrying.
 
 For what a deletion removes, how the importer orders native deletion calls, and an error-handling example, see the [Deleting elements learning guide](../learning/transformer/element-deletion.md).
 

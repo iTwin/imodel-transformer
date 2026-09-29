@@ -3,7 +3,7 @@
  * See LICENSE.md in the project root for license terms and full copyright notice.
  *--------------------------------------------------------------------------------------------*/
 
-import { Id64Array, Id64Set, Id64String } from "@itwin/core-bentley";
+import { assert, Id64Array, Id64Set, Id64String } from "@itwin/core-bentley";
 import { QueryBinder } from "@itwin/core-common";
 import { IModelDb } from "@itwin/core-backend";
 
@@ -13,8 +13,11 @@ import { IModelDb } from "@itwin/core-backend";
 export interface BulkDeletePlan {
   /** Roots for each native deletion call, in execution order. Empty when nothing needs deleting. */
   readonly phases: readonly Id64Array[];
-  /** Elements in the deleted trees that an element outside the trees still references, each mapped to one such referencing element. */
-  readonly blockedReferences: ReadonlyMap<Id64String, Id64String>;
+  /** Elements kept because an element outside the deleted trees still references them, each mapped to one such
+   * referencing element. Their child elements and sub-models, and the elements whose deletion would delete them,
+   * are kept too.
+   */
+  readonly keptReferences: ReadonlyMap<Id64String, Id64String>;
 }
 
 interface DeletionTrees {
@@ -25,6 +28,10 @@ interface DeletionTrees {
 }
 
 /** Plans native bulk deletion of the specified element trees.
+ *
+ * An element that something outside the deleted trees still references is kept, together with what it
+ * needs to stay valid, and the rest is deleted. Keeping elements can leave new outside references, so the
+ * plan repeats until none remain.
  *
  * Native validation checks each root against the iModel before the call, so a root is refused when its tree
  * contains an element, such as a category, that another element in the same call still references. The plan
@@ -37,25 +44,55 @@ export async function planBulkDelete(
   targetDb: IModelDb,
   elementIds: ReadonlySet<Id64String>
 ): Promise<BulkDeletePlan> {
-  const trees = await queryDeletionTrees(targetDb, elementIds);
-  if (trees.roots.size === 0)
-    return { phases: [], blockedReferences: new Map() };
+  const requestedIds = new Set(elementIds);
+  const keptReferences = new Map<Id64String, Id64String>();
+  for (;;) {
+    const trees = await queryDeletionTrees(targetDb, requestedIds);
+    if (trees.roots.size === 0) return { phases: [], keptReferences };
 
-  const blockedReferences = new Map<Id64String, Id64String>();
+    const references = await queryBlockingReferences(
+      targetDb,
+      trees.rootsByElement.keys()
+    );
+    const blockedIds = new Set<Id64String>();
+    for (const { referencingId, referencedId } of references) {
+      if (trees.rootsByElement.has(referencingId)) continue;
+      blockedIds.add(referencedId);
+      if (!keptReferences.has(referencedId))
+        keptReferences.set(referencedId, referencingId);
+    }
+    if (blockedIds.size === 0)
+      return {
+        phases: await planPhases(targetDb, trees, references),
+        keptReferences,
+      };
+
+    // Every blocked element is reached from a requested element, and queryKeptElements walks back up to it,
+    // so each pass removes at least one requested element and the loop ends.
+    const requestedCount = requestedIds.size;
+    for (const id of await queryKeptElements(targetDb, blockedIds))
+      requestedIds.delete(id);
+    assert(
+      requestedIds.size < requestedCount,
+      "Keeping referenced elements must remove a requested element"
+    );
+  }
+}
+
+/** Orders the roots of deletion trees that nothing outside them references into native calls. */
+async function planPhases(
+  targetDb: IModelDb,
+  trees: DeletionTrees,
+  references: readonly BlockingReference[]
+): Promise<Id64Array[]> {
   // Elements in the trees whose category is also in the trees. Native validation refuses the category while they exist.
   const usersOfDeletedCategories = new Set<Id64String>();
   // Roots whose trees contain such a category. They must be deleted after the category users.
   const rootsWithUsedCategories = new Set<Id64String>();
   const codeScopeReferencesInTrees: BlockingReference[] = [];
-  for (const reference of await queryBlockingReferences(
-    targetDb,
-    trees.rootsByElement.keys()
-  )) {
+  for (const reference of references) {
     const { referencingId, referencedId, isCategory } = reference;
-    if (!trees.rootsByElement.has(referencingId)) {
-      if (!blockedReferences.has(referencedId))
-        blockedReferences.set(referencedId, referencingId);
-    } else if (isCategory) {
+    if (isCategory) {
       // Native validation accepts code-scope references from the same call, but not category references.
       usersOfDeletedCategories.add(referencingId);
       for (const rootId of trees.rootsByElement.get(referencedId) ?? [])
@@ -64,10 +101,7 @@ export async function planBulkDelete(
       codeScopeReferencesInTrees.push(reference);
     }
   }
-  if (blockedReferences.size > 0) return { phases: [], blockedReferences };
-  if (usersOfDeletedCategories.size === 0)
-    return { phases: [[...trees.roots]], blockedReferences };
-
+  if (usersOfDeletedCategories.size === 0) return [[...trees.roots]];
   // True when a root deleted in the last call removes the element.
   const isInTreeWithUsedCategory = (id: Id64String) =>
     (trees.rootsByElement.get(id) ?? []).some((rootId) =>
@@ -89,18 +123,14 @@ export async function planBulkDelete(
     const otherRoots = [...trees.roots].filter(
       (id) => !rootsWithUsedCategories.has(id)
     );
-    return {
-      phases:
-        otherRoots.length > 0
-          ? [otherRoots, [...rootsWithUsedCategories]]
-          : [[...rootsWithUsedCategories]],
-      blockedReferences,
-    };
+    return otherRoots.length > 0
+      ? [otherRoots, [...rootsWithUsedCategories]]
+      : [[...rootsWithUsedCategories]];
   }
 
   // Otherwise delete the category users and their code dependents as roots of their own. Core refuses to delete
   // an element whose code scopes an element deleted in a later call, so the first call also takes code dependents
-  // that have a parent. They are all in the trees; one outside them would have blocked the plan above.
+  // that have a parent. They are all in the trees; one outside them would have kept its code scope above.
   const userTrees = await queryDeletionTrees(
     targetDb,
     usersOfDeletedCategories,
@@ -111,7 +141,7 @@ export async function planBulkDelete(
   );
   const phases = [[...userTrees.roots]];
   if (remainingRoots.length > 0) phases.push(remainingRoots);
-  return { phases, blockedReferences };
+  return phases;
 }
 
 /** Finds the native deletion roots and every element their deletion removes.
@@ -169,6 +199,51 @@ async function queryDeletionTrees(
     else rootsByElement.set(row.id, [row.rootId]);
   }
   return { roots, rootsByElement };
+}
+
+/** Finds the elements to keep so that the blocked elements stay valid: each blocked element and its child
+ * elements and sub-model contents, plus every element whose deletion would delete a kept element or leave its
+ * parent, model, or code scope dangling.
+ */
+async function queryKeptElements(
+  targetDb: IModelDb,
+  blockedIds: ReadonlySet<Id64String>
+): Promise<Id64Set> {
+  const query = `
+    WITH RECURSIVE
+      Above(Id) AS (
+        SELECT ids.id FROM IdSet(:blockedIds) ids
+        UNION
+        SELECT element.Parent.Id FROM bis.Element element
+        INNER JOIN Above ON element.ECInstanceId = Above.Id
+        WHERE element.Parent.Id IS NOT NULL
+        UNION
+        SELECT element.Model.Id FROM bis.Element element
+        INNER JOIN Above ON element.ECInstanceId = Above.Id
+        UNION
+        SELECT element.CodeScope.Id FROM bis.Element element
+        INNER JOIN Above ON element.ECInstanceId = Above.Id
+      ),
+      Below(Id) AS (
+        SELECT ids.id FROM IdSet(:blockedIds) ids
+        UNION
+        SELECT element.ECInstanceId FROM bis.Element element
+        INNER JOIN Below ON element.Parent.Id = Below.Id
+        UNION
+        SELECT element.ECInstanceId FROM bis.Element element
+        INNER JOIN Below ON element.Model.Id = Below.Id
+      )
+    SELECT Id AS id FROM Above
+    UNION
+    SELECT Id FROM Below
+  `;
+  const keptIds: Id64Set = new Set<Id64String>();
+  const params = new QueryBinder().bindIdSet("blockedIds", blockedIds);
+  for await (const row of targetDb.createQueryReader(query, params, {
+    usePrimaryConn: true,
+  }))
+    keptIds.add(row.id);
+  return keptIds;
 }
 
 interface BlockingReference {
