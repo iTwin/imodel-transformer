@@ -10,6 +10,7 @@ import { changesetScanningBenchmark } from "../scenarios/changesetScanning.js";
 import { incrementalSynchronizationBenchmark } from "../scenarios/incrementalSynchronization.js";
 import { largeBaseIncrementalSynchronizationBenchmark } from "../scenarios/largeBaseIncrementalSynchronization.js";
 import { schemaProcessingBenchmark } from "../scenarios/schemaProcessing.js";
+import { standaloneDriveRelationshipProcessingBenchmark } from "../scenarios/standaloneDriveRelationshipProcessing.js";
 import { standaloneFullTransformationBenchmark } from "../scenarios/standaloneFullTransformation.js";
 
 // Every benchmark is added in exactly one explicit place so the compiled CLI remains predictable.
@@ -19,6 +20,7 @@ const registrations: readonly BenchmarkRegistration[] = Object.freeze([
   changesetScanningBenchmark,
   schemaProcessingBenchmark,
   standaloneFullTransformationBenchmark,
+  standaloneDriveRelationshipProcessingBenchmark,
 ]);
 
 const scenarios = new Map<string, BenchmarkScenarioDefinition>();
@@ -30,7 +32,8 @@ for (const registration of registrations) {
     );
   scenarios.set(registration.scenario.id, registration.scenario);
   for (const fixture of registration.fixtures ?? []) {
-    if (fixtures.has(fixture.descriptor.id))
+    const registeredFixture = fixtures.get(fixture.descriptor.id);
+    if (registeredFixture !== undefined && registeredFixture !== fixture)
       throw new Error(
         `Duplicate quick performance fixture: ${fixture.descriptor.id}`
       );

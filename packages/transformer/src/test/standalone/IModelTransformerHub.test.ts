@@ -94,6 +94,7 @@ import {
   TransformerLoggerCategory,
 } from "../../imodel-transformer";
 import { ProvenanceManager } from "../../ProvenanceManager";
+import { ChangesetScanner } from "../../ChangesetScanner";
 import {
   assertTransformerError,
   CountingIModelImporter,
@@ -1298,165 +1299,220 @@ describe("IModelTransformerHub", () => {
     }
   });
 
-  it("should be able to handle relationship delete using fedguids", async () => {
-    const masterIModelName = "MasterNewRelProvenanceFedGuids";
-    const masterSeedFileName = path.join(outputDir, `${masterIModelName}.bim`);
-    if (IModelJsFs.existsSync(masterSeedFileName))
-      IModelJsFs.removeSync(masterSeedFileName);
-    const masterSeedState = { 1: 1, 2: 1 };
-    const masterSeedDb = SnapshotDb.createEmpty(masterSeedFileName, {
-      rootSubject: { name: masterIModelName },
-    });
-    // masterSeedDb.nativeDb.setITwinId(iTwinId); // workaround for "ContextId was not properly setup in the checkpoint" issue
-    populateTimelineSeed(masterSeedDb, masterSeedState);
+  interface RelationshipDeleteCase {
+    name: string;
+    masterIModelName: string;
+    federationGuidMode: "preserved" | "null";
+    provenanceMode: "none" | "new" | "old";
+  }
+  const relationshipDeleteCases: readonly RelationshipDeleteCase[] = [
+    {
+      name: "should be able to handle relationship delete using fedguids",
+      masterIModelName: "MasterNewRelProvenanceFedGuids",
+      federationGuidMode: "preserved",
+      provenanceMode: "none",
+    },
+    {
+      name: "should be able to handle relationship delete using new relationship provenance method with no fedguids",
+      masterIModelName: "MasterNewRelProvenanceNoFedGuids",
+      federationGuidMode: "null",
+      provenanceMode: "new",
+    },
+    {
+      name: "should be able to handle relationship delete using old relationship provenance method with no fedguids",
+      masterIModelName: "MasterOldRelProvenanceNoFedGuids",
+      federationGuidMode: "null",
+      provenanceMode: "old",
+    },
+  ];
 
-    const masterSeed: TimelineIModelState = {
-      // HACK: we know this will only be used for seeding via its path and performCheckpoint
-      db: masterSeedDb as any as BriefcaseDb,
-      id: "master-seed",
-      state: masterSeedState,
-    };
-    let relIdInBranch: string | undefined;
-    const timeline: Timeline = [
-      { master: { seed: masterSeed } }, // masterSeedState is above
-      { branch1: { branch: "master" } },
-      {
-        branch1: {
-          manualUpdate(db) {
-            // Create relationship in branch iModel
-            withEditTxn(db, "insert branch relationship", (txn) => {
-              const sourceId = IModelTestUtils.queryByUserLabel(db, "1");
-              const targetId = IModelTestUtils.queryByUserLabel(db, "2");
-              const rel = ElementGroupsMembers.create(db, sourceId, targetId);
-              relIdInBranch = txn.insertRelationship(rel.toJSON());
-            });
-          },
-        },
-      },
-      {
-        master: {
-          sync: ["branch1"],
-        },
-      }, // first master<-branch1 reverse sync picking up new relationship from branch imodel
-      {
-        assert({ branch1 }) {
-          const aspects = branch1.db.elements.getAspects(
-            IModelTestUtils.queryByUserLabel(branch1.db, "1"),
-            ExternalSourceAspect.classFullName
-          ) as ExternalSourceAspect[];
-          expect(aspects.length).to.be.equal(0);
-        },
-      },
-      {
-        master: {
-          manualUpdate(db) {
-            // Delete relationship in master iModel
-            withEditTxn(db, "delete master relationship", (txn) => {
-              const rel = db.relationships.getInstance<ElementGroupsMembers>(
-                ElementGroupsMembers.classFullName,
-                {
-                  sourceId: IModelTestUtils.queryByUserLabel(db, "1"),
-                  targetId: IModelTestUtils.queryByUserLabel(db, "2"),
+  for (const testCase of relationshipDeleteCases) {
+    it(testCase.name, async () => {
+      // SEE: https://github.com/iTwin/imodel-transformer/issues/54 for the scenario this test exercises.
+      // Each case syncs a relationship from a branch to its master, deletes it in the master, and syncs the deletion back.
+      const masterSeedFileName = path.join(
+        outputDir,
+        `${testCase.masterIModelName}.bim`
+      );
+      if (IModelJsFs.existsSync(masterSeedFileName))
+        IModelJsFs.removeSync(masterSeedFileName);
+
+      let masterSeedDb: SnapshotDb | undefined;
+      let masterIModelId: GuidString | undefined;
+      let branchIModelId: GuidString | undefined;
+      let masterDb: BriefcaseDb | undefined;
+      let branchDb: BriefcaseDb | undefined;
+      let relIdInBranch: Id64String | undefined;
+
+      try {
+        const seedDb = SnapshotDb.createEmpty(masterSeedFileName, {
+          rootSubject: { name: testCase.masterIModelName },
+        });
+        masterSeedDb = seedDb;
+        const { modelId, categoryId } = withEditTxn(
+          seedDb,
+          "insert master seed model and category",
+          (txn) => ({
+            modelId: PhysicalModel.insert(
+              txn,
+              IModel.rootSubjectId,
+              "PhysicalModel"
+            ),
+            categoryId: SpatialCategory.insert(
+              txn,
+              IModel.dictionaryId,
+              "SpatialCategory",
+              new SubCategoryAppearance()
+            ),
+          })
+        );
+        withEditTxn(seedDb, "insert master seed elements", (txn) => {
+          for (const name of ["1", "2"]) {
+            const elementProps: PhysicalElementProps = {
+              classFullName: PhysicalObject.classFullName,
+              model: modelId,
+              category: categoryId,
+              code: new Code({
+                spec: IModelDb.rootSubjectId,
+                scope: IModelDb.rootSubjectId,
+                value: name,
+              }),
+              userLabel: name,
+              geom: IModelTransformerTestUtils.createBox(
+                Point3d.create(1, 1, 1)
+              ),
+              placement: {
+                origin: Point3d.create(0, 0, 0),
+                angles: YawPitchRollAngles.createDegrees(0, 0, 0),
+              },
+              jsonProperties: { updateState: 1 },
+            };
+            txn.insertElement(elementProps);
+          }
+        });
+
+        if (testCase.federationGuidMode === "null") {
+          const noFedGuidElemIds = seedDb.queryEntityIds({
+            from: "Bis.Element",
+            where: "UserLabel IN ('1','2')",
+          });
+          withEditTxn(seedDb, "null out fedguids", () => {
+            for (const elemId of noFedGuidElemIds)
+              seedDb.withSqliteStatement(
+                `UPDATE bis_Element SET FederationGuid=NULL WHERE Id=${elemId}`,
+                (s) => {
+                  expect(s.step()).to.equal(DbResult.BE_SQLITE_DONE);
                 }
               );
-              txn.deleteRelationship(rel.toJSON());
-            });
-          },
-        },
-      },
-      {
-        branch1: {
-          sync: ["master"],
-        },
-      }, // forward sync master->branch1 to pick up delete of relationship
-      {
-        assert({ branch1 }) {
-          // Expect relationship to be gone in branch iModel.
-          expect(relIdInBranch, "expected relationship id in branch to be set")
-            .to.not.be.undefined;
-          expect(() =>
-            branch1.db.relationships.getInstance<ElementGroupsMembers>(
-              ElementGroupsMembers.classFullName,
-              relIdInBranch!
-            )
-          ).to.throw(IModelError);
-        },
-      },
-    ];
+          });
+        }
+        seedDb.performCheckpoint();
 
-    const { tearDown } = await runTimeline(timeline, { iTwinId, accessToken });
-    await tearDown();
-  });
+        masterIModelId = await HubWrappers.recreateIModel({
+          accessToken,
+          iTwinId,
+          iModelName: testCase.masterIModelName,
+          noLocks: true,
+          version0: masterSeedFileName,
+        });
+        masterDb = await HubWrappers.downloadAndOpenBriefcase({
+          accessToken,
+          iTwinId,
+          iModelId: masterIModelId,
+        });
+        await saveAndPushChanges(
+          masterDb,
+          "seeded from 'master-seed' at point 0"
+        );
 
-  it("should be able to handle relationship delete using new relationship provenance method with no fedguids", async () => {
-    // SEE: https://github.com/iTwin/imodel-transformer/issues/54 for the scenario this test exercises
-    /** This test does the following:
-     *  sync master to branch with two elements, x and y, with NULL fed guid to force ESAs to be generated (For future relationship)
-     *  create relationship between x and y in branch imodel
-     *  reverse sync branch to master
-     *  delete relationship between x and y in master
-     *  forward sync to branch
-     *  expect relationship gets deleted in branch imodel.
-     */
-    const masterIModelName = "MasterNewRelProvenanceNoFedGuids";
-    const masterSeedFileName = path.join(outputDir, `${masterIModelName}.bim`);
-    if (IModelJsFs.existsSync(masterSeedFileName))
-      IModelJsFs.removeSync(masterSeedFileName);
-    const masterSeedState = { 1: 1, 2: 1 };
-    const masterSeedDb = SnapshotDb.createEmpty(masterSeedFileName, {
-      rootSubject: { name: masterIModelName },
-    });
-    // masterSeedDb.nativeDb.setITwinId(iTwinId); // workaround for "ContextId was not properly setup in the checkpoint" issue
-    populateTimelineSeed(masterSeedDb, masterSeedState);
-    const noFedGuidElemIds = masterSeedDb.queryEntityIds({
-      from: "Bis.Element",
-      where: "UserLabel IN ('1','2')",
-    });
-    withEditTxn(masterSeedDb, "null out fedguids", () => {
-      for (const elemId of noFedGuidElemIds)
-        masterSeedDb.withSqliteStatement(
-          `UPDATE bis_Element SET FederationGuid=NULL WHERE Id=${elemId}`,
-          (s) => {
-            expect(s.step()).to.equal(DbResult.BE_SQLITE_DONE);
+        branchIModelId = await HubWrappers.recreateIModel({
+          accessToken,
+          iTwinId,
+          iModelName: `${testCase.masterIModelName}-branch1`,
+          noLocks: true,
+          version0: masterDb.pathName,
+        });
+        branchDb = await HubWrappers.downloadAndOpenBriefcase({
+          accessToken,
+          iTwinId,
+          iModelId: branchIModelId,
+        });
+
+        const branchProvenanceEditTxn = createStartedEditTxn(branchDb);
+        const branchProvenanceTransformer = new IModelTransformer(
+          { source: masterDb, target: branchProvenanceEditTxn },
+          { wasSourceIModelCopiedToTarget: true }
+        );
+        let branchProvenanceSucceeded = false;
+        try {
+          await branchProvenanceTransformer.process();
+          branchProvenanceSucceeded = true;
+        } finally {
+          branchProvenanceTransformer.dispose();
+          branchProvenanceEditTxn.end(
+            branchProvenanceSucceeded ? "save" : "abandon"
+          );
+        }
+        await branchDb.pushChanges({
+          accessToken,
+          description: "initialized branch provenance",
+        });
+
+        withEditTxn(branchDb, "insert branch relationship", (txn) => {
+          const sourceId = IModelTestUtils.queryByUserLabel(branchDb!, "1");
+          const targetId = IModelTestUtils.queryByUserLabel(branchDb!, "2");
+          const rel = ElementGroupsMembers.create(
+            branchDb!,
+            sourceId,
+            targetId
+          );
+          relIdInBranch = txn.insertRelationship(rel.toJSON());
+        });
+        await branchDb.pushChanges({
+          accessToken,
+          description: "insert branch relationship",
+        });
+
+        const reverseSyncEditTxn = createStartedEditTxn(masterDb);
+        const reverseSyncSourceEditTxn = createStartedEditTxn(branchDb);
+        const reverseSyncer = new IModelTransformer(
+          { source: branchDb, target: reverseSyncEditTxn },
+          {
+            sourceEditTxn: reverseSyncSourceEditTxn,
+            argsForProcessChanges: {
+              startChangeset: { index: undefined },
+            },
           }
         );
-    });
-    masterSeedDb.performCheckpoint();
+        let reverseSyncSucceeded = false;
+        try {
+          if (testCase.provenanceMode === "old")
+            reverseSyncer["_forceOldRelationshipProvenanceMethod"] = true;
+          await reverseSyncer.process();
+          reverseSyncSucceeded = true;
+        } finally {
+          reverseSyncer.dispose();
+          reverseSyncEditTxn.end(reverseSyncSucceeded ? "save" : "abandon");
+          reverseSyncSourceEditTxn.end(
+            reverseSyncSucceeded ? "save" : "abandon"
+          );
+        }
+        await branchDb.pushChanges({
+          accessToken,
+          description: "reverse sync relationship",
+        });
+        await masterDb.pushChanges({
+          accessToken,
+          description: "reverse sync relationship",
+        });
 
-    const masterSeed: TimelineIModelState = {
-      // HACK: we know this will only be used for seeding via its path and performCheckpoint
-      db: masterSeedDb as any as BriefcaseDb,
-      id: "master-seed",
-      state: masterSeedState,
-    };
-    let relIdInBranch: string | undefined;
-    const timeline: Timeline = [
-      { master: { seed: masterSeed } }, // masterSeedState is above
-      { branch1: { branch: "master" } },
-      {
-        branch1: {
-          manualUpdate(db) {
-            // Create relationship in branch iModel
-            withEditTxn(db, "insert branch relationship", (txn) => {
-              const sourceId = IModelTestUtils.queryByUserLabel(db, "1");
-              const targetId = IModelTestUtils.queryByUserLabel(db, "2");
-              const rel = ElementGroupsMembers.create(db, sourceId, targetId);
-              relIdInBranch = txn.insertRelationship(rel.toJSON());
-            });
-          },
-        },
-      },
-      {
-        master: {
-          sync: ["branch1"],
-        },
-      }, // first master<-branch1 reverse sync picking up new relationship from branch imodel
-      {
-        assert({ branch1 }) {
-          const aspects = branch1.db.elements.getAspects(
-            IModelTestUtils.queryByUserLabel(branch1.db, "1"),
-            ExternalSourceAspect.classFullName
-          ) as ExternalSourceAspect[];
+        const aspects = branchDb.elements.getAspects(
+          IModelTestUtils.queryByUserLabel(branchDb, "1"),
+          ExternalSourceAspect.classFullName
+        ) as ExternalSourceAspect[];
+        if (testCase.provenanceMode === "none") {
+          expect(aspects.length).to.be.equal(0);
+        } else if (testCase.provenanceMode === "new") {
           expect(aspects.length).to.be.equal(2);
           for (const aspect of aspects) {
             if (aspect.kind === "Relationship") {
@@ -1466,127 +1522,8 @@ describe("IModelTransformerHub", () => {
                 .to.not.be.undefined;
             }
           }
-        },
-      },
-      {
-        master: {
-          manualUpdate(db) {
-            // Delete relationship in master iModel
-            withEditTxn(db, "delete master relationship", (txn) => {
-              const rel = db.relationships.getInstance<ElementGroupsMembers>(
-                ElementGroupsMembers.classFullName,
-                {
-                  sourceId: IModelTestUtils.queryByUserLabel(db, "1"),
-                  targetId: IModelTestUtils.queryByUserLabel(db, "2"),
-                }
-              );
-              txn.deleteRelationship(rel.toJSON());
-            });
-          },
-        },
-      },
-      {
-        branch1: {
-          sync: ["master"],
-        },
-      }, // forward sync master->branch1 to pick up delete of relationship
-      {
-        assert({ branch1 }) {
-          // Expect relationship to be gone in branch iModel.
-          expect(relIdInBranch, "expected relationship id in branch to be set")
-            .to.not.be.undefined;
-          expect(() =>
-            branch1.db.relationships.getInstance<ElementGroupsMembers>(
-              ElementGroupsMembers.classFullName,
-              relIdInBranch!
-            )
-          ).to.throw(IModelError);
-        },
-      },
-    ];
-
-    const { tearDown } = await runTimeline(timeline, { iTwinId, accessToken });
-    await tearDown();
-  });
-
-  it("should be able to handle relationship delete using old relationship provenance method with no fedguids", async () => {
-    // SEE: https://github.com/iTwin/imodel-transformer/issues/54 for the scenario this test exercises
-    /** This test does the following:
-     *  sync master to branch with two elements, x and y, with NULL fed guid to force ESAs to be generated (For future relationship)
-     *  create relationship between x and y in branch imodel
-     *  reverse sync branch to master with forceOldRelationshipProvenanceMethod = true
-     *  delete relationship between x and y in master
-     *  forward sync to branch
-     *  expect relationship gets deleted in branch imodel.
-     */
-    const masterIModelName = "MasterOldRelProvenanceNoFedGuids";
-    const masterSeedFileName = path.join(outputDir, `${masterIModelName}.bim`);
-    if (IModelJsFs.existsSync(masterSeedFileName))
-      IModelJsFs.removeSync(masterSeedFileName);
-    const masterSeedState = { 1: 1, 2: 1 };
-    const masterSeedDb = SnapshotDb.createEmpty(masterSeedFileName, {
-      rootSubject: { name: masterIModelName },
-    });
-    // masterSeedDb.nativeDb.setITwinId(iTwinId); // workaround for "ContextId was not properly setup in the checkpoint" issue
-    populateTimelineSeed(masterSeedDb, masterSeedState);
-    const noFedGuidElemIds = masterSeedDb.queryEntityIds({
-      from: "Bis.Element",
-      where: "UserLabel IN ('1','2')",
-    });
-    withEditTxn(masterSeedDb, "null out fedguids", () => {
-      for (const elemId of noFedGuidElemIds)
-        masterSeedDb.withSqliteStatement(
-          `UPDATE bis_Element SET FederationGuid=NULL WHERE Id=${elemId}`,
-          (s) => {
-            expect(s.step()).to.equal(DbResult.BE_SQLITE_DONE);
-          }
-        );
-    });
-    masterSeedDb.performCheckpoint();
-
-    const masterSeed: TimelineIModelState = {
-      // HACK: we know this will only be used for seeding via its path and performCheckpoint
-      db: masterSeedDb as any as BriefcaseDb,
-      id: "master-seed",
-      state: masterSeedState,
-    };
-    let relIdInBranch: string | undefined;
-    const setForceOldRelationshipProvenanceMethod = (
-      transformer: IModelTransformer
-    ) => (transformer["_forceOldRelationshipProvenanceMethod"] = true);
-    const timeline: Timeline = [
-      { master: { seed: masterSeed } }, // masterSeedState is above
-      { branch1: { branch: "master" } },
-      {
-        branch1: {
-          manualUpdate(db) {
-            // Create relationship in branch iModel
-            withEditTxn(db, "insert branch relationship", (txn) => {
-              const sourceId = IModelTestUtils.queryByUserLabel(db, "1");
-              const targetId = IModelTestUtils.queryByUserLabel(db, "2");
-              const rel = ElementGroupsMembers.create(db, sourceId, targetId);
-              relIdInBranch = txn.insertRelationship(rel.toJSON());
-            });
-          },
-        },
-      },
-      {
-        master: {
-          sync: [
-            "branch1",
-            {
-              initTransformer: setForceOldRelationshipProvenanceMethod,
-            },
-          ],
-        },
-      }, // first master<-branch1 reverse sync picking up new relationship from branch imodel
-      {
-        assert({ branch1 }) {
+        } else {
           // Lets make sure that forceOldRelationshipProvenance worked by reading the json properties of the ESA for the relationship.
-          const aspects = branch1.db.elements.getAspects(
-            IModelTestUtils.queryByUserLabel(branch1.db, "1"),
-            ExternalSourceAspect.classFullName
-          ) as ExternalSourceAspect[];
           expect(aspects.length).to.be.equal(2);
           let foundRelationshipAspect = false;
           for (const aspect of aspects) {
@@ -1599,53 +1536,98 @@ describe("IModelTransformerHub", () => {
             }
           }
           expect(foundRelationshipAspect).to.be.true;
-        },
-      },
-      {
-        master: {
-          manualUpdate(db) {
-            // Delete relationship in master iModel
-            withEditTxn(db, "delete master relationship", (txn) => {
-              const rel = db.relationships.getInstance<ElementGroupsMembers>(
-                ElementGroupsMembers.classFullName,
-                {
-                  sourceId: IModelTestUtils.queryByUserLabel(db, "1"),
-                  targetId: IModelTestUtils.queryByUserLabel(db, "2"),
-                }
-              );
-              txn.deleteRelationship(rel.toJSON());
-            });
-          },
-        },
-      },
-      {
-        branch1: {
-          sync: [
-            "master",
-            {
-              initTransformer: setForceOldRelationshipProvenanceMethod,
-            },
-          ],
-        },
-      }, // forward sync master->branch1 to pick up delete of relationship
-      {
-        assert({ branch1 }) {
-          // Expect relationship to be gone in branch iModel.
-          expect(relIdInBranch, "expected relationship id in branch to be set")
-            .to.not.be.undefined;
-          expect(() =>
-            branch1.db.relationships.getInstance<ElementGroupsMembers>(
-              ElementGroupsMembers.classFullName,
-              relIdInBranch!
-            )
-          ).to.throw(IModelError);
-        },
-      },
-    ];
+        }
 
-    const { tearDown } = await runTimeline(timeline, { iTwinId, accessToken });
-    await tearDown();
-  });
+        withEditTxn(masterDb, "delete master relationship", (txn) => {
+          const rel = masterDb!.relationships.getInstance<ElementGroupsMembers>(
+            ElementGroupsMembers.classFullName,
+            {
+              sourceId: IModelTestUtils.queryByUserLabel(masterDb!, "1"),
+              targetId: IModelTestUtils.queryByUserLabel(masterDb!, "2"),
+            }
+          );
+          txn.deleteRelationship(rel.toJSON());
+        });
+        await masterDb.pushChanges({
+          accessToken,
+          description: "delete master relationship",
+        });
+
+        const forwardSyncEditTxn = createStartedEditTxn(branchDb);
+        const forwardSyncer = new IModelTransformer(
+          {
+            source: masterDb,
+            target: forwardSyncEditTxn,
+          },
+          {
+            argsForProcessChanges: {
+              startChangeset: { index: undefined },
+            },
+          }
+        );
+        let forwardSyncSucceeded = false;
+        try {
+          if (testCase.provenanceMode === "old")
+            forwardSyncer["_forceOldRelationshipProvenanceMethod"] = true;
+          await forwardSyncer.process();
+          forwardSyncSucceeded = true;
+        } finally {
+          forwardSyncer.dispose();
+          forwardSyncEditTxn.end(forwardSyncSucceeded ? "save" : "abandon");
+        }
+        await branchDb.pushChanges({
+          accessToken,
+          description: "forward sync relationship deletion",
+        });
+
+        expect(relIdInBranch, "expected relationship id in branch to be set").to
+          .not.be.undefined;
+        expect(() =>
+          branchDb!.relationships.getInstance<ElementGroupsMembers>(
+            ElementGroupsMembers.classFullName,
+            relIdInBranch!
+          )
+        ).to.throw(IModelError);
+      } finally {
+        const cleanup = async (
+          description: string,
+          action: () => void | Promise<void>
+        ) => {
+          try {
+            await action();
+          } catch (error) {
+            // eslint-disable-next-line no-console
+            console.error(`Failed to clean up ${description}`, error);
+          }
+        };
+
+        if (masterDb)
+          await cleanup("master briefcase", async () => {
+            await HubWrappers.closeAndDeleteBriefcaseDb(accessToken, masterDb!);
+          });
+        if (branchDb)
+          await cleanup("branch briefcase", async () => {
+            await HubWrappers.closeAndDeleteBriefcaseDb(accessToken, branchDb!);
+          });
+        if (masterIModelId)
+          await cleanup("master iModel", async () => {
+            await transformerTestHub.deleteIModel({
+              iTwinId,
+              iModelId: masterIModelId!,
+            });
+          });
+        if (branchIModelId)
+          await cleanup("branch iModel", async () => {
+            await transformerTestHub.deleteIModel({
+              iTwinId,
+              iModelId: branchIModelId!,
+            });
+          });
+        if (masterSeedDb)
+          await cleanup("master seed", () => masterSeedDb!.close());
+      }
+    });
+  }
 
   it("should not include 'initialized branch provenance' changeset in a reverse sync", async () => {
     const validateCsFileProps = (transformer: IModelTransformer) => {
@@ -7482,6 +7464,18 @@ describe("IModelTransformerHub", () => {
         sourceDb,
         "DynamicTestSchema:DynamicPhysicalElement"
       );
+      const aspectId = withEditTxn(
+        sourceDb,
+        "insert aspect excluded from element provenance lookup",
+        (txn) =>
+          txn.insertAspect({
+            classFullName: ExternalSourceAspect.classFullName,
+            element: new ElementOwnsExternalSourceAspects(elementId),
+            scope: { id: IModel.rootSubjectId },
+            kind: "Document",
+            identifier: "deleted-aspect",
+          } as ExternalSourceAspectProps)
+      );
       await sourceDb.pushChanges({
         description: "Initial schema and element creation",
         retainLocks: true,
@@ -7533,6 +7527,17 @@ describe("IModelTransformerHub", () => {
       );
       await transformer.processSchemas();
       const openFileSpy = vi.spyOn(ChangesetReader, "openFile");
+      const processedDeletionIds: Id64String[] = [];
+      const processDeletedOp =
+        transformer["processDeletedOp"].bind(transformer);
+      transformer["processDeletedOp"] = async (...args) => {
+        processedDeletionIds.push(args[0].ecInstanceId);
+        return processDeletedOp(...args);
+      };
+      const findTargetElementIdSpy = vi.spyOn(
+        transformer.context,
+        "findTargetElementId"
+      );
       try {
         await transformer.process();
         secondTransformEditTxn.end();
@@ -7555,6 +7560,9 @@ describe("IModelTransformerHub", () => {
         ).to.deep.equal(
           selectedChangesetPaths.map(() => PropertyFilter.BisCoreElement)
         );
+        expect(findTargetElementIdSpy).toHaveBeenCalledWith(elementId);
+        expect(processedDeletionIds).toContain(elementId);
+        expect(processedDeletionIds).not.toContain(aspectId);
       } finally {
         openFileSpy.mockRestore();
       }
@@ -7568,6 +7576,303 @@ describe("IModelTransformerHub", () => {
         targetElement2,
         "Element should be deleted in target iModel"
       ).to.equal(Id64.invalid);
+    });
+
+    it("classifies aspect deletions by class rather than owner metadata", async () => {
+      const { subjectId, aspectId } = withEditTxn(
+        sourceDb,
+        "insert subject with aspect",
+        (txn) => {
+          const insertedSubjectId = Subject.insert(
+            txn,
+            IModel.rootSubjectId,
+            "Aspect classification"
+          );
+          const insertedAspectId = txn.insertAspect({
+            classFullName: ExternalSourceAspect.classFullName,
+            element: new ElementOwnsExternalSourceAspects(insertedSubjectId),
+            scope: { id: IModel.rootSubjectId },
+            kind: "Document",
+            identifier: "classified-aspect",
+          } as ExternalSourceAspectProps);
+          return { subjectId: insertedSubjectId, aspectId: insertedAspectId };
+        }
+      );
+      await sourceDb.pushChanges({
+        description: "Insert subject with aspect",
+        retainLocks: true,
+      });
+
+      const initialEditTxn = createStartedEditTxn(targetDb);
+      let transformer = new IModelTransformer({
+        source: sourceDb,
+        target: initialEditTxn,
+      });
+      await transformer.process();
+      const targetSubjectId =
+        transformer.context.findTargetElementId(subjectId);
+      transformer.dispose();
+      initialEditTxn.end();
+      await targetDb.pushChanges({
+        description: "Initial aspect classification transformation",
+        retainLocks: true,
+      });
+      expect(Id64.isValid(targetSubjectId)).to.be.true;
+
+      withEditTxn(sourceDb, "delete subject with aspect", (txn) => {
+        txn.deleteElement(subjectId);
+      });
+      await sourceDb.pushChanges({
+        description: "Delete subject with aspect",
+        retainLocks: true,
+      });
+
+      // Swap the owner metadata so only the ECClass can distinguish the records.
+      const scan = ChangesetScanner.scan.bind(ChangesetScanner);
+      let scanCalls = 0;
+      const scanSpy = vi
+        .spyOn(ChangesetScanner, "scan")
+        .mockImplementation(async (...args) => {
+          scanCalls++;
+          const recordsByChangeset = await scan(...args);
+          for (const record of recordsByChangeset.flat()) {
+            if (
+              record.classFullName === ExternalSourceAspect.classFullName &&
+              record.ecInstanceId === aspectId
+            )
+              record.elementId = undefined;
+            else if (
+              record.classFullName === Subject.classFullName &&
+              record.ecInstanceId === subjectId
+            )
+              record.elementId = subjectId;
+          }
+          return recordsByChangeset;
+        });
+      const changesEditTxn = createStartedEditTxn(targetDb);
+      transformer = new IModelTransformer(
+        { source: sourceDb, target: changesEditTxn },
+        { argsForProcessChanges: {} }
+      );
+      const processedDeletions: string[] = [];
+      const processDeletedOp =
+        transformer["processDeletedOp"].bind(transformer);
+      transformer["processDeletedOp"] = async (...args) => {
+        processedDeletions.push(
+          `${args[0].classFullName}:${args[0].ecInstanceId}`
+        );
+        return processDeletedOp(...args);
+      };
+      try {
+        await transformer.process();
+      } finally {
+        scanSpy.mockRestore();
+        transformer.dispose();
+        changesEditTxn.end();
+      }
+
+      expect(processedDeletions).toContain(
+        `${Subject.classFullName}:${subjectId}`
+      );
+      expect(processedDeletions).not.toContain(
+        `${ExternalSourceAspect.classFullName}:${aspectId}`
+      );
+      expect(targetDb.elements.tryGetElement(targetSubjectId)).toBeUndefined();
+      expect(scanCalls).to.equal(1);
+    });
+
+    it("honors a guidless deletion remap and ignores a missing mapping", async () => {
+      const sourceSubjectId = withEditTxn(
+        sourceDb,
+        "insert guidless source subject",
+        (txn) => {
+          const subject = Subject.create(
+            sourceDb,
+            IModel.rootSubjectId,
+            "Context mapped source"
+          );
+          subject.federationGuid = Guid.empty;
+          return subject.insert(txn);
+        }
+      );
+      await sourceDb.pushChanges({
+        description: "Insert guidless source subject",
+        retainLocks: true,
+      });
+
+      const initialEditTxn = createStartedEditTxn(targetDb);
+      const transformer = new IModelTransformer({
+        source: sourceDb,
+        target: initialEditTxn,
+      });
+      await transformer.process();
+      const provenanceTargetId =
+        transformer.context.findTargetElementId(sourceSubjectId);
+      transformer.dispose();
+      initialEditTxn.end();
+      await targetDb.pushChanges({
+        description: "Initial guidless subject transformation",
+        retainLocks: true,
+      });
+
+      const customTargetId = withEditTxn(
+        targetDb,
+        "insert custom deletion target",
+        (txn) =>
+          Subject.insert(txn, IModel.rootSubjectId, "Custom deletion target")
+      );
+      await targetDb.pushChanges({
+        description: "Insert custom deletion target",
+        retainLocks: true,
+      });
+
+      const unmappedSourceId = withEditTxn(
+        sourceDb,
+        "insert never-synchronized guidless subject",
+        (txn) => {
+          const subject = Subject.create(
+            sourceDb,
+            IModel.rootSubjectId,
+            "Never synchronized"
+          );
+          subject.federationGuid = Guid.empty;
+          return subject.insert(txn);
+        }
+      );
+      await sourceDb.pushChanges({
+        description: "Insert never-synchronized guidless subject",
+        retainLocks: true,
+      });
+
+      withEditTxn(sourceDb, "delete guidless source subjects", (txn) => {
+        txn.deleteElement(sourceSubjectId);
+        txn.deleteElement(unmappedSourceId);
+      });
+      await sourceDb.pushChanges({
+        description: "Delete guidless source subjects",
+        retainLocks: true,
+      });
+
+      class CustomDeletionRemapTransformer extends IModelTransformer {
+        public override async addCustomChanges(): Promise<void> {
+          expect(this.context.findTargetElementId(sourceSubjectId)).to.equal(
+            provenanceTargetId
+          );
+          this.context.remapElement(sourceSubjectId, customTargetId);
+        }
+      }
+
+      const changesEditTxn = createStartedEditTxn(targetDb);
+      const changesTransformer = new CustomDeletionRemapTransformer(
+        { source: sourceDb, target: changesEditTxn },
+        { argsForProcessChanges: {} }
+      );
+      const addCustomChangesSpy = vi.spyOn(
+        changesTransformer,
+        "addCustomChanges"
+      );
+      await changesTransformer.process();
+      expect(
+        changesTransformer.context.findTargetElementId(unmappedSourceId)
+      ).to.equal(Id64.invalid);
+      changesTransformer.dispose();
+      changesEditTxn.end();
+
+      expect(addCustomChangesSpy).toHaveBeenCalledOnce();
+      expect(targetDb.elements.tryGetElement(customTargetId)).toBeUndefined();
+      expect(targetDb.elements.tryGetElement(provenanceTargetId)).toBeDefined();
+    });
+
+    it("preserves a remapped guidless target when its source is recreated across changesets", async () => {
+      const sourceSubjectId = withEditTxn(
+        sourceDb,
+        "insert original guidless subject",
+        (txn) => {
+          const subject = Subject.create(
+            sourceDb,
+            IModel.rootSubjectId,
+            "Guidless recreation"
+          );
+          subject.federationGuid = Guid.empty;
+          return subject.insert(txn);
+        }
+      );
+      await sourceDb.pushChanges({
+        description: "Insert original guidless subject",
+        retainLocks: true,
+      });
+
+      const initialEditTxn = createStartedEditTxn(targetDb);
+      let transformer = new IModelTransformer({
+        source: sourceDb,
+        target: initialEditTxn,
+      });
+      await transformer.process();
+      const targetSubjectId =
+        transformer.context.findTargetElementId(sourceSubjectId);
+      transformer.dispose();
+      initialEditTxn.end();
+      await targetDb.pushChanges({
+        description: "Initial guidless subject transformation",
+        retainLocks: true,
+      });
+
+      withEditTxn(sourceDb, "delete original guidless subject", (txn) => {
+        txn.deleteElement(sourceSubjectId);
+      });
+      await sourceDb.pushChanges({
+        description: "Delete original guidless subject",
+        retainLocks: true,
+      });
+      const startChangeset = sourceDb.changeset;
+
+      const recreatedSourceSubjectId = withEditTxn(
+        sourceDb,
+        "recreate guidless subject",
+        (txn) => {
+          const subject = Subject.create(
+            sourceDb,
+            IModel.rootSubjectId,
+            "Guidless recreation"
+          );
+          subject.federationGuid = Guid.empty;
+          subject.userLabel = "Recreated guidless subject";
+          return subject.insert(txn);
+        }
+      );
+      await sourceDb.pushChanges({
+        description: "Recreate guidless subject",
+        retainLocks: true,
+      });
+
+      class GuidlessRecreationTransformer extends IModelTransformer {
+        public override async addCustomChanges(): Promise<void> {
+          expect(this.context.findTargetElementId(sourceSubjectId)).to.equal(
+            targetSubjectId
+          );
+          this.context.remapElement(recreatedSourceSubjectId, targetSubjectId);
+        }
+      }
+
+      const changesEditTxn = createStartedEditTxn(targetDb);
+      transformer = new GuidlessRecreationTransformer(
+        { source: sourceDb, target: changesEditTxn },
+        { argsForProcessChanges: { startChangeset } }
+      );
+      await transformer.process();
+      transformer.dispose();
+      changesEditTxn.end();
+
+      expect(
+        targetDb.elements.getElement<Subject>(targetSubjectId).userLabel
+      ).to.equal("Recreated guidless subject");
+      expect(
+        count(
+          targetDb,
+          Subject.classFullName,
+          `Parent.Id = ${IModel.rootSubjectId}`
+        )
+      ).to.equal(1);
     });
 
     it("should leave model contents correct when model partition was recreated with different federation guid and the same code value", async () => {
@@ -7990,6 +8295,7 @@ describe("IModelTransformerHub", () => {
             sourcePhysicalModelId,
             "TestClassElement"
           ),
+          federationGuid: Guid.empty,
           userLabel: "TestClassElement",
           SourceProperty1: "value1",
         } as GeometricElementProps);
