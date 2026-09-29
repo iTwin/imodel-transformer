@@ -94,6 +94,8 @@ full transformation so all relationship endpoints are mapped. Its timed
 saving, and output-shape validation are untimed. This is a fresh-snapshot
 relationship benchmark, not incremental changeset coverage.
 
+The `aspect-heavy-noop` scenario builds a standalone source with one unique and two multi-aspects per element, transforms it once during untimed `prepare()`, then measures a second `process()` with no source changes. The default fixture is 1,000 elements/3,000 aspects; `aspect-heavy-noop-10k-3` scales that to 10,000/30,000, and `aspectsPerElement` in the recipe makes the aspect ratio easy to change. `aspect-heavy-process-changes` uses a local HubMock fixture and measures `processChanges()` with every workload element and its model marked updated in `ChangedInstanceIds`, without editing the source. Both scenarios report per-sample importer counters and before/after target aspect-ID counts in `samples.jsonl` and `summary.json`.
+
 `realistic-building-transform` is a deterministic synthetic workload modeled
 only from aggregate transformer-relevant characteristics of a representative
 building iModel at approximately twice its structural scale. It contains 3,440
@@ -219,13 +221,26 @@ panel.
 
 Registered fixtures per scenario:
 
-| Scenario ID                                | Fixture IDs                                                                                                                       | Default                        |
-| ------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------- | ------------------------------ |
-| `incremental-synchronization`              | `balanced-incremental`, `deletion-heavy-incremental`                                                                              | `balanced-incremental`         |
-| `standalone-full-transformation`           | `standalone-full-transform`, `relationship-heavy-transform`, `realistic-building-transform`, `realistic-building-transform-large` | `standalone-full-transform`    |
-| `standalone-drive-relationship-processing` | `realistic-building-transform`, `realistic-building-transform-large`                                                              | `realistic-building-transform` |
-| `schema-processing`                        | `schema-processing-large`                                                                                                         | `schema-processing-large`      |
-| `changeset-scanning`                       | `update-heavy-scan`                                                                                                               | `update-heavy-scan`            |
+| Scenario ID                                | Fixture IDs                                                                                                                       | Default                             |
+| ------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------- |
+| `incremental-synchronization`              | `balanced-incremental`, `deletion-heavy-incremental`                                                                              | `balanced-incremental`              |
+| `standalone-full-transformation`           | `standalone-full-transform`, `relationship-heavy-transform`, `realistic-building-transform`, `realistic-building-transform-large` | `standalone-full-transform`         |
+| `standalone-drive-relationship-processing` | `realistic-building-transform`, `realistic-building-transform-large`                                                              | `realistic-building-transform`      |
+| `aspect-heavy-noop`                        | `aspect-heavy-noop-1k-3`, `aspect-heavy-noop-10k-3`                                                                               | `aspect-heavy-noop-1k-3`            |
+| `aspect-heavy-process-changes`             | `aspect-heavy-process-changes-1k-3`                                                                                               | `aspect-heavy-process-changes-1k-3` |
+| `schema-processing`                        | `schema-processing-large`                                                                                                         | `schema-processing-large`           |
+| `changeset-scanning`                       | `update-heavy-scan`                                                                                                               | `update-heavy-scan`                 |
+
+Run the aspect-heavy no-op benchmark at its default size or at 10,000 elements:
+
+```sh
+QUICK_PERF_SCENARIO=aspect-heavy-noop pnpm test:quick
+QUICK_PERF_SCENARIO=aspect-heavy-noop \
+QUICK_PERF_FIXTURE=aspect-heavy-noop-10k-3 \
+pnpm test:quick
+
+QUICK_PERF_SCENARIO=aspect-heavy-process-changes pnpm test:quick
+```
 
 Example in a POSIX shell:
 
@@ -326,8 +341,8 @@ repository is nested deeply enough to approach the legacy path-length limit.
 
 Each run writes:
 
-- `samples.jsonl`: one record for the warm-up and each measured sample.
-- `summary.json`: structured aggregate and reliability classification.
+- `samples.jsonl`: one record for the warm-up and each measured sample, including scenario-specific metrics when provided.
+- `summary.json`: structured aggregate, reliability classification, and scenario metrics for measured samples when provided.
 - `summary.csv`: compact aggregate for spreadsheet or dashboard ingestion.
 
 ## Pull request A/B comparison

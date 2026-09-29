@@ -15,6 +15,7 @@ import {
 } from "../../src/catalogs/BenchmarkRegistry.js";
 import { validateFixtureDescriptor } from "../../src/fixtures/FixtureDescriptor.js";
 import { largeBaseIncrementalRecipe } from "../../src/fixtures/recipes/largeBaseIncremental.js";
+import { aspectHeavyNoopRecipe } from "../../src/fixtures/recipes/aspectHeavyNoop.js";
 import {
   realisticBuildingExpectedCounts,
   realisticBuildingTransformParameters,
@@ -43,7 +44,49 @@ describe("quick performance scenario catalog", () => {
 
   it("rejects unknown scenarios", () => {
     expect(() => getScenarioDefinition("not-a-scenario")).to.throw(
-      'Unknown quick performance scenario "not-a-scenario". Available scenarios: incremental-synchronization, large-base-incremental-synchronization, changeset-scanning, schema-processing, standalone-full-transformation, standalone-drive-relationship-processing'
+      'Unknown quick performance scenario "not-a-scenario". Available scenarios: incremental-synchronization, large-base-incremental-synchronization, changeset-scanning, schema-processing, standalone-full-transformation, standalone-drive-relationship-processing, aspect-heavy-noop, aspect-heavy-process-changes'
+    );
+  });
+
+  it("registers the aspect-heavy repeated-transform scenario and scalable fixtures", () => {
+    const small = resolveBenchmarkRun("aspect-heavy-noop");
+    const large = resolveBenchmarkRun(
+      "aspect-heavy-noop",
+      "aspect-heavy-noop-10k-3"
+    );
+    expect(small.descriptor.id).to.equal("aspect-heavy-noop-1k-3");
+    expect(small.descriptor.distribution.base).to.deep.equal({
+      aspects: 3_000,
+      elements: 1_000,
+      geometricElements: 0,
+      relationships: 0,
+    });
+    expect(large.descriptor.distribution.base).to.deep.equal({
+      aspects: 30_000,
+      elements: 10_000,
+      geometricElements: 0,
+      relationships: 0,
+    });
+    expect(small.scenario.configuration).to.deep.equal({
+      initialTransform: "untimed processAll",
+      measuredTransform: "second processAll with unchanged source",
+    });
+    expect(
+      aspectHeavyNoopRecipe.distribution({
+        elementCount: 2_000,
+        aspectsPerElement: 5,
+      }).base.aspects
+    ).to.equal(10_000);
+
+    const processChanges = resolveBenchmarkRun("aspect-heavy-process-changes");
+    expect(processChanges.descriptor.id).to.equal(
+      "aspect-heavy-process-changes-1k-3"
+    );
+    expect(processChanges.descriptor.layout.topology).to.equal(
+      "source-and-empty-target"
+    );
+    expect(processChanges.scenario.configuration?.measuredTransform).to.equal(
+      "processChanges with all workload elements and their model marked updated"
     );
   });
 
