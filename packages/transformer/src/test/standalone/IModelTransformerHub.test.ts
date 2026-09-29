@@ -7181,12 +7181,22 @@ describe("IModelTransformerHub", () => {
       const { categoryId, subCategoryId } =
         await insertSubCategoryUnderRejectedCategory();
 
+      const shouldExport = vi.spyOn(
+        RejectingTransformer.prototype,
+        "shouldExportElement"
+      );
+
       // The filter now accepts the category, but nobody added it in addCustomChanges.
       await expectTransformerError(
         transformRejecting([], processChanges),
         IModelTransformerError.DependencyMappingMissing,
         `Element ${subCategoryId} requires unchanged element ${categoryId}, which is not in the target iModel. Change processing does not insert unchanged elements; to insert element ${categoryId}, add it in addCustomChanges.`
       );
+      // The traversal filtered the category; mapping the subcategory reuses that result.
+      expect(
+        shouldExport.mock.calls.filter(([element]) => element.id === categoryId)
+      ).to.have.length(1);
+      shouldExport.mockRestore();
     });
 
     it("should throw DependencyMappingMissing when a changed element requires an unchanged category that shouldExportElement rejects", async () => {

@@ -1306,7 +1306,10 @@ export class IModelTransformer extends IModelExportHandler {
       wantGeometry: this.exporter.wantGeometry,
       wantBRepData: this.exporter.wantGeometry,
     });
-    const accepted = await this.exporter.shouldExportElement(reference);
+    // A required parent reached by the traversal has already been filtered.
+    const accepted =
+      this.exporter.getUnchangedAncestorFilterResult(referenceId) ??
+      (await this.exporter.shouldExportElement(reference));
     if (accepted) await this.onExportElement(reference); // finds it in the target by FederationGuid or Code
     if (Id64.isValid(this.context.findTargetElementId(referenceId))) return;
 

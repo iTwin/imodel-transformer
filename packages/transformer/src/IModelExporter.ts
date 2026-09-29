@@ -1124,6 +1124,17 @@ export class IModelExporter {
     }
   }
 
+  /** Returns the filter result for an unchanged ancestor on the current change-processing path, or `undefined` if it has not been filtered.
+   * @internal
+   */
+  public getUnchangedAncestorFilterResult(
+    elementId: Id64String
+  ): boolean | undefined {
+    return this._unchangedAncestors.find(
+      (ancestor) => ancestor.elementId === elementId
+    )?.accepted;
+  }
+
   /** Filters the unchanged ancestors of a changed element, top-down, once each.
    * @returns `false` if an ancestor is rejected.
    */
