@@ -3,7 +3,8 @@
  * See LICENSE.md in the project root for license terms and full copyright notice.
  *--------------------------------------------------------------------------------------------*/
 
-import { IModelTransformer } from "@itwin/imodel-transformer";
+import { IModelExporter, IModelTransformer } from "@itwin/imodel-transformer";
+import { Id64String } from "@itwin/core-bentley";
 import {
   BenchmarkScenario,
   BenchmarkScenarioDefinition,
@@ -22,13 +23,20 @@ import { deletionHeavyIncrementalFixture } from "../fixtures/recipes/deletionHea
 import { hierarchicalIncrementalFixture } from "../fixtures/recipes/hierarchicalIncremental.js";
 import { defineBenchmark } from "../framework/BenchmarkRegistration.js";
 
+/** EXPERIMENT: overriding exportElement forces the legacy per-element traversal. */
+class LegacyTraversalExporter extends IModelExporter {
+  public override async exportElement(elementId: Id64String) {
+    return super.exportElement(elementId);
+  }
+}
+
 export function incrementalSynchronization(
   dataset: PreparedDataset
 ): BenchmarkScenario {
   const { hub } = requireLiveHubDataset(dataset);
   const editTxn = createStartedEditTxn(hub.targetDb);
   const transformer = new IModelTransformer(
-    { source: hub.sourceDb, target: editTxn },
+    { source: new LegacyTraversalExporter(hub.sourceDb), target: editTxn },
     { argsForProcessChanges: {} }
   );
   let disposed = false;
