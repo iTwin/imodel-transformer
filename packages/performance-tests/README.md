@@ -65,6 +65,16 @@ unchanged base that `balanced-incremental`'s proportional churn dilutes. The
 scale is part of the fixture parameters and therefore produces a distinct
 fixture descriptor and artifact identity.
 
+The `hierarchical-incremental` fixture measures the `incremental-synchronization`
+operation on elements with parents. At the registered `scale: 25`, its one model
+holds 1,000 unchanged assemblies, each with 2 sub-assemblies of 4 parts, for
+11,000 base elements. Two changesets insert 250 parts and update 250 parts, one
+per assembly, so every changed element sits beneath two unchanged ancestors that
+no other change shares; the other 500 assemblies stay unchanged. Change
+processing reaches each changed element through its unchanged ancestors, so the
+fixture exposes per-ancestor work that the flat fixtures never reach. Select it
+with `QUICK_PERF_FIXTURE=hierarchical-incremental`.
+
 The package also contains a `source-only` fixture backed by
 `detachedBriefcaseProvider`. It supplies a read-only source `BriefcaseDb` and
 local changeset files without a running Hub during scenario execution. No
@@ -221,7 +231,7 @@ Registered fixtures per scenario:
 
 | Scenario ID                                | Fixture IDs                                                                                                                       | Default                        |
 | ------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------- | ------------------------------ |
-| `incremental-synchronization`              | `balanced-incremental`, `deletion-heavy-incremental`                                                                              | `balanced-incremental`         |
+| `incremental-synchronization`              | `balanced-incremental`, `deletion-heavy-incremental`, `hierarchical-incremental`                                                  | `balanced-incremental`         |
 | `standalone-full-transformation`           | `standalone-full-transform`, `relationship-heavy-transform`, `realistic-building-transform`, `realistic-building-transform-large` | `standalone-full-transform`    |
 | `standalone-drive-relationship-processing` | `realistic-building-transform`, `realistic-building-transform-large`                                                              | `realistic-building-transform` |
 | `schema-processing`                        | `schema-processing-large`                                                                                                         | `schema-processing-large`      |
