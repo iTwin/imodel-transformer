@@ -8,6 +8,7 @@ beta;interface;DeletionRecordBase
 beta;interface;DeletionRecords
 beta;interface;ElementBulkDeleteError
 beta;interface;ElementDeletionRecord
+beta;interface;EntityChange
 public;type;ExportChangesOptions
 beta;type;ExporterInitOptions
 beta;interface;ExportSchemaResult

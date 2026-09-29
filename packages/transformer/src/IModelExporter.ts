@@ -1981,6 +1981,25 @@ export class ChangedInstanceOps {
 }
 
 /**
+ * A change to one EC instance, for recording changes that don't come from a changeset reader.
+ * @see [[ChangedInstanceIds.addEntityChange]]
+ * @beta
+ */
+export interface EntityChange {
+  /** ID of the changed instance. */
+  id: Id64String;
+  /** EC class ID of the changed instance, used to tell elements, models, aspects, relationships, and CodeSpecs apart. */
+  ecClassId: Id64String;
+  /** The operation that changed the instance. */
+  op: SqliteChangeOp;
+  /**
+   * For an aspect, the element that owns it. When undefined, the owner is read from the source iModel, which
+   * no longer has deleted aspects.
+   */
+  aspectOwnerElementId?: Id64String;
+}
+
+/**
  * Class for discovering modified elements between 2 versions of an iModel.
  * @public
  */
@@ -2000,19 +2019,10 @@ export class ChangedInstanceIds {
   private readonly _aspectOwnerElementIds = new Set<Id64String>();
 
   /** Element IDs that own the aspects represented by `aspect` changes.
-   * The exporter revisits these elements to export their aspects.
-   * @beta
+   * @internal
    */
   public get aspectOwnerElementIds(): ReadonlySet<Id64String> {
     return this._aspectOwnerElementIds;
-  }
-
-  /** Records elements that own changed aspects, for callers that populate `aspect` changes directly.
-   * @beta
-   */
-  public addAspectOwnerElementIds(elementIds: Id64Arg): void {
-    for (const elementId of Id64.iterable(elementIds))
-      this._aspectOwnerElementIds.add(elementId);
   }
 
   private _db: IModelDb;
@@ -2116,11 +2126,20 @@ export class ChangedInstanceIds {
     return this.recordChange(change, undefined);
   }
 
+  /**
+   * Adds a change read from somewhere other than a changeset, such as a precomputed cache, like [[addChange]]
+   * does for a changeset reader's [ChangeInstance]($backend). Add changes in the order they were made, so that,
+   * for example, an insert followed by a delete of the same instance cancels out.
+   * @beta
+   */
+  public async addEntityChange(change: EntityChange): Promise<void> {
+    return this.recordEntityChange(change, undefined);
+  }
+
   private async recordChange(
     change: ChangeInstance,
     unresolvedAspectIds: Set<Id64String> | undefined
   ): Promise<void> {
-    if (!this._ecClassIdsInitialized) await this.setupECClassIds();
     const ecClassId = change.ECClassId;
     if (ecClassId === undefined)
       ITwinError.throwError({
@@ -2139,28 +2158,41 @@ export class ChangedInstanceIds {
         },
         message: `ChangeType was undefined for id: ${change.ECInstanceId}.`,
       });
+    return this.recordEntityChange(
+      {
+        id: change.ECInstanceId,
+        ecClassId,
+        op: changeType,
+        aspectOwnerElementId: change.Element?.Id,
+      },
+      unresolvedAspectIds
+    );
+  }
+
+  private async recordEntityChange(
+    change: EntityChange,
+    unresolvedAspectIds: Set<Id64String> | undefined
+  ): Promise<void> {
+    if (!this._ecClassIdsInitialized) await this.setupECClassIds();
+    const { id, ecClassId, op } = change;
     if (this._relationshipSubclassIdsToSkip?.has(ecClassId)) return;
 
     if (this.isRelationship(ecClassId))
-      this.handleChange(this.relationship, changeType, change.ECInstanceId);
+      this.handleChange(this.relationship, op, id);
     else if (this.isCodeSpec(ecClassId))
-      this.handleChange(this.codeSpec, changeType, change.ECInstanceId);
+      this.handleChange(this.codeSpec, op, id);
     else if (this.isAspect(ecClassId)) {
-      let ownerElementId = change.Element?.Id;
+      let ownerElementId = change.aspectOwnerElementId;
       if (ownerElementId === undefined) {
-        if (unresolvedAspectIds !== undefined)
-          unresolvedAspectIds.add(change.ECInstanceId);
-        else
-          ownerElementId = this.tryGetAspectOwnerElementId(change.ECInstanceId);
+        if (unresolvedAspectIds !== undefined) unresolvedAspectIds.add(id);
+        else ownerElementId = this.tryGetAspectOwnerElementId(id);
       }
       if (ownerElementId !== undefined) {
         this._aspectOwnerElementIds.add(ownerElementId);
       }
-      this.handleChange(this.aspect, changeType, change.ECInstanceId);
-    } else if (this.isModel(ecClassId))
-      this.handleChange(this.model, changeType, change.ECInstanceId);
-    else if (this.isElement(ecClassId))
-      this.handleChange(this.element, changeType, change.ECInstanceId);
+      this.handleChange(this.aspect, op, id);
+    } else if (this.isModel(ecClassId)) this.handleChange(this.model, op, id);
+    else if (this.isElement(ecClassId)) this.handleChange(this.element, op, id);
   }
 
   private tryGetAspectOwnerElementId(
@@ -2472,7 +2504,14 @@ export class ChangedInstanceIds {
     if (csFileProps === undefined) return undefined;
 
     const changedInstanceIds = new ChangedInstanceIds(opts.iModel);
-    await ChangesetScanner.scan(opts.iModel, [csFileProps], changedInstanceIds);
+    await ChangesetScanner.scan(
+      opts.iModel,
+      [csFileProps],
+      changedInstanceIds,
+      {
+        collectDeletionRecords: false,
+      }
+    );
     return changedInstanceIds;
   }
 

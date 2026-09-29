@@ -49,8 +49,6 @@ import { Transform } from '@itwin/core-geometry';
 // @public
 export class ChangedInstanceIds {
     constructor(db: IModelDb);
-    // @beta
-    addAspectOwnerElementIds(elementIds: Id64Arg): void;
     addChange(change: ChangeInstance): Promise<void>;
     // @internal
     addChanges(changes: Iterable<ChangeInstance>): Promise<void>;
@@ -60,9 +58,11 @@ export class ChangedInstanceIds {
     addCustomElementChange(changeType: SqliteChangeOp, ids: Id64Arg): Promise<void>;
     // @beta
     addCustomModelChange(changeType: SqliteChangeOp, ids: Id64Arg): Promise<void>;
+    // @beta
+    addEntityChange(change: EntityChange): Promise<void>;
     // (undocumented)
     aspect: ChangedInstanceOps;
-    // @beta
+    // @internal
     get aspectOwnerElementIds(): ReadonlySet<Id64String>;
     // (undocumented)
     codeSpec: ChangedInstanceOps;
@@ -125,6 +125,14 @@ export interface ElementBulkDeleteError extends ITwinError {
 // @beta
 export interface ElementDeletionRecord extends DeletionRecordBase {
     federationGuid?: string;
+}
+
+// @beta
+export interface EntityChange {
+    aspectOwnerElementId?: Id64String;
+    ecClassId: Id64String;
+    id: Id64String;
+    op: SqliteChangeOp;
 }
 
 // @public
@@ -394,7 +402,7 @@ export class IModelTransformer extends IModelExportHandler {
     static get provenanceElementClasses(): (typeof Entity)[];
     // (undocumented)
     protected _provenanceManager: ProvenanceManager;
-    protected scanChanges(ranges: [number, number][]): Promise<ChangeScanResult>;
+    protected scanChanges(ranges: readonly (readonly [number, number])[], changedInstanceIds?: ChangedInstanceIds): Promise<ChangeScanResult>;
     protected _schemaExportDir: string;
     protected shouldDetectDeletes(): Promise<boolean>;
     shouldExportCodeSpec(_sourceCodeSpec: CodeSpec): Promise<boolean>;

@@ -22,6 +22,7 @@ import {
   DocumentListModel,
   Drawing,
   DrawingModel,
+  EditTxn,
   // eslint-disable-next-line @typescript-eslint/no-redeclare
   Element,
   ElementGroupsMembers,
@@ -6949,42 +6950,164 @@ describe("IModelTransformerHub", () => {
   });
 
   describe("deletion batches in reverse sync", () => {
-    /** Seeds master with elements "1" and "2" without FederationGuids, so the branch tracks them with ExternalSourceAspects, and a relationship between them. */
-    function createNoFedGuidSeed(name: string): TimelineIModelState {
+    interface BranchFixture {
+      masterDb: BriefcaseDb;
+      branchDb: BriefcaseDb;
+    }
+
+    /**
+     * Runs a test on a master whose elements "1" and "2" have no FederationGuid and are related by an
+     * ElementGroupsMembers, and a branch of it that tracks them with ExternalSourceAspects.
+     */
+    async function withBranch(
+      name: string,
+      test: (fixture: BranchFixture) => Promise<void>
+    ): Promise<void> {
       const seedFileName = path.join(outputDir, `${name}.bim`);
       if (IModelJsFs.existsSync(seedFileName))
         IModelJsFs.removeSync(seedFileName);
-      const state = { 1: 1, 2: 1 };
-      const seedDb = SnapshotDb.createEmpty(seedFileName, {
-        rootSubject: { name },
-      });
-      populateTimelineSeed(seedDb, state);
-      withEditTxn(seedDb, "seed relationship", (txn) => {
-        for (const elemId of seedDb.queryEntityIds({
-          from: "Bis.Element",
-          where: "UserLabel IN ('1','2')",
-        }))
-          seedDb.withSqliteStatement(
-            `UPDATE bis_Element SET FederationGuid=NULL WHERE Id=${elemId}`,
-            (s) => {
-              expect(s.step()).to.equal(DbResult.BE_SQLITE_DONE);
-            }
+      let seedDb: SnapshotDb | undefined;
+      let masterIModelId: GuidString | undefined;
+      let branchIModelId: GuidString | undefined;
+      let masterDb: BriefcaseDb | undefined;
+      let branchDb: BriefcaseDb | undefined;
+      try {
+        const db = SnapshotDb.createEmpty(seedFileName, {
+          rootSubject: { name },
+        });
+        seedDb = db;
+        populateTimelineSeed(db, { 1: 1, 2: 1 });
+        withEditTxn(db, "remove federation GUIDs and relate", (txn) => {
+          for (const elemId of db.queryEntityIds({
+            from: "Bis.Element",
+            where: "UserLabel IN ('1','2')",
+          }))
+            db.withSqliteStatement(
+              `UPDATE bis_Element SET FederationGuid=NULL WHERE Id=${elemId}`,
+              (stmt) => {
+                expect(stmt.step()).to.equal(DbResult.BE_SQLITE_DONE);
+              }
+            );
+          txn.insertRelationship(
+            ElementGroupsMembers.create(
+              db,
+              IModelTestUtils.queryByUserLabel(db, "1"),
+              IModelTestUtils.queryByUserLabel(db, "2")
+            ).toJSON()
           );
-        txn.insertRelationship(
-          ElementGroupsMembers.create(
-            seedDb,
-            IModelTestUtils.queryByUserLabel(seedDb, "1"),
-            IModelTestUtils.queryByUserLabel(seedDb, "2")
-          ).toJSON()
-        );
-      });
-      seedDb.performCheckpoint();
-      return {
-        // HACK: we know this will only be used for seeding via its path and performCheckpoint
-        db: seedDb as any as BriefcaseDb,
-        id: `${name}-seed`,
-        state,
-      };
+        });
+        db.performCheckpoint();
+
+        masterIModelId = await HubWrappers.recreateIModel({
+          accessToken,
+          iTwinId,
+          iModelName: name,
+          noLocks: true,
+          version0: seedFileName,
+        });
+        masterDb = await HubWrappers.downloadAndOpenBriefcase({
+          accessToken,
+          iTwinId,
+          iModelId: masterIModelId,
+        });
+        branchIModelId = await HubWrappers.recreateIModel({
+          accessToken,
+          iTwinId,
+          iModelName: `${name}-branch`,
+          noLocks: true,
+          version0: masterDb.pathName,
+        });
+        branchDb = await HubWrappers.downloadAndOpenBriefcase({
+          accessToken,
+          iTwinId,
+          iModelId: branchIModelId,
+        });
+        await synchronize(masterDb, branchDb, {
+          options: { wasSourceIModelCopiedToTarget: true },
+        });
+
+        await test({ masterDb, branchDb });
+      } finally {
+        const cleanup = async (
+          description: string,
+          action: () => void | Promise<void>
+        ) => {
+          try {
+            await action();
+          } catch (error) {
+            // eslint-disable-next-line no-console
+            console.error(`Failed to clean up ${description}`, error);
+          }
+        };
+        if (masterDb)
+          await cleanup("master briefcase", async () =>
+            HubWrappers.closeAndDeleteBriefcaseDb(accessToken, masterDb!)
+          );
+        if (branchDb)
+          await cleanup("branch briefcase", async () =>
+            HubWrappers.closeAndDeleteBriefcaseDb(accessToken, branchDb!)
+          );
+        if (masterIModelId)
+          await cleanup("master iModel", async () =>
+            transformerTestHub.deleteIModel({
+              iTwinId,
+              iModelId: masterIModelId!,
+            })
+          );
+        if (branchIModelId)
+          await cleanup("branch iModel", async () =>
+            transformerTestHub.deleteIModel({
+              iTwinId,
+              iModelId: branchIModelId!,
+            })
+          );
+        if (seedDb) await cleanup("master seed", () => seedDb!.close());
+      }
+    }
+
+    /** Synchronizes the source's changes to the target, then pushes the target, and for a reverse synchronization, the source. */
+    async function synchronize(
+      source: BriefcaseDb,
+      target: BriefcaseDb,
+      {
+        reverse = false,
+        options = { argsForProcessChanges: {} },
+        process = async (syncer) => syncer.process(),
+      }: {
+        reverse?: boolean;
+        options?: IModelTransformOptions;
+        process?: (transformer: IModelTransformer) => Promise<void>;
+      }
+    ): Promise<void> {
+      const targetEditTxn = createStartedEditTxn(target);
+      const sourceEditTxn = reverse ? createStartedEditTxn(source) : undefined;
+      const transformer = new IModelTransformer(
+        { source, target: targetEditTxn },
+        { ...options, sourceEditTxn }
+      );
+      let succeeded = false;
+      try {
+        await process(transformer);
+        succeeded = true;
+      } finally {
+        transformer.dispose();
+        targetEditTxn.end(succeeded ? "save" : "abandon");
+        sourceEditTxn?.end(succeeded ? "save" : "abandon");
+      }
+      if (reverse)
+        await source.pushChanges({ accessToken, description: "synchronize" });
+      await target.pushChanges({ accessToken, description: "synchronize" });
+    }
+
+    /** Pushes one edit and returns its changeset index. */
+    async function editAndPush(
+      db: BriefcaseDb,
+      description: string,
+      edit: (txn: EditTxn) => void
+    ): Promise<number> {
+      withEditTxn(db, description, edit);
+      await db.pushChanges({ accessToken, description });
+      return db.changeset.index!;
     }
 
     function elementProvenanceAspectIds(
@@ -7001,134 +7124,133 @@ describe("IModelTransformerHub", () => {
         .map((aspect) => aspect.id);
     }
 
-    it("finds a deleted relationship's endpoint through an aspect deleted in a later changeset", async () => {
-      let masterElement2Id: Id64String | undefined;
-      let branchRelId: Id64String | undefined;
-      let relationshipInTarget: unknown;
-      const timeline: Timeline = [
-        { master: { seed: createNoFedGuidSeed("RelThenEndpointDelete") } },
-        { branch1: { branch: "master" } },
-        {
-          assert({ master, branch1 }) {
-            masterElement2Id = IModelTestUtils.queryByUserLabel(master.db, "2");
-            const branchElement2Id = IModelTestUtils.queryByUserLabel(
-              branch1.db,
-              "2"
-            );
-            expect(
-              branch1.db.elements.getElement(branchElement2Id).federationGuid
-            ).to.be.undefined;
-            expect(
-              elementProvenanceAspectIds(branch1.db, branchElement2Id)
-            ).to.have.lengthOf(1);
-          },
-        },
-        {
-          branch1: {
-            manualUpdate(db) {
-              withEditTxn(db, "delete relationship", (txn) => {
-                const rel = db.relationships.getInstance<ElementGroupsMembers>(
-                  ElementGroupsMembers.classFullName,
-                  {
-                    sourceId: IModelTestUtils.queryByUserLabel(db, "1"),
-                    targetId: IModelTestUtils.queryByUserLabel(db, "2"),
-                  }
-                );
-                branchRelId = rel.id;
-                txn.deleteRelationship(rel.toJSON());
-              });
-            },
-          },
-        },
-        {
-          branch1: {
-            manualUpdate(db) {
-              withEditTxn(db, "delete endpoint element", (txn) => {
-                txn.deleteElement(IModelTestUtils.queryByUserLabel(db, "2"));
-              });
-            },
-          },
-        },
-        {
-          master: {
-            sync: [
-              "branch1",
-              {
-                assert: {
-                  afterProcessChanges(transformer) {
-                    relationshipInTarget = transformer[
-                      "_deletedSourceRelationshipData"
-                    ]?.get(branchRelId!);
-                  },
-                },
-              },
-            ],
-          },
-        },
-        {
-          assert({ master }) {
-            expect(master.db.elements.tryGetElementProps(masterElement2Id!)).to
-              .be.undefined;
-          },
-        },
+    function elementIds(db: IModelDb): [Id64String, Id64String] {
+      return [
+        IModelTestUtils.queryByUserLabel(db, "1"),
+        IModelTestUtils.queryByUserLabel(db, "2"),
       ];
+    }
 
-      const { tearDown } = await runTimeline(timeline, {
-        iTwinId,
-        accessToken,
-      });
-      await tearDown();
-      // The endpoint's aspect is only in a later changeset of the same batch.
-      expect(relationshipInTarget).to.not.be.undefined;
-    });
+    it("finds a deleted relationship's endpoint through an aspect deleted in a later changeset", async () =>
+      withBranch("RelThenEndpointDelete", async ({ masterDb, branchDb }) => {
+        const [masterElement1Id, masterElement2Id] = elementIds(masterDb);
+        const [branchElement1Id, branchElement2Id] = elementIds(branchDb);
+        expect(branchDb.elements.getElement(branchElement2Id).federationGuid).to
+          .be.undefined;
+        expect(
+          elementProvenanceAspectIds(branchDb, branchElement2Id)
+        ).to.have.lengthOf(1);
+        const branchRel =
+          branchDb.relationships.getInstance<ElementGroupsMembers>(
+            ElementGroupsMembers.classFullName,
+            { sourceId: branchElement1Id, targetId: branchElement2Id }
+          );
 
-    it("deletes an element whose provenance aspect was deleted in an earlier changeset", async () => {
-      let masterElement1Id: Id64String | undefined;
-      const timeline: Timeline = [
-        { master: { seed: createNoFedGuidSeed("AspectThenElementDelete") } },
-        { branch1: { branch: "master" } },
-        {
-          assert({ master }) {
-            masterElement1Id = IModelTestUtils.queryByUserLabel(master.db, "1");
+        await editAndPush(branchDb, "delete relationship", (txn) =>
+          txn.deleteRelationship(branchRel.toJSON())
+        );
+        await editAndPush(branchDb, "delete endpoint element", (txn) =>
+          txn.deleteElement(branchElement2Id)
+        );
+        let relationshipInTarget: unknown;
+        await synchronize(branchDb, masterDb, {
+          reverse: true,
+          process: async (transformer) => {
+            await transformer.process();
+            relationshipInTarget = transformer[
+              "_deletedSourceRelationshipData"
+            ]?.get(branchRel.id);
           },
-        },
-        {
-          branch1: {
-            manualUpdate(db) {
-              const elementId = IModelTestUtils.queryByUserLabel(db, "1");
-              const aspectIds = elementProvenanceAspectIds(db, elementId);
-              expect(aspectIds).to.have.lengthOf(1);
-              withEditTxn(db, "delete provenance aspect", (txn) => {
-                txn.deleteAspect(aspectIds);
-              });
-            },
-          },
-        },
-        {
-          branch1: {
-            manualUpdate(db) {
-              withEditTxn(db, "delete element", (txn) => {
-                txn.deleteElement(IModelTestUtils.queryByUserLabel(db, "1"));
-              });
-            },
-          },
-        },
-        { master: { sync: ["branch1"] } },
-        {
-          assert({ master }) {
-            // Best effort: the batch spanning both changesets still has the deleted aspect's identifier.
-            expect(master.db.elements.tryGetElementProps(masterElement1Id!)).to
-              .be.undefined;
-          },
-        },
-      ];
+        });
 
-      const { tearDown } = await runTimeline(timeline, {
-        iTwinId,
-        accessToken,
-      });
-      await tearDown();
-    });
+        // The endpoint's aspect is only in a later changeset of the same batch.
+        expect(relationshipInTarget).to.deep.include({
+          sourceIdInTarget: masterElement1Id,
+          targetIdInTarget: masterElement2Id,
+        });
+        expect(masterDb.elements.tryGetElementProps(masterElement2Id)).to.be
+          .undefined;
+      }));
+
+    it("deletes an element whose provenance aspect was deleted in an earlier changeset", async () =>
+      withBranch("AspectThenElementDelete", async ({ masterDb, branchDb }) => {
+        const [masterElement1Id] = elementIds(masterDb);
+        const [branchElement1Id] = elementIds(branchDb);
+        const aspectIds = elementProvenanceAspectIds(
+          branchDb,
+          branchElement1Id
+        );
+        expect(aspectIds).to.have.lengthOf(1);
+
+        await editAndPush(branchDb, "delete provenance aspect", (txn) =>
+          txn.deleteAspect(aspectIds)
+        );
+        await editAndPush(branchDb, "delete element", (txn) =>
+          txn.deleteElement(branchElement1Id)
+        );
+        await synchronize(branchDb, masterDb, { reverse: true });
+
+        // Best effort: the batch spanning both changesets still has the deleted aspect's identifier.
+        expect(masterDb.elements.tryGetElementProps(masterElement1Id)).to.be
+          .undefined;
+      }));
+
+    it("scans one deletion batch per changeset range", async () =>
+      withBranch("DeletionBatchPerRange", async ({ masterDb, branchDb }) => {
+        const [masterElement1Id, masterElement2Id] = elementIds(masterDb);
+        const [branchElement1Id, branchElement2Id] = elementIds(branchDb);
+
+        const firstIndex = await editAndPush(
+          branchDb,
+          "delete element 1",
+          (txn) => txn.deleteElement(branchElement1Id)
+        );
+        await editAndPush(masterDb, "update element 2", (txn) =>
+          txn.updateElement({
+            ...masterDb.elements.getElementProps(masterElement2Id),
+            jsonProperties: { updateState: 2 },
+          })
+        );
+        // The reverse synchronization skips the changeset this pushes to the branch.
+        await synchronize(masterDb, branchDb, {});
+        const secondIndex = await editAndPush(
+          branchDb,
+          "delete element 2",
+          (txn) => txn.deleteElement(branchElement2Id)
+        );
+
+        const scans: {
+          ranges: readonly (readonly [number, number])[];
+          result: ChangeScanResult;
+        }[] = [];
+        await synchronize(branchDb, masterDb, {
+          reverse: true,
+          process: async (transformer) => {
+            const scanChanges = transformer["scanChanges"].bind(transformer);
+            transformer["scanChanges"] = async (ranges) => {
+              const result = await scanChanges(ranges);
+              scans.push({ ranges, result });
+              return result;
+            };
+            await transformer.process();
+          },
+        });
+
+        expect(scans).to.have.lengthOf(1);
+        expect(scans[0].ranges).to.deep.equal([
+          [firstIndex, firstIndex],
+          [secondIndex, secondIndex],
+        ]);
+        expect(
+          scans[0].result.deletionRecords.map((batch) =>
+            batch.elements.map((record) => record.ecInstanceId)
+          )
+        ).to.deep.equal([[branchElement1Id], [branchElement2Id]]);
+        expect(masterDb.elements.tryGetElementProps(masterElement1Id)).to.be
+          .undefined;
+        expect(masterDb.elements.tryGetElementProps(masterElement2Id)).to.be
+          .undefined;
+      }));
   });
 
   describe("processChanges", () => {
@@ -8020,14 +8142,18 @@ describe("IModelTransformerHub", () => {
       const { elementId, ecClassId, federationGuid, deleteChangesetIndex } =
         await syncElementThenDeleteInSource();
 
-      const scannedRanges: [number, number][][] = [];
+      const scannedRanges: (readonly (readonly [number, number])[])[] = [];
       class PrecomputedChangesTransformer extends IModelTransformer {
         protected override async scanChanges(
-          ranges: [number, number][]
+          ranges: readonly (readonly [number, number])[]
         ): Promise<ChangeScanResult> {
           scannedRanges.push(ranges);
           const changedInstanceIds = new ChangedInstanceIds(this.sourceDb);
-          changedInstanceIds.element.deleteIds.add(elementId);
+          await changedInstanceIds.addEntityChange({
+            id: elementId,
+            ecClassId,
+            op: "Deleted",
+          });
           return {
             changedInstanceIds,
             deletionRecords: [
@@ -8063,10 +8189,10 @@ describe("IModelTransformerHub", () => {
       const { federationGuid, deleteChangesetIndex } =
         await syncElementThenDeleteInSource();
 
-      const scannedRanges: [number, number][][] = [];
+      const scannedRanges: (readonly (readonly [number, number])[])[] = [];
       class FallbackTransformer extends IModelTransformer {
         protected override async scanChanges(
-          ranges: [number, number][]
+          ranges: readonly (readonly [number, number])[]
         ): Promise<ChangeScanResult> {
           scannedRanges.push(ranges);
           return super.scanChanges(ranges);
@@ -8084,6 +8210,102 @@ describe("IModelTransformerHub", () => {
       expect(scannedRanges).to.deep.equal([
         [[deleteChangesetIndex, deleteChangesetIndex]],
       ]);
+      expect(targetDb.elements.getIdFromFederationGuid(federationGuid)).to.be
+        .undefined;
+    });
+
+    it("combines changes from a scanChanges override with the default scan", async () => {
+      const { elementId, ecClassId, federationGuid, deleteChangesetIndex } =
+        await syncElementThenDeleteInSource();
+      const subjectId = withEditTxn(sourceDb, "insert subject", (txn) =>
+        Subject.insert(txn, IModel.rootSubjectId, "Scanned subject")
+      );
+      await sourceDb.pushChanges({
+        description: "insert subject",
+        retainLocks: true,
+      });
+      const subjectChangesetIndex = sourceDb.changeset.index!;
+
+      // Supplies the delete changeset itself and passes the rest to the default scan.
+      class PartlyCachedTransformer extends IModelTransformer {
+        protected override async scanChanges(
+          ranges: readonly (readonly [number, number])[],
+          changedInstanceIds = new ChangedInstanceIds(this.sourceDb)
+        ): Promise<ChangeScanResult> {
+          const deletionRecords: DeletionRecords[] = [];
+          for (const [first, last] of ranges) {
+            for (let index = first; index <= last; index++) {
+              if (index !== deleteChangesetIndex) {
+                const scanned = await super.scanChanges(
+                  [[index, index]],
+                  changedInstanceIds
+                );
+                deletionRecords.push(...scanned.deletionRecords);
+                continue;
+              }
+              await changedInstanceIds.addEntityChange({
+                id: elementId,
+                ecClassId,
+                op: "Deleted",
+              });
+              deletionRecords.push({
+                elements: [
+                  { ecInstanceId: elementId, ecClassId, federationGuid },
+                ],
+                models: [],
+                relationships: [],
+                externalSourceAspects: [],
+              });
+            }
+          }
+          return { changedInstanceIds, deletionRecords };
+        }
+      }
+
+      const downloadSpy = vi.spyOn(BriefcaseManager, "downloadChangesets");
+      try {
+        await processChangesWith(PartlyCachedTransformer);
+        expect(
+          downloadSpy.mock.calls.map(([args]) => args.range)
+        ).to.deep.equal([
+          { first: subjectChangesetIndex, end: subjectChangesetIndex },
+        ]);
+      } finally {
+        downloadSpy.mockRestore();
+      }
+
+      expect(targetDb.elements.getIdFromFederationGuid(federationGuid)).to.be
+        .undefined;
+      const subjectFederationGuid =
+        sourceDb.elements.getElement(subjectId).federationGuid!;
+      expect(targetDb.elements.getIdFromFederationGuid(subjectFederationGuid))
+        .to.not.be.undefined;
+    });
+
+    it("doesn't call scanChanges when changedInstanceIds are supplied", async () => {
+      const { elementId, federationGuid } =
+        await syncElementThenDeleteInSource();
+
+      class UnusedScanTransformer extends IModelTransformer {
+        protected override async scanChanges(): Promise<ChangeScanResult> {
+          throw new Error("scanChanges should not be called");
+        }
+      }
+      const changedInstanceIds = new ChangedInstanceIds(sourceDb);
+      changedInstanceIds.element.deleteIds.add(elementId);
+      const editTxn = createStartedEditTxn(targetDb);
+      const transformer = new UnusedScanTransformer(
+        { source: sourceDb, target: editTxn },
+        { argsForProcessChanges: { changedInstanceIds } }
+      );
+      try {
+        await transformer.process();
+      } finally {
+        transformer.dispose();
+        editTxn.end();
+      }
+
+      // The deletion record read from the downloaded changeset finds the target element.
       expect(targetDb.elements.getIdFromFederationGuid(federationGuid)).to.be
         .undefined;
     });

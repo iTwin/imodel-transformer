@@ -41,27 +41,41 @@ See [Incremental exports](../learning/transformer/index.md#incremental-exports) 
 
 ## Overridable changeset scanning
 
-`IModelTransformer` now reads source changes through the protected `scanChanges(ranges)` method. Override it to supply changed instance IDs and deletion metadata from another source, such as a precomputed cache, instead of downloading and reading changesets. Call `super.scanChanges()` for any ranges the override can't cover:
+`IModelTransformer` now reads source changes through the protected `scanChanges(ranges, changedInstanceIds)` method. Override it to supply changed instance IDs and deletion records from another source, such as a precomputed cache, instead of downloading and reading changesets. An override can pass the ranges it can't cover to `super.scanChanges()`:
 
 ```ts
 class CachedChangesTransformer extends IModelTransformer {
   protected override async scanChanges(
-    ranges: [number, number][]
+    ranges: readonly (readonly [number, number])[],
+    changedInstanceIds = new ChangedInstanceIds(this.sourceDb)
   ): Promise<ChangeScanResult> {
-    const cached = await myCache.tryGetChanges(this.sourceDb, ranges);
-    return cached ?? super.scanChanges(ranges);
+    const deletionRecords: DeletionRecords[] = [];
+    for (const range of ranges) {
+      const cached = await myCache.tryGetChanges(this.sourceDb, range);
+      if (cached === undefined) {
+        const scanned = await super.scanChanges([range], changedInstanceIds);
+        deletionRecords.push(...scanned.deletionRecords);
+        continue;
+      }
+      for (const change of cached.changes)
+        await changedInstanceIds.addEntityChange(change);
+      deletionRecords.push(cached.deletionRecords);
+    }
+    return { changedInstanceIds, deletionRecords };
   }
 }
 ```
 
-`ranges` lists the inclusive changeset index ranges to process. It already excludes changesets that synchronization must skip, such as those pushed by a previous synchronization in the other direction, so an override must cover exactly these ranges. The override returns a `ChangeScanResult`:
+`ranges` lists the inclusive changeset index ranges to process. It already excludes changesets that synchronization must skip, such as those pushed by a previous synchronization in the other direction, so an override must cover exactly these ranges. Handle the ranges in order and pass the same `changedInstanceIds` to every call, so that changes to the same instance in different ranges combine correctly. The override returns a `ChangeScanResult`:
 
-- `changedInstanceIds`: the changes to export. Use `ChangedInstanceIds.addAspectOwnerElementIds()` to record the owning elements of changed aspects.
+- `changedInstanceIds`: the changes to export. `ChangedInstanceIds.addEntityChange()` adds a change from its instance ID, class ID, operation, and, for an aspect, owning element ID.
 - `deletionRecords`: ordered batches of `DeletionRecords`, used to find the target entities of deleted source entities. Each batch lists deleted elements, models, relationships, and `ExternalSourceAspect`s separately, with the fields each needs to find its target. An empty array means nothing of that kind was deleted.
+
+The result must describe every change in the ranges, as the default scan does: changes missing from `changedInstanceIds`, including CodeSpec changes, aren't exported, and a relationship deletion without a matching record is skipped with a warning.
 
 A batch can cover one changeset, a range, or all ranges. An `ExternalSourceAspect` deletion is used to find the target of an element deleted in the same batch, so larger batches find more targets. The default `scanChanges` returns one batch per range, instead of processing each changeset separately. As a result, a reverse synchronization now also deletes the master element for a branch element without a `FederationGuid` whose provenance aspect was deleted in an earlier changeset of the same range.
 
-The default `scanChanges` downloads the changesets, so an override that covers every range downloads none. `scanChanges` isn't called when `changedInstanceIds` is passed in `argsForProcessChanges`.
+The default `scanChanges` downloads the changesets, so an override that covers every range downloads none. `scanChanges` isn't called when `changedInstanceIds` is passed in `argsForProcessChanges`; the transformer then still downloads and reads the changesets to find deletion records.
 
 ## Breaking change: batched incremental element deletion
 

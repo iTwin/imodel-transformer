@@ -2203,23 +2203,46 @@ export class IModelTransformer extends IModelExportHandler {
   }
 
   /**
-   * Reads the source changes for the changeset ranges being processed. Override to supply changes from
-   * another source, such as a precomputed cache, and call `super.scanChanges()` for any ranges the
-   * override cannot cover.
+   * Reads the source changes for the changeset ranges being processed. Override to supply changes from another
+   * source, such as a precomputed cache, instead of downloading and reading changesets.
+   *
+   * An override can supply some ranges itself and pass the rest to `super.scanChanges()`. Pass the same
+   * `changedInstanceIds` to every call and handle the ranges in order, so that changes to the same instance in
+   * different ranges combine correctly. Use [[ChangedInstanceIds.addEntityChange]] to add each supplied change:
+   * ```ts
+   * protected override async scanChanges(ranges, changedInstanceIds = new ChangedInstanceIds(this.sourceDb)) {
+   *   const deletionRecords: DeletionRecords[] = [];
+   *   for (const range of ranges) {
+   *     const cached = await myCache.tryGetChanges(this.sourceDb, range);
+   *     if (cached === undefined) {
+   *       deletionRecords.push(...(await super.scanChanges([range], changedInstanceIds)).deletionRecords);
+   *       continue;
+   *     }
+   *     for (const change of cached.changes) await changedInstanceIds.addEntityChange(change);
+   *     deletionRecords.push(cached.deletionRecords);
+   *   }
+   *   return { changedInstanceIds, deletionRecords };
+   * }
+   * ```
    * @param ranges Ordered, inclusive `[first, last]` changeset index ranges. They already exclude changesets
    * that must be skipped, such as those pushed by a previous synchronization in the other direction, so an
    * override must cover exactly these ranges.
-   * @returns The changed instance IDs to export and the metadata used to remap deleted instances.
+   * @param changedInstanceIds Receives the changes read from the ranges. Defaults to a new, empty instance.
+   * @returns The changed instance IDs to export and the records used to find the targets of deleted instances.
+   * See [[ChangeScanResult]] for what the result must include.
    * @note The default implementation downloads the changesets, reads them with `ChangesetReader`, and returns one
    * deletion batch per range.
    * @note Not called when the exporter already has changed instance IDs, for example when `changedInstanceIds`
-   * is passed in [[IModelTransformOptions.argsForProcessChanges]].
+   * is passed in [[IModelTransformOptions.argsForProcessChanges]]. The transformer then still downloads and reads
+   * the changesets to find deletion records.
    * @beta
    */
   protected async scanChanges(
-    ranges: [number, number][]
+    ranges: readonly (readonly [number, number])[],
+    changedInstanceIds: ChangedInstanceIds = new ChangedInstanceIds(
+      this.sourceDb
+    )
   ): Promise<ChangeScanResult> {
-    const changedInstanceIds = new ChangedInstanceIds(this.sourceDb);
     const deletionRecords = await ChangesetScanner.scan(
       this.sourceDb,
       await this.downloadChangesets(ranges),
@@ -2230,7 +2253,7 @@ export class IModelTransformer extends IModelExportHandler {
 
   /** Downloads the changesets in each range. Returns one group of files per range. */
   private async downloadChangesets(
-    ranges: [number, number][]
+    ranges: readonly (readonly [number, number])[]
   ): Promise<ChangesetFileProps[][]> {
     const csFileGroups: ChangesetFileProps[][] = [];
     for (const [first, end] of ranges) {
@@ -2338,17 +2361,6 @@ export class IModelTransformer extends IModelExportHandler {
     _sourceDbChanges: ChangedInstanceIds
   ): Promise<void> {}
 
-  /** Returns whether deletions can be remapped: the source must be connected and have changes to process. */
-  private async canRemapDeletions(): Promise<boolean> {
-    if (this.sourceDb.iTwinId === undefined) return false;
-    const noChanges =
-      (await this.getSynchronizationVersion()).index ===
-        this.sourceDb.changeset.index &&
-      (this.exporter.sourceDbChanges === undefined ||
-        !this.exporter.sourceDbChanges.hasChanges);
-    return !noChanges;
-  }
-
   /**
    * Finds the target ID of a deleted or surviving source element, first through the transformation's
    * ExternalSourceAspects when the source holds the provenance, then through the federation GUID.
@@ -2407,7 +2419,6 @@ export class IModelTransformer extends IModelExportHandler {
       ExternalSourceAspectDeletionRecord
     >
   ): Promise<void> {
-    if (!(await this.canRemapDeletions())) return;
     const { ecInstanceId, classFullName } = deletion;
     const getEndpointInTarget = async (sourceId: Id64String) =>
       this.getTargetIdOfDeletedSourceId(
@@ -2464,7 +2475,6 @@ export class IModelTransformer extends IModelExportHandler {
     alreadyImportedElementInserts: Set<Id64String>,
     alreadyImportedModelInserts: Set<Id64String>
   ): Promise<void> {
-    if (!(await this.canRemapDeletions())) return;
     const changedInstanceId = deletion.ecInstanceId;
     let targetId = await this.getTargetIdOfDeletedSourceId(
       changedInstanceId,
@@ -2479,8 +2489,7 @@ export class IModelTransformer extends IModelExportHandler {
         this.context.findTargetElementId(changedInstanceId);
       if (Id64.isValidId64(contextTargetId)) targetId = contextTargetId;
     }
-    // since we are processing one changeset at a time, we can see local source deletes
-    // of entities that were never synced and can be safely ignored
+    // Entities inserted and deleted since the last synchronization were never synced and can be safely ignored.
     if (!targetId) return;
 
     this.context.remapElement(changedInstanceId, targetId);

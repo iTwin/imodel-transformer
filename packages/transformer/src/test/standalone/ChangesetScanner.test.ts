@@ -12,6 +12,7 @@ import {
   Subject,
   withEditTxn,
 } from "@itwin/core-backend";
+import { IModelStatus } from "@itwin/core-bentley";
 import {
   ChangesetFileProps,
   ExternalSourceAspectProps,
@@ -304,31 +305,115 @@ describe("ChangesetScanner owner resolution", () => {
       );
     });
 
-    it("omits an ExternalSourceAspect deletion without an identifier", () => {
-      const aspectClassId = db.withQueryReader(
-        "SELECT ECInstanceId FROM meta.ECClassDef WHERE Name='ExternalSourceAspect'",
+    const classIdOf = (classFullName: string) => {
+      const [schemaName, className] = classFullName.split(".");
+      return db.withQueryReader(
+        "SELECT c.ECInstanceId FROM meta.ECClassDef c JOIN meta.ECSchemaDef s ON c.Schema.Id = s.ECInstanceId WHERE s.Name = ? AND c.Name = ?",
         (reader) => {
           expect(reader.step()).toBe(true);
           return reader.current[0] as string;
-        }
+        },
+        QueryBinder.from([schemaName, className])
       );
-      const row = {
-        ecInstanceId: "0x123",
-        ecClassId: aspectClassId,
-        elementId: "0x1",
-        scopeId: IModel.rootSubjectId,
-        kind: "Element",
-      };
-      expect(
-        ChangesetScanner["toDeletionRecords"](db, [row], classIds)
-      ).toEqual(noDeletions);
+    };
+
+    it("classifies deletions by class rather than owner metadata", async () => {
+      const deletionClassIds =
+        await ChangesetScanner["queryDeletionClassIds"](db);
+      const records = ChangesetScanner["toDeletionRecords"](
+        db,
+        [
+          // An element row with an owner ID must still be an element.
+          {
+            ecInstanceId: "0x20",
+            ecClassId: classIdOf("BisCore.Subject"),
+            elementId: IModel.rootSubjectId,
+          },
+          // A complete ExternalSourceAspect row without an owner must not become an element.
+          {
+            ecInstanceId: "0x21",
+            ecClassId: classIdOf("BisCore.ExternalSourceAspect"),
+            scopeId: IModel.rootSubjectId,
+            kind: "Element",
+            identifier: "aspect",
+          },
+          {
+            ecInstanceId: "0x22",
+            ecClassId: classIdOf("BisCore.DefinitionModel"),
+          },
+        ],
+        deletionClassIds
+      );
+      expect(records).toEqual({
+        ...noDeletions,
+        elements: [
+          {
+            ecInstanceId: "0x20",
+            ecClassId: classIdOf("BisCore.Subject"),
+            federationGuid: undefined,
+          },
+        ],
+        models: [
+          {
+            ecInstanceId: "0x22",
+            ecClassId: classIdOf("BisCore.DefinitionModel"),
+          },
+        ],
+      });
+    });
+
+    it.each(["scopeId", "kind", "identifier"] as const)(
+      "omits an ExternalSourceAspect deletion without %s",
+      (missingField) => {
+        const row = {
+          ecInstanceId: "0x123",
+          ecClassId: classIdOf("BisCore.ExternalSourceAspect"),
+          elementId: "0x1",
+          scopeId: IModel.rootSubjectId,
+          kind: "Element",
+          identifier: "aspect",
+        };
+        expect(
+          ChangesetScanner["toDeletionRecords"](db, [row], classIds)
+            .externalSourceAspects
+        ).toHaveLength(1);
+        expect(
+          ChangesetScanner["toDeletionRecords"](
+            db,
+            [{ ...row, [missingField]: undefined }],
+            classIds
+          )
+        ).toEqual(noDeletions);
+      }
+    );
+
+    it("skips ElementDrivesElement deletions without reading their endpoints", async () => {
+      const deletionClassIds =
+        await ChangesetScanner["queryDeletionClassIds"](db);
       expect(
         ChangesetScanner["toDeletionRecords"](
           db,
-          [{ ...row, identifier: "aspect" }],
+          [
+            {
+              ecInstanceId: "0x123",
+              ecClassId: classIdOf("BisCore.ElementDrivesElement"),
+            },
+          ],
+          deletionClassIds
+        )
+      ).toEqual(noDeletions);
+    });
+
+    it("preserves the error for a class missing from the schema", () => {
+      expect(() =>
+        ChangesetScanner["toDeletionRecords"](
+          db,
+          [{ ecInstanceId: "0x123", ecClassId: "0xfffffff" }],
           classIds
-        ).externalSourceAspects
-      ).toHaveLength(1);
+        )
+      ).toThrow(
+        expect.objectContaining({ errorNumber: IModelStatus.NotFound })
+      );
     });
   });
 });

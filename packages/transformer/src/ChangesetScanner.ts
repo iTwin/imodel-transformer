@@ -46,7 +46,7 @@ export interface ElementDeletionRecord extends DeletionRecordBase {
 export type ModelDeletionRecord = DeletionRecordBase;
 
 /**
- * A deleted source relationship derived from `BisCore:ElementRefersToElements`.
+ * A deleted source relationship derived from `BisCore:ElementRefersToElements`, excluding `BisCore:ElementDrivesElement`.
  * @beta
  */
 export interface RelationshipDeletionRecord extends DeletionRecordBase {
@@ -84,7 +84,7 @@ export interface DeletionRecords {
   elements: ElementDeletionRecord[];
   /** Deleted models. */
   models: ModelDeletionRecord[];
-  /** Deleted relationships derived from `BisCore:ElementRefersToElements`. */
+  /** Deleted relationships derived from `BisCore:ElementRefersToElements`, excluding `BisCore:ElementDrivesElement`. */
   relationships: RelationshipDeletionRecord[];
   /** Deleted ExternalSourceAspects with a scope, kind, and identifier. */
   externalSourceAspects: ExternalSourceAspectDeletionRecord[];
@@ -92,6 +92,10 @@ export interface DeletionRecords {
 
 /**
  * Changes read for [[IModelTransformer.scanChanges]].
+ * @note The result must describe every change in the scanned ranges, as the default scan does. Changes missing from
+ * `changedInstanceIds`, including CodeSpec changes, aren't exported. Every relationship in
+ * `changedInstanceIds.relationship.deleteIds` needs a matching deletion record, or its deletion is skipped with a warning.
+ * An element or model deletion whose target can't be found through its record or the transformation's provenance is ignored.
  * @beta
  */
 export interface ChangeScanResult {
@@ -114,6 +118,13 @@ interface DeletedRow {
   identifier?: string;
 }
 
+interface ScanOptions {
+  /** Whether to write the unified changes to the aggregate. Defaults to true. */
+  populateChangedInstanceIds?: boolean;
+  /** Whether to collect deletion records. Defaults to true. */
+  collectDeletionRecords?: boolean;
+}
+
 interface DeletionClassIds {
   elements: Set<Id64String>;
   models: Set<Id64String>;
@@ -133,14 +144,14 @@ export class ChangesetScanner {
    * @param iModel Database used to resolve EC classes.
    * @param csFileGroups Ordered groups of changeset files. Each group produces one deletion batch.
    * @param changedInstanceIds Aggregate updated with the unified changes unless disabled by [[options]].
-   * @param options Controls whether the aggregate is populated while deletion records are collected.
-   * @returns One deletion batch per group; changed IDs are written to [[changedInstanceIds]].
+   * @param options Controls whether the aggregate is populated and whether deletion records are collected.
+   * @returns One deletion batch per group, empty when deletion records aren't collected; changed IDs are written to [[changedInstanceIds]].
    */
   public static async scan(
     iModel: IModelDb,
     csFileGroups: ChangesetFileProps[][],
     changedInstanceIds: ChangedInstanceIds,
-    options: { populateChangedInstanceIds?: boolean } = {}
+    options: ScanOptions = {}
   ): Promise<DeletionRecords[]> {
     const deletedRowGroups: DeletedRow[][] = [];
     await changedInstanceIds.addChanges(
@@ -158,7 +169,7 @@ export class ChangesetScanner {
     iModel: IModelDb,
     csFileGroups: ChangesetFileProps[][],
     deletedRowGroups: DeletedRow[][],
-    options: { populateChangedInstanceIds?: boolean }
+    options: ScanOptions
   ): Generator<ChangeInstance> {
     for (const csFileProps of csFileGroups) {
       const deletedRows: DeletedRow[] = [];
@@ -194,7 +205,10 @@ export class ChangesetScanner {
             }
 
             if (options.populateChangedInstanceIds !== false) yield change;
-            if (change.$meta.op === "Deleted") {
+            if (
+              change.$meta.op === "Deleted" &&
+              options.collectDeletionRecords !== false
+            ) {
               deletedRows.push({
                 ecInstanceId: change.ECInstanceId,
                 ecClassId,
