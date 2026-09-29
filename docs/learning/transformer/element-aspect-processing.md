@@ -121,6 +121,18 @@ Before an owner batch is exported, target cleanup joins the target owner batch t
 
 Only aspect matches made by `IModelImporter.importElementUniqueAspect` and `IModelImporter.importElementMultiAspects` count as reuse. A custom handler that writes a recorded target aspect some other way does not stop cleanup from deleting it.
 
+## Calling the importer directly
+
+`IModelImporter.importElementUniqueAspect` and `IModelImporter.importElementMultiAspects` can be called without a transformer. They then compare only against the owner's existing target aspects. No cleanup runs afterward, so a target aspect that the call doesn't match is left as it is.
+
+Matching is by exact class. `getAspects` also returns aspects of derived classes, but the importer ignores those unless the call includes props of that derived class:
+
+- `importElementUniqueAspect` reuses the owner's unique aspect of exactly the given class. It updates that aspect only when its properties differ and returns its ID.
+- If there's no exact-class match, `importElementUniqueAspect` deletes the owner's unique aspects of a base or derived class through `onDeleteElementAspect`, then inserts the aspect and returns the new ID. iModel unique-aspect writes treat those classes as one slot, so leaving them would let the insert or a later delete remove data without the hook running.
+- `importElementMultiAspects` groups the props by `classFullName`. Within each class, it matches target aspects of exactly that class in `getAspects` order, updates only changed ones, inserts extra props, and deletes extra target aspects of that class. Aspects of other classes, including derived classes, aren't touched. The optional filter removes target aspects from matching and deletion.
+
+Pass each aspect with its concrete `classFullName`, as `getAspects` and `getAspect` return it. To remove aspects of a class that the call doesn't include, delete them with `EditTxn.deleteAspect`.
+
 ## Scope memory and large models
 
 `processElement`, `processModel`, `processModelContents`, and `processSubject` scope ElementAspect processing to the elements accepted by that operation.

@@ -580,7 +580,11 @@ export class IModelImporter {
     return `${elementProps.classFullName} ${namePiece}[${elementProps.id}]`;
   }
 
-  /** Import an ElementUniqueAspect into the target iModel. */
+  /** Import an ElementUniqueAspect into the target iModel.
+   * @note Only an existing aspect of exactly `aspectProps.classFullName` on the owner is reused, and it is updated only when its properties differ.
+   * If there is none, the owner's unique aspects of a base or derived class are deleted through [[onDeleteElementAspect]] before the aspect is inserted, because iModel unique-aspect writes treat those classes as one slot.
+   * @returns the ID of the reused or inserted aspect
+   */
   public async importElementUniqueAspect(
     aspectProps: ElementAspectProps
   ): Promise<Id64String> {
@@ -642,6 +646,7 @@ export class IModelImporter {
    * @param aspectPropsArray The ElementMultiAspects to import
    * @param filterFunc Optional filter func that is used to exclude target ElementMultiAspects that were added during iModel transformation from the update detection logic.
    * @note For insert vs. update reasons, it is important to process all ElementMultiAspects owned by an Element at once since we don't have aspect-specific provenance.
+   * @note Aspects are grouped by `classFullName`. Each group is matched in order only against existing target aspects of exactly that class: matches are updated when their properties differ, extra props are inserted, and extra target aspects of that class are deleted. Target aspects of other classes, including derived classes, are not changed.
    * @returns the array of ids of the resulting ElementMultiAspects, in the same order of the aspectPropsArray parameter
    */
   public async importElementMultiAspects(
