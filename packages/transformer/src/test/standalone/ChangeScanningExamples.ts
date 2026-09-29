@@ -4,17 +4,17 @@
  *--------------------------------------------------------------------------------------------*/
 
 import { IModelDb } from "@itwin/core-backend";
-import { ChangeScanResult, DeletionRecords } from "../../ChangesetScanner";
-import { ChangedInstanceIds, EntityChange } from "../../IModelExporter";
+import { ChangeScanResult, DeletionBatch } from "../../ChangesetScanner";
+import { ChangedInstanceIds, ChangeRecord } from "../../IModelExporter";
 import { IModelTransformer } from "../../IModelTransformer";
 
 // __PUBLISH_EXTRACT_START__ ChangeScanning.cached-changes-transformer
 /** Changes read ahead of time from one range of changesets. */
 export interface CachedChanges {
   /** Every change in the range, in the order it was made. */
-  changes: EntityChange[];
+  changes: ChangeRecord[];
   /** The instances deleted in the range. */
-  deletionRecords: DeletionRecords;
+  deletions: DeletionBatch;
 }
 
 /** A store of changes read ahead of time, for example by a service that processes each pushed changeset. */
@@ -42,20 +42,20 @@ export class CachedChangesTransformer extends IModelTransformer {
     ranges: readonly (readonly [number, number])[],
     changedInstanceIds = new ChangedInstanceIds(this.sourceDb)
   ): Promise<ChangeScanResult> {
-    const deletionRecords: DeletionRecords[] = [];
+    const deletionBatches: DeletionBatch[] = [];
     // Handle the ranges in order, adding every change to the same changedInstanceIds.
     for (const range of ranges) {
       const cached = await this._cache.tryGetChanges(this.sourceDb, range);
       if (cached === undefined) {
         const scanned = await super.scanChanges([range], changedInstanceIds);
-        deletionRecords.push(...scanned.deletionRecords);
+        deletionBatches.push(...scanned.deletionBatches);
         continue;
       }
       for (const change of cached.changes)
-        await changedInstanceIds.addEntityChange(change);
-      deletionRecords.push(cached.deletionRecords);
+        await changedInstanceIds.addChangeRecord(change);
+      deletionBatches.push(cached.deletions);
     }
-    return { changedInstanceIds, deletionRecords };
+    return { changedInstanceIds, deletionBatches };
   }
 }
 // __PUBLISH_EXTRACT_END__

@@ -3,12 +3,12 @@ Release Tag;API Item Type;API Item Name
 public;class;ChangedInstanceIds
 public;type;ChangedInstanceIdsInitOptions
 public;class;ChangedInstanceOps
+beta;interface;ChangeRecord
 beta;interface;ChangeScanResult
+beta;interface;DeletionBatch
 beta;interface;DeletionRecordBase
-beta;interface;DeletionRecords
 beta;interface;ElementBulkDeleteError
 beta;interface;ElementDeletionRecord
-beta;interface;EntityChange
 public;type;ExportChangesOptions
 beta;type;ExporterInitOptions
 beta;interface;ExportSchemaResult

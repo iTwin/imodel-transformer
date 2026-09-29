@@ -19,7 +19,7 @@ import {
   IModel,
   QueryBinder,
 } from "@itwin/core-common";
-import { ChangesetScanner, DeletionRecords } from "../../ChangesetScanner";
+import { ChangesetScanner, DeletionBatch } from "../../ChangesetScanner";
 import { IModelTransformerError } from "../../IModelTransformerError";
 import { expectTransformerError } from "../IModelTransformerUtils";
 import { ChangedInstanceIds } from "../../IModelExporter";
@@ -62,7 +62,7 @@ describe("ChangesetScanner owner resolution", () => {
     return txn.insertAspect(props);
   }
 
-  const noDeletions: DeletionRecords = {
+  const noDeletions: DeletionBatch = {
     elements: [],
     models: [],
     relationships: [],
@@ -185,7 +185,7 @@ describe("ChangesetScanner owner resolution", () => {
       const relationship = ElementGroupsMembers.insert(txn, owner, target);
       return { owner, target, element, aspect, relationship };
     });
-    const expected: DeletionRecords = {
+    const expected: DeletionBatch = {
       elements: [
         {
           ecInstanceId: seed.element,
@@ -295,7 +295,7 @@ describe("ChangesetScanner owner resolution", () => {
     it("identifies a relationship deletion missing an endpoint", async () => {
       await expectTransformerError(
         async () =>
-          ChangesetScanner["toDeletionRecords"](
+          ChangesetScanner["toDeletionBatch"](
             db,
             [{ ecInstanceId: "0x123", ecClassId: "0x456" }],
             classIds
@@ -320,7 +320,7 @@ describe("ChangesetScanner owner resolution", () => {
     it("classifies deletions by class rather than owner metadata", async () => {
       const deletionClassIds =
         await ChangesetScanner["queryDeletionClassIds"](db);
-      const records = ChangesetScanner["toDeletionRecords"](
+      const records = ChangesetScanner["toDeletionBatch"](
         db,
         [
           // An element row with an owner ID must still be an element.
@@ -374,11 +374,11 @@ describe("ChangesetScanner owner resolution", () => {
           identifier: "aspect",
         };
         expect(
-          ChangesetScanner["toDeletionRecords"](db, [row], classIds)
+          ChangesetScanner["toDeletionBatch"](db, [row], classIds)
             .externalSourceAspects
         ).toHaveLength(1);
         expect(
-          ChangesetScanner["toDeletionRecords"](
+          ChangesetScanner["toDeletionBatch"](
             db,
             [{ ...row, [missingField]: undefined }],
             classIds
@@ -391,7 +391,7 @@ describe("ChangesetScanner owner resolution", () => {
       const deletionClassIds =
         await ChangesetScanner["queryDeletionClassIds"](db);
       expect(
-        ChangesetScanner["toDeletionRecords"](
+        ChangesetScanner["toDeletionBatch"](
           db,
           [
             {
@@ -406,7 +406,7 @@ describe("ChangesetScanner owner resolution", () => {
 
     it("preserves the error for a class missing from the schema", () => {
       expect(() =>
-        ChangesetScanner["toDeletionRecords"](
+        ChangesetScanner["toDeletionBatch"](
           db,
           [{ ecInstanceId: "0x123", ecClassId: "0xfffffff" }],
           classIds

@@ -12,8 +12,8 @@ export * from "./IModelTransformerError";
 export * from "./BranchProvenanceInitializer";
 export type {
   ChangeScanResult,
+  DeletionBatch,
   DeletionRecordBase,
-  DeletionRecords,
   ElementDeletionRecord,
   ExternalSourceAspectDeletionRecord,
   ModelDeletionRecord,

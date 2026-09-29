@@ -111,7 +111,7 @@ import { SchemaProcessingCoordinator } from "./schema-processing/SchemaProcessin
 import {
   ChangeScanResult,
   ChangesetScanner,
-  DeletionRecords,
+  DeletionBatch,
   ElementDeletionRecord,
   ExternalSourceAspectDeletionRecord,
   ModelDeletionRecord,
@@ -2137,7 +2137,7 @@ export class IModelTransformer extends IModelExportHandler {
   private _sourceChangeDataState: ChangeDataState = "uninited";
   /** Changeset files downloaded by the default [[scanChanges]]. Undefined when no changesets were downloaded. */
   private _csFileProps?: ChangesetFileProps[] = undefined;
-  private _deletionRecords?: DeletionRecords[];
+  private _deletionBatches?: DeletionBatch[];
 
   /**
    * Initialize prerequisites of processing, you must initialize with an [[InitOptions]] if you
@@ -2181,7 +2181,7 @@ export class IModelTransformer extends IModelExportHandler {
           : undefined);
       if (changedInstanceIds !== undefined) {
         // The caller supplied changed IDs, so only deletion metadata is read.
-        this._deletionRecords = await ChangesetScanner.scan(
+        this._deletionBatches = await ChangesetScanner.scan(
           this.sourceDb,
           await this.downloadChangesets(ranges),
           changedInstanceIds,
@@ -2190,7 +2190,7 @@ export class IModelTransformer extends IModelExportHandler {
       } else {
         const scanResult = await this.scanChanges(ranges);
         changedInstanceIds = scanResult.changedInstanceIds;
-        this._deletionRecords = scanResult.deletionRecords;
+        this._deletionBatches = scanResult.deletionBatches;
       }
       await this.exporter.initialize({
         changedInstanceIds,
@@ -2208,7 +2208,7 @@ export class IModelTransformer extends IModelExportHandler {
    *
    * An override can supply some ranges itself and pass the rest to `super.scanChanges()`. Pass the same
    * `changedInstanceIds` to every call and handle the ranges in order, so that changes to the same instance in
-   * different ranges combine correctly. Use [[ChangedInstanceIds.addEntityChange]] to add each supplied change.
+   * different ranges combine correctly. Use [[ChangedInstanceIds.addChangeRecord]] to add each supplied change.
    * See [Supplying source changes]($docs/learning/transformer/change-scanning.md) for the full contract and an example.
    * @param ranges Ordered, inclusive `[first, last]` changeset index ranges. They already exclude changesets
    * that must be skipped, such as those pushed by a previous synchronization in the other direction, so an
@@ -2229,12 +2229,12 @@ export class IModelTransformer extends IModelExportHandler {
       this.sourceDb
     )
   ): Promise<ChangeScanResult> {
-    const deletionRecords = await ChangesetScanner.scan(
+    const deletionBatches = await ChangesetScanner.scan(
       this.sourceDb,
       await this.downloadChangesets(ranges),
       changedInstanceIds
     );
-    return { changedInstanceIds, deletionRecords };
+    return { changedInstanceIds, deletionBatches };
   }
 
   /** Downloads the changesets in each range. Returns one group of files per range. */
@@ -2283,8 +2283,8 @@ export class IModelTransformer extends IModelExportHandler {
         this._sourceChangeDataState = "has-changes";
     }
 
-    const deletionRecords = this._deletionRecords;
-    if (deletionRecords === undefined) return;
+    const deletionBatches = this._deletionBatches;
+    if (deletionBatches === undefined) return;
 
     // For later use when processing deletes.
     const alreadyImportedElementInserts = new Set<Id64String>();
@@ -2310,7 +2310,7 @@ export class IModelTransformer extends IModelExportHandler {
 
     this._deletedSourceRelationshipData = new Map();
 
-    for (const batch of deletionRecords) {
+    for (const batch of deletionBatches) {
       /** a map of element ids to this transformation scope's ESA data for that element, in case the ESA is deleted in the target */
       const elemIdToScopeEsa = new Map<
         Id64String,

@@ -50,6 +50,8 @@ import { Transform } from '@itwin/core-geometry';
 export class ChangedInstanceIds {
     constructor(db: IModelDb);
     addChange(change: ChangeInstance): Promise<void>;
+    // @beta
+    addChangeRecord(change: ChangeRecord): Promise<void>;
     // @internal
     addChanges(changes: Iterable<ChangeInstance>): Promise<void>;
     // @beta
@@ -58,8 +60,6 @@ export class ChangedInstanceIds {
     addCustomElementChange(changeType: SqliteChangeOp, ids: Id64Arg): Promise<void>;
     // @beta
     addCustomModelChange(changeType: SqliteChangeOp, ids: Id64Arg): Promise<void>;
-    // @beta
-    addEntityChange(change: EntityChange): Promise<void>;
     // (undocumented)
     aspect: ChangedInstanceOps;
     // @internal
@@ -96,23 +96,31 @@ export class ChangedInstanceOps {
 }
 
 // @beta
+export interface ChangeRecord {
+    aspectOwnerElementId?: Id64String;
+    ecClassId: Id64String;
+    id: Id64String;
+    op: SqliteChangeOp;
+}
+
+// @beta
 export interface ChangeScanResult {
     changedInstanceIds: ChangedInstanceIds;
-    deletionRecords: DeletionRecords[];
+    deletionBatches: DeletionBatch[];
+}
+
+// @beta
+export interface DeletionBatch {
+    elements: ElementDeletionRecord[];
+    externalSourceAspects: ExternalSourceAspectDeletionRecord[];
+    models: ModelDeletionRecord[];
+    relationships: RelationshipDeletionRecord[];
 }
 
 // @beta
 export interface DeletionRecordBase {
     ecClassId: Id64String;
     ecInstanceId: Id64String;
-}
-
-// @beta
-export interface DeletionRecords {
-    elements: ElementDeletionRecord[];
-    externalSourceAspects: ExternalSourceAspectDeletionRecord[];
-    models: ModelDeletionRecord[];
-    relationships: RelationshipDeletionRecord[];
 }
 
 // @beta
@@ -125,14 +133,6 @@ export interface ElementBulkDeleteError extends ITwinError {
 // @beta
 export interface ElementDeletionRecord extends DeletionRecordBase {
     federationGuid?: string;
-}
-
-// @beta
-export interface EntityChange {
-    aspectOwnerElementId?: Id64String;
-    ecClassId: Id64String;
-    id: Id64String;
-    op: SqliteChangeOp;
 }
 
 // @public

@@ -79,7 +79,7 @@ export interface ExternalSourceAspectDeletionRecord extends DeletionRecordBase {
  * @note Batches are processed in order. An ExternalSourceAspect deletion is used to identify element deletions in the same batch. An empty array means nothing of that kind was deleted.
  * @beta
  */
-export interface DeletionRecords {
+export interface DeletionBatch {
   /** Deleted elements. */
   elements: ElementDeletionRecord[];
   /** Deleted models. */
@@ -102,7 +102,7 @@ export interface ChangeScanResult {
   /** Changed instance IDs, including the owning elements of changed aspects. */
   changedInstanceIds: ChangedInstanceIds;
   /** Deletion batches of any granularity: one per changeset, one per range, or one for all ranges. */
-  deletionRecords: DeletionRecords[];
+  deletionBatches: DeletionBatch[];
 }
 
 /** Values kept from a deleted row until its class is known. */
@@ -152,7 +152,7 @@ export class ChangesetScanner {
     csFileGroups: ChangesetFileProps[][],
     changedInstanceIds: ChangedInstanceIds,
     options: ScanOptions = {}
-  ): Promise<DeletionRecords[]> {
+  ): Promise<DeletionBatch[]> {
     const deletedRowGroups: DeletedRow[][] = [];
     await changedInstanceIds.addChanges(
       this.readChanges(iModel, csFileGroups, deletedRowGroups, options)
@@ -161,7 +161,7 @@ export class ChangesetScanner {
       ? await this.queryDeletionClassIds(iModel)
       : undefined;
     return deletedRowGroups.map((rows) =>
-      this.toDeletionRecords(iModel, rows, classIds)
+      this.toDeletionBatch(iModel, rows, classIds)
     );
   }
 
@@ -256,12 +256,12 @@ export class ChangesetScanner {
     return { elements, models, relationships, relationshipsToSkip };
   }
 
-  private static toDeletionRecords(
+  private static toDeletionBatch(
     iModel: IModelDb,
     rows: DeletedRow[],
     classIds: DeletionClassIds | undefined
-  ): DeletionRecords {
-    const records: DeletionRecords = {
+  ): DeletionBatch {
+    const records: DeletionBatch = {
       elements: [],
       models: [],
       relationships: [],

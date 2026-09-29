@@ -95,7 +95,7 @@ import {
   TransformerLoggerCategory,
 } from "../../imodel-transformer";
 import { ProvenanceManager } from "../../ProvenanceManager";
-import { ChangesetScanner, DeletionRecords } from "../../ChangesetScanner";
+import { ChangesetScanner, DeletionBatch } from "../../ChangesetScanner";
 import {
   CachedChangesTransformer,
   ChangeCache,
@@ -7246,7 +7246,7 @@ describe("IModelTransformerHub", () => {
           [secondIndex, secondIndex],
         ]);
         expect(
-          scans[0].result.deletionRecords.map((batch) =>
+          scans[0].result.deletionBatches.map((batch) =>
             batch.elements.map((record) => record.ecInstanceId)
           )
         ).to.deep.equal([[branchElement1Id], [branchElement2Id]]);
@@ -7663,7 +7663,7 @@ describe("IModelTransformerHub", () => {
       });
 
       const scan = ChangesetScanner.scan.bind(ChangesetScanner);
-      const scannedBatches: DeletionRecords[][] = [];
+      const scannedBatches: DeletionBatch[][] = [];
       const scanSpy = vi
         .spyOn(ChangesetScanner, "scan")
         .mockImplementation(async (...args) => {
@@ -8152,7 +8152,7 @@ describe("IModelTransformerHub", () => {
           requestedRanges.push(range);
           return Promise.resolve({
             changes: [{ id: elementId, ecClassId, op: "Deleted" }],
-            deletionRecords: {
+            deletions: {
               elements: [
                 { ecInstanceId: elementId, ecClassId, federationGuid },
               ],
@@ -8232,7 +8232,7 @@ describe("IModelTransformerHub", () => {
           ranges: readonly (readonly [number, number])[],
           changedInstanceIds = new ChangedInstanceIds(this.sourceDb)
         ): Promise<ChangeScanResult> {
-          const deletionRecords: DeletionRecords[] = [];
+          const deletionBatches: DeletionBatch[] = [];
           for (const [first, last] of ranges) {
             for (let index = first; index <= last; index++) {
               if (index !== deleteChangesetIndex) {
@@ -8240,15 +8240,15 @@ describe("IModelTransformerHub", () => {
                   [[index, index]],
                   changedInstanceIds
                 );
-                deletionRecords.push(...scanned.deletionRecords);
+                deletionBatches.push(...scanned.deletionBatches);
                 continue;
               }
-              await changedInstanceIds.addEntityChange({
+              await changedInstanceIds.addChangeRecord({
                 id: elementId,
                 ecClassId,
                 op: "Deleted",
               });
-              deletionRecords.push({
+              deletionBatches.push({
                 elements: [
                   { ecInstanceId: elementId, ecClassId, federationGuid },
                 ],
@@ -8258,7 +8258,7 @@ describe("IModelTransformerHub", () => {
               });
             }
           }
-          return { changedInstanceIds, deletionRecords };
+          return { changedInstanceIds, deletionBatches };
         }
       }
 

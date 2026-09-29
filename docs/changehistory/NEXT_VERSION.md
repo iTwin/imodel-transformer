@@ -41,7 +41,7 @@ See [Incremental exports](../learning/transformer/index.md#incremental-exports) 
 
 ## Overridable changeset scanning
 
-`IModelTransformer` now reads source changes through the protected, beta `scanChanges(ranges, changedInstanceIds)` method. Override it to supply changed instance IDs and deletion records from another source, such as a precomputed cache, instead of downloading and reading changesets. An override can pass the ranges it can't cover to `super.scanChanges()`. `ChangedInstanceIds.addEntityChange()` adds a change from its instance ID, class ID, operation, and, for an aspect, owning element ID. See [Supplying source changes](../learning/transformer/change-scanning.md) for the contract and an example.
+`IModelTransformer` now reads source changes through the protected, beta `scanChanges(ranges, changedInstanceIds)` method. Override it to supply changed instance IDs and deletion records from another source, such as a precomputed cache, instead of downloading and reading changesets. An override can pass the ranges it can't cover to `super.scanChanges()`. `ChangedInstanceIds.addChangeRecord()` adds a change from its instance ID, class ID, operation, and, for an aspect, owning element ID. See [Supplying source changes](../learning/transformer/change-scanning.md) for the contract and an example.
 
 Deletions are now processed in batches of one changeset range instead of one changeset. As a result, a reverse synchronization now also deletes the master element for a branch element without a `FederationGuid` whose provenance aspect was deleted in an earlier changeset of the same range.
 

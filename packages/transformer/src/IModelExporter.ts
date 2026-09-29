@@ -1982,10 +1982,10 @@ export class ChangedInstanceOps {
 
 /**
  * A change to one EC instance, for recording changes that don't come from a changeset reader.
- * @see [[ChangedInstanceIds.addEntityChange]]
+ * @see [[ChangedInstanceIds.addChangeRecord]]
  * @beta
  */
-export interface EntityChange {
+export interface ChangeRecord {
   /** ID of the changed instance. */
   id: Id64String;
   /** EC class ID of the changed instance, used to tell elements, models, aspects, relationships, and CodeSpecs apart. */
@@ -2132,8 +2132,8 @@ export class ChangedInstanceIds {
    * for example, an insert followed by a delete of the same instance cancels out.
    * @beta
    */
-  public async addEntityChange(change: EntityChange): Promise<void> {
-    return this.recordEntityChange(change, undefined);
+  public async addChangeRecord(change: ChangeRecord): Promise<void> {
+    return this.applyChangeRecord(change, undefined);
   }
 
   private async recordChange(
@@ -2158,7 +2158,7 @@ export class ChangedInstanceIds {
         },
         message: `ChangeType was undefined for id: ${change.ECInstanceId}.`,
       });
-    return this.recordEntityChange(
+    return this.applyChangeRecord(
       {
         id: change.ECInstanceId,
         ecClassId,
@@ -2169,8 +2169,8 @@ export class ChangedInstanceIds {
     );
   }
 
-  private async recordEntityChange(
-    change: EntityChange,
+  private async applyChangeRecord(
+    change: ChangeRecord,
     unresolvedAspectIds: Set<Id64String> | undefined
   ): Promise<void> {
     if (!this._ecClassIdsInitialized) await this.setupECClassIds();
