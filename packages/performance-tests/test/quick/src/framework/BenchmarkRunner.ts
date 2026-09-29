@@ -160,6 +160,28 @@ interface BenchmarkExecution {
   readonly sample: number;
 }
 
+export interface BenchmarkMeasurementContext {
+  readonly fixtureId: string;
+  readonly measured: boolean;
+  readonly sample: number;
+  readonly scenarioId: string;
+}
+
+export type BenchmarkMeasurement = (
+  measure: () => Promise<void>,
+  context: BenchmarkMeasurementContext
+) => Promise<void>;
+
+interface BenchmarkExecutionOptions {
+  readonly fixtureArtifactDirectory?: string;
+  readonly measurement?: BenchmarkMeasurement;
+  readonly recordSamples?: boolean;
+  readonly transformerProvenance?: TransformerProvenance;
+}
+
+const defaultBenchmarkMeasurement: BenchmarkMeasurement = async (measure) =>
+  measure();
+
 export function reusableFixtureIdentity(descriptor: FixtureDescriptor): string {
   const {
     generator: _generator,
@@ -208,12 +230,23 @@ export class BenchmarkRunner {
       throw new Error(
         "Quick performance sample zero must be the warm-up and positive samples must be measured"
       );
-    const [result] = await this.runExecutions(
-      [{ measured, sample }],
+    const [result] = await this.runExecutions([{ measured, sample }], {
       fixtureArtifactDirectory,
-      transformerProvenance
-    );
+      transformerProvenance,
+    });
     return result;
+  }
+
+  /**
+   * Run one pristine measured sample through a custom measurement wrapper. Profiling tools use
+   * this boundary without changing normal benchmark execution or scenario implementations.
+   */
+  public async runProfile(measurement: BenchmarkMeasurement): Promise<string> {
+    const [result] = await this.runExecutions([{ measured: true, sample: 1 }], {
+      measurement,
+      recordSamples: false,
+    });
+    return result.semanticDigest;
   }
 
   /**
@@ -280,8 +313,12 @@ export class BenchmarkRunner {
 
   private async runExecutions(
     executions: readonly BenchmarkExecution[],
-    fixtureArtifactDirectory?: string,
-    transformerProvenance?: TransformerProvenance
+    {
+      fixtureArtifactDirectory,
+      measurement = defaultBenchmarkMeasurement,
+      recordSamples = true,
+      transformerProvenance,
+    }: BenchmarkExecutionOptions = {}
   ): Promise<BenchmarkSample[]> {
     prepareBenchmarkOutputDirectoryForFixture(this._outputDir, this._fixture);
     const samples: BenchmarkSample[] = [];
@@ -368,18 +405,27 @@ export class BenchmarkRunner {
               sampleDir,
               `quick-sample-${sample}`
             );
-            scenario = this._scenario.factory(dataset);
-            await scenario.prepare?.();
+            const activeScenario = this._scenario.factory(dataset);
+            scenario = activeScenario;
+            await activeScenario.prepare?.();
             const rssBefore = process.memoryUsage().rss;
             const cpuBefore = process.cpuUsage();
             const wallStart = process.hrtime.bigint();
-            await scenario.measure();
+            const measure = async () => {
+              await activeScenario.measure();
+            };
+            await measurement(measure, {
+              fixtureId: descriptor.id,
+              measured,
+              sample,
+              scenarioId: this._scenario.id,
+            });
             const wallMilliseconds =
               Number(process.hrtime.bigint() - wallStart) / 1_000_000;
             const cpu = process.cpuUsage(cpuBefore);
             const rssDeltaBytes = process.memoryUsage().rss - rssBefore;
             const verificationStart = process.hrtime.bigint();
-            const semanticDigest = await scenario.finish();
+            const semanticDigest = await activeScenario.finish();
             const verificationMilliseconds =
               Number(process.hrtime.bigint() - verificationStart) / 1_000_000;
             return {
@@ -419,10 +465,11 @@ export class BenchmarkRunner {
             teardownMilliseconds,
           };
           samples.push(sampleResult);
-          fs.appendFileSync(
-            path.join(this._outputDir, "samples.jsonl"),
-            `${JSON.stringify(sampleResult)}\n`
-          );
+          if (recordSamples)
+            fs.appendFileSync(
+              path.join(this._outputDir, "samples.jsonl"),
+              `${JSON.stringify(sampleResult)}\n`
+            );
         }
       }, [
         {
