@@ -508,7 +508,7 @@ export class IModelImporter {
   }
 
   /** Adds roots required by code-scope dependencies, then deletes the target element trees in as few native operations as their references allow.
-   * Usually one native operation is enough. When a tree contains a category that another deleted element uses, the elements that use it are deleted first.
+   * Usually one native operation is enough. When a tree contains a definition, such as a category, that another deleted element uses, the elements that use it are deleted first.
    * Elements that something outside the deleted trees still references are kept, with a warning, and the rest are deleted.
    * @note An override must call `super.onDeleteElements` once to perform the deletion.
    */
@@ -561,7 +561,7 @@ export class IModelImporter {
   /** Deletes target element trees, using one native operation unless references between the trees require more.
    * Requested roots in [[doNotUpdateElementIds]] are skipped. This does not prevent an element in that set from being deleted as part of another root's cascade.
    * Elements that something outside the deleted trees still references are kept, along with their child elements and sub-models and the elements that contain them. A warning lists them.
-   * @throws [[ElementBulkDeleteError]] if a native operation fails for any root, for example because of a reference in a domain schema that the transformer does not check first. Deletions from that and earlier native operations stay pending in the caller-owned transaction. Abandon the transaction before retrying.
+   * @throws [[ElementBulkDeleteError]] if a native operation fails for any root, for example because geometry outside the deleted trees uses a geometry part in them, or because of a reference in a domain schema. The transformer does not check those references first. Deletions from that and earlier native operations stay pending in the caller-owned transaction. Abandon the transaction before retrying.
    */
   public async deleteElements(
     elementIds: ReadonlySet<Id64String>

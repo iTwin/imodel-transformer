@@ -6,12 +6,21 @@
 import { DbResult, Id64String, Logger } from "@itwin/core-bentley";
 import {
   BulkDeleteElementsStatus,
+  CategorySelector,
   DefinitionContainer,
   DefinitionModel,
+  DisplayStyle3d,
+  DocumentListModel,
+  DrawingCategory,
   EditTxn,
+  GeometryPart,
   IModelDb,
+  ModelSelector,
   PhysicalModel,
+  Sheet,
+  SheetModel,
   SpatialCategory,
+  SpatialViewDefinition,
   StandaloneDb,
   Subject,
   withEditTxn,
@@ -19,10 +28,14 @@ import {
 import {
   Code,
   CodeScopeSpec,
+  GeometryPartProps,
   IModel,
   PhysicalElementProps,
+  SheetProps,
   SubCategoryAppearance,
+  ViewAttachmentProps,
 } from "@itwin/core-common";
+import { Point3d, Range3d } from "@itwin/core-geometry";
 import { expect, vi } from "vitest";
 import { planBulkDelete } from "../../ElementBulkDelete";
 import { ElementBulkDeleteError, IModelImporter } from "../../IModelImporter";
@@ -32,6 +45,7 @@ import {
   expectTransformerError,
   IModelTransformerTestUtils,
 } from "../IModelTransformerUtils";
+import { IModelTestUtils } from "../TestUtils";
 
 interface PhysicalObjectOptions {
   readonly modelId: Id64String;
@@ -72,6 +86,72 @@ function insertPhysicalObject(
         }
       : {}),
   } as PhysicalElementProps);
+}
+
+/** Inserts a geometry part and a physical object whose geometry places it. */
+function insertGeometryPartUser(
+  txn: EditTxn,
+  db: IModelDb,
+  ids: {
+    readonly definitionModelId: Id64String;
+    readonly modelId: Id64String;
+    readonly categoryId: Id64String;
+  }
+): { partId: Id64String; userId: Id64String } {
+  const size = Point3d.create(1, 1, 1);
+  const partId = txn.insertElement({
+    classFullName: GeometryPart.classFullName,
+    model: ids.definitionModelId,
+    code: GeometryPart.createCode(db, ids.definitionModelId, "Part"),
+    geom: IModelTestUtils.createBox(size),
+  } as GeometryPartProps);
+  const userId = txn.insertElement({
+    classFullName: "Generic:PhysicalObject",
+    model: ids.modelId,
+    category: ids.categoryId,
+    code: Code.createEmpty(),
+    placement: { origin: [0, 0, 0], angles: {} },
+    geom: IModelTestUtils.createBox(
+      size,
+      ids.categoryId,
+      IModelDb.getDefaultSubCategoryId(ids.categoryId),
+      undefined,
+      partId
+    ),
+  } as PhysicalElementProps);
+  return { partId, userId };
+}
+
+/** Inserts a spatial view with its display style and selectors. */
+function insertSpatialView(
+  txn: EditTxn,
+  definitionModelId: Id64String,
+  modelId: Id64String,
+  categoryId: Id64String
+) {
+  const displayStyleId = DisplayStyle3d.insert(txn, definitionModelId, "Style");
+  const modelSelectorId = ModelSelector.insert(
+    txn,
+    definitionModelId,
+    "Models",
+    [modelId]
+  );
+  const categorySelectorId = CategorySelector.insert(
+    txn,
+    definitionModelId,
+    "Categories",
+    [categoryId]
+  );
+  const viewId = SpatialViewDefinition.insertWithCamera(
+    txn,
+    definitionModelId,
+    "View",
+    modelSelectorId,
+    categorySelectorId,
+    displayStyleId,
+    new Range3d(0, 0, 0, 1, 1, 1)
+  );
+  return { displayStyleId, modelSelectorId, categorySelectorId, viewId };
 }
 
 async function planPhases(
@@ -918,6 +998,293 @@ describe("IModelImporter bulk element deletion", () => {
       } finally {
         warningSpy.mockRestore();
       }
+      editTxn.end("abandon");
+    } finally {
+      targetDb.close();
+    }
+  });
+
+  it("deletes an element and the geometry part it uses in one batch", async () => {
+    const targetDb = createTargetDb("GeometryPartUsedInBatch");
+    try {
+      const ids = withEditTxn(targetDb, "insert part and user", (txn) => {
+        const definitionModelId = DefinitionModel.insert(
+          txn,
+          IModel.rootSubjectId,
+          "Definition model"
+        );
+        const modelId = PhysicalModel.insert(
+          txn,
+          IModel.rootSubjectId,
+          "Physical model"
+        );
+        const categoryId = SpatialCategory.insert(
+          txn,
+          IModel.dictionaryId,
+          "Spatial category",
+          new SubCategoryAppearance()
+        );
+        return insertGeometryPartUser(txn, targetDb, {
+          definitionModelId,
+          modelId,
+          categoryId,
+        });
+      });
+      const requested = new Set([ids.partId, ids.userId]);
+      // Native validation refuses the part while its user exists, even when both are in the same call.
+      expect(await planPhases(targetDb, requested)).to.deep.equal([
+        new Set([ids.userId]),
+        new Set([ids.partId]),
+      ]);
+
+      const editTxn = createStartedEditTxn(targetDb);
+      await new IModelImporter(editTxn).deleteElements(requested);
+      for (const id of requested)
+        expect(targetDb.elements.tryGetElement(id)).to.be.undefined;
+      editTxn.end("abandon");
+    } finally {
+      targetDb.close();
+    }
+  });
+
+  it("deletes a tree that contains both a geometry part and an element that uses it", async () => {
+    const targetDb = createTargetDb("GeometryPartAndUserInOneTree");
+    try {
+      const ids = withEditTxn(targetDb, "insert subject", (txn) => {
+        const subjectId = Subject.insert(txn, IModel.rootSubjectId, "Subject");
+        const definitionModelId = DefinitionModel.insert(
+          txn,
+          subjectId,
+          "Definition model"
+        );
+        const modelId = PhysicalModel.insert(txn, subjectId, "Physical model");
+        const categoryId = SpatialCategory.insert(
+          txn,
+          IModel.dictionaryId,
+          "Spatial category",
+          new SubCategoryAppearance()
+        );
+        return {
+          subjectId,
+          ...insertGeometryPartUser(txn, targetDb, {
+            definitionModelId,
+            modelId,
+            categoryId,
+          }),
+        };
+      });
+      const requested = new Set([ids.subjectId]);
+      // The part's code is scoped by its definition model, so the part is a root of its own.
+      expect(await planPhases(targetDb, requested)).to.deep.equal([
+        new Set([ids.userId]),
+        new Set([ids.subjectId, ids.partId]),
+      ]);
+
+      const editTxn = createStartedEditTxn(targetDb);
+      await new IModelImporter(editTxn).deleteElements(requested);
+      for (const id of [ids.subjectId, ids.partId, ids.userId])
+        expect(targetDb.elements.tryGetElement(id)).to.be.undefined;
+      editTxn.end("abandon");
+    } finally {
+      targetDb.close();
+    }
+  });
+
+  it("deletes a view attachment before the view it shows", async () => {
+    const targetDb = createTargetDb("ViewAttachmentInBatch");
+    try {
+      const ids = withEditTxn(targetDb, "insert sheet and view", (txn) => {
+        const modelId = PhysicalModel.insert(
+          txn,
+          IModel.rootSubjectId,
+          "Physical model"
+        );
+        const categoryId = SpatialCategory.insert(
+          txn,
+          IModel.dictionaryId,
+          "Spatial category",
+          new SubCategoryAppearance()
+        );
+        const view = insertSpatialView(
+          txn,
+          IModel.dictionaryId,
+          modelId,
+          categoryId
+        );
+        const documentListModelId = DocumentListModel.insert(
+          txn,
+          IModel.rootSubjectId,
+          "Documents"
+        );
+        const sheetId = txn.insertElement({
+          classFullName: Sheet.classFullName,
+          model: documentListModelId,
+          code: Code.createEmpty(),
+          height: 1,
+          width: 1,
+        } as SheetProps);
+        const sheetModelId = txn.insertModel({
+          classFullName: SheetModel.classFullName,
+          modeledElement: { id: sheetId },
+        });
+        const drawingCategoryId = DrawingCategory.insert(
+          txn,
+          IModel.dictionaryId,
+          "Drawing category",
+          new SubCategoryAppearance()
+        );
+        const attachmentId = txn.insertElement({
+          classFullName: "BisCore:ViewAttachment",
+          model: sheetModelId,
+          category: drawingCategoryId,
+          code: Code.createEmpty(),
+          view: { id: view.viewId },
+          placement: { origin: [0, 0], angle: 0 },
+        } as ViewAttachmentProps);
+        return { sheetId, attachmentId, viewId: view.viewId };
+      });
+      const requested = new Set([ids.sheetId, ids.viewId]);
+      expect(await planPhases(targetDb, requested)).to.deep.equal([
+        new Set([ids.sheetId]),
+        new Set([ids.viewId]),
+      ]);
+
+      const editTxn = createStartedEditTxn(targetDb);
+      await new IModelImporter(editTxn).deleteElements(requested);
+      for (const id of [ids.sheetId, ids.attachmentId, ids.viewId])
+        expect(targetDb.elements.tryGetElement(id)).to.be.undefined;
+      editTxn.end("abandon");
+    } finally {
+      targetDb.close();
+    }
+  });
+
+  it("keeps the display style and selectors that a view outside the batch uses", async () => {
+    const targetDb = createTargetDb("ViewDefinitionsStillInUse");
+    try {
+      const ids = withEditTxn(targetDb, "insert view", (txn) => {
+        const modelId = PhysicalModel.insert(
+          txn,
+          IModel.rootSubjectId,
+          "Physical model"
+        );
+        const categoryId = SpatialCategory.insert(
+          txn,
+          IModel.dictionaryId,
+          "Spatial category",
+          new SubCategoryAppearance()
+        );
+        const view = insertSpatialView(
+          txn,
+          IModel.dictionaryId,
+          modelId,
+          categoryId
+        );
+        const independentId = Subject.insert(
+          txn,
+          IModel.rootSubjectId,
+          "Independent"
+        );
+        return { ...view, independentId };
+      });
+      const requested = new Set([
+        ids.displayStyleId,
+        ids.modelSelectorId,
+        ids.categorySelectorId,
+        ids.independentId,
+      ]);
+      const plan = await planBulkDelete(targetDb, requested);
+      expect(plan.keptReferences).to.deep.equal(
+        new Map([
+          [ids.displayStyleId, ids.viewId],
+          [ids.modelSelectorId, ids.viewId],
+          [ids.categorySelectorId, ids.viewId],
+        ])
+      );
+      expect(plan.phases).to.deep.equal([[ids.independentId]]);
+
+      // Deleting the view with them needs one call, because native validation accepts a view definition's references
+      // to definitions in the same call.
+      expect(
+        await planPhases(targetDb, new Set([...requested, ids.viewId]))
+      ).to.have.length(1);
+    } finally {
+      targetDb.close();
+    }
+  });
+
+  it("keeps a default sub-category requested without its category", async () => {
+    const targetDb = createTargetDb("DefaultSubCategoryWithoutCategory");
+    try {
+      const ids = withEditTxn(targetDb, "insert category", (txn) => {
+        const categoryId = SpatialCategory.insert(
+          txn,
+          IModel.dictionaryId,
+          "Spatial category",
+          new SubCategoryAppearance()
+        );
+        const independentId = Subject.insert(
+          txn,
+          IModel.rootSubjectId,
+          "Independent"
+        );
+        return {
+          categoryId,
+          defaultSubCategoryId: IModelDb.getDefaultSubCategoryId(categoryId),
+          independentId,
+        };
+      });
+      const plan = await planBulkDelete(
+        targetDb,
+        new Set([ids.defaultSubCategoryId, ids.independentId])
+      );
+      expect(plan.keptReferences).to.deep.equal(
+        new Map([[ids.defaultSubCategoryId, ids.categoryId]])
+      );
+      expect(plan.phases).to.deep.equal([[ids.independentId]]);
+    } finally {
+      targetDb.close();
+    }
+  });
+
+  it("throws when an element outside the batch uses a geometry part in it", async () => {
+    const targetDb = createTargetDb("GeometryPartStillInUse");
+    try {
+      const ids = withEditTxn(targetDb, "insert part and user", (txn) => {
+        const definitionModelId = DefinitionModel.insert(
+          txn,
+          IModel.rootSubjectId,
+          "Definition model"
+        );
+        const modelId = PhysicalModel.insert(
+          txn,
+          IModel.rootSubjectId,
+          "Physical model"
+        );
+        const categoryId = SpatialCategory.insert(
+          txn,
+          IModel.dictionaryId,
+          "Spatial category",
+          new SubCategoryAppearance()
+        );
+        return insertGeometryPartUser(txn, targetDb, {
+          definitionModelId,
+          modelId,
+          categoryId,
+        });
+      });
+      // Only native code can read which geometry uses a part, so the plan doesn't keep it and native validation refuses it.
+      const plan = await planBulkDelete(targetDb, new Set([ids.partId]));
+      expect(plan.keptReferences.size).to.equal(0);
+
+      const editTxn = createStartedEditTxn(targetDb);
+      await expectTransformerError(
+        async () =>
+          new IModelImporter(editTxn).deleteElements(new Set([ids.partId])),
+        IModelTransformerError.ElementBulkDeleteFailed,
+        `Bulk element deletion failed: status DeletionFailed, SQLite status ${DbResult.BE_SQLITE_OK}, failed element IDs: ${ids.partId}`
+      );
+      expect(targetDb.elements.tryGetElement(ids.partId)).to.not.be.undefined;
       editTxn.end("abandon");
     } finally {
       targetDb.close();

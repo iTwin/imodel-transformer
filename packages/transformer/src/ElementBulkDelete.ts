@@ -34,10 +34,11 @@ interface DeletionTrees {
  * plan repeats until none remain.
  *
  * Native validation checks each root against the iModel before the call, so a root is refused when its tree
- * contains an element, such as a category, that another element in the same call still references. The plan
- * deletes the other roots first, then the roots whose trees contain a category used by a deleted element.
- * Validation stays enabled for every call, so a reference this plan does not know about fails loudly instead
- * of leaving a dangling reference.
+ * contains a definition, such as a category or a view, that a non-definition element in the same call still
+ * uses. The plan deletes those users in an earlier call than the definitions they use. Validation stays enabled
+ * for every call, so a reference this plan does not know about fails loudly instead of leaving a dangling
+ * reference. That includes elements outside the trees whose geometry uses a definition in them, such as a
+ * geometry part: only native code can read geometry, so those uses are not checked in advance.
  * @internal
  */
 export async function planBulkDelete(
@@ -50,12 +51,12 @@ export async function planBulkDelete(
     const trees = await queryDeletionTrees(targetDb, requestedIds);
     if (trees.roots.size === 0) return { phases: [], keptReferences };
 
-    const references = await queryBlockingReferences(
+    const references = await queryReferences(
       targetDb,
       trees.rootsByElement.keys()
     );
     const blockedIds = new Set<Id64String>();
-    for (const { referencingId, referencedId } of references) {
+    for (const { referencingId, referencedId } of references.references) {
       if (trees.rootsByElement.has(referencingId)) continue;
       blockedIds.add(referencedId);
       if (!keptReferences.has(referencedId))
@@ -83,57 +84,84 @@ export async function planBulkDelete(
 async function planPhases(
   targetDb: IModelDb,
   trees: DeletionTrees,
-  references: readonly BlockingReference[]
+  { references, geometryDefinitionIds }: TreeReferences
 ): Promise<Id64Array[]> {
-  // Elements in the trees whose category is also in the trees. Native validation refuses the category while they exist.
-  const usersOfDeletedCategories = new Set<Id64String>();
-  // Roots whose trees contain such a category. They must be deleted after the category users.
-  const rootsWithUsedCategories = new Set<Id64String>();
-  const codeScopeReferencesInTrees: BlockingReference[] = [];
+  // Elements in the trees that use a definition that is also in the trees. Native validation refuses the definition while they exist.
+  const usersOfDeletedDefinitions = new Set<Id64String>();
+  // Roots whose trees contain such a definition. They must be deleted after its users.
+  const rootsWithUsedDefinitions = new Set<Id64String>();
+  const addUsedDefinition = (definitionId: Id64String) => {
+    for (const rootId of trees.rootsByElement.get(definitionId) ?? [])
+      rootsWithUsedDefinitions.add(rootId);
+  };
+  const sameCallReferences: TreeReference[] = [];
   for (const reference of references) {
-    const { referencingId, referencedId, isCategory } = reference;
-    if (isCategory) {
-      // Native validation accepts code-scope references from the same call, but not category references.
-      usersOfDeletedCategories.add(referencingId);
-      for (const rootId of trees.rootsByElement.get(referencedId) ?? [])
-        rootsWithUsedCategories.add(rootId);
+    if (reference.usersFirst) {
+      usersOfDeletedDefinitions.add(reference.referencingId);
+      addUsedDefinition(reference.referencedId);
     } else {
-      codeScopeReferencesInTrees.push(reference);
+      sameCallReferences.push(reference);
     }
   }
-  if (usersOfDeletedCategories.size === 0) return [[...trees.roots]];
+  // Only native code can tell which geometry uses a geometry part, material, texture, line style, or sub-category,
+  // so every geometric element in the trees counts as a user of every such definition. Deleting the trees that
+  // contain those definitions last is enough unless one of them also contains a geometric element; only then are
+  // all geometric elements queried, to delete them as roots of their own.
+  const geometryRoots = new Set<Id64String>();
+  for (const id of geometryDefinitionIds)
+    for (const rootId of trees.rootsByElement.get(id) ?? [])
+      geometryRoots.add(rootId);
+  if (geometryRoots.size > 0) {
+    const elementsInGeometryTrees = [...trees.rootsByElement]
+      .filter(([, rootIds]) => rootIds.some((id) => geometryRoots.has(id)))
+      .map(([id]) => id);
+    if (
+      (await queryGeometricElements(targetDb, elementsInGeometryTrees)).length >
+      0
+    )
+      for (const id of await queryGeometricElements(
+        targetDb,
+        trees.rootsByElement.keys()
+      ))
+        usersOfDeletedDefinitions.add(id);
+    for (const rootId of geometryRoots) rootsWithUsedDefinitions.add(rootId);
+  }
+  if (rootsWithUsedDefinitions.size === 0) return [[...trees.roots]];
   // True when a root deleted in the last call removes the element.
-  const isInTreeWithUsedCategory = (id: Id64String) =>
+  const isInTreeWithUsedDefinition = (id: Id64String) =>
     (trees.rootsByElement.get(id) ?? []).some((rootId) =>
-      rootsWithUsedCategories.has(rootId)
+      rootsWithUsedDefinitions.has(rootId)
     );
   // True when a root deleted in the first call removes the element. An element in overlapping trees can satisfy both checks.
   const isInOtherTree = (id: Id64String) =>
     (trees.rootsByElement.get(id) ?? []).some(
-      (rootId) => !rootsWithUsedCategories.has(rootId)
+      (rootId) => !rootsWithUsedDefinitions.has(rootId)
     );
-  // Deleting the other roots first works unless a category user shares a tree with a used category, or an other tree scopes the code of an element deleted later.
+  // Deleting the other roots first works unless a user shares a tree with a used definition, or an other tree
+  // contains an element that an element deleted later references, such as its code scope.
   const canDeleteOtherRootsFirst =
-    ![...usersOfDeletedCategories].some(isInTreeWithUsedCategory) &&
-    !codeScopeReferencesInTrees.some(
+    ![...usersOfDeletedDefinitions].some(isInTreeWithUsedDefinition) &&
+    !sameCallReferences.some(
       ({ referencingId, referencedId }) =>
-        isInTreeWithUsedCategory(referencingId) && isInOtherTree(referencedId)
+        isInTreeWithUsedDefinition(referencingId) && isInOtherTree(referencedId)
     );
   if (canDeleteOtherRootsFirst) {
+    // There are no other roots only when every tree contains a geometry definition and nothing in the trees uses a
+    // definition through a queried reference.
     const otherRoots = [...trees.roots].filter(
-      (id) => !rootsWithUsedCategories.has(id)
+      (id) => !rootsWithUsedDefinitions.has(id)
     );
     return otherRoots.length > 0
-      ? [otherRoots, [...rootsWithUsedCategories]]
-      : [[...rootsWithUsedCategories]];
+      ? [otherRoots, [...rootsWithUsedDefinitions]]
+      : [[...rootsWithUsedDefinitions]];
   }
 
-  // Otherwise delete the category users and their code dependents as roots of their own. Core refuses to delete
-  // an element whose code scopes an element deleted in a later call, so the first call also takes code dependents
+  // Otherwise delete the users and their code dependents as roots of their own. Core refuses to delete an
+  // element whose code scopes an element deleted in a later call, so the first call also takes code dependents
   // that have a parent. They are all in the trees; one outside them would have kept its code scope above.
   const userTrees = await queryDeletionTrees(
     targetDb,
-    usersOfDeletedCategories,
+    usersOfDeletedDefinitions,
     true
   );
   const remainingRoots = [...trees.roots].filter(
@@ -246,21 +274,68 @@ async function queryKeptElements(
   return keptIds;
 }
 
-interface BlockingReference {
+interface TreeReference {
   readonly referencingId: Id64String;
   readonly referencedId: Id64String;
-  readonly isCategory: boolean;
+  /** True when native validation refuses the referenced element while the referencing element exists, even when
+   * both are deleted in the same call. False when deleting them in the same call is enough.
+   */
+  readonly usersFirst: boolean;
 }
 
-/** Finds BisCore references that block deleting the specified elements and that [[queryDeletionTrees]] does not follow.
- * Parent and model references are not included because the deleted trees contain every child and modeled element.
+interface TreeReferences {
+  readonly references: readonly TreeReference[];
+  /** Geometry parts, materials, textures, line styles, and non-default sub-categories in the trees. Geometry
+   * references them, so their users can't be queried.
+   */
+  readonly geometryDefinitionIds: readonly Id64String[];
+}
+
+/** Finds BisCore references to the specified elements that native deletion validates and that [[queryDeletionTrees]]
+ * does not follow. Parent and model references are not included because the deleted trees contain every child and
+ * modeled element.
  */
-async function queryBlockingReferences(
+async function queryReferences(
   targetDb: IModelDb,
   elementIds: Iterable<Id64String>
-): Promise<BlockingReference[]> {
-  const query = `
-    SELECT element.ECInstanceId AS referencingId, element.Category.Id AS referencedId, 1 AS isCategory
+): Promise<TreeReferences> {
+  const references: TreeReference[] = [];
+  const geometryDefinitionIds: Id64String[] = [];
+  // Any element can be a code scope. Every other validated reference targets a definition element, so those are
+  // queried only for the definitions among the elements, which are usually few or none.
+  const definitionIds: Id64String[] = [];
+  const firstQuery = `
+    SELECT element.ECInstanceId AS referencingId, element.CodeScope.Id AS referencedId, 0 AS isDefinition
+    FROM bis.Element element
+    INNER JOIN IdSet(:elementIds) ids ON ids.id = element.CodeScope.Id
+    UNION ALL
+    SELECT definition.ECInstanceId, definition.ECInstanceId, 1
+    FROM bis.DefinitionElement definition
+    INNER JOIN IdSet(:elementIds) ids ON ids.id = definition.ECInstanceId
+  `;
+  for await (const row of targetDb.createQueryReader(
+    firstQuery,
+    new QueryBinder().bindIdSet("elementIds", elementIds),
+    { usePrimaryConn: true }
+  )) {
+    if (row.isDefinition === 1) definitionIds.push(row.referencedId);
+    else
+      references.push({
+        referencingId: row.referencingId,
+        referencedId: row.referencedId,
+        usersFirst: false,
+      });
+  }
+  if (definitionIds.length === 0) return { references, geometryDefinitionIds };
+
+  // Classes and properties added in later BisCore versions.
+  const sectionReferences = await querySectionViewReferences(targetDb);
+  // Kind 1: native validation refuses the definition while the referencing element exists, even in the same call.
+  // Kind 0: deleting both in the same call is enough. Native validation treats a default sub-category, whose ID
+  // follows its category's, as used by the category unless both are deleted.
+  // Kind 2: a definition that geometry references, so its users can't be queried.
+  const definitionQuery = `
+    SELECT element.ECInstanceId AS referencingId, element.Category.Id AS referencedId, 1 AS kind
     FROM bis.GeometricElement3d element
     INNER JOIN IdSet(:elementIds) ids ON ids.id = element.Category.Id
     UNION ALL
@@ -268,20 +343,110 @@ async function queryBlockingReferences(
     FROM bis.GeometricElement2d element
     INNER JOIN IdSet(:elementIds) ids ON ids.id = element.Category.Id
     UNION ALL
-    SELECT element.ECInstanceId, element.CodeScope.Id, 0
-    FROM bis.Element element
-    INNER JOIN IdSet(:elementIds) ids ON ids.id = element.CodeScope.Id
+    SELECT element.ECInstanceId, element.View.Id, 1
+    FROM bis.ViewAttachment element
+    INNER JOIN IdSet(:elementIds) ids ON ids.id = element.View.Id
+    ${sectionReferences
+      .map(
+        ({ className, propertyName }) => `
+    UNION ALL
+    SELECT element.ECInstanceId, element.${propertyName}.Id, 1
+    FROM bis.${className} element
+    INNER JOIN IdSet(:elementIds) ids ON ids.id = element.${propertyName}.Id`
+      )
+      .join("")}
+    UNION ALL
+    SELECT viewDefinition.ECInstanceId, viewDefinition.DisplayStyle.Id, 0
+    FROM bis.ViewDefinition viewDefinition
+    INNER JOIN IdSet(:elementIds) ids ON ids.id = viewDefinition.DisplayStyle.Id
+    UNION ALL
+    SELECT viewDefinition.ECInstanceId, viewDefinition.CategorySelector.Id, 0
+    FROM bis.ViewDefinition viewDefinition
+    INNER JOIN IdSet(:elementIds) ids ON ids.id = viewDefinition.CategorySelector.Id
+    UNION ALL
+    SELECT viewDefinition.ECInstanceId, viewDefinition.ModelSelector.Id, 0
+    FROM bis.SpatialViewDefinition viewDefinition
+    INNER JOIN IdSet(:elementIds) ids ON ids.id = viewDefinition.ModelSelector.Id
+    UNION ALL
+    SELECT subCategory.Parent.Id, subCategory.ECInstanceId, 0
+    FROM bis.SubCategory subCategory
+    INNER JOIN IdSet(:elementIds) ids ON ids.id = subCategory.ECInstanceId
+    WHERE CAST(subCategory.ECInstanceId AS INTEGER) = CAST(subCategory.Parent.Id AS INTEGER) + 1
+    UNION ALL
+    SELECT subCategory.ECInstanceId, subCategory.ECInstanceId, 2
+    FROM bis.SubCategory subCategory
+    INNER JOIN IdSet(:elementIds) ids ON ids.id = subCategory.ECInstanceId
+    WHERE CAST(subCategory.ECInstanceId AS INTEGER) <> CAST(subCategory.Parent.Id AS INTEGER) + 1
+    ${["GeometryPart", "RenderMaterial", "Texture", "LineStyle"]
+      .map(
+        (className) => `
+    UNION ALL
+    SELECT element.ECInstanceId, element.ECInstanceId, 2
+    FROM bis.${className} element
+    INNER JOIN IdSet(:elementIds) ids ON ids.id = element.ECInstanceId`
+      )
+      .join("")}
   `;
-  const references: BlockingReference[] = [];
+  for await (const row of targetDb.createQueryReader(
+    definitionQuery,
+    new QueryBinder().bindIdSet("elementIds", definitionIds),
+    { usePrimaryConn: true }
+  )) {
+    if (row.kind === 2) geometryDefinitionIds.push(row.referencedId);
+    else
+      references.push({
+        referencingId: row.referencingId,
+        referencedId: row.referencedId,
+        usersFirst: row.kind === 1,
+      });
+  }
+  return { references, geometryDefinitionIds };
+}
+
+/** Finds the BisCore section classes and view properties that exist in the iModel's schema. */
+async function querySectionViewReferences(
+  targetDb: IModelDb
+): Promise<{ className: string; propertyName: string }[]> {
+  const query = `
+    SELECT classDef.Name AS className, propertyDef.Name AS propertyName
+    FROM meta.ECPropertyDef propertyDef
+    INNER JOIN meta.ECClassDef classDef ON classDef.ECInstanceId = propertyDef.Class.Id
+    INNER JOIN meta.ECSchemaDef schemaDef ON schemaDef.ECInstanceId = classDef.Schema.Id
+    WHERE schemaDef.Name = 'BisCore'
+      AND ((classDef.Name = 'SectionDrawing' AND propertyDef.Name = 'SpatialView')
+        OR (classDef.Name = 'SectionDrawingLocation' AND propertyDef.Name = 'SectionView'))
+  `;
+  const references: { className: string; propertyName: string }[] = [];
+  for await (const row of targetDb.createQueryReader(query, undefined, {
+    usePrimaryConn: true,
+  }))
+    references.push({
+      className: row.className,
+      propertyName: row.propertyName,
+    });
+  return references;
+}
+
+/** Finds the 2D and 3D geometric elements among the specified elements. */
+async function queryGeometricElements(
+  targetDb: IModelDb,
+  elementIds: Iterable<Id64String>
+): Promise<Id64String[]> {
+  // Joining the abstract bis.GeometricElement with an IdSet is quadratic, so query its 3D and 2D subclasses.
+  const query = `
+    SELECT element.ECInstanceId AS id
+    FROM bis.GeometricElement3d element
+    INNER JOIN IdSet(:elementIds) ids ON ids.id = element.ECInstanceId
+    UNION ALL
+    SELECT element.ECInstanceId
+    FROM bis.GeometricElement2d element
+    INNER JOIN IdSet(:elementIds) ids ON ids.id = element.ECInstanceId
+  `;
+  const ids: Id64String[] = [];
   const params = new QueryBinder().bindIdSet("elementIds", elementIds);
   for await (const row of targetDb.createQueryReader(query, params, {
     usePrimaryConn: true,
-  })) {
-    references.push({
-      referencingId: row.referencingId,
-      referencedId: row.referencedId,
-      isCategory: row.isCategory === 1,
-    });
-  }
-  return references;
+  }))
+    ids.push(row.id);
+  return ids;
 }

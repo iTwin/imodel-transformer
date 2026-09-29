@@ -28,21 +28,31 @@ flowchart TD
     B --> C{"Does anything outside the trees<br/>use an element in them?"}
     C -->|"Yes"| D["Keep that element and what it needs"]
     D -->|"Plan again"| B
-    C -->|"No"| E["Delete the trees in one or two native calls,<br/>category users before their categories"]
+    C -->|"No"| E["Delete the trees in one or two native calls,<br/>users before the definitions they use"]
     E --> F{"Did a call fail?"}
     F -->|"No"| G["Done"]
     F -->|"Yes"| H["Throw ElementBulkDeleteFailed"]
 ```
 
-Before deleting anything, the importer checks the BisCore references that would block the deletion: the categories of 2D and 3D geometric elements, and code scopes. Parent and model references need no check, because the trees contain every child and sub-model element.
+Before deleting anything, the importer checks the BisCore references that iTwin.js core validates when it deletes an element:
 
-iTwin.js core refuses to delete a category that another element in the same native call still uses, even when that element is also being deleted. So when the trees contain both a category and elements that use it, the importer deletes those elements in a first call and the rest in a second call.
+- the category of a 2D or 3D geometric element;
+- the code scope of any element;
+- the view definition that a view attachment, section drawing, or section drawing location shows;
+- the display style, category selector, and model selector of a view definition;
+- a category's default sub-category, which core treats as used by the category.
 
-References from domain schemas aren't checked in advance. Core still validates them on every native call, and the importer never passes `skipFKConstraintValidations`, which lets core delete a category that is still in use. If core refuses a deletion, the importer throws `ElementBulkDeleteFailed`.
+Parent and model references need no check, because the trees contain every child and sub-model element.
+
+Core refuses to delete a category or view definition that another element in the same native call still uses, even when that element is also being deleted. So when the trees contain both, the importer deletes the elements that use them in a first call and the rest in a second call. Code scopes and a view definition's display style and selectors can be deleted in the same call as the elements that use them.
+
+Geometry can also use definitions: geometry parts, render materials, textures, line styles, and non-default sub-categories. Only core can read which geometry uses them. When the trees contain one of these, the importer deletes the trees' geometric elements first, but it doesn't check whether an element outside the trees still uses it. If one does, core refuses the deletion and the importer throws `ElementBulkDeleteFailed`.
+
+References from domain schemas aren't checked in advance either. Core still validates them on every native call, and the importer never passes `skipFKConstraintValidations`, which lets core delete a category that is still in use.
 
 ## Elements that are still in use
 
-When an element outside the deletion trees uses a category in them as its category, or an element in them as its code scope, the importer keeps that category or element instead of deleting it. For example, a category stays when a target element that didn't come from the source still uses it. The importer also keeps:
+When an element outside the deletion trees uses an element in them through one of the checked references, such as its category, its code scope, or a view definition's display style, the importer keeps the used element instead of deleting it. For example, a category stays when a target element that didn't come from the source still uses it. The importer also keeps:
 
 - the kept element's children and sub-model contents, such as a category's sub-categories;
 - the elements whose deletion would delete a kept element or leave its parent, model, or code scope missing, such as the definition model that contains a kept category.
@@ -51,7 +61,7 @@ Everything else requested is still deleted, including other requested contents o
 
 ## Handling deletion errors
 
-A native deletion call can still fail, for example because of a reference from a domain schema. The importer then throws an `ITwinError` with scope `IModelTransformerErrorScope` and key `IModelTransformerError.ElementBulkDeleteFailed`. Its `status`, `sqlDeleteStatus`, and `failedIds` describe the failed call. Deletions from that call and earlier ones are still pending in the transaction, so abandon the transaction before fixing the dependency and retrying:
+A native deletion call can still fail, for example because geometry outside the trees uses a geometry part in them, or because of a reference from a domain schema. The importer then throws an `ITwinError` with scope `IModelTransformerErrorScope` and key `IModelTransformerError.ElementBulkDeleteFailed`. Its `status`, `sqlDeleteStatus`, and `failedIds` describe the failed call. Deletions from that call and earlier ones are still pending in the transaction, so abandon the transaction before fixing the dependency and retrying:
 
 ```ts
 [[include:ErrorHandling.handle-bulk-delete-errors]]
