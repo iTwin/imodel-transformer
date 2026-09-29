@@ -132,7 +132,20 @@ describe("IModelExporter changed-element traversal", () => {
     return { sourceDb, ids, handler, exporter, changes };
   }
 
-  it("exports only changed elements and filters each unchanged ancestor once", async () => {
+  /** Unchanged children of the root Subject that the iModel creates, such as the dictionary partition.
+   * Only the legacy path visits them, because they have no changed descendants.
+   */
+  function queryBuiltInRootChildren(
+    sourceDb: SnapshotDb,
+    ids: Map<string, Id64String>
+  ): Id64String[] {
+    const treeIds = new Set(ids.values());
+    return sourceDb.elements
+      .queryChildren(IModel.rootSubjectId)
+      .filter((id) => !treeIds.has(id));
+  }
+
+  it("exports only changed elements and filters the unchanged elements it visits", async () => {
     const { sourceDb, ids, handler, exporter, changes } = setupChangesMode(
       "OnlyChangedExported"
     );
@@ -143,7 +156,7 @@ describe("IModelExporter changed-element traversal", () => {
 
       await exporter.exportModelContents(IModel.repositoryModelId);
 
-      // unchanged ancestors are filtered top-down when A1a is reached, but not exported
+      // unchanged ancestors are filtered as they are visited, but not exported
       expect(handler.events).to.deep.equal([
         ["should", IModel.rootSubjectId],
         ["should", ids.get("A")!],
@@ -208,14 +221,21 @@ describe("IModelExporter changed-element traversal", () => {
         await exporter.exportModelContents(IModel.repositoryModelId);
 
         // A is rejected via shouldExportElement: onSkipElement fires and the whole
-        // subtree is pruned, dropping the changed descendants A1a and A2 silently
+        // subtree is pruned, dropping the changed descendants A1a and A2 silently.
+        // The legacy path also visits and filters unchanged elements without
+        // changed descendants: the built-in root children and B1.
+        const legacy = path === "legacy";
         expect(handler.events).to.deep.equal([
           ["should", IModel.rootSubjectId],
+          ...(legacy ? queryBuiltInRootChildren(sourceDb, ids) : []).map(
+            (id) => ["should", id]
+          ),
           ["should", ids.get("A")!],
           ["skip", ids.get("A")!],
           ["should", ids.get("B")!],
           ["pre", ids.get("B")!],
           ["export", ids.get("B")!, true],
+          ...(legacy ? [["should", ids.get("B1")!]] : []),
         ]);
       } finally {
         sourceDb.close();
@@ -227,9 +247,9 @@ describe("IModelExporter changed-element traversal", () => {
     const { sourceDb, ids, handler, exporter, changes } =
       setupChangesMode("UnchangedExcluded");
     try {
-      // A1 is untouched by the changeset but explicitly excluded; the exclusion
-      // check runs before the changed-set check, so it still gets onSkipElement
-      // and its changed descendant is suppressed
+      // A1 is untouched by the changeset but explicitly excluded; it still gets
+      // onSkipElement after its accepted ancestors are filtered, and its changed
+      // descendant is suppressed
       exporter.excludeElement(ids.get("A1")!);
       changes.element.insertIds.add(ids.get("A1a")!);
       changes.element.updateIds.add(ids.get("B")!);
@@ -237,8 +257,9 @@ describe("IModelExporter changed-element traversal", () => {
       await exporter.exportModelContents(IModel.repositoryModelId);
 
       expect(handler.events).to.deep.equal([
-        ["skip", ids.get("A1")!],
         ["should", IModel.rootSubjectId],
+        ["should", ids.get("A")!],
+        ["skip", ids.get("A1")!],
         ["should", ids.get("B")!],
         ["pre", ids.get("B")!],
         ["export", ids.get("B")!, true],
@@ -258,7 +279,33 @@ describe("IModelExporter changed-element traversal", () => {
 
       await exporter.exportModelContents(IModel.repositoryModelId);
 
-      expect(handler.events).to.deep.equal([["skip", ids.get("A")!]]);
+      // A is skipped by ID without a shouldExportElement call
+      expect(handler.events).to.deep.equal([
+        ["should", IModel.rootSubjectId],
+        ["skip", ids.get("A")!],
+      ]);
+    } finally {
+      sourceDb.close();
+    }
+  });
+
+  it("does not reach an element excluded by ID under a rejected ancestor", async () => {
+    const { sourceDb, ids, handler, exporter, changes } = setupChangesMode(
+      "ExcludedUnderRejected"
+    );
+    try {
+      exporter.excludeElement(ids.get("A1")!);
+      handler.rejectedIds.add(ids.get("A")!);
+      changes.element.insertIds.add(ids.get("A1a")!);
+
+      await exporter.exportModelContents(IModel.repositoryModelId);
+
+      // as in a full export, rejecting A prunes its subtree before A1 is reached
+      expect(handler.events).to.deep.equal([
+        ["should", IModel.rootSubjectId],
+        ["should", ids.get("A")!],
+        ["skip", ids.get("A")!],
+      ]);
     } finally {
       sourceDb.close();
     }
@@ -481,6 +528,8 @@ describe("IModelExporter changed-element traversal", () => {
         await exporter.exportModelContents(IModel.repositoryModelId);
 
         const idToName = new Map([...ids].map(([name, id]) => [id, name]));
+        for (const id of queryBuiltInRootChildren(sourceDb, ids))
+          idToName.set(id, "builtIn");
         return handler.events.map(([kind, id, ...rest]) => [
           kind,
           idToName.get(id) ?? id,
@@ -491,8 +540,17 @@ describe("IModelExporter changed-element traversal", () => {
       }
     };
 
-    const expectedEvents = [
+    // Both paths filter each visited element in full-export order. The legacy
+    // path also visits the unchanged built-in root children, which have no
+    // changed descendants.
+    const expectedEvents = (useLegacy: boolean) => [
       ["should", IModel.rootSubjectId],
+      ...(useLegacy
+        ? [
+            ["should", "builtIn"],
+            ["should", "builtIn"],
+          ]
+        : []),
       ["should", "A"],
       ["pre", "A"],
       ["export", "A", true],
@@ -505,8 +563,8 @@ describe("IModelExporter changed-element traversal", () => {
       ["skip", "A2"],
       ["skip", "B"],
     ];
-    expect(await runPath(true)).to.deep.equal(expectedEvents);
-    expect(await runPath(false)).to.deep.equal(expectedEvents);
+    expect(await runPath(true)).to.deep.equal(expectedEvents(true));
+    expect(await runPath(false)).to.deep.equal(expectedEvents(false));
   });
 
   it("does not call queryChildren when exporting changes on the direct path", async () => {

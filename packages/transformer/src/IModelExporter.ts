@@ -178,7 +178,7 @@ export abstract class IModelExportHandler {
 
   /** If `true` is returned, then the element will be exported.
    * @note This method can optionally be overridden to exclude an individual Element (and its children and ElementAspects) from the export. The base implementation always returns `true`.
-   * @note During [IModelExporter.exportChanges]($transformer), this method is also called once for each unchanged ancestor of a changed element, so that a rejected ancestor excludes its changed descendants.
+   * @note During [IModelExporter.exportChanges]($transformer), this method is called for every element the traversal visits, including unchanged elements. A rejected unchanged element excludes its changed descendants; an accepted unchanged element is not exported, but its children are visited.
    */
   public async shouldExportElement(_element: Element): Promise<boolean> {
     return true;
@@ -339,10 +339,7 @@ export class IModelExporter {
     useForest: boolean;
   };
   /** Accepted unchanged elements on the current change-processing path. */
-  private readonly _unchangedAncestors: {
-    elementId: Id64String;
-    accepted?: boolean;
-  }[] = [];
+  private readonly _acceptedUnchangedAncestorIds: Id64String[] = [];
   /** Bounds the additional hierarchy retained by the sparse changed-element path. */
   private readonly _changedElementForestElementLimit = 100_000;
 
@@ -1115,24 +1112,24 @@ export class IModelExporter {
     if (childVisit === "visit") return this.exportChildElements(elementId);
     if (childVisit === "passThrough") {
       // The unchanged element was accepted by the filter; record it for required-reference mapping.
-      this._unchangedAncestors.push({ elementId, accepted: true });
+      this._acceptedUnchangedAncestorIds.push(elementId);
       try {
         await this.exportChildElements(elementId);
       } finally {
-        this._unchangedAncestors.pop();
+        this._acceptedUnchangedAncestorIds.pop();
       }
     }
   }
 
-  /** Returns the filter result for an unchanged ancestor on the current change-processing path, or `undefined` if it has not been filtered.
+  /** Returns `true` for an accepted unchanged ancestor on the current change-processing path, or `undefined` otherwise.
    * @internal
    */
   public getUnchangedAncestorFilterResult(
     elementId: Id64String
   ): boolean | undefined {
-    return this._unchangedAncestors.find(
-      (ancestor) => ancestor.elementId === elementId
-    )?.accepted;
+    return this._acceptedUnchangedAncestorIds.includes(elementId)
+      ? true
+      : undefined;
   }
 
   /** Runs the export callbacks for a single element without visiting its children.
