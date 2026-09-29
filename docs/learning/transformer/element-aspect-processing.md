@@ -18,7 +18,7 @@ flowchart TD
     T --> E
     E --> C["Traverse source elements and record accepted owners"]
     C --> CO["ElementAspectExportCoordinator<br/>internal implementation detail, not an API"]
-    CO -->|"prepare mapped target owners"| CL["ElementAspectCleanup<br/>internal implementation detail, not an API"]
+    CO -->|"prepare and complete mapped target owners"| CL["ElementAspectCleanup<br/>internal implementation detail, not an API"]
     CL --> I["IModelImporter and active EditTxn"]
     CO -->|"bounded, deduplicated owner batches"| P["ElementAspectExportProcessor<br/>internal implementation detail, not an API"]
     P -->|"accepted aspect callbacks"| H{"Registered IModelExportHandler"}
@@ -53,17 +53,28 @@ sequenceDiagram
         E->>CO: Record accepted source owner
         CO->>T: Prepare owner batch
         T->>T: Map source owners to target owners
-        T->>CL: Delete replaceable target aspects
-        CL->>I: Invoke deletion hook with full aspect entity
+        T->>CL: Record replaceable target aspects
         CO->>P: Export current source aspects for owner batch
         P->>T: Accepted unique and multi-aspect callbacks
-        T->>I: Import rebuilt target aspects
+        T->>I: Import aspects, reusing matching target aspects
+        I->>CL: Mark reused target aspects
+        CO->>T: Complete owner batch
+        T->>CL: Delete recorded aspects that were not reused
+        CL->>I: Invoke deletion hook with full aspect entity
     end
 
     T->>T: Complete deferred aspect references
 ```
 
-Cleanup and rebuild use the same accepted owner set. If an element changes, the exporter rebuilds all accepted current aspects for that owner, including aspects without their own change record. This prevents cleanup from deleting unchanged aspects and handles aspect classes that became empty.
+Reconciliation uses the same accepted owner set for recording target aspects and exporting source aspects. If an element changes, the exporter exports all accepted current aspects for that owner, including aspects without their own change record. The importer matches each source aspect to an existing target aspect of the same class on the same owner:
+
+- A unique aspect matches the owner's target aspect of the same class.
+- Multi-aspects of one class are matched in order. Extra source aspects are inserted, and extra target aspects are deleted.
+- A matched aspect is updated only when its properties differ, and it keeps its target ID.
+
+After the owner batch is exported, cleanup deletes the recorded target aspects that the importer did not reuse. That removes aspects deleted from the source, aspects of classes that became empty, and aspects rejected by class exclusion or `shouldExportElementAspect`. A rerun with no source changes therefore inserts, updates, and deletes no aspects. `onInsertElementAspect`, `onUpdateElementAspect`, and `onDeleteElementAspect` run only for those actual writes.
+
+iModel unique-aspect writes treat a class and its base or derived classes as one slot for an element. When a unique aspect has no exact-class match, the importer first deletes the owner's unique aspects of a base or derived class, through the deletion hook, and then inserts the new aspect.
 
 ## Customization points
 
@@ -81,7 +92,7 @@ The exporter applies owner acceptance first, then class exclusion, then `shouldE
 
 ## Change processing
 
-For an accepted changed owner, the transformer removes replaceable target aspects through the active `EditTxn` and rebuilds the owner from the source. Excluded classes and transformer provenance aspects are not removed.
+For an accepted changed owner, the transformer reconciles the owner's replaceable target aspects with its current source aspects through the active `EditTxn`, as described above. Excluded classes and transformer provenance aspects are not removed.
 
 Custom inserted and updated aspect changes infer the owner while the source aspect exists. Deleted or missing source aspects cannot provide their owner, so `addCustomAspectChange` requires the source owner ID and throws when it is omitted:
 
@@ -104,11 +115,11 @@ The processor returns before excluded-class resolution or concrete-class queries
 
 A new outermost coordinator scope clears the cached aspect class metadata and expanded excluded class IDs. Nested scopes and batch flushes reuse those caches. The values remain available after the scope ends so internal work that completes the same operation can reuse them. The next outermost scope clears them. Configured excluded class names remain in effect.
 
-## Cleanup paging and importer hooks
+## Cleanup and importer hooks
 
-Target cleanup joins each target owner batch through `IdSet(:elementIds)` and queries replaceable unique and multi-aspect IDs in pages. It reads and buffers all IDs in a page before deleting any aspect, so deletion does not mutate a table while its query is still reading it. Cleanup then loads each candidate with `elements.getAspect` and invokes the importer deletion hook with the full concrete `ElementAspect`. Overrides can inspect class-specific properties before calling the base deletion behavior.
+Before an owner batch is exported, target cleanup joins the target owner batch through `IdSet(:elementIds)` and records the IDs of its replaceable unique and multi-aspects. Excluded target classes and transformer provenance aspects are never recorded. The importer marks each recorded aspect it reuses or deletes itself. After the batch is exported, cleanup loads each remaining aspect with `elements.getAspect` and invokes the importer deletion hook with the full concrete `ElementAspect`. Overrides can inspect class-specific properties before calling the base deletion behavior. Deleting requires an active target `EditTxn`.
 
-Excluded target classes and transformer provenance aspects are filtered out before candidates reach the hook. Cleanup requires an active target `EditTxn`.
+Only aspect matches made by `IModelImporter.importElementUniqueAspect` and `IModelImporter.importElementMultiAspects` count as reuse. A custom handler that writes a recorded target aspect some other way does not stop cleanup from deleting it.
 
 ## Scope memory and large models
 

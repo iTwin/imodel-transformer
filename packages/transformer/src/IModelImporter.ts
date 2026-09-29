@@ -24,6 +24,7 @@ import {
   IModel,
   IModelError,
   ModelProps,
+  QueryBinder,
   RelatedElement,
   SubCategoryProps,
 } from "@itwin/core-common";
@@ -43,7 +44,7 @@ import {
 } from "@itwin/core-backend";
 import type { RelationshipPropsForDelete } from "./IModelTransformer";
 import { strict as assert } from "node:assert";
-import { ElementAspectCleanup } from "./ElementAspectCleanup";
+import { ElementAspectCleanup, tryGetAspect } from "./ElementAspectCleanup";
 import {
   EntityClass,
   PropertyType,
@@ -128,7 +129,7 @@ export class IModelImporter {
 
   private readonly _elementAspectCleanup: ElementAspectCleanup;
 
-  /** Deletes replaceable ElementAspects through this importer's customized deletion callback.
+  /** Deletes replaceable ElementAspects that an owner batch did not reuse, through this importer's customized deletion callback.
    * @internal
    */
   public get elementAspectCleanup(): ElementAspectCleanup {
@@ -583,17 +584,58 @@ export class IModelImporter {
   public async importElementUniqueAspect(
     aspectProps: ElementAspectProps
   ): Promise<Id64String> {
-    const aspects: ElementAspect[] = this.targetDb.elements.getAspects(
-      aspectProps.element.id,
-      aspectProps.classFullName
-    );
-    if (aspects.length === 0) {
+    const elementId = aspectProps.element.id;
+    const existing = this.targetDb.elements
+      .getAspects(elementId, aspectProps.classFullName)
+      .find((aspect) => isSameClass(aspect, aspectProps.classFullName));
+    if (existing === undefined) {
+      // iModel unique-aspect writes treat base and derived classes as one slot:
+      // inserting replaces an aspect of a derived class, and deleting an aspect
+      // of a base class also deletes derived ones. Delete related aspects first
+      // so deletion hooks run and later deletions cannot remove the new aspect.
+      for (const aspectId of await this.queryRelatedUniqueAspectIds(
+        elementId,
+        aspectProps.classFullName
+      )) {
+        this._elementAspectCleanup.retain(aspectId);
+        const aspect = tryGetAspect(this.targetDb, aspectId);
+        if (aspect !== undefined) await this.onDeleteElementAspect(aspect);
+      }
       return this.onInsertElementAspect(aspectProps);
-    } else if (hasEntityChanged(aspects[0], aspectProps)) {
-      aspectProps.id = aspects[0].id;
+    }
+    this._elementAspectCleanup.retain(existing.id);
+    if (hasEntityChanged(existing, aspectProps)) {
+      aspectProps.id = existing.id;
       await this.onUpdateElementAspect(aspectProps);
     }
-    return aspects[0].id;
+    return existing.id;
+  }
+
+  /** Returns the element's unique aspects whose class is a base or derived class of `classFullName`, excluding that class itself. */
+  private async queryRelatedUniqueAspectIds(
+    elementId: Id64String,
+    classFullName: string
+  ): Promise<Id64String[]> {
+    const ids: Id64String[] = [];
+    for await (const row of this.targetDb.createQueryReader(
+      `SELECT aspect.ECInstanceId id FROM bis.ElementUniqueAspect aspect
+       WHERE aspect.Element.Id = :elementId
+         AND aspect.ECClassId <> ec_classid(:classFullName)
+         AND (
+           aspect.ECClassId IN (
+             SELECT SourceECInstanceId FROM meta.ClassHasAllBaseClasses
+             WHERE TargetECInstanceId = ec_classid(:classFullName))
+           OR aspect.ECClassId IN (
+             SELECT TargetECInstanceId FROM meta.ClassHasAllBaseClasses
+             WHERE SourceECInstanceId = ec_classid(:classFullName)))`,
+      new QueryBinder()
+        .bindId("elementId", elementId)
+        .bindString("classFullName", classFullName.replace(".", ":")),
+      { usePrimaryConn: true }
+    )) {
+      ids.push(row.id);
+    }
+    return ids;
   }
 
   /** Import the collection of ElementMultiAspects into the target iModel.
@@ -632,10 +674,17 @@ export class IModelImporter {
       aspectClassFullName,
       proposedAspects,
     ] of proposedAspectsByClass) {
+      // getAspects is polymorphic; match only aspects of the proposed class so
+      // subclass aspects are handled by their own group.
       const currentAspects = this.targetDb.elements
         .getAspects(elementId, aspectClassFullName)
         .map((props, index) => ({ props, index }) as const)
-        .filter(({ props }) => filterFunc(props));
+        .filter(
+          ({ props }) =>
+            isSameClass(props, aspectClassFullName) && filterFunc(props)
+        );
+      for (const { props } of currentAspects)
+        this._elementAspectCleanup.retain(props.id);
 
       if (proposedAspects.length >= currentAspects.length) {
         for (let index = 0; index < proposedAspects.length; index++) {
@@ -998,6 +1047,13 @@ export class IModelImporter {
   public finalize(): void {
     this.resolveDuplicateCodeValues();
   }
+}
+
+function isSameClass(aspect: ElementAspect, classFullName: string): boolean {
+  return (
+    aspect.classFullName.toLowerCase() ===
+    classFullName.replace(".", ":").toLowerCase()
+  );
 }
 
 /** Returns true if a change within an Entity is detected.

@@ -1,0 +1,7 @@
+{
+  "type": "patch",
+  "comment": "Reconcile ElementAspects with existing target aspects instead of deleting and reinserting every replaceable aspect of each accepted owner, so unchanged aspects keep their IDs and a rerun without source changes writes no aspects.",
+  "packageName": "@itwin/imodel-transformer",
+  "email": "50554904+hl662@users.noreply.github.com",
+  "dependentChangeType": "patch"
+}

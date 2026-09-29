@@ -118,7 +118,96 @@ describe("IModelImporter", () => {
     }
   });
 
-  it("deleteElementAspects preserves excluded and transformer provenance aspects", async () => {
+  it("aspect imports match existing aspects of the exact class only", async () => {
+    const targetDb = StandaloneDb.createEmpty(
+      IModelTransformerTestUtils.prepareOutputFile(
+        "IModelImporter",
+        "ExactClassAspectMatching.bim"
+      ),
+      { rootSubject: { name: "ExactClassAspectMatching" } }
+    );
+    try {
+      // Derived classes are declared first so their ECClassIds sort before
+      // their base classes in polymorphic getAspects results.
+      await targetDb.importSchemaStrings([
+        `<?xml version="1.0" encoding="UTF-8"?>
+<ECSchema schemaName="TestExactClassSchema" alias="tecs" version="01.00.00" xmlns="http://www.bentley.com/schemas/Bentley.ECXML.3.1">
+  <ECSchemaReference name="BisCore" version="01.00.04" alias="bis"/>
+  <ECEntityClass typeName="DerivedMulti">
+    <BaseClass>BaseMulti</BaseClass>
+  </ECEntityClass>
+  <ECEntityClass typeName="DerivedUnique">
+    <BaseClass>BaseUnique</BaseClass>
+  </ECEntityClass>
+  <ECEntityClass typeName="BaseMulti">
+    <BaseClass>bis:ElementMultiAspect</BaseClass>
+    <ECProperty propertyName="Value" typeName="string"/>
+  </ECEntityClass>
+  <ECEntityClass typeName="BaseUnique">
+    <BaseClass>bis:ElementUniqueAspect</BaseClass>
+    <ECProperty propertyName="Value" typeName="string"/>
+  </ECEntityClass>
+</ECSchema>`,
+      ]);
+      const baseMulti = "TestExactClassSchema:BaseMulti";
+      const baseUnique = "TestExactClassSchema:BaseUnique";
+      const { elementId, derivedMultiId, derivedUniqueId } = withEditTxn(
+        targetDb,
+        "insert derived aspects",
+        (txn) => {
+          const ownerId = Subject.insert(txn, IModel.rootSubjectId, "Owner");
+          return {
+            elementId: ownerId,
+            derivedMultiId: txn.insertAspect({
+              classFullName: "TestExactClassSchema:DerivedMulti",
+              element: new ElementOwnsMultiAspects(ownerId),
+              value: "derived",
+            } as ElementAspectProps),
+            derivedUniqueId: txn.insertAspect({
+              classFullName: "TestExactClassSchema:DerivedUnique",
+              element: new ElementOwnsUniqueAspect(ownerId),
+              value: "derived",
+            } as ElementAspectProps),
+          };
+        }
+      );
+
+      const editTxn = createStartedEditTxn(targetDb);
+      const importer = new IModelImporter(editTxn);
+      const [baseMultiId] = await importer.importElementMultiAspects([
+        {
+          classFullName: baseMulti,
+          element: new ElementOwnsMultiAspects(elementId),
+          value: "base",
+        } as ElementAspectProps,
+      ]);
+      const baseUniqueId = await importer.importElementUniqueAspect({
+        classFullName: baseUnique,
+        element: new ElementOwnsUniqueAspect(elementId),
+        value: "base",
+      } as ElementAspectProps);
+      editTxn.end();
+
+      // The derived multi-aspect is left for its own class group.
+      expect(baseMultiId).to.not.equal(derivedMultiId);
+      // The derived unique aspect is not updated in place with base-class
+      // properties. It is deleted because it occupies the same unique slot.
+      expect(baseUniqueId).to.not.equal(derivedUniqueId);
+      const values = targetDb.elements
+        .getAspects(elementId)
+        .map((aspect) => `${aspect.classFullName}=${aspect.asAny.value}`)
+        .sort();
+      expect(values).to.deep.equal([
+        `${baseMulti}=base`,
+        `${baseUnique}=base`,
+        "TestExactClassSchema:DerivedMulti=derived",
+      ]);
+    } finally {
+      targetDb.close();
+    }
+  });
+
+  it("aspect cleanup deletes unretained aspects and preserves excluded and transformer provenance aspects", async () => {
     const targetDbFile = IModelTransformerTestUtils.prepareOutputFile(
       "IModelImporter",
       "DeleteElementAspects.bim"
@@ -180,6 +269,10 @@ describe("IModelImporter", () => {
             classFullName: "TestDeleteAspectsSchema:TestMultiAspect",
             element: new ElementOwnsMultiAspects(elementId),
           }),
+          retained: txn.insertAspect({
+            classFullName: "TestDeleteAspectsSchema:TestMultiAspect",
+            element: new ElementOwnsMultiAspects(elementId),
+          }),
           nonProvenance: txn.insertAspect({
             classFullName: ExternalSourceAspect.classFullName,
             element: new ElementOwnsExternalSourceAspects(elementId),
@@ -221,12 +314,13 @@ describe("IModelImporter", () => {
       }
       const importer = new TrackingImporter(editTxn);
       const querySpy = vi.spyOn(targetDb, "createQueryReader");
-      await importer.elementAspectCleanup.delete(
+      await importer.elementAspectCleanup.collect(
         new Set([elementId, provenanceScopeId]),
         new Set(["TestDeleteAspectsSchema:TestUniqueAspect"]),
-        provenanceScopeId,
-        1
+        provenanceScopeId
       );
+      importer.elementAspectCleanup.retain(aspectIds.retained);
+      await importer.elementAspectCleanup.deleteUnretained();
       editTxn.saveChanges();
 
       // ExternalSourceAspect is a multi-aspect, so only that pass needs the provenance filter.
@@ -248,6 +342,7 @@ describe("IModelImporter", () => {
       expect(hasAspect(aspectIds.excluded)).to.be.true;
       expect(hasAspect(aspectIds.replaceableUnique)).to.be.false;
       expect(hasAspect(aspectIds.replaceable)).to.be.false;
+      expect(hasAspect(aspectIds.retained)).to.be.true;
       expect(hasAspect(aspectIds.nonProvenance)).to.be.false;
       expect(hasAspect(aspectIds.provenance)).to.be.true;
       expect(hasAspect(aspectIds.scopeOwned)).to.be.true;

@@ -821,8 +821,7 @@ describe("IModelTransformerHub", () => {
         // expect some inserts from transforming the result of updateDb
         assert.equal(targetDbChanges.codeSpec.insertIds.size, 0);
         assert.equal(targetDbChanges.element.insertIds.size, 1);
-        // ElementAspect rebuilds may reinsert replaceable aspects after cleanup.
-        assert.isAtLeast(targetDbChanges.aspect.insertIds.size, 1);
+        assert.equal(targetDbChanges.aspect.insertIds.size, 0);
         assert.equal(targetDbChanges.model.insertIds.size, 0);
         assert.equal(targetDbChanges.relationship.insertIds.size, 2);
         // expect some updates from transforming the result of updateDb

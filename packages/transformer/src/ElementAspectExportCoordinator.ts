@@ -5,10 +5,11 @@
 
 import { Id64String } from "@itwin/core-bentley";
 
+/** Prepares an owner group before its aspects are exported. It may return a completion callback that runs after the group's aspects are exported. */
 export type ElementAspectExportPreparation = (
   excludedElementAspectClassFullNames: ReadonlySet<string>,
   ownerElementIds: ReadonlySet<Id64String>
-) => Promise<void>;
+) => Promise<(() => Promise<void>) | void>;
 
 /** Coordinates scoped batches of accepted ElementAspect owners, including preparation before aspect export.
  * @internal
@@ -36,7 +37,7 @@ export class ElementAspectExportCoordinator {
     return this._depth > 0;
   }
 
-  /** Sets the callback that prepares each accepted-owner group before its aspects are exported. */
+  /** Sets the callback that prepares each accepted-owner group before its aspects are exported and optionally completes it afterward. */
   public setPreparation(prepare: ElementAspectExportPreparation): void {
     this._prepare = prepare;
   }
@@ -145,8 +146,12 @@ export class ElementAspectExportCoordinator {
   private async exportOwnerBatch(
     ownerElementIds: ReadonlySet<Id64String>
   ): Promise<void> {
-    await this._prepare?.(this._excludedClassFullNames(), ownerElementIds);
+    const complete = await this._prepare?.(
+      this._excludedClassFullNames(),
+      ownerElementIds
+    );
     await this._exportAspects(ownerElementIds);
+    await complete?.();
   }
 
   private async flush(): Promise<void> {

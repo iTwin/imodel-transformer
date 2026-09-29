@@ -1933,13 +1933,16 @@ export class IModelTransformer extends IModelExportHandler {
     return this.context.findTargetElementId(aspect.element.id) !== Id64.invalid;
   }
 
+  /** Records the replaceable target aspects of an owner batch before its source aspects are imported.
+   * The returned callback deletes the recorded aspects that the importer did not reuse.
+   */
   private async prepareElementAspects(
     excludedElementAspectClassFullNames: ReadonlySet<string>,
     elementIds?: ReadonlySet<Id64String>
-  ): Promise<void> {
-    if (!this.exporter.visitElements) return;
+  ): Promise<(() => Promise<void>) | undefined> {
+    if (!this.exporter.visitElements) return undefined;
 
-    if (elementIds === undefined) return;
+    if (elementIds === undefined) return undefined;
 
     const targetElementIds = new Set<Id64String>();
     for (const sourceElementId of elementIds) {
@@ -1949,11 +1952,13 @@ export class IModelTransformer extends IModelExportHandler {
       }
     }
 
-    await this.importer.elementAspectCleanup.delete(
+    const cleanup = this.importer.elementAspectCleanup;
+    await cleanup.collect(
       targetElementIds,
       excludedElementAspectClassFullNames,
       this.targetScopeElementId
     );
+    return async () => cleanup.deleteUnretained();
   }
 
   /** Override of [IModelExportHandler.onExportElementUniqueAspect]($transformer) that imports an ElementUniqueAspect into the target iModel when it is exported from the source iModel.

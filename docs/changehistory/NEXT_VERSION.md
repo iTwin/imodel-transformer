@@ -1,5 +1,15 @@
 # Next release notes
 
+## Unchanged ElementAspects are no longer rewritten
+
+Full, change, and subset transforms no longer delete and reinsert every replaceable ElementAspect of each accepted owner. The importer now matches each source aspect to an existing target aspect of the same class on the same owner, updates it only if its properties differ, inserts aspects that are new, and deletes target aspects that no longer have a source counterpart. That includes aspects removed from the source and aspect classes that became empty for an owner. A rerun with no source changes writes no aspects, and unchanged aspects keep their target IDs.
+
+`IModelImporter.onInsertElementAspect`, `onUpdateElementAspect`, and `onDeleteElementAspect` now run only for actual inserts, updates, and deletes. Code that counted these hooks during a rerun will see fewer calls.
+
+`IModelImporter.importElementUniqueAspect` and `importElementMultiAspects` now match existing target aspects of the exact class only. Aspects of derived classes are no longer matched positionally against, or updated with, base-class properties. When a unique aspect has no exact-class match, the importer deletes the owner's unique aspects of a base or derived class through `onDeleteElementAspect` before inserting it, because iModel unique-aspect writes treat those classes as one slot.
+
+See [Processing ElementAspects](../learning/transformer/element-aspect-processing.md) for details.
+
 ## Context-based provenance resolution for incremental deletions
 
 `IModelTransformer.process()` now resolves guidless incremental element
@@ -471,7 +481,7 @@ In 2.x, ElementAspects are exported separately from element callbacks using boun
 
 Existing `IModelExportHandler` callbacks and `shouldExportElementAspect` remain available. `IModelExporter` also continues to support `excludeElementAspectClass`. These callbacks retain their filtering and export roles, but aspect callbacks are no longer guaranteed to run next to the callback for their owning element.
 
-During change processing, the transformer clears replaceable target aspects for accepted changed owners and rebuilds them from the source. Excluded aspect classes and transformer provenance aspects are preserved. Custom inserted or updated aspect changes infer the owner while the source aspect exists. Custom deleted or missing aspects require the owning element ID and throw when it is omitted:
+For each accepted owner, the transformer reconciles replaceable target aspects with the current source aspects. It keeps unchanged aspects, updates changed ones, inserts new ones, and deletes the rest. Excluded aspect classes and transformer provenance aspects are preserved. Custom inserted or updated aspect changes infer the owner while the source aspect exists. Custom deleted or missing aspects require the owning element ID and throw when it is omitted:
 
 ```ts
 changedInstanceIds.addCustomAspectChange(
