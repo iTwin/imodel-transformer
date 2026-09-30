@@ -1099,6 +1099,17 @@ export class IModelTransformer extends IModelExportHandler {
     }
   }
 
+  /** An exported source element or model exists, so later references to it need no source query.
+   * Aspects are not recorded: they are rarely referenced, and they are usually the largest group.
+   */
+  private markSourceEntityExists(entity: Element | Model): void {
+    if (this._options.danglingReferencesBehavior !== "reject") return;
+    this._cloneContext.existenceCache.markExists(
+      this.sourceDb,
+      EntityReferences.from(entity)
+    );
+  }
+
   private async doAllReferencesExistInTarget(entity: ConcreteEntity) {
     let allReferencesExist = true;
     const checkedReferences: EntityReference[] = [];
@@ -1439,6 +1450,7 @@ export class IModelTransformer extends IModelExportHandler {
    * This override calls [[onTransformElement]] and then [IModelImporter.importElement]($transformer) to update the target iModel.
    */
   public override async onExportElement(sourceElement: Element): Promise<void> {
+    this.markSourceEntityExists(sourceElement);
     let targetElementId: Id64String = Id64.invalid;
     let targetElementProps: ElementProps;
     if (this._options.wasSourceIModelCopiedToTarget) {
@@ -1590,6 +1602,7 @@ export class IModelTransformer extends IModelExportHandler {
    * This override calls [[onTransformModel]] and then [IModelImporter.importModel]($transformer) to update the target iModel.
    */
   public override async onExportModel(sourceModel: Model): Promise<void> {
+    this.markSourceEntityExists(sourceModel);
     if (
       this._options.skipPropagateChangesToRootElements &&
       IModel.repositoryModelId === sourceModel.id
