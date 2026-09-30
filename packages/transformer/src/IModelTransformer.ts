@@ -117,6 +117,7 @@ import {
   IModelTransformerError,
   IModelTransformerErrorScope,
 } from "./IModelTransformerError";
+import { TargetCodeIndex } from "./TargetCodeIndex";
 
 const loggerCategory: string = TransformerLoggerCategory.IModelTransformer;
 
@@ -456,6 +457,9 @@ export class IModelTransformer extends IModelExportHandler {
    */
   private _targetElementIdsRemappedByCode: Id64Set = new Set<Id64String>();
 
+  /** Finds existing target elements by Code during element export operations. */
+  private readonly _targetCodeIndex: TargetCodeIndex;
+
   /**
    * Tracks target model IDs that were imported (inserted or updated) during the current
    * transformation pass. Used to prevent deletion of target models that have been recreated
@@ -557,6 +561,7 @@ export class IModelTransformer extends IModelExportHandler {
       this.validateSharedOptionsMatch();
     }
     this.targetDb = this.importer.targetDb;
+    this._targetCodeIndex = new TargetCodeIndex(this.targetDb);
     this._targetEditTxn = this.importer.editTxn;
     this._sourceEditTxn = options?.sourceEditTxn;
     this._schemaProcessingCoordinator = new SchemaProcessingCoordinator({
@@ -1078,6 +1083,7 @@ export class IModelTransformer extends IModelExportHandler {
 
       const targetProps = await this.onTransformElement(sourceElement);
       this._targetEditTxn.updateElement({ ...targetProps, id: targetId });
+      this._targetCodeIndex.recordElementCode(targetId, targetProps.code);
     }
   }
 
@@ -1213,7 +1219,9 @@ export class IModelTransformer extends IModelExportHandler {
   private async processScopedElementExport(
     exportElements: () => Promise<void>
   ): Promise<void> {
-    await this.exporter.elementAspectExportCoordinator.run(exportElements);
+    await this._targetCodeIndex.withIndex(async () =>
+      this.exporter.elementAspectExportCoordinator.run(exportElements)
+    );
   }
 
   /** Override of [IModelExportHandler.shouldExportElement]($transformer) that is called to determine if an element should be exported from the source iModel.
@@ -1374,7 +1382,6 @@ export class IModelTransformer extends IModelExportHandler {
     // whitespace from the value, and there are iModels out there with untrimmed whitespace that we ought not to trim
     targetElementProps.code.value = targetElementProps.code.value ?? "";
     const maybeTargetElementId = await this.queryElementIdByCode(
-      this.targetDb,
       targetElementProps.code as Required<CodeProps>
     );
     if (maybeTargetElementId === undefined) return Id64.invalid;
@@ -1413,7 +1420,6 @@ export class IModelTransformer extends IModelExportHandler {
   // Custom implementation of queryElementIdByCode() was added to support querying elements with code values that have trailing whitespaces.
   // It mimicks 4.x implementation: https://github.com/iTwin/itwinjs-core/blob/9c8b394ec3878a39764be81f928fd8b0b9115d31/core/backend/src/IModelDb.ts#L1882
   private async queryElementIdByCode(
-    iModel: IModelDb,
     code: Required<CodeProps>
   ): Promise<Id64String | undefined> {
     if (Id64.isInvalid(code.spec))
@@ -1434,16 +1440,7 @@ export class IModelTransformer extends IModelExportHandler {
         message: "Invalid Code",
       });
 
-    const query =
-      "SELECT ECInstanceId FROM BisCore:Element WHERE CodeSpec.Id=? AND CodeScope.Id=? AND CodeValue=?";
-    const queryBinder = new QueryBinder()
-      .bindId(1, code.spec)
-      .bindId(2, Id64.fromString(code.scope))
-      .bindString(3, code.value);
-    const queryReader = iModel.createQueryReader(query, queryBinder, {
-      usePrimaryConn: true,
-    });
-    return (await queryReader.step()) ? queryReader.current[0] : undefined;
+    return this._targetCodeIndex.findElementId(code);
   }
 
   /** Override of [IModelExportHandler.onExportElement]($transformer) that imports an element into the target iModel when it is exported from the source iModel.
@@ -1530,6 +1527,10 @@ export class IModelTransformer extends IModelExportHandler {
         "targetElementProps.id should be assigned by importElement"
       );
     }
+    this._targetCodeIndex.recordElementCode(
+      targetElementProps.id,
+      targetElementProps.code
+    );
     this.context.remapElement(sourceElement.id, targetElementProps.id);
     if (this.sourceDb === this.targetDb) {
       this._cloneContext.existenceCache.markExists(
@@ -2706,21 +2707,23 @@ export class IModelTransformer extends IModelExportHandler {
     await this.exporter.exportCodeSpecs();
     await this.exporter.exportFonts();
 
-    await this.exporter.elementAspectExportCoordinator.run(async () => {
-      if (this._options.skipPropagateChangesToRootElements) {
-        // The RepositoryModel and root Subject of the target iModel should not be transformed.
-        await this.exporter.exportChildElements(IModel.rootSubjectId); // start below the root Subject
-        await this.exporter.exportModelContents(
-          IModel.repositoryModelId,
-          Element.classFullName,
-          true
-        ); // after the Subject hierarchy, process the other elements of the RepositoryModel
-        await this.exporter.exportSubModels(IModel.repositoryModelId); // start below the RepositoryModel
-      } else {
-        await this.exporter.exportModel(IModel.repositoryModelId);
-      }
-      await this.completePartiallyCommittedElements();
-    });
+    await this._targetCodeIndex.withIndex(async () =>
+      this.exporter.elementAspectExportCoordinator.run(async () => {
+        if (this._options.skipPropagateChangesToRootElements) {
+          // The RepositoryModel and root Subject of the target iModel should not be transformed.
+          await this.exporter.exportChildElements(IModel.rootSubjectId); // start below the root Subject
+          await this.exporter.exportModelContents(
+            IModel.repositoryModelId,
+            Element.classFullName,
+            true
+          ); // after the Subject hierarchy, process the other elements of the RepositoryModel
+          await this.exporter.exportSubModels(IModel.repositoryModelId); // start below the RepositoryModel
+        } else {
+          await this.exporter.exportModel(IModel.repositoryModelId);
+        }
+        await this.completePartiallyCommittedElements();
+      })
+    );
     await this.completePartiallyCommittedAspects();
     await this.exporter.exportRelationships(
       ElementRefersToElements.classFullName
@@ -2755,8 +2758,11 @@ export class IModelTransformer extends IModelExportHandler {
     this._targetElementIdsRemappedByCode.clear();
     this._targetModelsImportedInCurrentTransform.clear();
     // must wait for initialization of synchronization provenance data
-    await this.exporter.exportChanges(await this.getExportInitOpts(options));
-    await this.completePartiallyCommittedElements();
+    const exportOptions = await this.getExportInitOpts(options);
+    await this._targetCodeIndex.withIndex(async () => {
+      await this.exporter.exportChanges(exportOptions);
+      await this.completePartiallyCommittedElements();
+    });
     await this.completePartiallyCommittedAspects();
 
     if (this._options.optimizeGeometry)
