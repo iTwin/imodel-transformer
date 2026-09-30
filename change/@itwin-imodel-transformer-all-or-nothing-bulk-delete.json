@@ -1,7 +1,0 @@
-{
-  "type": "minor",
-  "comment": "Delete element batches all-or-nothing: allow a batch to delete an element with the category it uses, and throw ElementBulkDeleteBlockedError without deleting anything when an element outside the batch still references it",
-  "packageName": "@itwin/imodel-transformer",
-  "email": "50554904+hl662@users.noreply.github.com",
-  "dependentChangeType": "patch"
-}

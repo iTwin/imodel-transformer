@@ -532,6 +532,208 @@ describe("IModelTransformerHub", () => {
     }
   });
 
+  it("keeps a category that target-only elements still use when the source deletes it, and does not retry the deletion", async () => {
+    const sourceIModelId = await createPopulatedIModelHubIModel(
+      IModelTransformerTestUtils.generateUniqueName("KeptCategorySource")
+    );
+    const targetIModelId = await createPopulatedIModelHubIModel(
+      IModelTransformerTestUtils.generateUniqueName("KeptCategoryTarget")
+    );
+    let sourceDb: BriefcaseDb | undefined;
+    let targetDb: BriefcaseDb | undefined;
+    const warningSpy = vi.spyOn(Logger, "logWarning");
+    const deleteSpy = vi.spyOn(IModelImporter.prototype, "deleteElements");
+    const keptWarnings = () =>
+      warningSpy.mock.calls.filter(([, message]) =>
+        String(message).startsWith("Kept ")
+      );
+
+    try {
+      sourceDb = await HubWrappers.downloadAndOpenBriefcase({
+        accessToken,
+        iTwinId,
+        iModelId: sourceIModelId,
+      });
+      targetDb = await HubWrappers.downloadAndOpenBriefcase({
+        accessToken,
+        iTwinId,
+        iModelId: targetIModelId,
+      });
+      await sourceDb.locks.acquireLocks({ shared: "0x10", exclusive: "0x1" });
+      await targetDb.locks.acquireLocks({ shared: "0x10", exclusive: "0x1" });
+
+      const insertPhysicalObject = (
+        txn: EditTxn,
+        modelId: Id64String,
+        categoryId: Id64String,
+        name: string
+      ) =>
+        txn.insertElement({
+          classFullName: PhysicalObject.classFullName,
+          model: modelId,
+          category: categoryId,
+          code: new Code({ scope: "0x1", spec: "0x1", value: name }),
+          userLabel: name,
+        } as PhysicalElementProps);
+      const source = withEditTxn(sourceDb, "insert source data", (txn) => {
+        const modelId = PhysicalModel.insert(
+          txn,
+          IModel.rootSubjectId,
+          "SourceModel"
+        );
+        const categoryId = SpatialCategory.insert(
+          txn,
+          IModel.dictionaryId,
+          "SourceCategory",
+          {}
+        );
+        const elementId = insertPhysicalObject(
+          txn,
+          modelId,
+          categoryId,
+          "SourceElement"
+        );
+        return { modelId, categoryId, elementId };
+      });
+      await sourceDb.pushChanges({
+        accessToken,
+        description: "Initial source data",
+        retainLocks: true,
+      });
+      const sourceCategoryFederationGuid = sourceDb.elements.getElement(
+        source.categoryId
+      ).federationGuid;
+      expect(sourceCategoryFederationGuid).to.not.be.undefined;
+
+      const processAllEditTxn = createStartedEditTxn(targetDb);
+      const processAllTransformer = new IModelTransformer({
+        source: sourceDb,
+        target: processAllEditTxn,
+      });
+      await processAllTransformer.process();
+      processAllTransformer.dispose();
+      processAllEditTxn.end();
+      await targetDb.pushChanges({
+        accessToken,
+        description: "Initial processAll transformation",
+        retainLocks: true,
+      });
+
+      const processChanges = async (description: string) => {
+        const editTxn = createStartedEditTxn(targetDb!);
+        const transformer = new IModelTransformer(
+          { source: sourceDb!, target: editTxn },
+          { argsForProcessChanges: {} }
+        );
+        await transformer.process();
+        transformer.dispose();
+        editTxn.end();
+        await targetDb!.pushChanges({
+          accessToken,
+          description,
+          retainLocks: true,
+        });
+      };
+
+      const targetCategoryId = targetDb.elements.queryElementIdByCode(
+        SpatialCategory.createCode(
+          targetDb,
+          IModel.dictionaryId,
+          "SourceCategory"
+        )
+      )!;
+      const targetModelId = IModelTestUtils.queryByCodeValue(
+        targetDb,
+        "SourceModel"
+      );
+      const targetOnlyId = withEditTxn(targetDb, "insert target-only", (txn) =>
+        insertPhysicalObject(txn, targetModelId, targetCategoryId, "TargetOnly")
+      );
+      await targetDb.pushChanges({
+        accessToken,
+        description: "Insert target-only element",
+        retainLocks: true,
+      });
+
+      withEditTxn(sourceDb, "delete element and category", (txn) => {
+        txn.deleteElement(source.elementId);
+        txn.deleteDefinitionElements([source.categoryId]);
+      });
+      await sourceDb.pushChanges({
+        accessToken,
+        description: "Delete source element and category",
+        retainLocks: true,
+      });
+      await processChanges("Process source category deletion");
+
+      const expectCategoryKeptWithProvenance = () => {
+        // Provenance is the FederationGuid shared with the source category.
+        expect(
+          targetDb!.elements.tryGetElement(targetCategoryId)?.federationGuid
+        ).to.equal(sourceCategoryFederationGuid);
+      };
+      expect(
+        IModelTestUtils.queryByCodeValue(targetDb, "SourceElement")
+      ).to.equal(Id64.invalid);
+      expectCategoryKeptWithProvenance();
+      expect(keptWarnings()).to.have.length(1);
+      expect(keptWarnings()[0][1]).to.contain(targetCategoryId);
+      expect(keptWarnings()[0][1]).to.contain(targetOnlyId);
+
+      // Once nothing uses the category, a later sync still doesn't delete it: its source deletion was already processed.
+      withEditTxn(targetDb, "delete target-only", (txn) =>
+        txn.deleteElement(targetOnlyId)
+      );
+      await targetDb.pushChanges({
+        accessToken,
+        description: "Delete target-only element",
+        retainLocks: true,
+      });
+      withEditTxn(sourceDb, "insert later source data", (txn) => {
+        const categoryId = SpatialCategory.insert(
+          txn,
+          IModel.dictionaryId,
+          "LaterCategory",
+          {}
+        );
+        insertPhysicalObject(txn, source.modelId, categoryId, "LaterElement");
+      });
+      await sourceDb.pushChanges({
+        accessToken,
+        description: "Insert later source element",
+        retainLocks: true,
+      });
+      warningSpy.mockClear();
+      deleteSpy.mockClear();
+      await processChanges("Process later source change");
+
+      expect(
+        IModelTestUtils.queryByCodeValue(targetDb, "LaterElement")
+      ).to.not.equal(Id64.invalid);
+      expectCategoryKeptWithProvenance();
+      expect(keptWarnings()).to.have.length(0);
+      for (const [elementIds] of deleteSpy.mock.calls)
+        expect(elementIds.has(targetCategoryId)).to.be.false;
+    } finally {
+      warningSpy.mockRestore();
+      deleteSpy.mockRestore();
+      if (sourceDb)
+        await HubWrappers.closeAndDeleteBriefcaseDb(accessToken, sourceDb);
+      if (targetDb)
+        await HubWrappers.closeAndDeleteBriefcaseDb(accessToken, targetDb);
+      await transformerTestHub.deleteIModel({
+        accessToken,
+        iTwinId,
+        iModelId: sourceIModelId,
+      });
+      await transformerTestHub.deleteIModel({
+        accessToken,
+        iTwinId,
+        iModelId: targetIModelId,
+      });
+    }
+  });
+
   it("Transform source iModel to target iModel", async () => {
     const sourceIModelId = await createPopulatedIModelHubIModel(
       "TransformerSource",

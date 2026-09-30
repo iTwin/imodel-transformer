@@ -59,6 +59,10 @@ When an element outside the deletion trees uses an element in them through one o
 
 Everything else requested is still deleted, including other requested contents of that definition model. A kept element can use an element that is being deleted, such as its own category, so the importer repeats the check until nothing outside the trees uses an element in them. It then logs one warning in the `imodel-transformer.IModelImporter` category, listing up to ten kept elements, each with one element that still uses it.
 
+A kept element's children and sub-model contents stay even when only its code is used as a scope. For example, a partition kept as a code scope keeps its whole sub-model.
+
+The importer doesn't try again later. A kept element keeps its provenance, such as the FederationGuid it shared with the deleted source element, and the source deletion was already processed, so later syncs don't delete it, even after nothing uses it. To remove it, delete it yourself once nothing uses it.
+
 ## Handling deletion errors
 
 A native deletion call can still fail, for example because geometry outside the trees uses a geometry part in them, or because of a reference from a domain schema. The importer then throws an `ITwinError` with scope `IModelTransformerErrorScope` and key `IModelTransformerError.ElementBulkDeleteFailed`. Its `status`, `sqlDeleteStatus`, and `failedIds` describe the failed call. Deletions from that call and earlier ones are still pending in the transaction, so abandon the transaction before fixing the dependency and retrying:

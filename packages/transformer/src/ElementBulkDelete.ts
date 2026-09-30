@@ -232,6 +232,10 @@ async function queryDeletionTrees(
 /** Finds the elements to keep so that the blocked elements stay valid: each blocked element and its child
  * elements and sub-model contents, plus every element whose deletion would delete a kept element or leave its
  * parent, model, or code scope dangling.
+ *
+ * The whole subtree below a blocked element is kept, even when the element is blocked only as a code scope and
+ * its children could be deleted. A kept category needs its sub-categories, because the plan can't see geometry
+ * outside the trees that uses them, and keeping too much is safe.
  */
 async function queryKeptElements(
   targetDb: IModelDb,
