@@ -300,17 +300,22 @@ describe("IModelImporter", () => {
     }
   });
 
-  it("aspect writes made through importer hooks refresh reads for the written owner", async () => {
-    const targetDb = StandaloneDb.createEmpty(
-      IModelTransformerTestUtils.prepareOutputFile(
-        "IModelImporter",
-        "CrossOwnerAspectWrites.bim"
-      ),
-      { rootSubject: { name: "CrossOwnerAspectWrites" } }
-    );
-    try {
-      await targetDb.importSchemaStrings([
-        `<?xml version="1.0" encoding="UTF-8"?>
+  it.each([
+    { writtenBy: "the base hook", direct: false },
+    { writtenBy: "EditTxn directly", direct: true },
+  ])(
+    "aspect imports see another owner's aspect written by $writtenBy during a hook",
+    async ({ direct }) => {
+      const targetDb = StandaloneDb.createEmpty(
+        IModelTransformerTestUtils.prepareOutputFile(
+          "IModelImporter",
+          `CrossOwnerAspectWrites-${direct ? "direct" : "hook"}.bim`
+        ),
+        { rootSubject: { name: "CrossOwnerAspectWrites" } }
+      );
+      try {
+        await targetDb.importSchemaStrings([
+          `<?xml version="1.0" encoding="UTF-8"?>
 <ECSchema schemaName="TestCrossOwnerSchema" alias="tcos" version="01.00.00" xmlns="http://www.bentley.com/schemas/Bentley.ECXML.3.1">
   <ECSchemaReference name="BisCore" version="01.00.04" alias="bis"/>
   <ECEntityClass typeName="CrossMulti">
@@ -318,46 +323,108 @@ describe("IModelImporter", () => {
     <ECProperty propertyName="Value" typeName="string"/>
   </ECEntityClass>
 </ECSchema>`,
+        ]);
+        const multi = "TestCrossOwnerSchema:CrossMulti";
+        const [ownerA, ownerB] = withEditTxn(
+          targetDb,
+          "insert owners",
+          (txn) => [
+            Subject.insert(txn, IModel.rootSubjectId, "OwnerA"),
+            Subject.insert(txn, IModel.rootSubjectId, "OwnerB"),
+          ]
+        );
+        const props = (elementId: Id64String) =>
+          ({
+            classFullName: multi,
+            element: new ElementOwnsMultiAspects(elementId),
+            value: "value",
+          }) as ElementAspectProps;
+
+        // Inserting owner A's aspect also inserts owner B's.
+        class CrossOwnerImporter extends IModelImporter {
+          protected override async onInsertElementAspect(
+            aspectProps: ElementAspectProps
+          ): Promise<Id64String> {
+            if (aspectProps.element.id === ownerA) {
+              if (direct) this.editTxn.insertAspect(props(ownerB));
+              else await super.onInsertElementAspect(props(ownerB));
+            }
+            return super.onInsertElementAspect(aspectProps);
+          }
+        }
+        const editTxn = createStartedEditTxn(targetDb);
+        const importer = new CrossOwnerImporter(editTxn);
+        await importer.elementAspectCleanup.collect(
+          new Set([ownerA, ownerB]),
+          new Set<string>()
+        );
+        await importer.importElementMultiAspects([props(ownerA)]);
+        const [ownerBAspectId] = await importer.importElementMultiAspects([
+          props(ownerB),
+        ]);
+        editTxn.end();
+
+        // Owner B's import sees the aspect the hook inserted instead of adding another.
+        const ownerBAspects = targetDb.elements.getAspects(ownerB, multi);
+        expect(ownerBAspects.map((aspect) => aspect.id)).to.deep.equal([
+          ownerBAspectId,
+        ]);
+      } finally {
+        targetDb.close();
+      }
+    }
+  );
+
+  it("aspect imports inside an owner batch see aspects written directly through EditTxn", async () => {
+    const targetDb = StandaloneDb.createEmpty(
+      IModelTransformerTestUtils.prepareOutputFile(
+        "IModelImporter",
+        "DirectAspectWrites.bim"
+      ),
+      { rootSubject: { name: "DirectAspectWrites" } }
+    );
+    try {
+      await targetDb.importSchemaStrings([
+        `<?xml version="1.0" encoding="UTF-8"?>
+<ECSchema schemaName="TestDirectWriteSchema" alias="tdws" version="01.00.00" xmlns="http://www.bentley.com/schemas/Bentley.ECXML.3.1">
+  <ECSchemaReference name="BisCore" version="01.00.04" alias="bis"/>
+  <ECEntityClass typeName="DirectMulti">
+    <BaseClass>bis:ElementMultiAspect</BaseClass>
+    <ECProperty propertyName="Value" typeName="string"/>
+  </ECEntityClass>
+</ECSchema>`,
       ]);
-      const multi = "TestCrossOwnerSchema:CrossMulti";
-      const [ownerA, ownerB] = withEditTxn(targetDb, "insert owners", (txn) => [
-        Subject.insert(txn, IModel.rootSubjectId, "OwnerA"),
-        Subject.insert(txn, IModel.rootSubjectId, "OwnerB"),
-      ]);
-      const props = (elementId: Id64String) =>
+      const multi = "TestDirectWriteSchema:DirectMulti";
+      const elementId = withEditTxn(targetDb, "insert owner", (txn) =>
+        Subject.insert(txn, IModel.rootSubjectId, "Owner")
+      );
+      const props = (value: string) =>
         ({
           classFullName: multi,
           element: new ElementOwnsMultiAspects(elementId),
-          value: "value",
+          value,
         }) as ElementAspectProps;
 
-      // Inserting owner A's aspect also inserts owner B's through the base hook.
-      class CrossOwnerImporter extends IModelImporter {
-        protected override async onInsertElementAspect(
-          aspectProps: ElementAspectProps
-        ): Promise<Id64String> {
-          if (aspectProps.element.id === ownerA)
-            await super.onInsertElementAspect(props(ownerB));
-          return super.onInsertElementAspect(aspectProps);
-        }
-      }
       const editTxn = createStartedEditTxn(targetDb);
-      const importer = new CrossOwnerImporter(editTxn);
+      const importer = new IModelImporter(editTxn);
       await importer.elementAspectCleanup.collect(
-        new Set([ownerA, ownerB]),
+        new Set([elementId]),
         new Set<string>()
       );
-      await importer.importElementMultiAspects([props(ownerA)]);
-      const [ownerBAspectId] = await importer.importElementMultiAspects([
-        props(ownerB),
+      // Written after the batch loaded its aspects, without the importer.
+      const directId = editTxn.insertAspect(props("direct"));
+      const [importedId] = await importer.importElementMultiAspects([
+        props("imported"),
       ]);
       editTxn.end();
 
-      // Owner B's import sees the aspect the hook inserted instead of adding another.
-      const ownerBAspects = targetDb.elements.getAspects(ownerB, multi);
-      expect(ownerBAspects.map((aspect) => aspect.id)).to.deep.equal([
-        ownerBAspectId,
-      ]);
+      // The import matched the direct aspect instead of adding a second one.
+      expect(importedId).to.equal(directId);
+      expect(
+        targetDb.elements
+          .getAspects(elementId, multi)
+          .map((aspect) => `${aspect.id}=${aspect.asAny.value}`)
+      ).to.deep.equal([`${directId}=imported`]);
     } finally {
       targetDb.close();
     }

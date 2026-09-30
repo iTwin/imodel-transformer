@@ -762,9 +762,10 @@ export class IModelImporter {
     aspectProps: ElementAspectProps
   ): Promise<Id64String> {
     // Also covers overrides that write another owner's aspects through this hook.
-    this._elementAspectCleanup.invalidate(aspectProps.element.id);
+    this._elementAspectCleanup.beforeWrite(aspectProps.element.id);
     try {
       const id = this._editTxn.insertAspect(aspectProps);
+      this._elementAspectCleanup.afterWrite();
       Logger.logInfo(
         loggerCategory,
         `Inserted ${this.formatElementAspectForLogger(aspectProps)}`
@@ -792,8 +793,9 @@ export class IModelImporter {
   protected async onUpdateElementAspect(
     aspectProps: ElementAspectProps
   ): Promise<void> {
-    this._elementAspectCleanup.invalidate(aspectProps.element.id);
+    this._elementAspectCleanup.beforeWrite(aspectProps.element.id);
     this._editTxn.updateAspect(aspectProps);
+    this._elementAspectCleanup.afterWrite();
     Logger.logInfo(
       loggerCategory,
       `Updated ${this.formatElementAspectForLogger(aspectProps)}`
@@ -807,8 +809,9 @@ export class IModelImporter {
   protected async onDeleteElementAspect(
     targetElementAspect: ElementAspect
   ): Promise<void> {
-    this._elementAspectCleanup.invalidate(targetElementAspect.element.id);
+    this._elementAspectCleanup.beforeWrite(targetElementAspect.element.id);
     this._editTxn.deleteAspect(targetElementAspect.id);
+    this._elementAspectCleanup.afterWrite();
     Logger.logInfo(
       loggerCategory,
       `Deleted ${this.formatElementAspectForLogger(targetElementAspect)}`

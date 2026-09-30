@@ -18,12 +18,15 @@ import { IModelError, QueryBinder } from "@itwin/core-common";
  *
  * Usage per owner batch: [[collect]] the aspects the owners have before import, let the importer [[retain]] each aspect it reuses or deletes itself, then [[deleteUnretained]] to delete the rest, or [[discard]] the batch if its export failed.
  * While a batch is active, [[getAspects]] answers target aspect reads for its owners from the aspects loaded by [[collect]], so the importer doesn't query each owner separately.
+ * The importer brackets its own aspect writes with [[beforeWrite]] and [[afterWrite]]. If anything else writes to the target during the batch, including direct `EditTxn` calls, the loaded aspects are dropped and reads go to the target for the rest of the batch.
  * @internal
  */
 export class ElementAspectCleanup {
   private _candidateIds = new Set<Id64String>();
   /** Every target aspect of each batch owner that has not been written since [[collect]], keyed by owner. */
   private _aspectsByOwner = new Map<Id64String, ElementAspect[]>();
+  /** The target connection's change count after [[collect]] or the importer's last write; undefined when no aspects are loaded. */
+  private _expectedChangeCount?: number;
 
   public constructor(
     private readonly _targetDb: IModelDb,
@@ -79,6 +82,7 @@ export class ElementAspectCleanup {
 
     this._candidateIds = candidateIds;
     this._aspectsByOwner = aspectsByOwner;
+    this._expectedChangeCount = this.targetChangeCount();
   }
 
   /** Returns the owner's target aspects of exactly `classFullName`, in ECInstanceId order, from the aspects loaded by [[collect]].
@@ -88,6 +92,7 @@ export class ElementAspectCleanup {
     elementId: Id64String,
     classFullName: string
   ): ElementAspect[] | undefined {
+    this.dropLoadedAspectsIfChangedElsewhere();
     return this._aspectsByOwner
       .get(elementId)
       ?.filter((aspect) => isSameClass(aspect, classFullName));
@@ -98,10 +103,45 @@ export class ElementAspectCleanup {
     this._aspectsByOwner.delete(elementId);
   }
 
+  /** Call right before the importer writes an aspect of `elementId`. */
+  public beforeWrite(elementId: Id64String): void {
+    this.dropLoadedAspectsIfChangedElsewhere();
+    this.invalidate(elementId);
+  }
+
+  /** Call right after the importer's write so that it isn't mistaken for a write made elsewhere. */
+  public afterWrite(): void {
+    if (this._expectedChangeCount !== undefined)
+      this._expectedChangeCount = this.targetChangeCount();
+  }
+
   /** Discards the batch without deleting anything. */
   public discard(): void {
     this._candidateIds = new Set<Id64String>();
     this._aspectsByOwner = new Map<Id64String, ElementAspect[]>();
+    this._expectedChangeCount = undefined;
+  }
+
+  /** Drops all loaded aspects if the target changed since [[collect]] or the importer's last write, which means code other than the importer wrote to it. */
+  private dropLoadedAspectsIfChangedElsewhere(): void {
+    if (
+      this._expectedChangeCount === undefined ||
+      this.targetChangeCount() === this._expectedChangeCount
+    )
+      return;
+    this._aspectsByOwner = new Map<Id64String, ElementAspect[]>();
+    this._expectedChangeCount = undefined;
+  }
+
+  /** SQLite's count of rows inserted, updated, or deleted on the target connection since it opened. Reads don't change it. */
+  private targetChangeCount(): number {
+    return this._targetDb.withPreparedSqliteStatement(
+      "SELECT total_changes()",
+      (statement) => {
+        statement.step();
+        return statement.getValue(0).getInteger();
+      }
+    );
   }
 
   /** Removes an aspect from the deletion candidates because the importer reused or already deleted it. */
