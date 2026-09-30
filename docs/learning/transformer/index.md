@@ -55,7 +55,9 @@ While it is possible to import data into an iModel using the standard [IModelDb]
 
 [IModelExporter.exportChanges]($transformer) passes all deleted source element IDs to one [IModelExportHandler.onDeleteElements]($transformer) callback. Custom export handlers and [IModelTransformer]($transformer) subclasses must use this callback because there is no singular deletion callback.
 
-[IModelTransformer]($transformer) maps the source IDs before [IModelImporter]($transformer) submits the target roots together. A custom importer can inspect, count, or audit those roots by overriding `onDeleteElements(elementIds: ReadonlySet<Id64String>)`. Complete any work that requires the elements to exist before calling `super.onDeleteElements()`, which performs the native bulk deletion. The public `deleteElement()` method sends its target ID through the same hook as a one-element set.
+[IModelTransformer]($transformer) maps the source IDs before [IModelImporter]($transformer) deletes the target elements as one batch. The importer keeps elements that something outside the batch still uses, and deletes the rest. A custom importer can inspect, count, or audit the requested elements by overriding `onDeleteElements(elementIds: ReadonlySet<Id64String>)`. Finish any work that needs the elements to exist before calling `super.onDeleteElements()`, which does the deletion. The public `deleteElement()` method goes through the same hook with a one-element set.
+
+See [Deleting elements](./element-deletion.md) for what a deletion removes, which elements it keeps, and how to handle deletion errors.
 
 ### IModelImportOptions.autoExtendProjectExtents
 
