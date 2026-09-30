@@ -8,7 +8,7 @@ Full, change, and subset transforms no longer delete and reinsert every replacea
 
 `IModelImporter.importElementUniqueAspect` and `importElementMultiAspects` now match existing target aspects of the exact class only. Code that calls them directly may see different results; see [Direct `IModelImporter` aspect calls match the exact class](#direct-imodelimporter-aspect-calls-match-the-exact-class).
 
-With `includeSourceProvenance`, cloned source `ExternalSourceAspect`s whose scope maps to the target scope element are no longer mistaken for the transformer's own provenance. Previously they were inserted again on every run, which duplicated them. Only `Element` and `Relationship` aspects scoped to the target scope, and `Scope` aspects owned by it, are treated as transformer provenance.
+With `includeSourceProvenance`, cloned source `ExternalSourceAspect`s whose scope maps to the target scope element are no longer mistaken for the transformer's own provenance. Previously they were inserted again on every run, which duplicated them. Only `Element` and `Relationship` aspects scoped to the target scope, and `Scope` aspects owned by it, are treated as transformer provenance. Cloned source aspects with those same kinds and scope still can't be told apart from the transformer's provenance, so they are still inserted again on every run.
 
 See [Processing ElementAspects](../learning/transformer/element-aspect-processing.md) for details.
 
@@ -483,7 +483,7 @@ In 2.x, ElementAspects are exported separately from element callbacks using boun
 
 Existing `IModelExportHandler` callbacks and `shouldExportElementAspect` remain available. `IModelExporter` also continues to support `excludeElementAspectClass`. These callbacks retain their filtering and export roles, but aspect callbacks are no longer guaranteed to run next to the callback for their owning element.
 
-For each accepted owner, the transformer reconciles replaceable target aspects with the current source aspects. It keeps unchanged aspects, updates changed ones, inserts new ones, and deletes the rest. Excluded aspect classes and transformer provenance aspects are preserved. Custom inserted or updated aspect changes infer the owner while the source aspect exists. Custom deleted or missing aspects require the owning element ID and throw when it is omitted:
+For each accepted owner, the transformer reconciles replaceable target aspects with the current source aspects. It keeps unchanged aspects, updates changed ones, inserts new ones, and deletes the rest. Excluded aspect classes and transformer provenance aspects are preserved, with one exception: an included unique aspect replaces an excluded unique aspect of a base or derived class on the same element, because iModels store them in one slot. Custom inserted or updated aspect changes infer the owner while the source aspect exists. Custom deleted or missing aspects require the owning element ID and throw when it is omitted:
 
 ```ts
 changedInstanceIds.addCustomAspectChange(

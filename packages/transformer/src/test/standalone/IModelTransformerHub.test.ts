@@ -3841,6 +3841,23 @@ describe("IModelTransformerHub", () => {
       firstTransformEditTxn.end();
       await saveAndPushChanges(targetDb, "First transformation");
 
+      const documentIdsByIdentifier = (db: IModelDb, elementId: Id64String) =>
+        new Map(
+          (
+            db.elements.getAspects(
+              elementId,
+              ExternalSourceAspect.classFullName
+            ) as ExternalSourceAspect[]
+          )
+            .filter((aspect) => aspect.kind === "Document")
+            .map((aspect) => [aspect.identifier, aspect.id])
+        );
+      const firstTargetIds = documentIdsByIdentifier(
+        targetDb,
+        transformer.context.findTargetElementId(elementIds[0])
+      );
+      expect(firstTargetIds.size).to.equal(5);
+
       const addedAspectProps: ExternalSourceAspectProps = {
         classFullName: ExternalSourceAspect.classFullName,
         element: new ElementOwnsExternalSourceAspects(elementIds[0]),
@@ -3893,6 +3910,14 @@ describe("IModelTransformerHub", () => {
         "aspectAddedAfterFirstTransformation",
       ]);
       expect(documentIdentifiers(sourceDb, elementIds[1])).to.deep.equal([]);
+      // Change processing reconciles the changed owner's aspects: the five
+      // unchanged aspects keep their target IDs.
+      const secondTargetIds = documentIdsByIdentifier(
+        targetDb,
+        transformer2.context.findTargetElementId(elementIds[0])
+      );
+      for (const [identifier, id] of firstTargetIds)
+        expect(secondTargetIds.get(identifier)).to.equal(id);
       for (const elementId of elementIds) {
         const targetElementId =
           transformer2.context.findTargetElementId(elementId);

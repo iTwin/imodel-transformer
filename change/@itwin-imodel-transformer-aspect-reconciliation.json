@@ -1,6 +1,6 @@
 {
-  "type": "patch",
-  "comment": "Reconcile ElementAspects with existing target aspects instead of deleting and reinserting every replaceable aspect of each accepted owner, so unchanged aspects keep their IDs and a rerun without source changes writes no aspects. Read each owner batch's target aspects with one query instead of one query per owner and class. Stop duplicating cloned source ExternalSourceAspects whose scope maps to the target scope.",
+  "type": "major",
+  "comment": "Reconcile ElementAspects with existing target aspects instead of deleting and reinserting every replaceable aspect of each accepted owner, so unchanged aspects keep their IDs and a rerun without source changes writes no aspects. IModelImporter.importElementUniqueAspect and importElementMultiAspects now match only existing aspects of the exact class; see NEXT_VERSION.md for migration. Read each owner batch's target aspects with one query instead of one query per owner and class. Stop duplicating cloned source ExternalSourceAspects whose scope maps to the target scope, except those with the same kind and scope as transformer provenance.",
   "packageName": "@itwin/imodel-transformer",
   "email": "50554904+hl662@users.noreply.github.com",
   "dependentChangeType": "patch"

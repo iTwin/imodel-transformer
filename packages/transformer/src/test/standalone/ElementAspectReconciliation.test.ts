@@ -291,11 +291,17 @@ describe("ElementAspect reconciliation", () => {
     expect(afterId(0, "o0-unique-changed")).to.equal(targetId(0, "o0-unique"));
     expect(afterId(0, "o0-a1")).to.equal(targetId(0, "o0-a1"));
     expect(afterId(0, "o0-a2-changed")).to.equal(targetId(0, "o0-a2"));
+    // Multi-aspects match by position within a class: the remaining source
+    // aspects take over the first two target slots and the last slot goes.
+    expect(afterId(1, "o1-a2")).to.equal(targetId(1, "o1-a1"));
+    expect(afterId(1, "o1-a3")).to.equal(targetId(1, "o1-a2"));
+    expect(after[1].map(({ id }) => id)).not.to.include(targetId(1, "o1-a3"));
     expect(after[2]).to.deep.equal(before[2]);
   });
 
   it("matches multi-aspect counts when the source adds and removes aspects of a class", async () => {
     const first = await transform();
+    const before = first.targetOwners.map((id) => readAspects(targetDb, id));
 
     withEditTxn(sourceDb, "grow and shrink multi-aspects", (txn) => {
       insertAspect(txn, multiB, owners[0], "o0-b2");
@@ -307,6 +313,80 @@ describe("ElementAspect reconciliation", () => {
     expectTargetMatchesSource(second.targetOwners);
     expectAspectWrites(second.importer, 2, 0, 2);
     expect(second.targetOwners).to.deep.equal(first.targetOwners);
+    // The aspects that still have a source counterpart keep their IDs.
+    const after = first.targetOwners.map((id) => readAspects(targetDb, id));
+    const idOf = (aspects: AspectSummary[][], owner: number, value: string) =>
+      aspects[owner].find((aspect) => aspect.value === value)?.id;
+    expect(idOf(after, 0, "o0-b1")).to.equal(idOf(before, 0, "o0-b1"));
+    expect(idOf(after, 1, "o1-a1")).to.equal(idOf(before, 1, "o1-a1"));
+  });
+
+  it("deletes nothing and discards loaded aspects when an owner batch fails", async () => {
+    const first = await transform();
+    const before = first.targetOwners.map((id) => readAspects(targetDb, id));
+    withEditTxn(sourceDb, "remove a multi-aspect", (txn) => {
+      txn.deleteAspect(sourceAspectIds["o0-b1"]);
+    });
+
+    class FailingTransformer extends IModelTransformer {
+      public override async onExportElementMultiAspects(): Promise<void> {
+        throw new Error("aspect export failed");
+      }
+    }
+    const editTxn = createStartedEditTxn(targetDb);
+    const importer = new AspectCountingImporter(editTxn);
+    const transformer = new FailingTransformer({
+      source: sourceDb,
+      target: importer,
+    });
+    try {
+      await expect(transformer.process()).rejects.toThrow(
+        "aspect export failed"
+      );
+      // The uncommitted target still has every aspect, and nothing remains
+      // loaded for later reads.
+      expect(importer.numElementAspectsDeleted).to.equal(0);
+      expect(
+        first.targetOwners.map((id) => readAspects(targetDb, id))
+      ).to.deep.equal(before);
+      expect(
+        importer.elementAspectCleanup.getAspects(first.targetOwners[0], multiB)
+      ).to.equal(undefined);
+    } finally {
+      transformer.dispose();
+      editTxn.end("abandon");
+    }
+
+    const second = await transform();
+    expectTargetMatchesSource(second.targetOwners);
+    expectAspectWrites(second.importer, 0, 0, 1);
+  });
+
+  // Unique aspects of one class hierarchy share a single slot per element, so
+  // an included base-class aspect replaces an excluded derived-class one.
+  it("replaces an excluded derived unique aspect when the source has its base class", async () => {
+    const first = await transform();
+    const owner0 = first.targetOwners[0];
+    withEditTxn(targetDb, "use a target-only derived unique aspect", (txn) => {
+      txn.deleteAspect(
+        readAspects(targetDb, owner0).find(
+          (aspect) => aspect.classFullName === uniqueA
+        )!.id
+      );
+      insertAspect(txn, derivedUniqueA, owner0, "target-only");
+    });
+
+    const second = await transform(async (transformer) => {
+      transformer.exporter.excludeElementAspectClass(derivedUniqueA);
+      await transformer.process();
+    });
+    expectAspectWrites(second.importer, 1, 0, 1);
+    expect(
+      readAspects(targetDb, owner0)
+        .filter(({ classFullName }) => classFullName !== multiA)
+        .filter(({ classFullName }) => classFullName !== multiB)
+        .map(({ classFullName, value }) => `${classFullName}=${value}`)
+    ).to.deep.equal([`${uniqueA}=o0-unique`]);
   });
 
   it("follows a unique aspect that moves between a base and derived class", async () => {

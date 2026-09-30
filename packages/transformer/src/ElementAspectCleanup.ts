@@ -39,9 +39,12 @@ export class ElementAspectCleanup {
     excludedElementAspectClassFullNames: ReadonlySet<string>,
     provenanceScopeId?: Id64String
   ): Promise<void> {
-    this._candidateIds = new Set<Id64String>();
-    this._aspectsByOwner = new Map<Id64String, ElementAspect[]>();
+    // Build the batch locally so a failed query leaves no partial batch behind.
+    this.discard();
     if (targetElementIds.size === 0) return;
+
+    const candidateIds = new Set<Id64String>();
+    const aspectsByOwner = new Map<Id64String, ElementAspect[]>();
 
     const targetExcludedElementAspectClassFullNames = [
       ...excludedElementAspectClassFullNames,
@@ -59,21 +62,23 @@ export class ElementAspectCleanup {
       for await (const row of this._targetDb.createQueryReader(ecsql, params, {
         usePrimaryConn: true,
       })) {
-        this._candidateIds.add(row.id);
+        candidateIds.add(row.id);
       }
     }
 
     // Load every aspect, including excluded classes and provenance, so reads
     // answer exactly what getAspects would for these owners.
-    for (const elementId of targetElementIds)
-      this._aspectsByOwner.set(elementId, []);
+    for (const elementId of targetElementIds) aspectsByOwner.set(elementId, []);
     for await (const aspect of this._targetDb.elements.queryAspects({
       elementIds: [...targetElementIds],
       groupByOwner: true,
       usePrimaryConn: true,
     })) {
-      this._aspectsByOwner.get(aspect.element.id)?.push(aspect);
+      aspectsByOwner.get(aspect.element.id)?.push(aspect);
     }
+
+    this._candidateIds = candidateIds;
+    this._aspectsByOwner = aspectsByOwner;
   }
 
   /** Returns the owner's target aspects of exactly `classFullName`, in ECInstanceId order, from the aspects loaded by [[collect]].

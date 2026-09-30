@@ -251,6 +251,18 @@ describe("IModelImporter", () => {
       const editTxn = createStartedEditTxn(targetDb);
       const importer = new IModelImporter(editTxn);
       const cleanup = importer.elementAspectCleanup;
+      // A failed collect leaves no partially loaded batch behind.
+      const queryAspects = vi
+        .spyOn(targetDb.elements, "queryAspects")
+        .mockImplementationOnce(() => {
+          throw new Error("query failed");
+        });
+      await expect(
+        cleanup.collect(new Set([elementId]), new Set<string>())
+      ).rejects.toThrow("query failed");
+      queryAspects.mockRestore();
+      expect(cleanup.getAspects(elementId, multi)).to.equal(undefined);
+
       const getAspects = vi.spyOn(targetDb.elements, "getAspects");
       await cleanup.collect(new Set([elementId]), new Set<string>());
 
@@ -283,6 +295,69 @@ describe("IModelImporter", () => {
         .map((aspect) => `${aspect.classFullName}=${aspect.asAny.value}`)
         .sort();
       expect(values).to.deep.equal([`${multi}=second`, `${unique}=second`]);
+    } finally {
+      targetDb.close();
+    }
+  });
+
+  it("aspect writes made through importer hooks refresh reads for the written owner", async () => {
+    const targetDb = StandaloneDb.createEmpty(
+      IModelTransformerTestUtils.prepareOutputFile(
+        "IModelImporter",
+        "CrossOwnerAspectWrites.bim"
+      ),
+      { rootSubject: { name: "CrossOwnerAspectWrites" } }
+    );
+    try {
+      await targetDb.importSchemaStrings([
+        `<?xml version="1.0" encoding="UTF-8"?>
+<ECSchema schemaName="TestCrossOwnerSchema" alias="tcos" version="01.00.00" xmlns="http://www.bentley.com/schemas/Bentley.ECXML.3.1">
+  <ECSchemaReference name="BisCore" version="01.00.04" alias="bis"/>
+  <ECEntityClass typeName="CrossMulti">
+    <BaseClass>bis:ElementMultiAspect</BaseClass>
+    <ECProperty propertyName="Value" typeName="string"/>
+  </ECEntityClass>
+</ECSchema>`,
+      ]);
+      const multi = "TestCrossOwnerSchema:CrossMulti";
+      const [ownerA, ownerB] = withEditTxn(targetDb, "insert owners", (txn) => [
+        Subject.insert(txn, IModel.rootSubjectId, "OwnerA"),
+        Subject.insert(txn, IModel.rootSubjectId, "OwnerB"),
+      ]);
+      const props = (elementId: Id64String) =>
+        ({
+          classFullName: multi,
+          element: new ElementOwnsMultiAspects(elementId),
+          value: "value",
+        }) as ElementAspectProps;
+
+      // Inserting owner A's aspect also inserts owner B's through the base hook.
+      class CrossOwnerImporter extends IModelImporter {
+        protected override async onInsertElementAspect(
+          aspectProps: ElementAspectProps
+        ): Promise<Id64String> {
+          if (aspectProps.element.id === ownerA)
+            await super.onInsertElementAspect(props(ownerB));
+          return super.onInsertElementAspect(aspectProps);
+        }
+      }
+      const editTxn = createStartedEditTxn(targetDb);
+      const importer = new CrossOwnerImporter(editTxn);
+      await importer.elementAspectCleanup.collect(
+        new Set([ownerA, ownerB]),
+        new Set<string>()
+      );
+      await importer.importElementMultiAspects([props(ownerA)]);
+      const [ownerBAspectId] = await importer.importElementMultiAspects([
+        props(ownerB),
+      ]);
+      editTxn.end();
+
+      // Owner B's import sees the aspect the hook inserted instead of adding another.
+      const ownerBAspects = targetDb.elements.getAspects(ownerB, multi);
+      expect(ownerBAspects.map((aspect) => aspect.id)).to.deep.equal([
+        ownerBAspectId,
+      ]);
     } finally {
       targetDb.close();
     }
