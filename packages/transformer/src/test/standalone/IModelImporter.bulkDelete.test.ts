@@ -11,7 +11,9 @@ import {
   DefinitionModel,
   DisplayStyle3d,
   DocumentListModel,
+  Drawing,
   DrawingCategory,
+  DrawingGraphic,
   EditTxn,
   GeometryPart,
   IModelDb,
@@ -28,6 +30,7 @@ import {
 import {
   Code,
   CodeScopeSpec,
+  GeometricElement2dProps,
   GeometryPartProps,
   IModel,
   PhysicalElementProps,
@@ -35,7 +38,7 @@ import {
   SubCategoryAppearance,
   ViewAttachmentProps,
 } from "@itwin/core-common";
-import { Point3d, Range3d } from "@itwin/core-geometry";
+import { Point2d, Point3d, Range3d } from "@itwin/core-geometry";
 import { expect, vi } from "vitest";
 import { planBulkDelete } from "../../ElementBulkDelete";
 import { ElementBulkDeleteError, IModelImporter } from "../../IModelImporter";
@@ -674,6 +677,179 @@ describe("IModelImporter bulk element deletion", () => {
       const editTxn = createStartedEditTxn(targetDb);
       await new IModelImporter(editTxn).deleteElements(roots);
 
+      for (const id of Object.values(ids))
+        expect(targetDb.elements.tryGetElement(id)).to.be.undefined;
+      editTxn.end("abandon");
+    } finally {
+      targetDb.close();
+    }
+  });
+
+  it("deletes category users first when a tree deleted last has an element whose code another tree scopes", async () => {
+    const targetDb = createTargetDb("CodeScopeInOtherTree");
+    try {
+      const ids = withEditTxn(targetDb, "insert trees", (txn) => {
+        const subjectId = Subject.insert(txn, IModel.rootSubjectId, "Subject");
+        const definitionModelId = DefinitionModel.insert(
+          txn,
+          subjectId,
+          "Definition model"
+        );
+        const categoryId = SpatialCategory.insert(
+          txn,
+          definitionModelId,
+          "Category",
+          new SubCategoryAppearance()
+        );
+        const keptCategoryId = SpatialCategory.insert(
+          txn,
+          IModel.dictionaryId,
+          "Kept category",
+          new SubCategoryAppearance()
+        );
+        const codeSpecId = targetDb.codeSpecs.insert(
+          txn,
+          "RelatedElementCodeSpec",
+          CodeScopeSpec.Type.RelatedElement
+        );
+        const scopeId = Subject.insert(txn, IModel.rootSubjectId, "Scope");
+        const modelId = PhysicalModel.insert(txn, subjectId, "Physical model");
+        const parentId = insertPhysicalObject(txn, {
+          modelId,
+          categoryId: keptCategoryId,
+        });
+        const dependentId = insertPhysicalObject(txn, {
+          modelId,
+          categoryId: keptCategoryId,
+          parentId,
+          codeSpecId,
+          codeScope: scopeId,
+          codeValue: "scoped-by-other-tree",
+        });
+        const userModelId = PhysicalModel.insert(
+          txn,
+          IModel.rootSubjectId,
+          "User model"
+        );
+        const userId = insertPhysicalObject(txn, {
+          modelId: userModelId,
+          categoryId,
+        });
+        return {
+          subjectId,
+          categoryId,
+          scopeId,
+          parentId,
+          dependentId,
+          userModelId,
+          userId,
+        };
+      });
+      const requested = new Set([ids.subjectId, ids.scopeId, ids.userModelId]);
+      // Deleting the scope's tree before the subject's would delete the scope while its dependent still exists.
+      expect(await planPhases(targetDb, requested)).to.deep.equal([
+        new Set([ids.userId]),
+        new Set([ids.subjectId, ids.categoryId, ids.scopeId, ids.userModelId]),
+      ]);
+
+      const editTxn = createStartedEditTxn(targetDb);
+      await new IModelImporter(editTxn).deleteElements(requested);
+      for (const id of Object.values(ids))
+        expect(targetDb.elements.tryGetElement(id)).to.be.undefined;
+      editTxn.end("abandon");
+    } finally {
+      targetDb.close();
+    }
+  });
+
+  it("deletes a 2D element and the drawing category it uses in one batch", async () => {
+    const targetDb = createTargetDb("DrawingCategoryUsedInBatch");
+    try {
+      const ids = withEditTxn(targetDb, "insert drawing", (txn) => {
+        const documentListModelId = DocumentListModel.insert(
+          txn,
+          IModel.rootSubjectId,
+          "Documents"
+        );
+        const drawingModelId = Drawing.insert(
+          txn,
+          documentListModelId,
+          "Drawing"
+        );
+        const categoryId = DrawingCategory.insert(
+          txn,
+          IModel.dictionaryId,
+          "Drawing category",
+          new SubCategoryAppearance()
+        );
+        const graphicId = txn.insertElement({
+          classFullName: DrawingGraphic.classFullName,
+          model: drawingModelId,
+          category: categoryId,
+          code: Code.createEmpty(),
+          placement: { origin: Point2d.createZero(), angle: 0 },
+        } as GeometricElement2dProps);
+        return {
+          categoryId,
+          defaultSubCategoryId: IModelDb.getDefaultSubCategoryId(categoryId),
+          graphicId,
+        };
+      });
+      const requested = new Set([ids.categoryId, ids.graphicId]);
+      expect(await planPhases(targetDb, requested)).to.deep.equal([
+        new Set([ids.graphicId]),
+        new Set([ids.categoryId]),
+      ]);
+
+      const editTxn = createStartedEditTxn(targetDb);
+      await new IModelImporter(editTxn).deleteElements(requested);
+      for (const id of Object.values(ids))
+        expect(targetDb.elements.tryGetElement(id)).to.be.undefined;
+      editTxn.end("abandon");
+    } finally {
+      targetDb.close();
+    }
+  });
+
+  it("deletes an element in two requested trees before the category it uses", async () => {
+    const targetDb = createTargetDb("CategoryUserInTwoTrees");
+    try {
+      const ids = withEditTxn(targetDb, "insert overlapping trees", (txn) => {
+        const categoryId = SpatialCategory.insert(
+          txn,
+          IModel.dictionaryId,
+          "Category",
+          new SubCategoryAppearance()
+        );
+        const codeSpecId = targetDb.codeSpecs.insert(
+          txn,
+          "RelatedElementCodeSpec",
+          CodeScopeSpec.Type.RelatedElement
+        );
+        const scopeId = Subject.insert(txn, IModel.rootSubjectId, "Scope");
+        const modelId = PhysicalModel.insert(
+          txn,
+          IModel.rootSubjectId,
+          "Physical model"
+        );
+        // In the model's tree, and a root of its own because the scope's tree scopes its code.
+        const userId = insertPhysicalObject(txn, {
+          modelId,
+          categoryId,
+          codeSpecId,
+          codeScope: scopeId,
+          codeValue: "in-two-trees",
+        });
+        return { categoryId, scopeId, modelId, userId };
+      });
+      const requested = new Set([ids.categoryId, ids.scopeId, ids.modelId]);
+      expect(await planPhases(targetDb, requested)).to.deep.equal([
+        new Set([ids.scopeId, ids.modelId, ids.userId]),
+        new Set([ids.categoryId]),
+      ]);
+
+      const editTxn = createStartedEditTxn(targetDb);
+      await new IModelImporter(editTxn).deleteElements(requested);
       for (const id of Object.values(ids))
         expect(targetDb.elements.tryGetElement(id)).to.be.undefined;
       editTxn.end("abandon");
