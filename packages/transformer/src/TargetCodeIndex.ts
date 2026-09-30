@@ -18,7 +18,17 @@ function foldCodeValue(value: string): string {
 const unindexed = Symbol("unindexed");
 type CodeBucket = Map<string, Id64String>;
 
-/** Finds target elements by Code during a transformation. The first lookup in a (CodeSpec, CodeScope) pair loads all codes in that pair with one query; later lookups in the pair are answered from memory.
+/** @internal */
+export interface TargetCodeIndexOptions {
+  /** Lookups in a (CodeSpec, CodeScope) pair that are queried directly before the pair is loaded. Loading costs about as much as a lookup per ~100 codes, so pairs with few lookups are not worth loading. */
+  lookupsBeforeLoad: number;
+  /** A pair with more codes than this is not indexed. */
+  maxBucketCodes: number;
+  /** No more pairs are indexed once this many codes are indexed. */
+  maxIndexedCodes: number;
+}
+
+/** Finds target elements by Code during a transformation. Once a (CodeSpec, CodeScope) pair has been looked up more than `lookupsBeforeLoad` times, all codes in that pair are loaded with one query and later lookups in the pair are answered from memory.
  *
  * A lookup returns the same element as `SELECT ECInstanceId FROM BisCore:Element WHERE CodeSpec.Id=? AND CodeScope.Id=? AND CodeValue=?` if these hold:
  * - Every code written to a loaded pair is passed to [[recordElementCode]]. The transformer records the elements it imports. Writes made directly through an `EditTxn` while an indexed operation runs are out-of-band, like deletes for [[EntityExistenceCache]].
@@ -30,14 +40,22 @@ type CodeBucket = Map<string, Id64String>;
  */
 export class TargetCodeIndex {
   private readonly _buckets = new Map<string, CodeBucket | typeof unindexed>();
+  private readonly _unloadedLookups = new Map<string, number>();
+  private readonly _options: TargetCodeIndexOptions;
   private _indexedCodes = 0;
   private _depth = 0;
 
   public constructor(
     private readonly _db: IModelDb,
-    private readonly _maxBucketCodes = 10_000,
-    private readonly _maxIndexedCodes = 1_000_000
-  ) {}
+    options?: Partial<TargetCodeIndexOptions>
+  ) {
+    this._options = {
+      lookupsBeforeLoad: 64,
+      maxBucketCodes: 10_000,
+      maxIndexedCodes: 1_000_000,
+      ...options,
+    };
+  }
 
   /** Runs `operation` with the index enabled. The outermost call starts and ends with an empty index. */
   public async withIndex<T>(operation: () => Promise<T>): Promise<T> {
@@ -52,6 +70,7 @@ export class TargetCodeIndex {
   /** Drops all indexed codes. */
   public clear(): void {
     this._buckets.clear();
+    this._unloadedLookups.clear();
     this._indexedCodes = 0;
   }
 
@@ -106,6 +125,12 @@ export class TargetCodeIndex {
     const bucketKey = this.bucketKey(spec, scope);
     let bucket = this._buckets.get(bucketKey);
     if (bucket === undefined) {
+      const lookups = (this._unloadedLookups.get(bucketKey) ?? 0) + 1;
+      if (lookups <= this._options.lookupsBeforeLoad) {
+        this._unloadedLookups.set(bucketKey, lookups);
+        return unindexed;
+      }
+      this._unloadedLookups.delete(bucketKey);
       bucket = await this.loadBucket(spec, scope);
       this._buckets.set(bucketKey, bucket);
     }
@@ -117,8 +142,8 @@ export class TargetCodeIndex {
     scope: Id64String
   ): Promise<CodeBucket | typeof unindexed> {
     const limit = Math.min(
-      this._maxBucketCodes,
-      this._maxIndexedCodes - this._indexedCodes
+      this._options.maxBucketCodes,
+      this._options.maxIndexedCodes - this._indexedCodes
     );
     if (limit <= 0) return unindexed;
     const rows = await this._db

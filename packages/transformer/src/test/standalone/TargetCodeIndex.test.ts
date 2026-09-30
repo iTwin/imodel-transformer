@@ -154,6 +154,8 @@ const probedCodeValues = [
   "missing",
 ];
 
+const loadOnFirstLookup = { lookupsBeforeLoad: 0 };
+
 describe("TargetCodeIndex", () => {
   let testDb: TestDb;
   let elementIds: Id64String[];
@@ -169,7 +171,7 @@ describe("TargetCodeIndex", () => {
   });
 
   it("matches the ECSQL lookup for exact whitespace, ASCII-only case folding, and empty values", async () => {
-    const index = new TargetCodeIndex(testDb.db);
+    const index = new TargetCodeIndex(testDb.db, loadOnFirstLookup);
     await index.withIndex(async () => {
       for (const value of probedCodeValues) {
         const code = codeOf(testDb, value);
@@ -186,7 +188,7 @@ describe("TargetCodeIndex", () => {
   });
 
   it("loads each (CodeSpec, CodeScope) once per indexed operation", async () => {
-    const index = new TargetCodeIndex(testDb.db);
+    const index = new TargetCodeIndex(testDb.db, loadOnFirstLookup);
     const createQueryReader = vi.spyOn(testDb.db, "createQueryReader");
     await index.withIndex(async () => {
       for (const value of probedCodeValues)
@@ -202,8 +204,25 @@ describe("TargetCodeIndex", () => {
     expect(createQueryReader).toHaveBeenCalledTimes(2);
   });
 
+  it("queries each (CodeSpec, CodeScope) directly until it has been looked up often enough to load", async () => {
+    const index = new TargetCodeIndex(testDb.db, { lookupsBeforeLoad: 2 });
+    const createQueryReader = vi.spyOn(testDb.db, "createQueryReader");
+    await index.withIndex(async () => {
+      for (const value of probedCodeValues) {
+        const code = codeOf(testDb, value);
+        expect(await index.findElementId(code), JSON.stringify(value)).toBe(
+          await queryElementIdByCode(testDb.db, code)
+        );
+      }
+    });
+    // two lookup queries, one bucket load, and one reference query per probe
+    expect(createQueryReader).toHaveBeenCalledTimes(
+      3 + probedCodeValues.length
+    );
+  });
+
   it("queries every lookup outside an indexed operation", async () => {
-    const index = new TargetCodeIndex(testDb.db);
+    const index = new TargetCodeIndex(testDb.db, loadOnFirstLookup);
     const createQueryReader = vi.spyOn(testDb.db, "createQueryReader");
     expect(await index.findElementId(codeOf(testDb, "alpha"))).toBe(
       elementIds[0]
@@ -215,7 +234,7 @@ describe("TargetCodeIndex", () => {
   });
 
   it("finds recorded codes that were written after their bucket was loaded", async () => {
-    const index = new TargetCodeIndex(testDb.db);
+    const index = new TargetCodeIndex(testDb.db, loadOnFirstLookup);
     await index.withIndex(async () => {
       expect(await index.findElementId(codeOf(testDb, "Eta "))).toBeUndefined();
       const [etaId, emptyId] = insertElements(testDb, ["Eta ", undefined]);
@@ -228,7 +247,7 @@ describe("TargetCodeIndex", () => {
   });
 
   it("does not return indexed elements that were deleted or whose code changed", async () => {
-    const index = new TargetCodeIndex(testDb.db);
+    const index = new TargetCodeIndex(testDb.db, loadOnFirstLookup);
     await index.withIndex(async () => {
       expect(await index.findElementId(codeOf(testDb, "Alpha"))).toBe(
         elementIds[0]
@@ -261,7 +280,7 @@ describe("TargetCodeIndex", () => {
   });
 
   it("starts each outermost indexed operation from the current target", async () => {
-    const index = new TargetCodeIndex(testDb.db);
+    const index = new TargetCodeIndex(testDb.db, loadOnFirstLookup);
     await index.withIndex(async () => {
       await index.withIndex(async () => {
         expect(
@@ -277,8 +296,14 @@ describe("TargetCodeIndex", () => {
 
   it("queries every lookup in buckets that exceed the code limits", async () => {
     for (const index of [
-      new TargetCodeIndex(testDb.db, storedCodeValues.length - 1),
-      new TargetCodeIndex(testDb.db, 10_000, storedCodeValues.length - 1),
+      new TargetCodeIndex(testDb.db, {
+        ...loadOnFirstLookup,
+        maxBucketCodes: storedCodeValues.length - 1,
+      }),
+      new TargetCodeIndex(testDb.db, {
+        ...loadOnFirstLookup,
+        maxIndexedCodes: storedCodeValues.length - 1,
+      }),
     ]) {
       const createQueryReader = vi.spyOn(testDb.db, "createQueryReader");
       await index.withIndex(async () => {
@@ -298,7 +323,10 @@ describe("TargetCodeIndex", () => {
   });
 });
 
-describe("IModelTransformer lookup by Code", () => {
+describe.each([
+  ["loaded on first lookup", loadOnFirstLookup],
+  ["default load threshold", undefined],
+])("IModelTransformer lookup by Code (%s)", (_name, indexOptions) => {
   let sourceDb: TestDb;
   let targetDb: TestDb;
   let editTxn: EditTxn | undefined;
@@ -315,6 +343,15 @@ describe("IModelTransformer lookup by Code", () => {
     sourceDb.db.close();
     targetDb.db.close();
   });
+
+  function useCodeIndex<T extends IModelTransformer>(transformer: T): T {
+    Reflect.set(
+      transformer,
+      "_targetCodeIndex",
+      new TargetCodeIndex(targetDb.db, indexOptions)
+    );
+    return transformer;
+  }
 
   function targetCodeValue(id: Id64String): string | undefined {
     return targetDb.db.elements.getElementProps(id).code.value;
@@ -346,12 +383,14 @@ describe("IModelTransformer lookup by Code", () => {
       "New",
     ]);
 
-    const transformer = new IModelTransformer(
-      {
-        source: sourceDb.db,
-        target: (editTxn = createStartedEditTxn(targetDb.db)),
-      },
-      { noProvenance: true }
+    const transformer = useCodeIndex(
+      new IModelTransformer(
+        {
+          source: sourceDb.db,
+          target: (editTxn = createStartedEditTxn(targetDb.db)),
+        },
+        { noProvenance: true }
+      )
     );
     await transformer.process();
     const targetIdOf = (id: Id64String) =>
@@ -412,12 +451,14 @@ describe("IModelTransformer lookup by Code", () => {
         return props;
       }
     }
-    const transformer = new RenamingTransformer(
-      {
-        source: sourceDb.db,
-        target: (editTxn = createStartedEditTxn(targetDb.db)),
-      },
-      { noProvenance: true }
+    const transformer = useCodeIndex(
+      new RenamingTransformer(
+        {
+          source: sourceDb.db,
+          target: (editTxn = createStartedEditTxn(targetDb.db)),
+        },
+        { noProvenance: true }
+      )
     );
     await transformer.process();
 
