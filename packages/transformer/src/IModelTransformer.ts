@@ -10,6 +10,7 @@ import * as Semver from "semver";
 import { strict as nodeAssert } from "node:assert";
 import {
   assert,
+  DbResult,
   Guid,
   GuidString,
   Id64,
@@ -1373,7 +1374,7 @@ export class IModelTransformer extends IModelExportHandler {
     // respond the same way to undefined code value as the @see Code class, but don't use that class because it trims
     // whitespace from the value, and there are iModels out there with untrimmed whitespace that we ought not to trim
     targetElementProps.code.value = targetElementProps.code.value ?? "";
-    const maybeTargetElementId = await this.queryElementIdByCode(
+    const maybeTargetElementId = this.queryElementIdByCode(
       this.targetDb,
       targetElementProps.code as Required<CodeProps>
     );
@@ -1412,10 +1413,10 @@ export class IModelTransformer extends IModelExportHandler {
   // Code class constructor trims white spaces from code value.
   // Custom implementation of queryElementIdByCode() was added to support querying elements with code values that have trailing whitespaces.
   // It mimicks 4.x implementation: https://github.com/iTwin/itwinjs-core/blob/9c8b394ec3878a39764be81f928fd8b0b9115d31/core/backend/src/IModelDb.ts#L1882
-  private async queryElementIdByCode(
+  private queryElementIdByCode(
     iModel: IModelDb,
     code: Required<CodeProps>
-  ): Promise<Id64String | undefined> {
+  ): Id64String | undefined {
     if (Id64.isInvalid(code.spec))
       ITwinError.throwError({
         iTwinErrorId: {
@@ -1434,16 +1435,17 @@ export class IModelTransformer extends IModelExportHandler {
         message: "Invalid Code",
       });
 
-    const query =
-      "SELECT ECInstanceId FROM BisCore:Element WHERE CodeSpec.Id=? AND CodeScope.Id=? AND CodeValue=?";
-    const queryBinder = new QueryBinder()
-      .bindId(1, code.spec)
-      .bindId(2, Id64.fromString(code.scope))
-      .bindString(3, code.value);
-    const queryReader = iModel.createQueryReader(query, queryBinder, {
-      usePrimaryConn: true,
-    });
-    return (await queryReader.step()) ? queryReader.current[0] : undefined;
+    return iModel.withPreparedSqliteStatement(
+      "SELECT Id FROM bis_Element WHERE CodeSpecId=? AND CodeScopeId=? AND CodeValue=?",
+      (stmt) => {
+        stmt.bindId(1, code.spec);
+        stmt.bindId(2, Id64.fromString(code.scope));
+        stmt.bindString(3, code.value);
+        return stmt.step() === DbResult.BE_SQLITE_ROW
+          ? stmt.getValueId(0)
+          : undefined;
+      }
+    );
   }
 
   /** Override of [IModelExportHandler.onExportElement]($transformer) that imports an element into the target iModel when it is exported from the source iModel.
