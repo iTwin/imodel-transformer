@@ -7,7 +7,7 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "prepare": "pnpm build",
-    "clean": "rimraf lib",
+    "clean": "node ../../scripts/rm.js lib",
     "lint": "eslint \"./src/**/*.ts\" 1>&2",
     "format": "prettier \"./src/**/*.ts\" --write"
   },
@@ -16,24 +16,11 @@
     "@itwin/core-bentley": "^5.13.0"
   },
   "devDependencies": {
-    "@itwin/build-tools": "^5.13.0",
-    "@itwin/core-backend": "^5.13.0",
-    "@itwin/core-bentley": "^5.13.0",
-    "@itwin/eslint-plugin": "^6.1.0",
-    "@types/node": "22.18.12",
-    "@typescript/native": "npm:typescript@~7.0.2",
-    "eslint": "^9.36.0",
-    "prettier": "^3.6.2",
-    "rimraf": "^3.0.2",
-    "typescript": "npm:@typescript/typescript6@~6.0.2"
-  },
-  "eslintConfig": {
-    "plugins": [
-      "@itwin"
-    ],
-    "extends": "plugin:@itwin/itwinjs-recommended",
-    "parserOptions": {
-      "project": "./tsconfig.json"
-    }
+    "@itwin/build-tools": "catalog:",
+    "@itwin/core-backend": "catalog:",
+    "@itwin/core-bentley": "catalog:",
+    "@types/node": "catalog:",
+    "@typescript/native": "catalog:",
+    "typescript": "catalog:"
   }
 }

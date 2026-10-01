@@ -1,0 +1,7 @@
+{
+  "type": "none",
+  "comment": "Remove unused internal code, unused dev dependencies, and unused lint suppressions",
+  "packageName": "@itwin/imodel-transformer",
+  "email": "50554904+hl662@users.noreply.github.com",
+  "dependentChangeType": "none"
+}

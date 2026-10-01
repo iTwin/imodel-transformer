@@ -995,7 +995,6 @@ export async function assertIdentityTransformation(
     );
     targetRelationshipsToFind.delete(relInTargetKey);
   }
-  /* eslint-enable @typescript-eslint/naming-convention */
 
   expect(targetRelationshipsToFind.size).to.equal(0);
 }
@@ -2573,15 +2572,6 @@ export class ClassCounter extends IModelExportHandler {
   }
 }
 
-/** In some cases during tests, you want to modify an existing immutable database, so you need to copy it which will change the id.
- * Forcing the same id will prevent the transformer from detecting invalid provenance/provenance conflicts
- */
-export function copyDbPreserveId(sourceDb: IModelDb, pathForCopy: string) {
-  const copy = SnapshotDb.createFrom(sourceDb, pathForCopy);
-  copy["_iModelId"] = sourceDb.iModelId;
-  return copy;
-}
-
 /**
  * Runs a function under the cpu profiler, by default creates cpu profiles in the working directory of
  * the test runner process.
@@ -2608,7 +2598,6 @@ export async function runWithCpuProfiler<F extends () => any>(
     profileDir,
     `${profileName}${maybeNameTimePortion}${profileExtension}`
   );
-  // eslint-disable-next-line @typescript-eslint/no-var-requires
   // implementation influenced by https://github.com/wallet77/v8-inspector-api/blob/master/src/utils.js
   const invokeFunc = async (
     thisSession: inspector.Session,

@@ -8,7 +8,6 @@ import * as fs from "node:fs";
 import { loadEnvFile } from "node:process";
 import Yargs from "yargs";
 import { assert, Guid, Logger, LogLevel } from "@itwin/core-bentley";
-import { ProjectsAccessClient } from "@itwin/projects-client";
 import {
   BriefcaseDb,
   IModelDb,
@@ -32,7 +31,6 @@ import {
   Transformer as TestAppTransformer,
   TransformerOptions,
 } from "./Transformer";
-import "source-map-support/register";
 
 const acquireAccessToken = async () =>
   IModelTransformerTestAppHost.acquireAccessToken();
@@ -256,20 +254,11 @@ void (async () => {
       );
     }
 
-    let iTwinAccessClient: ProjectsAccessClient | undefined;
     const processChanges =
       args.sourceStartChangesetIndex || args.sourceStartChangesetId;
 
-    if (args.sourceITwinId || args.targetITwinId) {
-      iTwinAccessClient = new ProjectsAccessClient();
-    }
-
     if (args.sourceITwinId) {
       // source is from iModelHub
-      assert(
-        undefined !== iTwinAccessClient,
-        "iTwinAccessClient must have been defined if sourceITwinId is allowed, if you are seeing this, it is a bug"
-      );
       assert(
         undefined !== args.sourceIModelId,
         "if you provide a sourceITwinId, you must provide a sourceIModelId"
