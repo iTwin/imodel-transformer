@@ -3,11 +3,11 @@
  * See LICENSE.md in the project root for license terms and full copyright notice.
  *--------------------------------------------------------------------------------------------*/
 
-import { SnapshotDb } from "@itwin/core-backend";
+import { IModelDb } from "@itwin/core-backend";
 import { canonicalSha256 } from "../fixtures/FixtureDescriptor.js";
 
 async function classDistribution(
-  db: SnapshotDb,
+  db: IModelDb,
   className: string
 ): Promise<unknown[]> {
   const rows: unknown[] = [];
@@ -28,7 +28,7 @@ async function classDistribution(
 }
 
 export async function outputShapeDigest(
-  targetDb: SnapshotDb,
+  targetDb: IModelDb,
   classQueries: Readonly<Record<string, string>>
 ): Promise<string> {
   const distributions = await Promise.all(
