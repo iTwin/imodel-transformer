@@ -93,7 +93,7 @@
   },
   "//devDependencies": [
     "NOTE: All peerDependencies should also be listed as devDependencies since peerDependencies are not considered by npm install",
-    "NOTE: All tools used by scripts in this package must be listed as devDependencies"
+    "NOTE: All tools used by scripts in this package must be listed as devDependencies, except ESLint and Prettier tooling, which the workspace root declares"
   ],
   "devDependencies": {
     "@itwin/build-tools": "catalog:",
