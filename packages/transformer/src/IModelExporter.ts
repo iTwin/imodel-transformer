@@ -1026,19 +1026,21 @@ export class IModelExporter {
     Logger.logTrace(loggerCategory, `exportSubModels(${parentModelId})`);
     // Export DefinitionModels before other Models, each in ECInstanceId order.
     // Classifying in ECSQL avoids loading every sub-model here and again in exportModel.
+    // Partition in JS: sorting on the classification in ECSQL raised peak native memory on many-model iModels.
     const sql = `
       SELECT ECInstanceId, IIF(ECClassId IS (${DefinitionModel.classFullName}), 1, 0) isDefinitionModel
       FROM ${Model.classFullName}
       WHERE ParentModel.Id=:parentModelId
-      ORDER BY isDefinitionModel DESC, ECInstanceId`;
+      ORDER BY ECInstanceId`;
     const params = new QueryBinder().bindId("parentModelId", parentModelId);
-    const subModelIds: Id64String[] = [];
+    const definitionModelIds: Id64String[] = [];
+    const otherModelIds: Id64String[] = [];
     for await (const row of this.sourceDb.createQueryReader(sql, params, {
       usePrimaryConn: true,
     })) {
-      subModelIds.push(row.id);
+      (row.isDefinitionModel ? definitionModelIds : otherModelIds).push(row.id);
     }
-    for (const subModelId of subModelIds) {
+    for (const subModelId of [...definitionModelIds, ...otherModelIds]) {
       await this.exportModel(subModelId);
     }
   }
