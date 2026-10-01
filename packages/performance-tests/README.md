@@ -65,6 +65,16 @@ unchanged base that `balanced-incremental`'s proportional churn dilutes. The
 scale is part of the fixture parameters and therefore produces a distinct
 fixture descriptor and artifact identity.
 
+The `hierarchical-incremental` fixture measures the `incremental-synchronization`
+operation on elements with parents. At the registered `scale: 25`, its one model
+holds 1,000 unchanged assemblies, each with 2 sub-assemblies of 4 parts, for
+11,000 base elements. Two changesets insert 250 parts and update 250 parts, one
+per assembly, so every changed element sits beneath two unchanged ancestors that
+no other change shares; the other 500 assemblies stay unchanged. Change
+processing reaches each changed element through its unchanged ancestors, so the
+fixture exposes per-ancestor work that the flat fixtures never reach. Select it
+with `QUICK_PERF_FIXTURE=hierarchical-incremental`.
+
 The package also contains a `source-only` fixture backed by
 `detachedBriefcaseProvider`. It supplies a read-only source `BriefcaseDb` and
 local changeset files without a running Hub during scenario execution. No
@@ -78,10 +88,13 @@ The `standalone-full-transformation` scenario uses
 source copy and a newly-created empty target. Untimed `prepare()` imports
 schemas, `measure()` contains only `IModelTransformer.process()`, and
 `finish()` computes the target output-shape digest used for A/B comparability.
-Four configured fixtures support it: `standalone-full-transform`
+Five configured fixtures support it: `standalone-full-transform`
 (element-heavy, no relationships), `relationship-heavy-transform` (5,000
 elements with 30,000 `ElementGroupsMembers` relationships, exercising the
-relationship export path including federation-guid lookups), and the opt-in
+relationship export path including federation-guid lookups),
+`reference-heavy-transform` (8,000 parent elements and 37,000 child elements
+whose round-robin parent navigation references exercise source-reference
+validation with about 8,000 unique references), and the opt-in
 `realistic-building-transform` and `realistic-building-transform-large`
 fixtures described below. Stock `process()` does not copy their
 `ElementDrivesElement` relationships.
@@ -221,15 +234,15 @@ panel.
 
 Registered fixtures per scenario:
 
-| Scenario ID                                | Fixture IDs                                                                                                                       | Default                             |
-| ------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------- |
-| `incremental-synchronization`              | `balanced-incremental`, `deletion-heavy-incremental`                                                                              | `balanced-incremental`              |
-| `standalone-full-transformation`           | `standalone-full-transform`, `relationship-heavy-transform`, `realistic-building-transform`, `realistic-building-transform-large` | `standalone-full-transform`         |
-| `standalone-drive-relationship-processing` | `realistic-building-transform`, `realistic-building-transform-large`                                                              | `realistic-building-transform`      |
-| `aspect-heavy-noop`                        | `aspect-heavy-noop-1k-3`, `aspect-heavy-noop-10k-3`                                                                               | `aspect-heavy-noop-1k-3`            |
-| `aspect-heavy-process-changes`             | `aspect-heavy-process-changes-1k-3`                                                                                               | `aspect-heavy-process-changes-1k-3` |
-| `schema-processing`                        | `schema-processing-large`                                                                                                         | `schema-processing-large`           |
-| `changeset-scanning`                       | `update-heavy-scan`                                                                                                               | `update-heavy-scan`                 |
+| Scenario ID                                | Fixture IDs                                                                                                                                                    | Default                             |
+| ------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------- |
+| `incremental-synchronization`              | `balanced-incremental`, `deletion-heavy-incremental`, `hierarchical-incremental`                                                                               | `balanced-incremental`              |
+| `standalone-full-transformation`           | `standalone-full-transform`, `relationship-heavy-transform`, `reference-heavy-transform`, `realistic-building-transform`, `realistic-building-transform-large` | `standalone-full-transform`         |
+| `standalone-drive-relationship-processing` | `realistic-building-transform`, `realistic-building-transform-large`                                                                                           | `realistic-building-transform`      |
+| `aspect-heavy-noop`                        | `aspect-heavy-noop-1k-3`, `aspect-heavy-noop-10k-3`                                                                                                            | `aspect-heavy-noop-1k-3`            |
+| `aspect-heavy-process-changes`             | `aspect-heavy-process-changes-1k-3`                                                                                                                            | `aspect-heavy-process-changes-1k-3` |
+| `schema-processing`                        | `schema-processing-large`                                                                                                                                      | `schema-processing-large`           |
+| `changeset-scanning`                       | `update-heavy-scan`                                                                                                                                            | `update-heavy-scan`                 |
 
 Run the aspect-heavy no-op benchmark at its default size or at 10,000 elements:
 
@@ -265,6 +278,14 @@ Run the generated standalone full-transform workload in a POSIX shell:
 ```sh
 QUICK_PERF_SCENARIO=standalone-full-transformation \
 QUICK_PERF_SAMPLES=3 \
+pnpm test:quick
+```
+
+Run the navigation-reference-heavy standalone workload in PowerShell:
+
+```powershell
+$env:QUICK_PERF_SCENARIO = "standalone-full-transformation"
+$env:QUICK_PERF_FIXTURE = "reference-heavy-transform"
 pnpm test:quick
 ```
 
@@ -445,6 +466,16 @@ scenario that exists only on a feature branch, set the optional free-form
 ```sh
 gh workflow run quick-performance.yml --ref <branch> \
   -f scenario_override=my-feature-scenario
+```
+
+Run the registered reference-heavy fixture through the A/B workflow:
+
+```sh
+gh workflow run quick-performance-comparison.yml --ref <branch> \
+  -f scenario=standalone-full-transformation \
+  -f fixture=reference-heavy-transform \
+  -f baseline_ref=main \
+  -f samples=40
 ```
 
 ## Adding quick performance coverage

@@ -1,0 +1,7 @@
+{
+  "type": "minor",
+  "comment": "Delete element batches in dependency order, and keep elements still used from outside the batch with a warning",
+  "packageName": "@itwin/imodel-transformer",
+  "email": "50554904+hl662@users.noreply.github.com",
+  "dependentChangeType": "patch"
+}
