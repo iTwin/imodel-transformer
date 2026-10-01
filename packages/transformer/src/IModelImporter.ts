@@ -24,6 +24,7 @@ import {
   IModel,
   IModelError,
   ModelProps,
+  QueryBinder,
   RelatedElement,
   SubCategoryProps,
 } from "@itwin/core-common";
@@ -43,7 +44,11 @@ import {
 } from "@itwin/core-backend";
 import type { RelationshipPropsForDelete } from "./IModelTransformer";
 import { strict as assert } from "node:assert";
-import { ElementAspectCleanup } from "./ElementAspectCleanup";
+import {
+  ElementAspectCleanup,
+  isSameClass,
+  tryGetAspect,
+} from "./ElementAspectCleanup";
 import {
   EntityClass,
   PropertyType,
@@ -144,7 +149,7 @@ export class IModelImporter {
 
   private readonly _elementAspectCleanup: ElementAspectCleanup;
 
-  /** Deletes replaceable ElementAspects through this importer's customized deletion callback.
+  /** Deletes replaceable ElementAspects that an owner batch did not reuse, through this importer's customized deletion callback.
    * @internal
    */
   public get elementAspectCleanup(): ElementAspectCleanup {
@@ -614,27 +619,93 @@ export class IModelImporter {
     return `${elementProps.classFullName} ${namePiece}[${elementProps.id}]`;
   }
 
-  /** Import an ElementUniqueAspect into the target iModel. */
+  /** Import an ElementUniqueAspect into the target iModel.
+   * @note Only an existing aspect of exactly `aspectProps.classFullName` on the owner is reused, and it is updated only when its properties differ.
+   * If there is none, the owner's unique aspects of a base or derived class are deleted through [[onDeleteElementAspect]] before the aspect is inserted, because iModel unique-aspect writes treat those classes as one slot.
+   * @returns the ID of the reused or inserted aspect
+   */
   public async importElementUniqueAspect(
     aspectProps: ElementAspectProps
   ): Promise<Id64String> {
-    const aspects: ElementAspect[] = this.targetDb.elements.getAspects(
-      aspectProps.element.id,
+    const elementId = aspectProps.element.id;
+    const existing = this.getTargetAspects(
+      elementId,
       aspectProps.classFullName
-    );
-    if (aspects.length === 0) {
+    )[0];
+    if (existing === undefined) {
+      this._elementAspectCleanup.invalidate(elementId);
+      // iModel unique-aspect writes treat base and derived classes as one slot:
+      // inserting replaces an aspect of a derived class, and deleting an aspect
+      // of a base class also deletes derived ones. Delete related aspects first
+      // so deletion hooks run and later deletions cannot remove the new aspect.
+      for (const aspectId of await this.queryRelatedUniqueAspectIds(
+        elementId,
+        aspectProps.classFullName
+      )) {
+        this._elementAspectCleanup.retain(aspectId);
+        const aspect = tryGetAspect(this.targetDb, aspectId);
+        if (aspect !== undefined) await this.onDeleteElementAspect(aspect);
+      }
       return this.onInsertElementAspect(aspectProps);
-    } else if (hasEntityChanged(aspects[0], aspectProps)) {
-      aspectProps.id = aspects[0].id;
+    }
+    this._elementAspectCleanup.retain(existing.id);
+    if (hasEntityChanged(existing, aspectProps)) {
+      aspectProps.id = existing.id;
+      this._elementAspectCleanup.invalidate(elementId);
       await this.onUpdateElementAspect(aspectProps);
     }
-    return aspects[0].id;
+    return existing.id;
+  }
+
+  /** Returns the element's target aspects of exactly `classFullName`, in ECInstanceId order.
+   * Inside a transformer owner batch these come from the batch's loaded aspects; otherwise from the target iModel.
+   */
+  private getTargetAspects(
+    elementId: Id64String,
+    classFullName: string
+  ): ElementAspect[] {
+    return (
+      this._elementAspectCleanup.getAspects(elementId, classFullName) ??
+      // getAspects is polymorphic; keep only the exact class so aspects of a
+      // derived class are handled with their own class.
+      this.targetDb.elements
+        .getAspects(elementId, classFullName)
+        .filter((aspect) => isSameClass(aspect, classFullName))
+    );
+  }
+
+  /** Returns the element's unique aspects whose class is a base or derived class of `classFullName`, excluding that class itself. */
+  private async queryRelatedUniqueAspectIds(
+    elementId: Id64String,
+    classFullName: string
+  ): Promise<Id64String[]> {
+    const ids: Id64String[] = [];
+    for await (const row of this.targetDb.createQueryReader(
+      `SELECT aspect.ECInstanceId id FROM bis.ElementUniqueAspect aspect
+       WHERE aspect.Element.Id = :elementId
+         AND aspect.ECClassId <> ec_classid(:classFullName)
+         AND (
+           aspect.ECClassId IN (
+             SELECT SourceECInstanceId FROM meta.ClassHasAllBaseClasses
+             WHERE TargetECInstanceId = ec_classid(:classFullName))
+           OR aspect.ECClassId IN (
+             SELECT TargetECInstanceId FROM meta.ClassHasAllBaseClasses
+             WHERE SourceECInstanceId = ec_classid(:classFullName)))`,
+      new QueryBinder()
+        .bindId("elementId", elementId)
+        .bindString("classFullName", classFullName.replace(".", ":")),
+      { usePrimaryConn: true }
+    )) {
+      ids.push(row.id);
+    }
+    return ids;
   }
 
   /** Import the collection of ElementMultiAspects into the target iModel.
    * @param aspectPropsArray The ElementMultiAspects to import
    * @param filterFunc Optional filter func that is used to exclude target ElementMultiAspects that were added during iModel transformation from the update detection logic.
    * @note For insert vs. update reasons, it is important to process all ElementMultiAspects owned by an Element at once since we don't have aspect-specific provenance.
+   * @note Aspects are grouped by `classFullName`. Each group is matched in order only against existing target aspects of exactly that class: matches are updated when their properties differ, extra props are inserted, and extra target aspects of that class are deleted. Target aspects of other classes, including derived classes, are not changed.
    * @returns the array of ids of the resulting ElementMultiAspects, in the same order of the aspectPropsArray parameter
    */
   public async importElementMultiAspects(
@@ -667,10 +738,14 @@ export class IModelImporter {
       aspectClassFullName,
       proposedAspects,
     ] of proposedAspectsByClass) {
-      const currentAspects = this.targetDb.elements
-        .getAspects(elementId, aspectClassFullName)
+      const currentAspects = this.getTargetAspects(
+        elementId,
+        aspectClassFullName
+      )
         .map((props, index) => ({ props, index }) as const)
         .filter(({ props }) => filterFunc(props));
+      for (const { props } of currentAspects)
+        this._elementAspectCleanup.retain(props.id);
 
       if (proposedAspects.length >= currentAspects.length) {
         for (let index = 0; index < proposedAspects.length; index++) {
@@ -680,10 +755,12 @@ export class IModelImporter {
             id = currentAspects[index].props.id;
             props.id = id;
             if (hasEntityChanged(currentAspects[index].props, props)) {
+              this._elementAspectCleanup.invalidate(elementId);
               await this.onUpdateElementAspect(props);
             }
             id = props.id;
           } else {
+            this._elementAspectCleanup.invalidate(elementId);
             id = await this.onInsertElementAspect(props);
           }
           result[resultIndex] = id;
@@ -697,10 +774,12 @@ export class IModelImporter {
             const id = props.id;
             proposedProps.id = id;
             if (hasEntityChanged(props, proposedProps)) {
+              this._elementAspectCleanup.invalidate(elementId);
               await this.onUpdateElementAspect(proposedProps);
             }
             result[resultIndex] = id;
           } else {
+            this._elementAspectCleanup.invalidate(elementId);
             await this.onDeleteElementAspect(props);
           }
         }
@@ -717,8 +796,11 @@ export class IModelImporter {
   protected async onInsertElementAspect(
     aspectProps: ElementAspectProps
   ): Promise<Id64String> {
+    // Also covers overrides that write another owner's aspects through this hook.
+    this._elementAspectCleanup.beforeWrite(aspectProps.element.id);
     try {
       const id = this._editTxn.insertAspect(aspectProps);
+      this._elementAspectCleanup.afterWrite();
       Logger.logInfo(
         loggerCategory,
         `Inserted ${this.formatElementAspectForLogger(aspectProps)}`
@@ -746,7 +828,9 @@ export class IModelImporter {
   protected async onUpdateElementAspect(
     aspectProps: ElementAspectProps
   ): Promise<void> {
+    this._elementAspectCleanup.beforeWrite(aspectProps.element.id);
     this._editTxn.updateAspect(aspectProps);
+    this._elementAspectCleanup.afterWrite();
     Logger.logInfo(
       loggerCategory,
       `Updated ${this.formatElementAspectForLogger(aspectProps)}`
@@ -760,7 +844,9 @@ export class IModelImporter {
   protected async onDeleteElementAspect(
     targetElementAspect: ElementAspect
   ): Promise<void> {
+    this._elementAspectCleanup.beforeWrite(targetElementAspect.element.id);
     this._editTxn.deleteAspect(targetElementAspect.id);
+    this._elementAspectCleanup.afterWrite();
     Logger.logInfo(
       loggerCategory,
       `Deleted ${this.formatElementAspectForLogger(targetElementAspect)}`

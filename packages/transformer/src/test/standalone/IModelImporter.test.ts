@@ -3,7 +3,7 @@
  * See LICENSE.md in the project root for license terms and full copyright notice.
  *--------------------------------------------------------------------------------------------*/
 
-import { expect } from "vitest";
+import { expect, vi } from "vitest";
 import {
   ElementAspect,
   ElementOwnsExternalSourceAspects,
@@ -118,7 +118,319 @@ describe("IModelImporter", () => {
     }
   });
 
-  it("deleteElementAspects preserves excluded and transformer provenance aspects", async () => {
+  it("aspect imports match existing aspects of the exact class only", async () => {
+    const targetDb = StandaloneDb.createEmpty(
+      IModelTransformerTestUtils.prepareOutputFile(
+        "IModelImporter",
+        "ExactClassAspectMatching.bim"
+      ),
+      { rootSubject: { name: "ExactClassAspectMatching" } }
+    );
+    try {
+      // Derived classes are declared first so their ECClassIds sort before
+      // their base classes in polymorphic getAspects results.
+      await targetDb.importSchemaStrings([
+        `<?xml version="1.0" encoding="UTF-8"?>
+<ECSchema schemaName="TestExactClassSchema" alias="tecs" version="01.00.00" xmlns="http://www.bentley.com/schemas/Bentley.ECXML.3.1">
+  <ECSchemaReference name="BisCore" version="01.00.04" alias="bis"/>
+  <ECEntityClass typeName="DerivedMulti">
+    <BaseClass>BaseMulti</BaseClass>
+  </ECEntityClass>
+  <ECEntityClass typeName="DerivedUnique">
+    <BaseClass>BaseUnique</BaseClass>
+  </ECEntityClass>
+  <ECEntityClass typeName="BaseMulti">
+    <BaseClass>bis:ElementMultiAspect</BaseClass>
+    <ECProperty propertyName="Value" typeName="string"/>
+  </ECEntityClass>
+  <ECEntityClass typeName="BaseUnique">
+    <BaseClass>bis:ElementUniqueAspect</BaseClass>
+    <ECProperty propertyName="Value" typeName="string"/>
+  </ECEntityClass>
+</ECSchema>`,
+      ]);
+      const baseMulti = "TestExactClassSchema:BaseMulti";
+      const baseUnique = "TestExactClassSchema:BaseUnique";
+      const { elementId, derivedMultiId, derivedUniqueId } = withEditTxn(
+        targetDb,
+        "insert derived aspects",
+        (txn) => {
+          const ownerId = Subject.insert(txn, IModel.rootSubjectId, "Owner");
+          return {
+            elementId: ownerId,
+            derivedMultiId: txn.insertAspect({
+              classFullName: "TestExactClassSchema:DerivedMulti",
+              element: new ElementOwnsMultiAspects(ownerId),
+              value: "derived",
+            } as ElementAspectProps),
+            derivedUniqueId: txn.insertAspect({
+              classFullName: "TestExactClassSchema:DerivedUnique",
+              element: new ElementOwnsUniqueAspect(ownerId),
+              value: "derived",
+            } as ElementAspectProps),
+          };
+        }
+      );
+
+      const editTxn = createStartedEditTxn(targetDb);
+      const importer = new IModelImporter(editTxn);
+      const [baseMultiId] = await importer.importElementMultiAspects([
+        {
+          classFullName: baseMulti,
+          element: new ElementOwnsMultiAspects(elementId),
+          value: "base",
+        } as ElementAspectProps,
+      ]);
+      const baseUniqueId = await importer.importElementUniqueAspect({
+        classFullName: baseUnique,
+        element: new ElementOwnsUniqueAspect(elementId),
+        value: "base",
+      } as ElementAspectProps);
+      editTxn.end();
+
+      // The derived multi-aspect is left for its own class group.
+      expect(baseMultiId).to.not.equal(derivedMultiId);
+      // The derived unique aspect is not updated in place with base-class
+      // properties. It is deleted because it occupies the same unique slot.
+      expect(baseUniqueId).to.not.equal(derivedUniqueId);
+      const values = targetDb.elements
+        .getAspects(elementId)
+        .map((aspect) => `${aspect.classFullName}=${aspect.asAny.value}`)
+        .sort();
+      expect(values).to.deep.equal([
+        `${baseMulti}=base`,
+        `${baseUnique}=base`,
+        "TestExactClassSchema:DerivedMulti=derived",
+      ]);
+    } finally {
+      targetDb.close();
+    }
+  });
+
+  it("aspect imports inside an owner batch read loaded aspects and see their own writes", async () => {
+    const targetDb = StandaloneDb.createEmpty(
+      IModelTransformerTestUtils.prepareOutputFile(
+        "IModelImporter",
+        "BatchedAspectReads.bim"
+      ),
+      { rootSubject: { name: "BatchedAspectReads" } }
+    );
+    try {
+      await targetDb.importSchemaStrings([
+        `<?xml version="1.0" encoding="UTF-8"?>
+<ECSchema schemaName="TestBatchedReadsSchema" alias="tbrs" version="01.00.00" xmlns="http://www.bentley.com/schemas/Bentley.ECXML.3.1">
+  <ECSchemaReference name="BisCore" version="01.00.04" alias="bis"/>
+  <ECEntityClass typeName="BatchMulti">
+    <BaseClass>bis:ElementMultiAspect</BaseClass>
+    <ECProperty propertyName="Value" typeName="string"/>
+  </ECEntityClass>
+  <ECEntityClass typeName="BatchUnique">
+    <BaseClass>bis:ElementUniqueAspect</BaseClass>
+    <ECProperty propertyName="Value" typeName="string"/>
+  </ECEntityClass>
+</ECSchema>`,
+      ]);
+      const multi = "TestBatchedReadsSchema:BatchMulti";
+      const unique = "TestBatchedReadsSchema:BatchUnique";
+      const elementId = withEditTxn(targetDb, "insert owner", (txn) =>
+        Subject.insert(txn, IModel.rootSubjectId, "Owner")
+      );
+      const multiProps = (value: string) =>
+        ({
+          classFullName: multi,
+          element: new ElementOwnsMultiAspects(elementId),
+          value,
+        }) as ElementAspectProps;
+      const uniqueProps = (value: string) =>
+        ({
+          classFullName: unique,
+          element: new ElementOwnsUniqueAspect(elementId),
+          value,
+        }) as ElementAspectProps;
+
+      const editTxn = createStartedEditTxn(targetDb);
+      const importer = new IModelImporter(editTxn);
+      const cleanup = importer.elementAspectCleanup;
+      // A failed collect leaves no partially loaded batch behind.
+      const queryAspects = vi
+        .spyOn(targetDb.elements, "queryAspects")
+        .mockImplementationOnce(() => {
+          throw new Error("query failed");
+        });
+      await expect(
+        cleanup.collect(new Set([elementId]), new Set<string>())
+      ).rejects.toThrow("query failed");
+      queryAspects.mockRestore();
+      expect(cleanup.getAspects(elementId, multi)).to.equal(undefined);
+
+      const getAspects = vi.spyOn(targetDb.elements, "getAspects");
+      await cleanup.collect(new Set([elementId]), new Set<string>());
+
+      // The first reads come from the batch's loaded aspects.
+      const [firstMultiId] = await importer.importElementMultiAspects([
+        multiProps("first"),
+      ]);
+      expect(getAspects).not.toHaveBeenCalled();
+      // After writing to the owner, reads go to the target and see the insert.
+      const firstUniqueId = await importer.importElementUniqueAspect(
+        uniqueProps("first")
+      );
+      const [secondMultiId] = await importer.importElementMultiAspects([
+        multiProps("second"),
+      ]);
+      const secondUniqueId = await importer.importElementUniqueAspect(
+        uniqueProps("second")
+      );
+      expect(getAspects).toHaveBeenCalled();
+      getAspects.mockRestore();
+      expect(secondMultiId).to.equal(firstMultiId);
+      expect(secondUniqueId).to.equal(firstUniqueId);
+
+      await cleanup.deleteUnretained();
+      expect(cleanup.getAspects(elementId, multi)).to.equal(undefined);
+      editTxn.end();
+
+      const values = targetDb.elements
+        .getAspects(elementId)
+        .map((aspect) => `${aspect.classFullName}=${aspect.asAny.value}`)
+        .sort();
+      expect(values).to.deep.equal([`${multi}=second`, `${unique}=second`]);
+    } finally {
+      targetDb.close();
+    }
+  });
+
+  it.each([
+    { writtenBy: "the base hook", direct: false },
+    { writtenBy: "EditTxn directly", direct: true },
+  ])(
+    "aspect imports see another owner's aspect written by $writtenBy during a hook",
+    async ({ direct }) => {
+      const targetDb = StandaloneDb.createEmpty(
+        IModelTransformerTestUtils.prepareOutputFile(
+          "IModelImporter",
+          `CrossOwnerAspectWrites-${direct ? "direct" : "hook"}.bim`
+        ),
+        { rootSubject: { name: "CrossOwnerAspectWrites" } }
+      );
+      try {
+        await targetDb.importSchemaStrings([
+          `<?xml version="1.0" encoding="UTF-8"?>
+<ECSchema schemaName="TestCrossOwnerSchema" alias="tcos" version="01.00.00" xmlns="http://www.bentley.com/schemas/Bentley.ECXML.3.1">
+  <ECSchemaReference name="BisCore" version="01.00.04" alias="bis"/>
+  <ECEntityClass typeName="CrossMulti">
+    <BaseClass>bis:ElementMultiAspect</BaseClass>
+    <ECProperty propertyName="Value" typeName="string"/>
+  </ECEntityClass>
+</ECSchema>`,
+        ]);
+        const multi = "TestCrossOwnerSchema:CrossMulti";
+        const [ownerA, ownerB] = withEditTxn(
+          targetDb,
+          "insert owners",
+          (txn) => [
+            Subject.insert(txn, IModel.rootSubjectId, "OwnerA"),
+            Subject.insert(txn, IModel.rootSubjectId, "OwnerB"),
+          ]
+        );
+        const props = (elementId: Id64String) =>
+          ({
+            classFullName: multi,
+            element: new ElementOwnsMultiAspects(elementId),
+            value: "value",
+          }) as ElementAspectProps;
+
+        // Inserting owner A's aspect also inserts owner B's.
+        class CrossOwnerImporter extends IModelImporter {
+          protected override async onInsertElementAspect(
+            aspectProps: ElementAspectProps
+          ): Promise<Id64String> {
+            if (aspectProps.element.id === ownerA) {
+              if (direct) this.editTxn.insertAspect(props(ownerB));
+              else await super.onInsertElementAspect(props(ownerB));
+            }
+            return super.onInsertElementAspect(aspectProps);
+          }
+        }
+        const editTxn = createStartedEditTxn(targetDb);
+        const importer = new CrossOwnerImporter(editTxn);
+        await importer.elementAspectCleanup.collect(
+          new Set([ownerA, ownerB]),
+          new Set<string>()
+        );
+        await importer.importElementMultiAspects([props(ownerA)]);
+        const [ownerBAspectId] = await importer.importElementMultiAspects([
+          props(ownerB),
+        ]);
+        editTxn.end();
+
+        // Owner B's import sees the aspect the hook inserted instead of adding another.
+        const ownerBAspects = targetDb.elements.getAspects(ownerB, multi);
+        expect(ownerBAspects.map((aspect) => aspect.id)).to.deep.equal([
+          ownerBAspectId,
+        ]);
+      } finally {
+        targetDb.close();
+      }
+    }
+  );
+
+  it("aspect imports inside an owner batch see aspects written directly through EditTxn", async () => {
+    const targetDb = StandaloneDb.createEmpty(
+      IModelTransformerTestUtils.prepareOutputFile(
+        "IModelImporter",
+        "DirectAspectWrites.bim"
+      ),
+      { rootSubject: { name: "DirectAspectWrites" } }
+    );
+    try {
+      await targetDb.importSchemaStrings([
+        `<?xml version="1.0" encoding="UTF-8"?>
+<ECSchema schemaName="TestDirectWriteSchema" alias="tdws" version="01.00.00" xmlns="http://www.bentley.com/schemas/Bentley.ECXML.3.1">
+  <ECSchemaReference name="BisCore" version="01.00.04" alias="bis"/>
+  <ECEntityClass typeName="DirectMulti">
+    <BaseClass>bis:ElementMultiAspect</BaseClass>
+    <ECProperty propertyName="Value" typeName="string"/>
+  </ECEntityClass>
+</ECSchema>`,
+      ]);
+      const multi = "TestDirectWriteSchema:DirectMulti";
+      const elementId = withEditTxn(targetDb, "insert owner", (txn) =>
+        Subject.insert(txn, IModel.rootSubjectId, "Owner")
+      );
+      const props = (value: string) =>
+        ({
+          classFullName: multi,
+          element: new ElementOwnsMultiAspects(elementId),
+          value,
+        }) as ElementAspectProps;
+
+      const editTxn = createStartedEditTxn(targetDb);
+      const importer = new IModelImporter(editTxn);
+      await importer.elementAspectCleanup.collect(
+        new Set([elementId]),
+        new Set<string>()
+      );
+      // Written after the batch loaded its aspects, without the importer.
+      const directId = editTxn.insertAspect(props("direct"));
+      const [importedId] = await importer.importElementMultiAspects([
+        props("imported"),
+      ]);
+      editTxn.end();
+
+      // The import matched the direct aspect instead of adding a second one.
+      expect(importedId).to.equal(directId);
+      expect(
+        targetDb.elements
+          .getAspects(elementId, multi)
+          .map((aspect) => `${aspect.id}=${aspect.asAny.value}`)
+      ).to.deep.equal([`${directId}=imported`]);
+    } finally {
+      targetDb.close();
+    }
+  });
+
+  it("aspect cleanup deletes unretained aspects and preserves excluded and transformer provenance aspects", async () => {
     const targetDbFile = IModelTransformerTestUtils.prepareOutputFile(
       "IModelImporter",
       "DeleteElementAspects.bim"
@@ -180,6 +492,10 @@ describe("IModelImporter", () => {
             classFullName: "TestDeleteAspectsSchema:TestMultiAspect",
             element: new ElementOwnsMultiAspects(elementId),
           }),
+          retained: txn.insertAspect({
+            classFullName: "TestDeleteAspectsSchema:TestMultiAspect",
+            element: new ElementOwnsMultiAspects(elementId),
+          }),
           nonProvenance: txn.insertAspect({
             classFullName: ExternalSourceAspect.classFullName,
             element: new ElementOwnsExternalSourceAspects(elementId),
@@ -193,6 +509,13 @@ describe("IModelImporter", () => {
             scope: { id: provenanceScopeId },
             identifier: "provenance",
             kind: ExternalSourceAspect.Kind.Element,
+          } as ExternalSourceAspectProps),
+          scopedDocument: txn.insertAspect({
+            classFullName: ExternalSourceAspect.classFullName,
+            element: new ElementOwnsExternalSourceAspects(elementId),
+            scope: { id: provenanceScopeId },
+            identifier: "scoped-document",
+            kind: "Document",
           } as ExternalSourceAspectProps),
           scopeOwned: txn.insertAspect({
             classFullName: ExternalSourceAspect.classFullName,
@@ -221,12 +544,13 @@ describe("IModelImporter", () => {
       }
       const importer = new TrackingImporter(editTxn);
       const querySpy = vi.spyOn(targetDb, "createQueryReader");
-      await importer.elementAspectCleanup.delete(
+      await importer.elementAspectCleanup.collect(
         new Set([elementId, provenanceScopeId]),
         new Set(["TestDeleteAspectsSchema:TestUniqueAspect"]),
-        provenanceScopeId,
-        1
+        provenanceScopeId
       );
+      importer.elementAspectCleanup.retain(aspectIds.retained);
+      await importer.elementAspectCleanup.deleteUnretained();
       editTxn.saveChanges();
 
       // ExternalSourceAspect is a multi-aspect, so only that pass needs the provenance filter.
@@ -248,12 +572,16 @@ describe("IModelImporter", () => {
       expect(hasAspect(aspectIds.excluded)).to.be.true;
       expect(hasAspect(aspectIds.replaceableUnique)).to.be.false;
       expect(hasAspect(aspectIds.replaceable)).to.be.false;
+      expect(hasAspect(aspectIds.retained)).to.be.true;
       expect(hasAspect(aspectIds.nonProvenance)).to.be.false;
       expect(hasAspect(aspectIds.provenance)).to.be.true;
       expect(hasAspect(aspectIds.scopeOwned)).to.be.true;
-      expect(importer.deletedAspectCount).to.equal(3);
-      expect(importer.deletedExternalSourceIdentifiers).to.deep.equal([
+      // Only element, relationship, and scope provenance kinds are preserved.
+      expect(hasAspect(aspectIds.scopedDocument)).to.be.false;
+      expect(importer.deletedAspectCount).to.equal(4);
+      expect(importer.deletedExternalSourceIdentifiers.sort()).to.deep.equal([
         "replaceable",
+        "scoped-document",
       ]);
       editTxn.end();
     } finally {

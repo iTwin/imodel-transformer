@@ -97,6 +97,8 @@ import {
   IModelExportHandler,
 } from "./IModelExporter";
 import { IModelImporter, OptimizeGeometryOptions } from "./IModelImporter";
+import { isTransformerProvenanceAspect } from "./ElementAspectCleanup";
+import type { ElementAspectExportCompletion } from "./ElementAspectExportCoordinator";
 import { TransformerLoggerCategory } from "./TransformerLoggerCategory";
 import { IModelCloneContext } from "./IModelCloneContext";
 import type { IModelTransformContext } from "./IModelTransformContext";
@@ -2006,13 +2008,16 @@ export class IModelTransformer extends IModelExportHandler {
     return this.context.findTargetElementId(aspect.element.id) !== Id64.invalid;
   }
 
+  /** Records the target aspects of an owner batch before its source aspects are imported.
+   * The returned callback deletes the recorded replaceable aspects that the importer did not reuse, or discards the recorded state if the export failed.
+   */
   private async prepareElementAspects(
     excludedElementAspectClassFullNames: ReadonlySet<string>,
     elementIds?: ReadonlySet<Id64String>
-  ): Promise<void> {
-    if (!this.exporter.visitElements) return;
+  ): Promise<ElementAspectExportCompletion | undefined> {
+    if (!this.exporter.visitElements) return undefined;
 
-    if (elementIds === undefined) return;
+    if (elementIds === undefined) return undefined;
 
     const targetElementIds = new Set<Id64String>();
     for (const sourceElementId of elementIds) {
@@ -2022,11 +2027,16 @@ export class IModelTransformer extends IModelExportHandler {
       }
     }
 
-    await this.importer.elementAspectCleanup.delete(
+    const cleanup = this.importer.elementAspectCleanup;
+    await cleanup.collect(
       targetElementIds,
       excludedElementAspectClassFullNames,
       this.targetScopeElementId
     );
+    return async (exported) => {
+      if (exported) await cleanup.deleteUnretained();
+      else cleanup.discard();
+    };
   }
 
   /** Override of [IModelExportHandler.onExportElementUniqueAspect]($transformer) that imports an ElementUniqueAspect into the target iModel when it is exported from the source iModel.
@@ -2066,7 +2076,7 @@ export class IModelTransformer extends IModelExportHandler {
       (a) => {
         const isExternalSourceAspectFromTransformer =
           a instanceof ExternalSourceAspect &&
-          a.scope?.id === this.targetScopeElementId;
+          isTransformerProvenanceAspect(a, this.targetScopeElementId);
         return (
           !this._options.includeSourceProvenance ||
           !isExternalSourceAspectFromTransformer

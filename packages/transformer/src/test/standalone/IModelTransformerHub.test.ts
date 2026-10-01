@@ -1025,8 +1025,7 @@ describe("IModelTransformerHub", () => {
         // expect some inserts from transforming the result of updateDb
         assert.equal(targetDbChanges.codeSpec.insertIds.size, 0);
         assert.equal(targetDbChanges.element.insertIds.size, 1);
-        // ElementAspect rebuilds may reinsert replaceable aspects after cleanup.
-        assert.isAtLeast(targetDbChanges.aspect.insertIds.size, 1);
+        assert.equal(targetDbChanges.aspect.insertIds.size, 0);
         assert.equal(targetDbChanges.model.insertIds.size, 0);
         assert.equal(targetDbChanges.relationship.insertIds.size, 2);
         // expect some updates from transforming the result of updateDb
@@ -4046,6 +4045,23 @@ describe("IModelTransformerHub", () => {
       firstTransformEditTxn.end();
       await saveAndPushChanges(targetDb, "First transformation");
 
+      const documentIdsByIdentifier = (db: IModelDb, elementId: Id64String) =>
+        new Map(
+          (
+            db.elements.getAspects(
+              elementId,
+              ExternalSourceAspect.classFullName
+            ) as ExternalSourceAspect[]
+          )
+            .filter((aspect) => aspect.kind === "Document")
+            .map((aspect) => [aspect.identifier, aspect.id])
+        );
+      const firstTargetIds = documentIdsByIdentifier(
+        targetDb,
+        transformer.context.findTargetElementId(elementIds[0])
+      );
+      expect(firstTargetIds.size).to.equal(5);
+
       const addedAspectProps: ExternalSourceAspectProps = {
         classFullName: ExternalSourceAspect.classFullName,
         element: new ElementOwnsExternalSourceAspects(elementIds[0]),
@@ -4079,27 +4095,40 @@ describe("IModelTransformerHub", () => {
       secondTransformEditTxn.end();
       await saveAndPushChanges(targetDb, "Second transformation");
 
-      const targetElementIds = targetDb.queryEntityIds({
-        from: Subject.classFullName,
-        where: "Parent.Id != ?",
-        bindings: [IModel.rootSubjectId],
-      });
-      targetElementIds.forEach((elementId) => {
-        const targetAspects = targetDb.elements.getAspects(
-          elementId,
-          ExternalSourceAspect.classFullName
-        ) as ExternalSourceAspect[];
-        const sourceAspects = sourceDb.elements.getAspects(
-          elementId,
-          ExternalSourceAspect.classFullName
-        ) as ExternalSourceAspect[];
-        expect(targetAspects.length).to.be.equal(sourceAspects.length + 1); // +1 because provenance aspect was added
-        const aspectAddedAfterFirstTransformation = targetAspects.find(
-          (aspect) =>
-            aspect.identifier === "aspectAddedAfterFirstTransformation"
+      const documentIdentifiers = (db: IModelDb, elementId: Id64String) =>
+        (
+          db.elements.getAspects(
+            elementId,
+            ExternalSourceAspect.classFullName
+          ) as ExternalSourceAspect[]
+        )
+          .filter((aspect) => aspect.kind === "Document")
+          .map((aspect) => aspect.identifier)
+          .sort();
+      expect(documentIdentifiers(sourceDb, elementIds[0])).to.deep.equal([
+        "0",
+        "1",
+        "2",
+        "3",
+        "4",
+        "aspectAddedAfterFirstTransformation",
+      ]);
+      expect(documentIdentifiers(sourceDb, elementIds[1])).to.deep.equal([]);
+      // Change processing reconciles the changed owner's aspects: the five
+      // unchanged aspects keep their target IDs.
+      const secondTargetIds = documentIdsByIdentifier(
+        targetDb,
+        transformer2.context.findTargetElementId(elementIds[0])
+      );
+      for (const [identifier, id] of firstTargetIds)
+        expect(secondTargetIds.get(identifier)).to.equal(id);
+      for (const elementId of elementIds) {
+        const targetElementId =
+          transformer2.context.findTargetElementId(elementId);
+        expect(documentIdentifiers(targetDb, targetElementId)).to.deep.equal(
+          documentIdentifiers(sourceDb, elementId)
         );
-        expect(aspectAddedAfterFirstTransformation).to.not.be.undefined;
-      });
+      }
     } finally {
       await transformerTestHub.deleteIModel({
         iTwinId,
