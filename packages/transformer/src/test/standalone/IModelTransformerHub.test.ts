@@ -5432,7 +5432,6 @@ describe("IModelTransformerHub", () => {
       { master: { 3: 1 } },
       { branch: { branch: "master" } },
       { branch: { 1: 2, 4: 1 } },
-      // eslint-disable-next-line @typescript-eslint/no-shadow
       {
         assert({ master, branch }) {
           expect(master.db.changeset.index).to.equal(3);
@@ -5469,7 +5468,6 @@ describe("IModelTransformerHub", () => {
         },
       },
       { master: { sync: ["branch"] } },
-      // eslint-disable-next-line @typescript-eslint/no-shadow
       {
         assert({ master, branch }) {
           expect(master.db.changeset.index).to.equal(4);
@@ -8386,7 +8384,6 @@ describe("IModelTransformerHub", () => {
 
   async function closeAndDeleteBriefcase(iModel: BriefcaseDb) {
     await HubWrappers.closeAndDeleteBriefcaseDb(accessToken, iModel);
-    // eslint-disable-next-line @itwin/no-internal
     await transformerTestHub.deleteIModel({
       iTwinId,
       iModelId: iModel.iModelId,

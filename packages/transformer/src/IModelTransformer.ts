@@ -20,7 +20,6 @@ import {
   ITwinError,
   Logger,
   MarkRequired,
-  YieldManager,
 } from "@itwin/core-bentley";
 import * as ECSchemaMetaData from "@itwin/ecschema-metadata";
 import {
@@ -33,7 +32,6 @@ import {
 } from "@itwin/core-geometry";
 import {
   BriefcaseManager,
-  // eslint-disable-next-line @typescript-eslint/no-deprecated
   ChangeSummaryManager,
   ChannelRootAspect,
   ConcreteEntity,
@@ -1933,8 +1931,6 @@ export class IModelTransformer extends IModelExportHandler {
     }
   }
 
-  private _yieldManager = new YieldManager();
-
   /** Transform the specified sourceRelationship into RelationshipProps for the target iModel.
    * @param sourceRelationship The Relationship from the source iModel to be transformed.
    * @returns RelationshipProps for the target iModel.
@@ -2035,7 +2031,6 @@ export class IModelTransformer extends IModelExportHandler {
         this._partiallyCommittedAspectIds.add(a.id);
       }
     }
-    // const targetAspectsToImport = targetAspectPropsArray.filter((targetAspect, i) => hasEntityChanged(sourceAspects[i], targetAspect));
     const targetIds = await this.importer.importElementMultiAspects(
       await Promise.all(targetAspectPropsArray),
       (a) => {

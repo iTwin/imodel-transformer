@@ -3,8 +3,6 @@
  * See LICENSE.md in the project root for license terms and full copyright notice.
  *--------------------------------------------------------------------------------------------*/
 
-import { Base64 } from "js-base64";
-
 const samplePngTextureData = [
   137, 80, 78, 71, 13, 10, 26, 10, 0, 0, 0, 13, 73, 72, 68, 82, 0, 0, 0, 3, 0,
   0, 0, 3, 8, 2, 0, 0, 0, 217, 74, 34, 232, 0, 0, 0, 1, 115, 82, 71, 66, 0, 174,
@@ -14,15 +12,11 @@ const samplePngTextureData = [
   64, 46, 132, 5, 162, 254, 51, 0, 0, 195, 90, 10, 246, 127, 175, 154, 145, 0,
   0, 0, 0, 73, 69, 78, 68, 174, 66, 96, 130,
 ];
-const samplePngTextureDataBase64 = Base64.btoa(
-  String.fromCharCode(...samplePngTextureData)
-);
 
 /**
  * This is an encoded png containing a 3x3 square with white in top left pixel, blue in middle pixel, and green in
  * bottom right pixel. The rest of the square is red.
  */
 export const samplePngTexture = {
-  data: samplePngTextureData,
-  base64: samplePngTextureDataBase64,
+  base64: Buffer.from(samplePngTextureData).toString("base64"),
 };
