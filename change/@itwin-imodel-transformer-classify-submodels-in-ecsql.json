@@ -1,0 +1,7 @@
+{
+  "type": "patch",
+  "comment": "Classify definition sub-models in ECSQL instead of loading every sub-model during export",
+  "packageName": "@itwin/imodel-transformer",
+  "email": "50554904+hl662@users.noreply.github.com",
+  "dependentChangeType": "patch"
+}

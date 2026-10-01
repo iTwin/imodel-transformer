@@ -1024,27 +1024,22 @@ export class IModelExporter {
 
   private async exportSubModelsImpl(parentModelId: Id64String): Promise<void> {
     Logger.logTrace(loggerCategory, `exportSubModels(${parentModelId})`);
-    const definitionModelIds: Id64String[] = [];
-    const otherModelIds: Id64String[] = [];
-    const sql = `SELECT ECInstanceId FROM ${Model.classFullName} WHERE ParentModel.Id=:parentModelId ORDER BY ECInstanceId`;
+    // Export DefinitionModels before other Models, each in ECInstanceId order.
+    // Classifying in ECSQL avoids loading every sub-model here and again in exportModel.
+    const sql = `
+      SELECT ECInstanceId, IIF(ECClassId IS (${DefinitionModel.classFullName}), 1, 0) isDefinitionModel
+      FROM ${Model.classFullName}
+      WHERE ParentModel.Id=:parentModelId
+      ORDER BY isDefinitionModel DESC, ECInstanceId`;
     const params = new QueryBinder().bindId("parentModelId", parentModelId);
+    const subModelIds: Id64String[] = [];
     for await (const row of this.sourceDb.createQueryReader(sql, params, {
       usePrimaryConn: true,
     })) {
-      const modelId: Id64String = row.id;
-      const model: Model = this.sourceDb.models.getModel(modelId);
-      if (model instanceof DefinitionModel) {
-        definitionModelIds.push(modelId);
-      } else {
-        otherModelIds.push(modelId);
-      }
+      subModelIds.push(row.id);
     }
-    // export DefinitionModels before other types of Models
-    for (const definitionModelId of definitionModelIds) {
-      await this.exportModel(definitionModelId);
-    }
-    for (const otherModelId of otherModelIds) {
-      await this.exportModel(otherModelId);
+    for (const subModelId of subModelIds) {
+      await this.exportModel(subModelId);
     }
   }
 
