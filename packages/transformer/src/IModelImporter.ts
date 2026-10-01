@@ -58,10 +58,26 @@ import {
   IModelTransformerError,
   IModelTransformerErrorScope,
 } from "./IModelTransformerError";
-import { findBulkDeleteRoots } from "./ElementBulkDelete";
+import { planBulkDelete } from "./ElementBulkDelete";
 import { EntityExistenceCache } from "./EntityExistenceCache";
 
 const loggerCategory: string = TransformerLoggerCategory.IModelImporter;
+
+/** Lists the first kept references for a log message. */
+function formatKeptReferences(
+  keptReferences: ReadonlyMap<Id64String, Id64String>
+): string {
+  const maxListed = 10;
+  const listed = [...keptReferences]
+    .slice(0, maxListed)
+    .map(
+      ([elementId, referencingId]) =>
+        `${elementId} (referenced by ${referencingId})`
+    )
+    .join(", ");
+  const unlisted = keptReferences.size - maxListed;
+  return unlisted > 0 ? `${listed}, and ${unlisted} more` : listed;
+}
 
 /** Error thrown when native bulk deletion fails to delete one or more requested element trees.
  * @beta
@@ -496,15 +512,39 @@ export class IModelImporter {
     await this.deleteElements(new Set([elementId]));
   }
 
-  /** Adds roots required by code-scope dependencies, then deletes the target element trees in one native operation.
+  /** Adds roots required by code-scope dependencies, then deletes the target element trees in as few native operations as their references allow.
+   * Usually one native operation is enough. When a tree contains a definition, such as a category, that another deleted element uses, the elements that use it are deleted first.
+   * Elements that something outside the deleted trees still references are kept, with a warning, and the rest are deleted.
    * @note An override must call `super.onDeleteElements` once to perform the deletion.
    */
   protected async onDeleteElements(
     elementIds: ReadonlySet<Id64String>
   ): Promise<void> {
-    const deleteRoots = await findBulkDeleteRoots(this.targetDb, elementIds);
-    if (deleteRoots.size === 0) return;
-    const result = this._editTxn.deleteElements([...deleteRoots]);
+    const plan = await planBulkDelete(this.targetDb, elementIds);
+    if (plan.keptReferences.size > 0) {
+      Logger.logWarning(
+        loggerCategory,
+        `Kept ${plan.keptReferences.size} elements that elements outside the deleted trees still reference, and the elements that contain them: ${formatKeptReferences(
+          plan.keptReferences
+        )}`
+      );
+    }
+    if (plan.phases.length === 0) return;
+    let rootCount = 0;
+    for (const roots of plan.phases) {
+      rootCount += roots.length;
+      this.deleteElementRoots(roots);
+    }
+
+    Logger.logInfo(
+      loggerCategory,
+      `Deleted ${elementIds.size} requested element trees using ${rootCount} native deletion roots in ${plan.phases.length} native operations`
+    );
+    await this.trackProgress(elementIds.size);
+  }
+
+  private deleteElementRoots(roots: Id64String[]): void {
+    const result = this._editTxn.deleteElements(roots);
     if (result.status !== BulkDeleteElementsStatus.Success) {
       ITwinError.throwError<ElementBulkDeleteError>({
         iTwinErrorId: {
@@ -521,17 +561,12 @@ export class IModelImporter {
         failedIds: new Set(result.failedIds),
       });
     }
-
-    Logger.logInfo(
-      loggerCategory,
-      `Deleted ${elementIds.size} requested element trees using ${deleteRoots.size} native deletion roots`
-    );
-    await this.trackProgress(elementIds.size);
   }
 
-  /** Deletes target element trees in one native operation.
+  /** Deletes target element trees, using one native operation unless references between the trees require more.
    * Requested roots in [[doNotUpdateElementIds]] are skipped. This does not prevent an element in that set from being deleted as part of another root's cascade.
-   * @throws [[ElementBulkDeleteError]] if native deletion fails for any root. A partial failure leaves successful deletions pending in the caller-owned transaction. Abandon the transaction before retrying.
+   * Elements that something outside the deleted trees still references are kept, along with their child elements and sub-models and the elements that contain them. A warning lists them.
+   * @throws [[ElementBulkDeleteError]] if a native operation fails for any root, for example because geometry outside the deleted trees uses a geometry part in them, or because of a reference in a domain schema. The transformer does not check those references first. Deletions from that and earlier native operations stay pending in the caller-owned transaction. Abandon the transaction before retrying.
    */
   public async deleteElements(
     elementIds: ReadonlySet<Id64String>

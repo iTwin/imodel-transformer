@@ -47,34 +47,25 @@ The streamed traversal relies on SQLite's documented recursive-CTE queue behavio
 
 `IModelExporter.exportChanges()` now finds elements marked as inserted or updated, elements excluded by ID, and the parents needed to reach them in one query. It visits only those paths instead of checking every element in each changed model. `IModelTransformer.process()` uses the same behavior when `argsForProcessChanges` is set. This reduces traversal work when changes affect a small part of a large iModel. Model discovery and other export phases are unchanged.
 
-Existing export callbacks keep the same arguments and parent-before-child order. Unchanged parents needed only to reach changed descendants do not trigger callbacks. Unchanged elements excluded by ID still trigger `onSkipElement`, and modeled elements continue through the existing model filters. Custom `IModelExporter` subclasses that override `exportElement` or `exportChildElements` use the previous traversal so those overrides continue to receive every element.
+Existing export callbacks keep the same arguments and parent-before-child order. Unchanged ancestors are not exported. When the exporter reaches a changed element, it calls `shouldExportElement` once for each unchanged ancestor that has not been checked yet, starting at the top. If an ancestor is rejected, `onSkipElement` is called for it and its descendants are skipped, as in a full export. Unchanged elements excluded by ID still trigger `onSkipElement`, and modeled elements continue through the existing model filters. Custom `IModelExporter` subclasses that override `exportElement` or `exportChildElements` use the previous traversal so those overrides continue to receive every element.
+
+A changed element can require an unchanged element that has no mapping in the target, such as its category. `IModelTransformer` does not insert unchanged elements, so it now throws `ITwinError` with key `DependencyMappingMissing` when it cannot map one. Previously, a required parent that was missing from the target could make change processing recurse until the process ran out of memory. It also throws this error when a changed required element is not exported because the filter rejects it or one of its ancestors; previously the import failed later with a less specific error. See [Filtering during change processing](../learning/transformer/index.md#filtering-during-change-processing) for when this error occurs and how to fix it.
 
 See [Incremental exports](../learning/transformer/index.md#incremental-exports) for callback and customization details.
 
 ## Breaking change: batched incremental element deletion
 
-Incremental synchronization now processes element deletions as one batch. `IModelExporter.exportChanges()` passes the deleted source IDs to `IModelExportHandler.onDeleteElements()`. `IModelTransformer` maps the IDs once, and `IModelImporter.deleteElements()` submits the target roots through the native bulk-delete API. Bulk deletion preserves the previous behavior for child elements, modeled contents, and elements whose codes are scoped by a deleted tree.
+Incremental synchronization now deletes elements in one batch. `IModelExporter.exportChanges()` passes all deleted source IDs to `IModelExportHandler.onDeleteElements()`, `IModelTransformer` maps them to target IDs, and `IModelImporter.deleteElements()` deletes the target elements through the native bulk-delete API. Children, sub-model contents, and elements whose code is scoped by a deleted element are still deleted with it.
 
-The following callbacks have been removed:
+These callbacks have been removed:
 
 - `IModelExportHandler.onDeleteElement()`
 - `IModelTransformer.onDeleteElement()`
-- The protected `IModelImporter.onDeleteElement()` hook
+- the protected `IModelImporter.onDeleteElement()` hook
 
-Move custom per-element behavior to `onDeleteElements(elementIds: ReadonlySet<Id64String>)`. For example, migrate a custom transformer from the singular callback:
-
-```ts
-// Before
-public override async onDeleteElement(sourceElementId: Id64String): Promise<void> {
-  this.recordDeletion(sourceElementId);
-  await super.onDeleteElement(sourceElementId);
-}
-```
-
-The batch callback receives all deleted source IDs:
+Move per-element logic to `onDeleteElements(elementIds: ReadonlySet<Id64String>)`, which receives every deleted ID:
 
 ```ts
-// After
 public override async onDeleteElements(
   sourceElementIds: ReadonlySet<Id64String>
 ): Promise<void> {
@@ -84,7 +75,7 @@ public override async onDeleteElements(
 }
 ```
 
-Custom importers receive target roots through the same collection contract. If custom work reads an element before deletion, complete that work before calling `super.onDeleteElements()`. The call to `super` performs the bulk deletion:
+A custom importer's override receives target IDs. `super.onDeleteElements()` does the deletion, so finish any work that reads the elements before calling it:
 
 ```ts
 protected override async onDeleteElements(
@@ -96,9 +87,21 @@ protected override async onDeleteElements(
 }
 ```
 
-Calls to the public `IModelImporter.deleteElement(elementId)` method do not need to change. The method passes its target ID to the batch extension point as a one-element set.
+Calls to the public `IModelImporter.deleteElement(elementId)` don't need to change.
 
-If native deletion fails for any root, `IModelImporter.deleteElements()` throws an `ElementBulkDeleteError` with scope `IModelTransformerErrorScope` and key `IModelTransformerError.ElementBulkDeleteFailed`. The error reports `status`, `sqlDeleteStatus`, and `failedIds`. A partial failure leaves successful deletions pending in the caller-owned target transaction. Abandon that transaction before correcting the dependency and retrying.
+If an element outside the batch still uses an element in it through a reference that the importer checks, such as its category, its code scope, or a view definition's display style, the importer keeps the used element, the elements it needs, and the elements that contain it, deletes the rest, and logs a warning listing up to ten kept elements. Later syncs don't try to delete kept elements again. Per-element deletion also kept definitions that were still in use, but without a warning.
+
+If a native deletion call fails anyway, for example because geometry outside the batch uses a geometry part in it, or because of a reference from a domain schema, `IModelImporter.deleteElements()` throws an `ElementBulkDeleteError` with scope `IModelTransformerErrorScope` and key `IModelTransformerError.ElementBulkDeleteFailed`. Its `status`, `sqlDeleteStatus`, and `failedIds` describe the failed call. Deletions from that call and earlier ones are still pending in the caller's target transaction, so abandon the transaction before fixing the dependency and retrying.
+
+See [Deleting elements](../learning/transformer/element-deletion.md) for details and an error-handling example.
+
+Batched deletion is 8 to 10 times faster than per-element deletion. A batch that deletes both a category and elements that use it takes two native calls, because core refuses to delete a category still used by an element in the same call. Together with the reference checks, that costs 14% to 20% compared with one unchecked call, which throws and leaves the categories behind. Other batches cost 3% to 7% more. These medians come from interleaved runs of `IModelImporter` deletion on core-backend 5.13.0 with 100,000 physical elements and 100 spatial categories, measured before later planning changes that add about 40 ms to a batch like this:
+
+| Requested elements              | Per-element deletion (2.0.0-dev.50)       | One native call without reference checks      | Batched deletion with reference checks |
+| ------------------------------- | ----------------------------------------- | --------------------------------------------- | -------------------------------------- |
+| Elements, then their categories | 19.4 s                                    | 1.96 s, throws, and the 100 categories remain | 2.35 s                                 |
+| Categories, then their elements | 19.3 s, silently keeps all 100 categories | 1.91 s, throws, and the 100 categories remain | 2.18 s                                 |
+| Elements only                   | 21.0 s                                    | 1.97 s                                        | 2.03 s                                 |
 
 ## Schema-processing strategies
 
