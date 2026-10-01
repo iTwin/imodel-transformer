@@ -140,7 +140,6 @@ import {
 import { KnownTestLocations } from "./KnownTestLocations";
 import { transformerTestHub } from "./TransformerTestHub";
 import { TargetScopeProvenanceJsonProps } from "../../IModelTransformer";
-import { TimelineIModelState } from "./TimelineTestUtil";
 
 /* eslint-disable @typescript-eslint/explicit-member-accessibility */
 
@@ -952,14 +951,14 @@ export class IModelTestUtils {
   }
 
   public static findAndAssertTargetScopeProvenance(
-    master: TimelineIModelState,
-    branch: TimelineIModelState,
+    master: IModelDb,
+    branch: IModelDb,
     expectedProps: ExpectedTargetScopeProvenanceProps
   ) {
-    const scopeProvenanceCandidates = branch.db.elements
+    const scopeProvenanceCandidates = branch.elements
       .getAspects(IModelDb.rootSubjectId, ExternalSourceAspect.classFullName)
       .filter(
-        (a) => (a as ExternalSourceAspect).identifier === master.db.iModelId
+        (a) => (a as ExternalSourceAspect).identifier === master.iModelId
       );
     expect(scopeProvenanceCandidates).to.have.length(1);
     const targetScopeProvenance =
@@ -997,7 +996,7 @@ export class IModelTestUtils {
       );
     }
 
-    expect(targetScopeProvenance.identifier).to.equal(master.db.iModelId);
+    expect(targetScopeProvenance.identifier).to.equal(master.iModelId);
     expect(
       targetScopeJsonProps.pendingReverseSyncChangesetIndices,
       "Incorrect pending reverseSyncIndices."
