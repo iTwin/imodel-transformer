@@ -8,7 +8,6 @@
 // and will be resolved upstream.
 
 import { assert, expect } from "vitest";
-import { Base64 } from "js-base64";
 import * as path from "node:path";
 import {
   AccessToken,
@@ -137,6 +136,7 @@ import {
   Texture,
   ViewDefinition,
 } from "@itwin/core-backend";
+import { samplePngTexture } from "./imageData";
 import { KnownTestLocations } from "./KnownTestLocations";
 import { transformerTestHub } from "./TransformerTestHub";
 import { TargetScopeProvenanceJsonProps } from "../../IModelTransformer";
@@ -681,7 +681,6 @@ export class IModelTestUtils {
     ecsql: string,
     bindings?: any[] | object
   ): any[] {
-    // eslint-disable-next-line @itwin/no-internal, @typescript-eslint/no-deprecated
     return db.withPreparedStatement(ecsql, (stmt) => {
       if (bindings) stmt.bindValues(bindings);
 
@@ -708,7 +707,7 @@ export class IModelTestUtils {
       iModel.elements.getRootSubject().id,
       name
     );
-    subj.setJsonProperty("Subject", { Job: name }); // eslint-disable-line @typescript-eslint/naming-convention
+    subj.setJsonProperty("Subject", { Job: name });
     return subj;
   }
 
@@ -913,23 +912,12 @@ export class IModelTestUtils {
     modelId: Id64String,
     textureName: string
   ): Id64String {
-    // This is an encoded png containing a 3x3 square with white in top left pixel, blue in middle pixel, and green in bottom right pixel. The rest of the square is red.
-    const pngData = [
-      137, 80, 78, 71, 13, 10, 26, 10, 0, 0, 0, 13, 73, 72, 68, 82, 0, 0, 0, 3,
-      0, 0, 0, 3, 8, 2, 0, 0, 0, 217, 74, 34, 232, 0, 0, 0, 1, 115, 82, 71, 66,
-      0, 174, 206, 28, 233, 0, 0, 0, 4, 103, 65, 77, 65, 0, 0, 177, 143, 11,
-      252, 97, 5, 0, 0, 0, 9, 112, 72, 89, 115, 0, 0, 14, 195, 0, 0, 14, 195, 1,
-      199, 111, 168, 100, 0, 0, 0, 24, 73, 68, 65, 84, 24, 87, 99, 248, 15, 4,
-      12, 12, 64, 4, 198, 64, 46, 132, 5, 162, 254, 51, 0, 0, 195, 90, 10, 246,
-      127, 175, 154, 145, 0, 0, 0, 0, 73, 69, 78, 68, 174, 66, 96, 130,
-    ];
-    const textureData = Base64.btoa(String.fromCharCode(...pngData));
     return Texture.insertTexture(
       iModelDb,
       modelId,
       textureName,
       ImageSourceFormat.Png,
-      textureData,
+      samplePngTexture.base64,
       `Description for ${textureName}`
     );
   }
@@ -938,10 +926,8 @@ export class IModelTestUtils {
     iModelDb: IModelDb,
     userLabel: string
   ): Id64String {
-    // eslint-disable-next-line @itwin/no-internal, @typescript-eslint/no-deprecated
     return iModelDb.withPreparedStatement(
       `SELECT ECInstanceId FROM ${Element.classFullName} WHERE UserLabel=:userLabel`,
-      // eslint-disable-next-line @itwin/no-internal, @typescript-eslint/no-deprecated
       (statement: ECSqlStatement): Id64String => {
         statement.bindString("userLabel", userLabel);
         return DbResult.BE_SQLITE_ROW === statement.step()
@@ -1017,10 +1003,8 @@ export class IModelTestUtils {
     iModelDb: IModelDb,
     codeValue: string
   ): Id64String {
-    // eslint-disable-next-line @itwin/no-internal, @typescript-eslint/no-deprecated
     return iModelDb.withPreparedStatement(
       `SELECT ECInstanceId FROM ${Element.classFullName} WHERE CodeValue=:codeValue`,
-      // eslint-disable-next-line @itwin/no-internal, @typescript-eslint/no-deprecated
       (statement: ECSqlStatement): Id64String => {
         statement.bindString("codeValue", codeValue);
         return DbResult.BE_SQLITE_ROW === statement.step()
@@ -1034,10 +1018,8 @@ export class IModelTestUtils {
     iModelDb: IModelDb,
     codeValue: string
   ): Id64String {
-    // eslint-disable-next-line @itwin/no-internal, @typescript-eslint/no-deprecated
     return iModelDb.withPreparedStatement(
       `SELECT ECInstanceId FROM ${Model.classFullName} WHERE ModeledElement.Id in (Select ECInstanceId from Bis.Element where CodeValue=:codeValue)`,
-      // eslint-disable-next-line @itwin/no-internal, @typescript-eslint/no-deprecated
       (statement: ECSqlStatement): Id64String => {
         statement.bindString("codeValue", codeValue);
         return DbResult.BE_SQLITE_ROW === statement.step()
@@ -1091,10 +1073,8 @@ export class IModelTestUtils {
     }
     IModelJsFs.appendFileSync(outputFileName, `${iModelDb.pathName}\n`);
     IModelJsFs.appendFileSync(outputFileName, "\n=== CodeSpecs ===\n");
-    // eslint-disable-next-line @itwin/no-internal, @typescript-eslint/no-deprecated
     iModelDb.withPreparedStatement(
       "SELECT ECInstanceId,Name FROM BisCore:CodeSpec ORDER BY ECInstanceId",
-      // eslint-disable-next-line @itwin/no-internal, @typescript-eslint/no-deprecated
       (statement: ECSqlStatement): void => {
         while (DbResult.BE_SQLITE_ROW === statement.step()) {
           const codeSpecId = statement.getValue(0).getId();
@@ -1107,10 +1087,8 @@ export class IModelTestUtils {
       }
     );
     IModelJsFs.appendFileSync(outputFileName, "\n=== Schemas ===\n");
-    // eslint-disable-next-line @itwin/no-internal, @typescript-eslint/no-deprecated
     iModelDb.withPreparedStatement(
       "SELECT Name FROM ECDbMeta.ECSchemaDef ORDER BY ECInstanceId",
-      // eslint-disable-next-line @itwin/no-internal, @typescript-eslint/no-deprecated
       (statement: ECSqlStatement): void => {
         while (DbResult.BE_SQLITE_ROW === statement.step()) {
           const schemaName: string = statement.getValue(0).getString();
@@ -1119,10 +1097,8 @@ export class IModelTestUtils {
       }
     );
     IModelJsFs.appendFileSync(outputFileName, "\n=== Models ===\n");
-    // eslint-disable-next-line @itwin/no-internal, @typescript-eslint/no-deprecated
     iModelDb.withPreparedStatement(
       `SELECT ECInstanceId FROM ${Model.classFullName} ORDER BY ECInstanceId`,
-      // eslint-disable-next-line @itwin/no-internal, @typescript-eslint/no-deprecated
       (statement: ECSqlStatement): void => {
         while (DbResult.BE_SQLITE_ROW === statement.step()) {
           const modelId = statement.getValue(0).getId();
@@ -1135,10 +1111,8 @@ export class IModelTestUtils {
       }
     );
     IModelJsFs.appendFileSync(outputFileName, "\n=== ViewDefinitions ===\n");
-    // eslint-disable-next-line @itwin/no-internal, @typescript-eslint/no-deprecated
     iModelDb.withPreparedStatement(
       `SELECT ECInstanceId FROM ${ViewDefinition.classFullName} ORDER BY ECInstanceId`,
-      // eslint-disable-next-line @itwin/no-internal, @typescript-eslint/no-deprecated
       (statement: ECSqlStatement): void => {
         while (DbResult.BE_SQLITE_ROW === statement.step()) {
           const viewDefinitionId = statement.getValue(0).getId();
@@ -1152,10 +1126,8 @@ export class IModelTestUtils {
       }
     );
     IModelJsFs.appendFileSync(outputFileName, "\n=== Elements ===\n");
-    // eslint-disable-next-line @itwin/no-internal, @typescript-eslint/no-deprecated
     iModelDb.withPreparedStatement(
       `SELECT COUNT(*) FROM ${Element.classFullName}`,
-      // eslint-disable-next-line @itwin/no-internal, @typescript-eslint/no-deprecated
       (statement: ECSqlStatement): void => {
         if (DbResult.BE_SQLITE_ROW === statement.step()) {
           const count: number = statement.getValue(0).getInteger();
@@ -1166,10 +1138,8 @@ export class IModelTestUtils {
         }
       }
     );
-    // eslint-disable-next-line @itwin/no-internal, @typescript-eslint/no-deprecated
     iModelDb.withPreparedStatement(
       `SELECT COUNT(*) FROM ${PhysicalObject.classFullName}`,
-      // eslint-disable-next-line @itwin/no-internal, @typescript-eslint/no-deprecated
       (statement: ECSqlStatement): void => {
         if (DbResult.BE_SQLITE_ROW === statement.step()) {
           const count: number = statement.getValue(0).getInteger();
@@ -1180,10 +1150,8 @@ export class IModelTestUtils {
         }
       }
     );
-    // eslint-disable-next-line @itwin/no-internal, @typescript-eslint/no-deprecated
     iModelDb.withPreparedStatement(
       `SELECT COUNT(*) FROM ${GeometryPart.classFullName}`,
-      // eslint-disable-next-line @itwin/no-internal, @typescript-eslint/no-deprecated
       (statement: ECSqlStatement): void => {
         if (DbResult.BE_SQLITE_ROW === statement.step()) {
           const count: number = statement.getValue(0).getInteger();
@@ -1202,12 +1170,10 @@ export class IModelTestUtils {
     classFullName: string,
     whereClause?: string
   ): number {
-    // eslint-disable-next-line @itwin/no-internal, @typescript-eslint/no-deprecated
     return iModelDb.withPreparedStatement(
       `SELECT COUNT(*) FROM ${classFullName}${
         whereClause ? ` WHERE ${whereClause}` : ""
       }`,
-      // eslint-disable-next-line @itwin/no-internal, @typescript-eslint/no-deprecated
       (statement: ECSqlStatement): number => {
         return DbResult.BE_SQLITE_ROW === statement.step()
           ? statement.getValue(0).getInteger()
@@ -1221,7 +1187,6 @@ export class IModelTestUtils {
     briefcaseDb: BriefcaseDb,
     description: string
   ): Promise<void> {
-    // eslint-disable-next-line @typescript-eslint/no-deprecated -- transformer provenance writes use implicit APIs that leave unsaved changes
     briefcaseDb.saveChanges(description);
     await briefcaseDb.pushChanges({ accessToken, description });
   }

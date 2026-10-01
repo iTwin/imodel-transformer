@@ -59,7 +59,6 @@ export class ECReferenceTypesCache {
     string,
     ConcreteEntityTypes | undefined
   > = {
-    /* eslint-disable quote-props, @typescript-eslint/naming-convention */
     Element: ConcreteEntityTypes.Element,
     Model: ConcreteEntityTypes.Model,
     ElementAspect: ConcreteEntityTypes.ElementAspect,
@@ -67,7 +66,6 @@ export class ECReferenceTypesCache {
     ElementDrivesElement: ConcreteEntityTypes.Relationship,
     // code spec is technically a potential root class but it is ignored currently
     // see [ConcreteEntityTypes]($common)
-    /* eslint-enable quote-props, @typescript-eslint/naming-convention */
   };
 
   private async getRootBisClass(ecclass: ECClass) {
@@ -307,11 +305,5 @@ export class ECReferenceTypesCache {
       schemaName.toLowerCase(),
       className.toLowerCase(),
     ]);
-  }
-
-  public clear() {
-    this._initedSchemas.clear();
-    this._propQualifierToRefType.clear();
-    this._relClassNameEndToRefTypes.clear();
   }
 }

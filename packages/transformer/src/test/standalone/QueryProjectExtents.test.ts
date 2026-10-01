@@ -3,8 +3,6 @@
  * See LICENSE.md in the project root for license terms and full copyright notice.
  *--------------------------------------------------------------------------------------------*/
 
-/* eslint-disable @itwin/no-internal */
-
 import { expect } from "vitest";
 import * as path from "node:path";
 import {
