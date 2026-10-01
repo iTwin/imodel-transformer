@@ -10,7 +10,6 @@ import * as Semver from "semver";
 import { strict as nodeAssert } from "node:assert";
 import {
   assert,
-  DbResult,
   Guid,
   GuidString,
   Id64,
@@ -1374,6 +1373,8 @@ export class IModelTransformer extends IModelExportHandler {
     // respond the same way to undefined code value as the @see Code class, but don't use that class because it trims
     // whitespace from the value, and there are iModels out there with untrimmed whitespace that we ought not to trim
     targetElementProps.code.value = targetElementProps.code.value ?? "";
+    // empty code values are stored as NULL and are never unique, so they cannot identify an existing target element
+    if (Code.isEmpty(targetElementProps.code)) return Id64.invalid;
     const maybeTargetElementId = this.queryElementIdByCode(
       this.targetDb,
       targetElementProps.code as Required<CodeProps>
@@ -1412,7 +1413,9 @@ export class IModelTransformer extends IModelExportHandler {
   // https://github.com/iTwin/itwinjs-core/blob/master/core/backend/src/IModelDb.ts#L2779
   // Code class constructor trims white spaces from code value.
   // Custom implementation of queryElementIdByCode() was added to support querying elements with code values that have trailing whitespaces.
-  // It mimicks 4.x implementation: https://github.com/iTwin/itwinjs-core/blob/9c8b394ec3878a39764be81f928fd8b0b9115d31/core/backend/src/IModelDb.ts#L1882
+  // It queries bis_Element through a cached SQLite statement, because creating an ECSQL reader per element is slow
+  // and the cached ECSQL API (withPreparedStatement) is deprecated. Results match the ECSQL query because CodeValue
+  // is COLLATE NOCASE, ix_bis_Element_Code is unique, and the primary connection sees uncommitted target inserts.
   private queryElementIdByCode(
     iModel: IModelDb,
     code: Required<CodeProps>
@@ -1441,9 +1444,7 @@ export class IModelTransformer extends IModelExportHandler {
         stmt.bindId(1, code.spec);
         stmt.bindId(2, Id64.fromString(code.scope));
         stmt.bindString(3, code.value);
-        return stmt.step() === DbResult.BE_SQLITE_ROW
-          ? stmt.getValueId(0)
-          : undefined;
+        return stmt.nextRow() ? stmt.getValueId(0) : undefined;
       }
     );
   }

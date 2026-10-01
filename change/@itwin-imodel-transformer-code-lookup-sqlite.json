@@ -1,6 +1,6 @@
 {
   "type": "patch",
-  "comment": "Speed up finding existing target elements by Code by using a cached SQLite statement instead of a new ECSQL query reader per element",
+  "comment": "Speed up finding existing target elements by Code: skip the lookup for empty codes, which can never match, and use a cached SQLite statement instead of a new ECSQL query reader per element",
   "packageName": "@itwin/imodel-transformer",
   "email": "DanRod1999@users.noreply.github.com",
   "dependentChangeType": "patch"
