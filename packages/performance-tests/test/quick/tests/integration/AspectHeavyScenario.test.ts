@@ -120,16 +120,16 @@ describe("aspect-heavy scenarios", () => {
               aspectsPerElement,
               updatedElementCount,
               updatedModelCount,
-              // The transformer currently deletes and reinserts every
-              // replaceable aspect of each accepted owner (#445).
-              numElementAspectsInserted: aspectCount,
+              // The source is unchanged, so reconciliation writes no aspects
+              // and every target aspect keeps its ID.
+              numElementAspectsInserted: 0,
               numElementAspectsUpdated: 0,
-              numElementAspectsDeleted: aspectCount,
+              numElementAspectsDeleted: 0,
               targetAspectIdsBefore: aspectCount,
               targetAspectIdsAfter: aspectCount,
-              targetAspectIdsReplaced: aspectCount,
-              targetAspectIdsAdded: aspectCount,
-              targetAspectIdsChanged: true,
+              targetAspectIdsReplaced: 0,
+              targetAspectIdsAdded: 0,
+              targetAspectIdsChanged: false,
             });
             // finish saved the measured changes and ended its edit transaction,
             // so a new one can start; abort after finish is a no-op.
