@@ -40,21 +40,25 @@ import {
   StandaloneDb,
   withEditTxn,
 } from "@itwin/core-backend";
-import * as coreBackendPkgJson from "@itwin/core-backend/package.json";
-import { IModelTransformer } from "../../IModelTransformer";
+import coreBackendPkgJson from "@itwin/core-backend/package.json" with { type: "json" };
+import { IModelTransformer } from "../../IModelTransformer.js";
 import {
   createStartedEditTxn,
   IModelTransformerTestUtils,
-} from "../IModelTransformerUtils";
+} from "../IModelTransformerUtils.js";
 
 import * as path from "node:path";
+import { fileURLToPath } from "node:url";
 
 const coreBackendVersion = coreBackendPkgJson.version;
 
 const NUM_ELEMENTS = 10000;
 
 function initOutputFile(filename: string): string {
-  const outputDirName = path.join(__dirname, "output");
+  const outputDirName = path.join(
+    path.dirname(fileURLToPath(import.meta.url)),
+    "output"
+  );
   if (!IModelJsFs.existsSync(outputDirName)) {
     IModelJsFs.mkdirSync(outputDirName);
   }

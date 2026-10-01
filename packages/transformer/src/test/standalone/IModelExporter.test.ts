@@ -47,17 +47,17 @@ import {
   ExporterInitOptions,
   IModelExporter,
   IModelExportHandler,
-} from "../../IModelExporter";
-import { ElementAspectExportCoordinator } from "../../ElementAspectExportCoordinator";
+} from "../../IModelExporter.js";
+import { ElementAspectExportCoordinator } from "../../ElementAspectExportCoordinator.js";
 import {
   IModelTransformerError,
   IModelTransformerErrorScope,
-} from "../../IModelTransformerError";
-import { IModelTransformerTestUtils } from "../IModelTransformerUtils";
-import { ProvenanceManager } from "../../ProvenanceManager";
-import { importElementAspectTestSchema } from "../TestUtils/ElementAspectTestUtils";
-import { createBRepDataProps } from "../TestUtils/GeometryTestUtil";
-import { KnownTestLocations } from "../TestUtils/KnownTestLocations";
+} from "../../IModelTransformerError.js";
+import { IModelTransformerTestUtils } from "../IModelTransformerUtils.js";
+import { ProvenanceManager } from "../../ProvenanceManager.js";
+import { importElementAspectTestSchema } from "../TestUtils/ElementAspectTestUtils.js";
+import { createBRepDataProps } from "../TestUtils/GeometryTestUtil.js";
+import { KnownTestLocations } from "../TestUtils/KnownTestLocations.js";
 
 export async function elementAspectExportExample(
   sourceDb: IModelDb,

@@ -8,16 +8,16 @@ import { EditTxn, IModelJsFs, SnapshotDb } from "@itwin/core-backend";
 import { ITwinError } from "@itwin/core-bentley";
 import * as ECSchemaMetaData from "@itwin/ecschema-metadata";
 import { SchemaLoader } from "@itwin/ecschema-metadata";
-import { IModelExporter } from "../../IModelExporter";
-import { IModelTransformer } from "../../IModelTransformer";
-import { DynamicSchemaUnionStrategy } from "../../schema-processing/DynamicSchemaUnionStrategy";
-import { NewerVersionSchemaImportStrategy } from "../../schema-processing/SchemaProcessingStrategy";
+import { IModelExporter } from "../../IModelExporter.js";
+import { IModelTransformer } from "../../IModelTransformer.js";
+import { DynamicSchemaUnionStrategy } from "../../schema-processing/DynamicSchemaUnionStrategy.js";
+import { NewerVersionSchemaImportStrategy } from "../../schema-processing/SchemaProcessingStrategy.js";
 import {
   IModelTransformerError,
   IModelTransformerErrorScope,
-} from "../../IModelTransformerError";
-import { IModelTransformerTestUtils } from "../IModelTransformerUtils";
-import * as TestUtils from "../TestUtils";
+} from "../../IModelTransformerError.js";
+import { IModelTransformerTestUtils } from "../IModelTransformerUtils.js";
+import * as TestUtils from "../TestUtils/index.js";
 
 describe("Schema processing", () => {
   interface Fixture {

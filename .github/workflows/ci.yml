@@ -154,6 +154,10 @@ jobs:
     - name: Build
       run: pnpm run build
 
+    # CommonJS consumers load the ESM-only package with require(esm).
+    - name: Verify CommonJS consumers can require the package
+      run: pnpm --dir packages/transformer test:require
+
     - name: Test
       run: pnpm run test
 

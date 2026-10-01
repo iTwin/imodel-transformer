@@ -1,5 +1,17 @@
 # Next release notes
 
+## Breaking change: ESM-only package
+
+`@itwin/imodel-transformer` now publishes only ES modules. The `lib/cjs` output has been removed, and `lib/` contains the ESM JavaScript and declarations. The package root and `@itwin/imodel-transformer/schema-processing` remain the supported entry points.
+
+CommonJS applications do not need to convert to ESM. The supported Node.js versions (`^22.12.0 || ^24.18.0`) load ES modules synchronously through `require()`, so `require("@itwin/imodel-transformer")` and CommonJS output compiled by TypeScript continue to work.
+
+To migrate:
+
+- Replace imports from `@itwin/imodel-transformer/lib/cjs/*` with imports from the package root or `@itwin/imodel-transformer/schema-processing`.
+- If a TypeScript project compiles to CommonJS with `module` set to `node16` or `node18`, change it to `node20` or `nodenext`. Those older settings reject `require()` of ES modules with TS1479. Projects using `module: commonjs` are unaffected.
+- Test runners and bundlers that implement their own module loader instead of Node's may not support `require()` of ES modules. Configure them to load ESM.
+
 ## Context-based provenance resolution for incremental deletions
 
 `IModelTransformer.process()` now resolves guidless incremental element

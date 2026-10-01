@@ -28,13 +28,13 @@ import * as path from "node:path";
 import {
   createStartedEditTxn,
   IModelTransformerTestUtils,
-} from "../IModelTransformerUtils";
-import { KnownTestLocations } from "../TestUtils/KnownTestLocations";
+} from "../IModelTransformerUtils.js";
+import { KnownTestLocations } from "../TestUtils/KnownTestLocations.js";
 
-import { EntityExistenceCache } from "../../EntityExistenceCache";
-import { EntityUnifier } from "../../EntityUnifier";
-import { IModelTransformer } from "../../IModelTransformer";
-import { IModelImporter } from "../../IModelImporter";
+import { EntityExistenceCache } from "../../EntityExistenceCache.js";
+import { EntityUnifier } from "../../EntityUnifier.js";
+import { IModelTransformer } from "../../IModelTransformer.js";
+import { IModelImporter } from "../../IModelImporter.js";
 
 describe("EntityExistenceCache", () => {
   const outputDir = path.join(

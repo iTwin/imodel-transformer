@@ -12,7 +12,7 @@ commands from `packages/performance-tests`. Build the transformer prerequisite
 before quick commands:
 
 ```sh
-pnpm --dir ../transformer build:cjs
+pnpm --dir ../transformer build:esm
 ```
 
 `pnpm test` runs the credential-dependent weekly suite. Use the quick scripts

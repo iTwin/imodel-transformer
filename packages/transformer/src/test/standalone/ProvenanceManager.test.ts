@@ -13,8 +13,8 @@ import {
 } from "@itwin/core-backend";
 import { Code, ExternalSourceAspectProps, IModel } from "@itwin/core-common";
 import { Guid, Id64String } from "@itwin/core-bentley";
-import { ProvenanceManager } from "../../ProvenanceManager";
-import { IModelTransformerTestUtils } from "../IModelTransformerUtils";
+import { ProvenanceManager } from "../../ProvenanceManager.js";
+import { IModelTransformerTestUtils } from "../IModelTransformerUtils.js";
 
 describe("ProvenanceManager tracked element mappings", () => {
   let sourceDb: StandaloneDb;

@@ -4,9 +4,9 @@
  *--------------------------------------------------------------------------------------------*/
 
 import { EditTxn, SnapshotDb } from "@itwin/core-backend";
-import { IModelImporter } from "../../IModelImporter";
-import { IModelTransformer } from "../../IModelTransformer";
-import { IModelTransformerTestUtils } from "../IModelTransformerUtils";
+import { IModelImporter } from "../../IModelImporter.js";
+import { IModelTransformer } from "../../IModelTransformer.js";
+import { IModelTransformerTestUtils } from "../IModelTransformerUtils.js";
 
 describe("EditTxn documentation examples", () => {
   function createDb(name: string): SnapshotDb {

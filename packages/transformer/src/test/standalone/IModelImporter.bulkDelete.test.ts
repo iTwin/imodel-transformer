@@ -40,15 +40,18 @@ import {
 } from "@itwin/core-common";
 import { Point2d, Point3d, Range3d } from "@itwin/core-geometry";
 import { expect, vi } from "vitest";
-import { planBulkDelete } from "../../ElementBulkDelete";
-import { ElementBulkDeleteError, IModelImporter } from "../../IModelImporter";
-import { IModelTransformerError } from "../../IModelTransformerError";
+import { planBulkDelete } from "../../ElementBulkDelete.js";
+import {
+  ElementBulkDeleteError,
+  IModelImporter,
+} from "../../IModelImporter.js";
+import { IModelTransformerError } from "../../IModelTransformerError.js";
 import {
   createStartedEditTxn,
   expectTransformerError,
   IModelTransformerTestUtils,
-} from "../IModelTransformerUtils";
-import { IModelTestUtils } from "../TestUtils";
+} from "../IModelTransformerUtils.js";
+import { IModelTestUtils } from "../TestUtils/index.js";
 
 interface PhysicalObjectOptions {
   readonly modelId: Id64String;
