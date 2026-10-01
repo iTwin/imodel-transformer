@@ -18,10 +18,10 @@ import {
   IModel,
   QueryBinder,
 } from "@itwin/core-common";
-import { ChangesetScanner } from "../../ChangesetScanner";
-import { ChangedInstanceIds } from "../../IModelExporter";
-import { KnownTestLocations } from "../TestUtils";
-import { importElementAspectTestSchema } from "../TestUtils/ElementAspectTestUtils";
+import { ChangesetScanner } from "../../ChangesetScanner.js";
+import { ChangedInstanceIds } from "../../IModelExporter.js";
+import { KnownTestLocations } from "../TestUtils/index.js";
+import { importElementAspectTestSchema } from "../TestUtils/ElementAspectTestUtils.js";
 
 describe("ChangesetScanner owner resolution", () => {
   let db: StandaloneDb;

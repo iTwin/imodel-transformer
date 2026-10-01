@@ -3,7 +3,7 @@
  * See LICENSE.md in the project root for license terms and full copyright notice.
  *--------------------------------------------------------------------------------------------*/
 
-import { EntityKey, EntityMap } from "../../EntityMap";
+import { EntityKey, EntityMap } from "../../EntityMap.js";
 
 describe("EntityMap", () => {
   const firstKey = "0x1" as EntityKey;

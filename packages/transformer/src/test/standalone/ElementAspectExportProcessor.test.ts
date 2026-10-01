@@ -19,9 +19,9 @@ import { expect, vi } from "vitest";
 import {
   ElementAspectExportProcessor,
   ElementAspectExportProcessorHandler,
-} from "../../ElementAspectExportProcessor";
-import { IModelTransformerTestUtils } from "../IModelTransformerUtils";
-import { importElementAspectTestSchema } from "../TestUtils/ElementAspectTestUtils";
+} from "../../ElementAspectExportProcessor.js";
+import { IModelTransformerTestUtils } from "../IModelTransformerUtils.js";
+import { importElementAspectTestSchema } from "../TestUtils/ElementAspectTestUtils.js";
 
 function createHandler(
   overrides: Partial<ElementAspectExportProcessorHandler> = {}

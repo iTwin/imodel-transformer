@@ -2,25 +2,24 @@
   "name": "@itwin/imodel-transformer",
   "version": "2.0.0-dev.61",
   "description": "API for exporting an iModel's parts and also importing them into another iModel",
-  "main": "lib/cjs/imodel-transformer.js",
-  "typings": "lib/cjs/imodel-transformer.d.ts",
+  "type": "module",
+  "main": "lib/imodel-transformer.js",
+  "types": "lib/imodel-transformer.d.ts",
   "typesVersions": {
     "*": {
       "schema-processing": [
-        "lib/cjs/schema-processing.d.ts"
+        "lib/schema-processing.d.ts"
       ]
     }
   },
   "exports": {
     ".": {
-      "types": "./lib/cjs/imodel-transformer.d.ts",
-      "require": "./lib/cjs/imodel-transformer.js",
-      "default": "./lib/cjs/imodel-transformer.js"
+      "types": "./lib/imodel-transformer.d.ts",
+      "default": "./lib/imodel-transformer.js"
     },
     "./schema-processing": {
-      "types": "./lib/cjs/schema-processing.d.ts",
-      "require": "./lib/cjs/schema-processing.js",
-      "default": "./lib/cjs/schema-processing.js"
+      "types": "./lib/schema-processing.d.ts",
+      "default": "./lib/schema-processing.js"
     },
     "./package.json": "./package.json"
   },
@@ -29,8 +28,8 @@
     "node": "^22.12.0 || ^24.18.0"
   },
   "scripts": {
-    "build": "npm run -s typecheck && npm run -s build:cjs && npm run -s extract-api",
-    "build:cjs": "tsc -p tsconfig.build.json 1>&2 --outDir lib/cjs",
+    "build": "npm run -s typecheck && npm run -s build:esm && npm run -s extract-api",
+    "build:esm": "tsc -p tsconfig.build.json 1>&2 --outDir lib",
     "clean": "rimraf lib",
     "docs": "npm run -s docs:extract && npm run -s docs:reference && npm run -s docs:changelog",
     "docs:changelog": "node scripts/copyChangelog.js",
@@ -39,14 +38,15 @@
     "docs:extract": "betools extract --fileExt=ts --extractFrom=./src/test --recursive --out=../../build/docs/extract",
     "cover": "vitest run --coverage",
     "extract-api": "npm run -s extract-api:root && npm run -s extract-api:schema-processing",
-    "extract-api:root": "betools extract-api --entry=imodel-transformer --apiReportFolder=../../common/api --apiReportTempFolder=../../common/api/temp --apiSummaryFolder=../../common/api/summary",
-    "extract-api:schema-processing": "betools extract-api --entry=schema-processing --apiReportFolder=../../common/api --apiReportTempFolder=../../common/api/temp --apiSummaryFolder=../../common/api/summary",
+    "extract-api:root": "betools extract-api --entry=lib/imodel-transformer --apiReportFolder=../../common/api --apiReportTempFolder=../../common/api/temp --apiSummaryFolder=../../common/api/summary",
+    "extract-api:schema-processing": "betools extract-api --entry=lib/schema-processing --apiReportFolder=../../common/api --apiReportTempFolder=../../common/api/temp --apiSummaryFolder=../../common/api/summary",
     "lint": "eslint -f visualstudio --quiet \"./src/**/*.ts\" 1>&2",
     "lint:no-tests": "eslint -f visualstudio --quiet \"./src/*.ts\" 1>&2",
     "lint:fix": "eslint --fix -f visualstudio --quiet \"./src/**/*.ts\" 1>&2",
     "format": "prettier \"./src/**/*.ts\" --write",
     "lint:with-warnings": "eslint -f visualstudio \"./src/**/*.ts\" 1>&2",
     "test": "vitest run",
+    "test:require": "node --input-type=commonjs -e \"require('@itwin/imodel-transformer'); require('@itwin/imodel-transformer/schema-processing')\"",
     "typecheck": "tsc -p tsconfig.json --noEmit --incremental false 1>&2",
     "no-internal-report": "no-internal-report src/**/*.ts"
   },

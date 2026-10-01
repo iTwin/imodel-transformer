@@ -15,9 +15,9 @@ import {
 } from "@itwin/core-backend";
 import { IModel } from "@itwin/core-common";
 import { Logger } from "@itwin/core-bentley";
-import { KnownTestLocations } from "../TestUtils/KnownTestLocations";
-import { IModelImporter } from "../../IModelImporter";
-import { createStartedEditTxn } from "../IModelTransformerUtils";
+import { KnownTestLocations } from "../TestUtils/KnownTestLocations.js";
+import { IModelImporter } from "../../IModelImporter.js";
+import { createStartedEditTxn } from "../IModelTransformerUtils.js";
 
 /**
  * This test reproduces the issue described in:

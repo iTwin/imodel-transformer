@@ -51,7 +51,7 @@ import {
   SubjectOwnsSubjects,
   withEditTxn,
 } from "@itwin/core-backend";
-import * as TestUtils from "../TestUtils";
+import * as TestUtils from "../TestUtils/index.js";
 import {
   AccessToken,
   DbResult,
@@ -92,9 +92,9 @@ import {
   IModelTransformOptions,
   ProcessChangesOptions,
   TransformerLoggerCategory,
-} from "../../imodel-transformer";
-import { ProvenanceManager } from "../../ProvenanceManager";
-import { ChangesetScanner } from "../../ChangesetScanner";
+} from "../../imodel-transformer.js";
+import { ProvenanceManager } from "../../ProvenanceManager.js";
+import { ChangesetScanner } from "../../ChangesetScanner.js";
 import {
   assertTransformerError,
   CountingIModelImporter,
@@ -106,10 +106,10 @@ import {
   PhysicalModelConsolidator,
   TestIModelTransformer,
   TransformerExtensiveTestScenario as TransformerExtensiveTestScenario,
-} from "../IModelTransformerUtils";
-import { KnownTestLocations } from "../TestUtils/KnownTestLocations";
-import { IModelTestUtils } from "../TestUtils/IModelTestUtils";
-import { transformerTestHub } from "../TestUtils/TransformerTestHub";
+} from "../IModelTransformerUtils.js";
+import { KnownTestLocations } from "../TestUtils/KnownTestLocations.js";
+import { IModelTestUtils } from "../TestUtils/IModelTestUtils.js";
+import { transformerTestHub } from "../TestUtils/TransformerTestHub.js";
 
 import {
   assertElemState,
@@ -119,7 +119,7 @@ import {
   Timeline,
   TimelineIModelElemState,
   TimelineIModelState,
-} from "../TestUtils/TimelineTestUtil";
+} from "../TestUtils/TimelineTestUtil.js";
 
 const { count } = IModelTestUtils;
 const countElementExternalSourceAspects = (

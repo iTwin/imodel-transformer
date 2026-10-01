@@ -27,7 +27,7 @@ import {
   RelatedElement,
   SubCategoryProps,
 } from "@itwin/core-common";
-import { TransformerLoggerCategory } from "./TransformerLoggerCategory";
+import { TransformerLoggerCategory } from "./TransformerLoggerCategory.js";
 import {
   BulkDeleteElementsStatus,
   EditTxn,
@@ -41,9 +41,9 @@ import {
   SourceAndTarget,
   SubCategory,
 } from "@itwin/core-backend";
-import type { RelationshipPropsForDelete } from "./IModelTransformer";
+import type { RelationshipPropsForDelete } from "./IModelTransformer.js";
 import { strict as assert } from "node:assert";
-import { ElementAspectCleanup } from "./ElementAspectCleanup";
+import { ElementAspectCleanup } from "./ElementAspectCleanup.js";
 import {
   EntityClass,
   PropertyType,
@@ -52,9 +52,9 @@ import {
 import {
   IModelTransformerError,
   IModelTransformerErrorScope,
-} from "./IModelTransformerError";
-import { planBulkDelete } from "./ElementBulkDelete";
-import { EntityExistenceCache } from "./EntityExistenceCache";
+} from "./IModelTransformerError.js";
+import { planBulkDelete } from "./ElementBulkDelete.js";
+import { EntityExistenceCache } from "./EntityExistenceCache.js";
 
 const loggerCategory: string = TransformerLoggerCategory.IModelImporter;
 

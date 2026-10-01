@@ -21,22 +21,22 @@ import {
   initializeBranchProvenance,
   ProvenanceInitArgs,
   ProvenanceInitResult,
-} from "../../BranchProvenanceInitializer";
+} from "../../BranchProvenanceInitializer.js";
 import {
   assertIdentityTransformation,
   createStartedEditTxn,
   IModelTransformerTestUtils,
-} from "../IModelTransformerUtils";
+} from "../IModelTransformerUtils.js";
 import {
   Code,
   ExternalSourceProps,
   RepositoryLinkProps,
 } from "@itwin/core-common";
-import { IModelTransformer } from "../../IModelTransformer";
+import { IModelTransformer } from "../../IModelTransformer.js";
 import { Guid, OpenMode, TupleKeyedMap } from "@itwin/core-bentley";
 import { assert, expect } from "vitest";
 import { Point3d, YawPitchRollAngles } from "@itwin/core-geometry";
-import { transformerPackageMetadata } from "../../TransformerPackageMetadata";
+import { transformerPackageMetadata } from "../../TransformerPackageMetadata.js";
 
 describe("compare imodels from BranchProvenanceInitializer and traditional branch init", () => {
   // truth table (sourceHasFedGuid, targetHasFedGuid, forceCreateFedGuidsForMaster) -> (relSourceAspectNum, relTargetAspectNum)

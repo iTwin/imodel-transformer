@@ -6,6 +6,17 @@ Copyright © Bentley Systems, Incorporated. All rights reserved. See LICENSE.md 
 
 The **@itwin/imodel-transformer** package contains classes that handle traversing iModels for exporting and importing their parts.
 
+## Module format
+
+`@itwin/imodel-transformer` is an ESM-only package. Import its public API from the package root or from `@itwin/imodel-transformer/schema-processing`:
+
+```ts
+import { IModelTransformer } from "@itwin/imodel-transformer";
+import { DynamicSchemaUnionStrategy } from "@itwin/imodel-transformer/schema-processing";
+```
+
+CommonJS applications can `require()` the same entry points on the supported Node.js versions. TypeScript projects that compile to CommonJS must use `module` set to `commonjs`, `node20`, or `nodenext`; `node16` and `node18` reject `require()` of ES modules. Paths below `lib/`, including the former `lib/cjs/*` output, are not supported entry points.
+
 ## Documentation
 
 See the [iTwin.js](https://www.itwinjs.org) documentation for more information.
