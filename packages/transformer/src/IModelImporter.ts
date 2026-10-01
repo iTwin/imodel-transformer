@@ -58,6 +58,13 @@ import { EntityExistenceCache } from "./EntityExistenceCache";
 
 const loggerCategory: string = TransformerLoggerCategory.IModelImporter;
 
+/** A target relationship class stored in `bis_ElementRefersToElements`. */
+interface ElementRefersToElementsClass {
+  classId: Id64String;
+  /** True for `BisCore:ElementRefersToElements` itself, whose ECSQL query matches every row of the table. */
+  isRoot: boolean;
+}
+
 /** Lists the first kept references for a log message. */
 function formatKeptReferences(
   keptReferences: ReadonlyMap<Id64String, Id64String>
@@ -180,6 +187,12 @@ export class IModelImporter {
    * @note This set should stay small, as right after the transformer pushes to it, the importer will remove from the set.
    */
   private _elementsToUpdateDuringPreserveIds = new Set<Id64String>([]);
+
+  /** Target relationship classes resolved for [[importRelationship]] lookups, or `false` for classes outside the ElementRefersToElements hierarchy. */
+  private readonly _elementRefersToElementsClasses = new Map<
+    string,
+    ElementRefersToElementsClass | false
+  >();
 
   /** The set of target elements that this importer must not directly update or request for deletion.
    * Defaults to an empty set and is populated by consumers or custom transformers.
@@ -807,7 +820,7 @@ export class IModelImporter {
       targetId: relationshipProps.targetId,
     };
     const relationship: Relationship | undefined =
-      this.targetDb.relationships.tryGetInstance(
+      this.tryGetExistingRelationship(
         relationshipProps.classFullName,
         relSourceAndTarget
       );
@@ -821,6 +834,89 @@ export class IModelImporter {
     } else {
       return this.onInsertRelationship(relationshipProps);
     }
+  }
+
+  /** Find the target relationship that `Relationships.tryGetInstance(classFullName, sourceAndTarget)` would return.
+   * ElementRefersToElements relationships are first checked with a cached SQLite statement, because core's ECSQL
+   * reader is slow for each call, and most relationships do not exist yet in a full transformation.
+   */
+  private tryGetExistingRelationship(
+    classFullName: string,
+    sourceAndTarget: SourceAndTarget
+  ): Relationship | undefined {
+    const relClass = this.resolveElementRefersToElementsClass(classFullName);
+    if (!relClass)
+      return this.targetDb.relationships.tryGetInstance(
+        classFullName,
+        sourceAndTarget
+      );
+    const relId = this.queryElementRefersToElementsId(
+      relClass,
+      sourceAndTarget
+    );
+    return relId === undefined
+      ? undefined
+      : this.targetDb.relationships.tryGetInstance(classFullName, relId);
+  }
+
+  /** Resolve a relationship class in the ElementRefersToElements hierarchy.
+   * @returns `false` for other classes, or `undefined` when the class is not in the target, so it is resolved again later.
+   */
+  private resolveElementRefersToElementsClass(
+    classFullName: string
+  ): ElementRefersToElementsClass | false | undefined {
+    const cached = this._elementRefersToElementsClasses.get(classFullName);
+    if (cached !== undefined) return cached;
+    const nameParts = classFullName.split(/[.:]/);
+    if (nameParts.length !== 2) return undefined;
+    const resolved = this.targetDb.withPreparedSqliteStatement(
+      `SELECT c.Id, h.BaseClassId FROM ec_Class c
+       JOIN ec_Schema s ON s.Id=c.SchemaId
+       LEFT JOIN ec_cache_ClassHierarchy h ON h.ClassId=c.Id AND h.BaseClassId=(
+         SELECT b.Id FROM ec_Class b JOIN ec_Schema bs ON bs.Id=b.SchemaId
+         WHERE bs.Name='BisCore' AND b.Name='ElementRefersToElements')
+       WHERE s.Name=? AND c.Name=?`,
+      (stmt): ElementRefersToElementsClass | false | undefined => {
+        stmt.bindString(1, nameParts[0]);
+        stmt.bindString(2, nameParts[1]);
+        if (!stmt.nextRow()) return undefined;
+        if (stmt.isValueNull(1)) return false;
+        const classId = stmt.getValueId(0);
+        return { classId, isRoot: classId === stmt.getValueId(1) };
+      }
+    );
+    if (resolved !== undefined)
+      this._elementRefersToElementsClasses.set(classFullName, resolved);
+    return resolved;
+  }
+
+  /** Query the id of the ElementRefersToElements relationship to use for core's polymorphic source and target lookup.
+   * Like core's ECSQL query, it requires existing source and target elements and matches the class and its subclasses.
+   * When several rows match, core returns them in the order of the query plan SQLite chooses, so this query orders
+   * them by the unique source, target, class, and member priority index, which matches core whenever its plan scans
+   * that index. It reads the primary connection, so it sees relationships inserted earlier in the same transformation.
+   */
+  private queryElementRefersToElementsId(
+    relClass: ElementRefersToElementsClass,
+    sourceAndTarget: SourceAndTarget
+  ): Id64String | undefined {
+    const classFilter = relClass.isRoot
+      ? ""
+      : "INNER JOIN ec_cache_ClassHierarchy h ON h.ClassId=r.ECClassId AND h.BaseClassId=:classId";
+    return this.targetDb.withPreparedSqliteStatement(
+      `SELECT r.Id FROM bis_ElementRefersToElements r
+       INNER JOIN bis_Element s ON s.Id=r.SourceId
+       INNER JOIN bis_Element t ON t.Id=r.TargetId
+       ${classFilter}
+       WHERE r.SourceId=:sourceId AND r.TargetId=:targetId
+       ORDER BY r.ECClassId, r.MemberPriority`,
+      (stmt) => {
+        if (!relClass.isRoot) stmt.bindId(":classId", relClass.classId);
+        stmt.bindId(":sourceId", sourceAndTarget.sourceId);
+        stmt.bindId(":targetId", sourceAndTarget.targetId);
+        return stmt.nextRow() ? stmt.getValueId(0) : undefined;
+      }
+    );
   }
 
   /** Create a new Relationship from the specified RelationshipProps and insert it into the target iModel.
