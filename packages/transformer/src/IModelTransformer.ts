@@ -291,44 +291,30 @@ export interface TargetScopeProvenanceJsonProps {
 }
 
 /**
- * Apply a function to each Id64 in a supported container type of Id64s.
- * Currently only supports raw Id64String or RelatedElement-like objects containing an `id` property that is a Id64String,
- * which matches the possible containers of references in [Element.requiredReferenceKeys]($backend).
+ * Get the Id64 held by a required reference.
+ * [Element.requiredReferenceKeys]($backend) hold either a raw Id64String or a RelatedElement-like object with an `id` property.
  * @internal
  */
-function mapId64<R>(
-  idContainer: Id64String | RelatedElement | undefined,
-  func: (id: Id64String) => R
-): R[] {
-  const isId64String = (arg: any): arg is Id64String => {
-    const isString = typeof arg === "string";
-    assert(() => !isString || Id64.isValidId64(arg));
-    return isString;
-  };
-  const isRelatedElem = (arg: any): arg is RelatedElement =>
-    arg && typeof arg === "object" && "id" in arg;
-  const results = [];
-
-  // is a string if compressed or singular id64, but check for singular just checks if it's a string so do this test first
-  if (idContainer === undefined) {
-    // nothing
-  } else if (isId64String(idContainer)) {
-    results.push(func(idContainer));
-  } else if (isRelatedElem(idContainer)) {
-    results.push(func(idContainer.id));
-  } else {
-    ITwinError.throwError({
-      iTwinErrorId: {
-        scope: IModelTransformerErrorScope,
-        key: IModelTransformerError.InvalidEntityReference,
-      },
-      message: [
-        `Id64 container '${JSON.stringify(idContainer)}' is unsupported.`,
-        "Currently only singular Id64 strings or prop-like objects containing an 'id' property are supported.",
-      ].join("\n"),
-    });
+function requiredReferenceId(
+  idContainer: Id64String | RelatedElement | undefined
+): Id64String | undefined {
+  if (idContainer === undefined) return undefined;
+  if (typeof idContainer === "string") {
+    assert(() => Id64.isValidId64(idContainer));
+    return idContainer;
   }
-  return results;
+  if (idContainer && typeof idContainer === "object" && "id" in idContainer)
+    return idContainer.id;
+  ITwinError.throwError({
+    iTwinErrorId: {
+      scope: IModelTransformerErrorScope,
+      key: IModelTransformerError.InvalidEntityReference,
+    },
+    message: [
+      `Id64 container '${JSON.stringify(idContainer)}' is unsupported.`,
+      "Currently only singular Id64 strings or prop-like objects containing an 'id' property are supported.",
+    ].join("\n"),
+  });
 }
 
 /** Arguments you can pass to [[IModelTransformer.initialize]]
@@ -1239,59 +1225,48 @@ export class IModelTransformer extends IModelExportHandler {
     }
 
     const elemClass = sourceElement.constructor as typeof Element;
-
-    const unresolvedReferences = elemClass.requiredReferenceKeys
-      .map((referenceKey) => {
-        const idContainer = sourceElement.asAny[referenceKey];
-        const referenceType =
-          elemClass.requiredReferenceKeyTypeMap[referenceKey];
-        // For now we just consider all required references to be elements (as they are in biscore), and do not support
-        // entities that refuse to be inserted without a different kind of entity (e.g. aspect or relationship) first being inserted
-        assert(
-          referenceType === ConcreteEntityTypes.Element ||
-            referenceType === ConcreteEntityTypes.Model
+    const unresolvedReferences: Id64String[] = [];
+    for (const referenceKey of elemClass.requiredReferenceKeys) {
+      // For now we just consider all required references to be elements (as they are in biscore), and do not support
+      // entities that refuse to be inserted without a different kind of entity (e.g. aspect or relationship) first being inserted
+      const referenceType = elemClass.requiredReferenceKeyTypeMap[referenceKey];
+      assert(
+        referenceType === ConcreteEntityTypes.Element ||
+          referenceType === ConcreteEntityTypes.Model
+      );
+      const referenceId = requiredReferenceId(
+        sourceElement.asAny[referenceKey]
+      );
+      if (
+        referenceId === undefined ||
+        referenceId === Id64.invalid ||
+        referenceId === IModel.rootSubjectId // not allowed to directly export the root subject
+      )
+        continue;
+      if (!this.context.isBetweenIModels) {
+        // Within the same iModel, reuse existing DefinitionElements instead of copying them.
+        // Same-iModel transformations, including TemplateModelCloner, rely on this.
+        const asDefinitionElem = this.sourceDb.elements.tryGetElement(
+          referenceId,
+          DefinitionElement
         );
-        return mapId64(idContainer, (id) => {
-          if (id === Id64.invalid || id === IModel.rootSubjectId)
-            return undefined; // not allowed to directly export the root subject
-          if (!this.context.isBetweenIModels) {
-            // Within the same iModel, can use existing DefinitionElements without remapping
-            // This is relied upon by the TemplateModelCloner
-            // TODO: extract this out to only be in the TemplateModelCloner
-            const asDefinitionElem = this.sourceDb.elements.tryGetElement(
-              id,
-              DefinitionElement
-            );
-            if (
-              asDefinitionElem &&
-              !(asDefinitionElem instanceof RecipeDefinitionElement)
-            ) {
-              this.context.remapElement(id, id);
-            }
-          }
-          return id;
-        }).filter(
-          (
-            sourceReferenceId: Id64String | undefined
-          ): sourceReferenceId is Id64String => {
-            if (sourceReferenceId === undefined) return false;
-            const referenceInTargetId =
-              this.context.findTargetElementId(sourceReferenceId);
-            const isInTarget = Id64.isValid(referenceInTargetId);
-            return !isInTarget;
-          }
-        );
-      })
-      .flat();
-
-    if (unresolvedReferences.length > 0) {
-      for (const reference of unresolvedReferences) {
-        const processState = await this.getElemTransformState(reference);
-        if (processState.needsElemImport)
-          await this.resolveRequiredElement(sourceElement.id, reference);
-        if (processState.needsModelImport)
-          await this.exporter.exportModel(reference);
+        if (
+          asDefinitionElem &&
+          !(asDefinitionElem instanceof RecipeDefinitionElement)
+        ) {
+          this.context.remapElement(referenceId, referenceId);
+        }
       }
+      if (!Id64.isValid(this.context.findTargetElementId(referenceId)))
+        unresolvedReferences.push(referenceId);
+    }
+
+    for (const reference of unresolvedReferences) {
+      const processState = await this.getElemTransformState(reference);
+      if (processState.needsElemImport)
+        await this.resolveRequiredElement(sourceElement.id, reference);
+      if (processState.needsModelImport)
+        await this.exporter.exportModel(reference);
     }
   }
 
