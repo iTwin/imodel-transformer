@@ -102,6 +102,14 @@ Some other data in the iModel follows more specific rules for conflicts:
 Synchronization conflicts are not to be confused with concurrent edit conflicts which are handled by the
 [ConcurrencyControl API](/learning/backend/concurrencycontrol).
 
+### Known risk: pushes by other users during a synchronization
+
+A synchronization records the changesets it is about to push, so that a later synchronization that reads those changesets skips them instead of processing the synchronization's own changes. The transformer records these changesets before they are pushed, assuming they will be the next changesets in each iModel: the target, and for a reverse synchronization also the branch, which receives provenance updates.
+
+If another user pushes to one of those iModels after the synchronization runs but before its changes are pushed, the synchronization's changeset lands at a later index than recorded. A later synchronization that reads that iModel can then skip the other user's changeset, so its changes are never synchronized, and process the synchronization's own changeset.
+
+Until this is addressed, push a synchronization's changes as soon as it finishes, and avoid other pushes to either iModel in the meantime. A custom [IModelTransformer.scanChanges]($transformer) receives changeset ranges that already exclude these recorded changesets, so it is subject to the same risk.
+
 ## Synchronization examples
 
 ### Creating a branch (First Synchronization)

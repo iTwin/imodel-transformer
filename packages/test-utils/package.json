@@ -12,8 +12,8 @@
     "format": "prettier \"./src/**/*.ts\" --write"
   },
   "peerDependencies": {
-    "@itwin/core-backend": "^5.13.0",
-    "@itwin/core-bentley": "^5.13.0"
+    "@itwin/core-backend": "^5.14.0",
+    "@itwin/core-bentley": "^5.14.0"
   },
   "devDependencies": {
     "@itwin/build-tools": "catalog:",

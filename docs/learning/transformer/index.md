@@ -109,6 +109,10 @@ Potential transformations include:
 - Schema Mapping - mapping classes and properties to a new schema during transformation
 - Change Squashing - each iModel has its own change ledger, so multiple changesets from the source could be _squashed_ into a single changeset to the target
 
+### Supplying source changes
+
+When processing changes, `IModelTransformer` downloads and reads the source changesets. To supply the changes from another source, such as a cache, instead, see [Supplying source changes](./change-scanning.md).
+
 ### Filtering during change processing
 
 The export filter is [IModelExporter.shouldExportElement]($transformer). It applies the exporter's exclusions, such as `excludeElement`, `excludeElementClass`, and `excludeElementsInCategory`, then calls the handler's `shouldExportElement`, which `IModelTransformer` subclasses override. When the filter rejects an element, its descendants are skipped during both full and change processing.
