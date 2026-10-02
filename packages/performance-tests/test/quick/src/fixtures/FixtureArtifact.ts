@@ -67,6 +67,8 @@ export interface LiveHubFixtureArtifactManifest {
 export interface StandaloneFixtureArtifactManifest {
   readonly sourceFile: string;
   readonly sourceSha256: string;
+  /** Present when one full transformation populated a standalone target at build time. */
+  readonly targetFile?: string;
 }
 
 export interface FixtureArtifactManifest {
@@ -324,21 +326,32 @@ function validateLiveHubManifest(
   );
 }
 
+function isArtifactFileName(value: unknown): value is string {
+  return (
+    typeof value === "string" &&
+    value.length > 0 &&
+    path.posix.basename(value) === value &&
+    path.win32.basename(value) === value &&
+    value !== "." &&
+    value !== ".." &&
+    !value.includes("\0")
+  );
+}
+
 function validateStandaloneManifest(
-  value: unknown
+  value: unknown,
+  populatedTarget: boolean
 ): value is StandaloneFixtureArtifactManifest {
   if (value === null || typeof value !== "object") return false;
   const standalone = value as Partial<StandaloneFixtureArtifactManifest>;
   return (
-    typeof standalone.sourceFile === "string" &&
-    standalone.sourceFile.length > 0 &&
-    path.posix.basename(standalone.sourceFile) === standalone.sourceFile &&
-    path.win32.basename(standalone.sourceFile) === standalone.sourceFile &&
-    standalone.sourceFile !== "." &&
-    standalone.sourceFile !== ".." &&
-    !standalone.sourceFile.includes("\0") &&
+    isArtifactFileName(standalone.sourceFile) &&
     typeof standalone.sourceSha256 === "string" &&
-    /^[a-f0-9]{64}$/.test(standalone.sourceSha256)
+    /^[a-f0-9]{64}$/.test(standalone.sourceSha256) &&
+    (populatedTarget
+      ? isArtifactFileName(standalone.targetFile) &&
+        standalone.targetFile !== standalone.sourceFile
+      : standalone.targetFile === undefined)
   );
 }
 
@@ -405,8 +418,13 @@ export function validateFixtureArtifactManifest(
       "Live-hub fixture artifact cannot declare standalone state"
     );
   if (
-    descriptor.layout.topology === "standalone-source-and-empty-target" &&
-    (!validateStandaloneManifest(manifest.standalone) ||
+    (descriptor.layout.topology === "standalone-source-and-empty-target" ||
+      descriptor.layout.topology ===
+        "standalone-source-and-populated-target") &&
+    (!validateStandaloneManifest(
+      manifest.standalone,
+      descriptor.layout.topology === "standalone-source-and-populated-target"
+    ) ||
       manifest.liveHub !== undefined ||
       manifest.changesets.count !== 0)
   )
@@ -488,6 +506,13 @@ export function readFixtureArtifact(directory: string): FixtureArtifact {
     if (sourceSha256 !== manifest.standalone.sourceSha256)
       throw new Error(
         `Fixture artifact standalone source hash is ${sourceSha256} but its manifest declares ${manifest.standalone.sourceSha256}`
+      );
+    if (
+      manifest.standalone.targetFile !== undefined &&
+      !fs.existsSync(path.join(directory, manifest.standalone.targetFile))
+    )
+      throw new Error(
+        `Fixture artifact is missing its populated standalone target: ${manifest.standalone.targetFile}`
       );
   }
   if (

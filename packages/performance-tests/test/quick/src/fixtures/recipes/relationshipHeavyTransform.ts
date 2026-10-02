@@ -201,3 +201,17 @@ export const relationshipHeavyTransformFixture = configureFixture(
 
 export const relationshipHeavyTransformDescriptor =
   relationshipHeavyTransformFixture.descriptor;
+
+/** The same source, plus a target populated by one full transformation at build time. */
+export const relationshipHeavyRetransformFixture = configureFixture(
+  relationshipHeavyTransformRecipe,
+  {
+    id: "relationship-heavy-retransform",
+    version: 1,
+    label: "relationship-heavy standalone retransformation",
+    scenarioClaims: ["full retransformation"],
+    topology: "standalone-source-and-populated-target",
+    seed: 15485863,
+    parameters: { elementCount: 5000, relationshipsPerElement: 6 },
+  }
+);

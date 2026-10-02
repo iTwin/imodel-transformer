@@ -36,16 +36,20 @@ export interface FixtureDistribution {
  *   measure time. Built once into an immutable artifact and copied per sample.
  * - `standalone-source-and-empty-target`: a readonly standalone source copied from one immutable
  *   artifact plus a newly-created empty standalone target per sample.
+ * - `standalone-source-and-populated-target`: a readonly standalone source plus a writable copy of
+ *   a standalone target that one full transformation populated when the artifact was built.
  */
 export type FixtureTopology =
   | "source-and-empty-target"
   | "source-only"
-  | "standalone-source-and-empty-target";
+  | "standalone-source-and-empty-target"
+  | "standalone-source-and-populated-target";
 
 export const fixtureTopologies: readonly FixtureTopology[] = [
   "source-and-empty-target",
   "source-only",
   "standalone-source-and-empty-target",
+  "standalone-source-and-populated-target",
 ];
 
 export interface ExternalFixtureSourceIdentity {

@@ -9,7 +9,13 @@ import * as path from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { IModelDb } from "@itwin/core-backend";
 import {
+  artifactManifestFileName,
+  artifactStandaloneTargetFileName,
+  readFixtureArtifact,
+} from "../../src/fixtures/FixtureArtifact.js";
+import {
   BuiltFixture,
+  requirePopulatedStandaloneDataset,
   requireStandaloneDataset,
 } from "../../src/fixtures/FixtureProvider.js";
 import { configureFixture } from "../../src/fixtures/FixtureRecipe.js";
@@ -31,8 +37,8 @@ const smallRelationshipHeavyFixture = configureFixture(
     id: "relationship-heavy-retransform-test",
     version: 1,
     label: "small relationship-heavy retransformation test",
-    scenarioClaims: ["full transformation"],
-    topology: "standalone-source-and-empty-target",
+    scenarioClaims: ["full retransformation"],
+    topology: "standalone-source-and-populated-target",
     seed: 15485863,
     parameters: { elementCount, relationshipsPerElement },
   }
@@ -80,6 +86,18 @@ async function queryPhysicalObjectIds(db: IModelDb): Promise<string[]> {
 const endpointKey = ({ sourceLabel, targetLabel, priority }: RelationshipRow) =>
   `${sourceLabel}->${targetLabel}#${priority}`;
 
+function rewriteManifest(
+  directory: string,
+  edit: (manifest: { standalone: Record<string, unknown> }) => void
+): void {
+  const manifestFile = path.join(directory, artifactManifestFileName);
+  const manifest = JSON.parse(fs.readFileSync(manifestFile, "utf8")) as {
+    standalone: Record<string, unknown>;
+  };
+  edit(manifest);
+  fs.writeFileSync(manifestFile, `${JSON.stringify(manifest, undefined, 2)}\n`);
+}
+
 describe("standalone full retransformation scenario", () => {
   let built: BuiltFixture;
   let root = "";
@@ -99,10 +117,23 @@ describe("standalone full retransformation scenario", () => {
     if (root !== "") fs.rmSync(root, { recursive: true, force: true });
   });
 
+  it("stores the populated target in the immutable artifact", () => {
+    const { manifest } = readFixtureArtifact(built.directory);
+    expect(manifest.standalone?.targetFile).to.equal(
+      artifactStandaloneTargetFileName
+    );
+    expect(
+      fs.existsSync(
+        path.join(built.directory, artifactStandaloneTargetFileName)
+      )
+    ).to.be.true;
+  });
+
   it("re-imports every relationship onto the existing target relationships", async () => {
     const digests: string[] = [];
+    let firstPopulatedRelationships: RelationshipRow[] | undefined;
     for (let sample = 0; sample < 2; sample++) {
-      const dataset = requireStandaloneDataset(
+      const dataset = requirePopulatedStandaloneDataset(
         await standaloneFixtureProvider.materialize(
           built,
           path.join(root, `sample-${sample}`),
@@ -116,7 +147,6 @@ describe("standalone full retransformation scenario", () => {
           elementCount * relationshipsPerElement
         );
 
-        await scenario.prepare?.();
         const populatedElementIds = await queryPhysicalObjectIds(
           dataset.targetDb
         );
@@ -127,7 +157,13 @@ describe("standalone full retransformation scenario", () => {
         expect(populatedRelationships.map(endpointKey).sort()).to.deep.equal(
           sourceRelationships.map(endpointKey).sort()
         );
+        // every sample starts from the same build-time target
+        firstPopulatedRelationships ??= populatedRelationships;
+        expect(populatedRelationships).to.deep.equal(
+          firstPopulatedRelationships
+        );
 
+        await scenario.prepare?.();
         await scenario.measure();
         // the re-run reuses the same target elements and relationship instances
         expect(await queryPhysicalObjectIds(dataset.targetDb)).to.deep.equal(
@@ -147,8 +183,70 @@ describe("standalone full retransformation scenario", () => {
     expect(new Set(digests).size).to.equal(1);
   });
 
+  it("rejects an empty-target dataset", async () => {
+    const emptyTargetFixture = configureFixture(
+      relationshipHeavyTransformRecipe,
+      {
+        id: "relationship-heavy-empty-target-test",
+        version: 1,
+        label: "small relationship-heavy empty target test",
+        scenarioClaims: ["full transformation"],
+        topology: "standalone-source-and-empty-target",
+        seed: 15485863,
+        parameters: { elementCount, relationshipsPerElement },
+      }
+    );
+    const emptyBuilt = await standaloneFixtureProvider.build(
+      emptyTargetFixture,
+      path.join(root, "empty-artifact")
+    );
+    try {
+      expect(emptyBuilt.artifact?.manifest.standalone?.targetFile).to.be
+        .undefined;
+      const dataset = requireStandaloneDataset(
+        await standaloneFixtureProvider.materialize(
+          emptyBuilt,
+          path.join(root, "empty-sample"),
+          "retransformation-empty"
+        )
+      );
+      try {
+        expect(() => standaloneFullRetransformation(dataset)).to.throw(
+          /requires a "standalone-source-and-populated-target" fixture/
+        );
+      } finally {
+        await standaloneFixtureProvider.disposeSample(dataset);
+        fs.rmSync(dataset.directory, { recursive: true, force: true });
+      }
+    } finally {
+      await standaloneFixtureProvider.disposeBuild(emptyBuilt);
+    }
+  });
+
+  it("rejects a populated-target artifact whose manifest omits the target", () => {
+    const corrupt = path.join(root, "missing-target-entry");
+    fs.cpSync(built.directory, corrupt, { recursive: true });
+    rewriteManifest(corrupt, (manifest) => {
+      delete manifest.standalone.targetFile;
+    });
+    expect(() => readFixtureArtifact(corrupt)).to.throw(
+      /Standalone fixture artifact manifest has incompatible source/
+    );
+    fs.rmSync(corrupt, { recursive: true, force: true });
+  });
+
+  it("rejects a populated-target artifact whose target file is missing", () => {
+    const corrupt = path.join(root, "missing-target-file");
+    fs.cpSync(built.directory, corrupt, { recursive: true });
+    fs.rmSync(path.join(corrupt, artifactStandaloneTargetFileName));
+    expect(() => readFixtureArtifact(corrupt)).to.throw(
+      /missing its populated standalone target/
+    );
+    fs.rmSync(corrupt, { recursive: true, force: true });
+  });
+
   it("rejects measurement before preparation and ends the edit transaction on abort", async () => {
-    const dataset = requireStandaloneDataset(
+    const dataset = requirePopulatedStandaloneDataset(
       await standaloneFixtureProvider.materialize(
         built,
         path.join(root, "unprepared"),

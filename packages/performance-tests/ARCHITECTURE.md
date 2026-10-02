@@ -55,11 +55,13 @@ source-to-target element mappings. It then measures only
 `processRelationships(ElementDrivesElement.classFullName)`. Finalization,
 saving, and output-shape validation remain untimed.
 
-The `standalone-full-retransformation` scenario performs an untimed, saved full
-transformation with provenance, then measures a second full `process()` by a
-new transformer over that populated target. Every exported relationship is
-therefore an existing target relationship. `finish()` requires the re-run to
-leave the target's output-shape digest unchanged.
+The `standalone-full-retransformation` scenario uses the
+`standalone-source-and-populated-target` topology. Stage one runs one full
+transformation with provenance into a standalone target and stores that target
+in the artifact. Each sample copies the source and populated target, and the
+scenario measures only `process()` by a new transformer. Every exported
+relationship is therefore an existing target relationship. `finish()` requires
+the re-run to leave the target's output-shape digest unchanged.
 
 #### Recipe
 

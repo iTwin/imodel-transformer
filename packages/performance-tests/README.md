@@ -109,19 +109,22 @@ relationship benchmark, not incremental changeset coverage.
 
 The `standalone-full-retransformation` scenario measures a full
 transformation into a target that already contains its output, so every
-exported relationship already exists in the target. Its untimed `prepare()`
-imports schemas, runs one full `process()` into the empty sample target, saves
-it, and checks that the target received every source `ElementRefersToElements`
-relationship. Its timed `measure()` contains only a second `process()` by a new
-transformer over that populated target. Both transformers record provenance, so
-the re-run maps source elements without a FederationGuid onto the existing
-target elements through their `ExternalSourceAspect`s instead of inserting
-duplicates. Every sample starts from a fresh source copy and empty target, so
-each re-run sees an identical populated target. `finish()` fails unless the
-re-run left the target's output-shape digest unchanged. Its default fixture is
-`relationship-heavy-transform`, whose 30,000 `ElementGroupsMembers`
-relationships all reach `IModelImporter.importRelationship` as existing
-relationships.
+exported relationship already exists in the target. It uses the
+`standalone-source-and-populated-target` topology: when the fixture artifact is
+built, one full transformation with provenance populates a standalone target
+that is stored in the artifact next to the source. Every sample copies both
+files, so each re-run starts from identical target bytes without repeating the
+population. In an A/B comparison, the baseline authors that target as it does
+for incremental fixtures. Untimed `prepare()` checks that the target holds every
+source `ElementRefersToElements` relationship, and the timed `measure()`
+contains only `process()` by a new transformer. Provenance lets the re-run map
+source elements without a FederationGuid onto the existing target elements
+through their `ExternalSourceAspect`s instead of inserting duplicates.
+`finish()` fails unless the re-run left the target's output-shape digest
+unchanged. Its default fixture is `relationship-heavy-retransform`, the
+`relationship-heavy-transform` source with a populated target, whose 30,000
+`ElementGroupsMembers` relationships all reach
+`IModelImporter.importRelationship` as existing relationships.
 
 `realistic-building-transform` is a deterministic synthetic workload modeled
 only from aggregate transformer-relevant characteristics of a representative
@@ -248,14 +251,14 @@ panel.
 
 Registered fixtures per scenario:
 
-| Scenario ID                                | Fixture IDs                                                                                                                                                    | Default                        |
-| ------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------ |
-| `incremental-synchronization`              | `balanced-incremental`, `deletion-heavy-incremental`, `hierarchical-incremental`                                                                               | `balanced-incremental`         |
-| `standalone-full-transformation`           | `standalone-full-transform`, `relationship-heavy-transform`, `reference-heavy-transform`, `realistic-building-transform`, `realistic-building-transform-large` | `standalone-full-transform`    |
-| `standalone-drive-relationship-processing` | `realistic-building-transform`, `realistic-building-transform-large`                                                                                           | `realistic-building-transform` |
-| `standalone-full-retransformation`         | `relationship-heavy-transform`                                                                                                                                 | `relationship-heavy-transform` |
-| `schema-processing`                        | `schema-processing-large`                                                                                                                                      | `schema-processing-large`      |
-| `changeset-scanning`                       | `update-heavy-scan`                                                                                                                                            | `update-heavy-scan`            |
+| Scenario ID                                | Fixture IDs                                                                                                                                                    | Default                          |
+| ------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------- |
+| `incremental-synchronization`              | `balanced-incremental`, `deletion-heavy-incremental`, `hierarchical-incremental`                                                                               | `balanced-incremental`           |
+| `standalone-full-transformation`           | `standalone-full-transform`, `relationship-heavy-transform`, `reference-heavy-transform`, `realistic-building-transform`, `realistic-building-transform-large` | `standalone-full-transform`      |
+| `standalone-drive-relationship-processing` | `realistic-building-transform`, `realistic-building-transform-large`                                                                                           | `realistic-building-transform`   |
+| `standalone-full-retransformation`         | `relationship-heavy-retransform`                                                                                                                               | `relationship-heavy-retransform` |
+| `schema-processing`                        | `schema-processing-large`                                                                                                                                      | `schema-processing-large`        |
+| `changeset-scanning`                       | `update-heavy-scan`                                                                                                                                            | `update-heavy-scan`              |
 
 Example in a POSIX shell:
 

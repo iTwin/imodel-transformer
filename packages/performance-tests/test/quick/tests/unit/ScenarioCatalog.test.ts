@@ -208,13 +208,13 @@ describe("quick performance scenario catalog", () => {
     }
   });
 
-  it("registers the relationship-heavy fixture for full retransformation", () => {
+  it("registers the populated relationship-heavy fixture for full retransformation", () => {
     const resolved = resolveBenchmarkRun("standalone-full-retransformation");
     expect(resolved.scenario.defaultFixtureId).to.equal(
-      "relationship-heavy-transform"
+      "relationship-heavy-retransform"
     );
     expect(resolved.descriptor.layout.topology).to.equal(
-      "standalone-source-and-empty-target"
+      "standalone-source-and-populated-target"
     );
     // every relationship must exist in the populated target before the timed re-run
     expect(resolved.descriptor.distribution.base.relationships).to.equal(

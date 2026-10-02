@@ -5,8 +5,10 @@
 
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { SnapshotDb } from "@itwin/core-backend";
+import { EditTxn, SnapshotDb, StandaloneDb } from "@itwin/core-backend";
+import { OpenMode } from "@itwin/core-bentley";
 import { BriefcaseIdValue } from "@itwin/core-common";
+import { IModelTransformer } from "@itwin/imodel-transformer";
 import {
   artifactBriefcaseFileName,
   artifactBriefcasePath,
@@ -25,7 +27,6 @@ import {
   FixtureProvider,
   PreparedDataset,
   requireFixtureArtifact,
-  requireStandaloneDataset,
 } from "../FixtureProvider.js";
 import {
   assertExternalFixtureSourceOutsideDirectory,
@@ -59,6 +60,47 @@ function openStandaloneSource(
   }
 }
 
+function removeSqliteSidecars(fileName: string): void {
+  for (const suffix of ["-shm", "-wal"])
+    fs.rmSync(`${fileName}${suffix}`, { force: true });
+}
+
+/** Populate a standalone target with one full transformation that records provenance. */
+async function populateStandaloneTarget(
+  sourceFile: string,
+  targetFile: string,
+  fixtureId: string
+): Promise<void> {
+  const sourceDb = openStandaloneSource(sourceFile);
+  try {
+    const targetDb = StandaloneDb.createEmpty(targetFile, {
+      rootSubject: { name: `Target for ${fixtureId}` },
+    });
+    try {
+      const editTxn = new EditTxn(targetDb, "Quick standalone target");
+      editTxn.start();
+      const transformer = new IModelTransformer(
+        { source: sourceDb, target: editTxn },
+        { loadSourceGeometry: true }
+      );
+      try {
+        await transformer.processSchemas();
+        await transformer.process();
+        editTxn.saveChanges("populate quick standalone target");
+      } finally {
+        transformer.dispose();
+        if (editTxn.isActive) editTxn.end();
+      }
+    } finally {
+      targetDb.close();
+    }
+  } finally {
+    sourceDb.close();
+  }
+  removeSqliteSidecars(sourceFile);
+  removeSqliteSidecars(targetFile);
+}
+
 export const standaloneFixtureProvider: FixtureProvider = {
   async build(
     fixture: ConfiguredFixture,
@@ -88,8 +130,16 @@ export const standaloneFixtureProvider: FixtureProvider = {
       } finally {
         sourceDb.close();
       }
-      for (const suffix of ["-shm", "-wal"])
-        fs.rmSync(`${sourceFile}${suffix}`, { force: true });
+      removeSqliteSidecars(sourceFile);
+
+      const populatedTarget =
+        descriptor.layout.topology === "standalone-source-and-populated-target";
+      if (populatedTarget)
+        await populateStandaloneTarget(
+          sourceFile,
+          path.join(artifactDir, artifactStandaloneTargetFileName),
+          descriptor.id
+        );
 
       fs.mkdirSync(path.join(artifactDir, artifactChangesetDirectoryName));
       fs.writeFileSync(
@@ -126,6 +176,9 @@ export const standaloneFixtureProvider: FixtureProvider = {
         standalone: {
           sourceFile: artifactBriefcaseFileName,
           sourceSha256,
+          ...(populatedTarget
+            ? { targetFile: artifactStandaloneTargetFileName }
+            : {}),
         },
         buildMilliseconds,
         builtAt: new Date().toISOString(),
@@ -160,6 +213,23 @@ export const standaloneFixtureProvider: FixtureProvider = {
     fs.cpSync(artifact.directory, sampleDir, { recursive: true });
     const sourceDb = openStandaloneSource(artifactBriefcasePath(sampleDir));
     try {
+      const { targetFile } = artifact.manifest.standalone;
+      if (targetFile !== undefined) {
+        const populatedTargetDb = StandaloneDb.openFile(
+          path.join(sampleDir, targetFile),
+          OpenMode.ReadWrite
+        );
+        return {
+          topology: "standalone-source-and-populated-target",
+          descriptor: built.descriptor,
+          directory: sampleDir,
+          sourceDb,
+          targetDb: populatedTargetDb,
+          manifest: artifact.manifest,
+          reconstructionMilliseconds:
+            Number(process.hrtime.bigint() - start) / 1_000_000,
+        };
+      }
       const targetDb = SnapshotDb.createEmpty(
         path.join(sampleDir, artifactStandaloneTargetFileName),
         { rootSubject: { name: `Target for ${built.descriptor.id}` } }
@@ -181,9 +251,15 @@ export const standaloneFixtureProvider: FixtureProvider = {
   },
 
   async disposeSample(dataset: PreparedDataset): Promise<void> {
-    const standalone = requireStandaloneDataset(dataset);
+    if (
+      dataset.topology !== "standalone-source-and-empty-target" &&
+      dataset.topology !== "standalone-source-and-populated-target"
+    )
+      throw new Error(
+        `Standalone fixture provider cannot dispose a "${dataset.topology}" sample`
+      );
     const errors: unknown[] = [];
-    for (const db of [standalone.sourceDb, standalone.targetDb]) {
+    for (const db of [dataset.sourceDb, dataset.targetDb]) {
       try {
         db.close();
       } catch (error) {

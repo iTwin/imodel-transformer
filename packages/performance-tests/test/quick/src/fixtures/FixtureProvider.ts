@@ -4,7 +4,7 @@
  *--------------------------------------------------------------------------------------------*/
 
 import * as path from "node:path";
-import { BriefcaseDb, SnapshotDb } from "@itwin/core-backend";
+import { BriefcaseDb, SnapshotDb, StandaloneDb } from "@itwin/core-backend";
 import { ChangesetFileProps } from "@itwin/core-common";
 import { FixtureArtifact, FixtureArtifactManifest } from "./FixtureArtifact.js";
 import { FixtureDescriptor } from "./FixtureDescriptor.js";
@@ -52,10 +52,20 @@ export interface PreparedStandaloneDataset extends PreparedDatasetBase {
   readonly manifest: FixtureArtifactManifest;
 }
 
+/** A private readonly standalone source plus a private copy of its build-time populated target. */
+export interface PreparedPopulatedStandaloneDataset extends PreparedDatasetBase {
+  readonly topology: "standalone-source-and-populated-target";
+  readonly directory: string;
+  readonly sourceDb: SnapshotDb;
+  readonly targetDb: StandaloneDb;
+  readonly manifest: FixtureArtifactManifest;
+}
+
 export type PreparedDataset =
   | PreparedLiveHubDataset
   | PreparedDetachedDataset
-  | PreparedStandaloneDataset;
+  | PreparedStandaloneDataset
+  | PreparedPopulatedStandaloneDataset;
 
 export function requireLiveHubDataset(
   dataset: PreparedDataset
@@ -83,6 +93,16 @@ export function requireStandaloneDataset(
   if (dataset.topology !== "standalone-source-and-empty-target")
     throw new Error(
       `Scenario requires a "standalone-source-and-empty-target" fixture but received "${dataset.topology}"`
+    );
+  return dataset;
+}
+
+export function requirePopulatedStandaloneDataset(
+  dataset: PreparedDataset
+): PreparedPopulatedStandaloneDataset {
+  if (dataset.topology !== "standalone-source-and-populated-target")
+    throw new Error(
+      `Scenario requires a "standalone-source-and-populated-target" fixture but received "${dataset.topology}"`
     );
   return dataset;
 }
@@ -149,6 +169,7 @@ export function getFixtureProvider(
     case "source-only":
       return detachedBriefcaseFixtureProvider;
     case "standalone-source-and-empty-target":
+    case "standalone-source-and-populated-target":
       return standaloneFixtureProvider;
     default: {
       const unreachable: never = descriptor.layout.topology;
