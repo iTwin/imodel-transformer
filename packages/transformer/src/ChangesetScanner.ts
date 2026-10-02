@@ -178,7 +178,7 @@ export class ChangesetScanner {
         const csReader = ChangesetReader.openFile({
           fileName: csFile.pathname,
           db: iModel,
-          propFilter: PropertyFilter.BisCoreElement,
+          propFilter: PropertyFilter.InstanceKeyAndIdentifiers,
         });
         const changeUnifier = new PartialChangeUnifier();
         try {

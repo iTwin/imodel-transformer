@@ -28,6 +28,7 @@ import {
   ElementGroupsMembers,
   ElementOwnsChildElements,
   ElementOwnsExternalSourceAspects,
+  ElementOwnsMultiAspects,
   ElementRefersToElements,
   ExternalSourceAspect,
   GenericSchema,
@@ -68,6 +69,7 @@ import {
   Code,
   ColorDef,
   DefinitionElementProps,
+  ElementAspectProps,
   ElementProps,
   ExternalSourceAspectProps,
   GeometricElementProps,
@@ -7954,6 +7956,178 @@ describe("IModelTransformerHub", () => {
       ).to.equal("updated-value");
     });
 
+    // itwinjs-core#9738: a changeset that changes only a navigation property's Id omits its unchanged
+    // RelECClassId. Once a later changeset deletes the row, reading that change must not complete the
+    // navigation value from the iModel.
+    const navigationChangeSchema = `<?xml version="1.0" encoding="UTF-8"?>
+      <ECSchema schemaName="TestNavChange" alias="tnc" version="01.00.00" xmlns="http://www.bentley.com/schemas/Bentley.ECXML.3.2">
+        <ECSchemaReference name="BisCore" version="01.00.00" alias="bis"/>
+        <ECEntityClass typeName="Note">
+          <BaseClass>bis:ElementMultiAspect</BaseClass>
+          <ECProperty propertyName="text" typeName="string"/>
+        </ECEntityClass>
+      </ECSchema>`;
+
+    async function setUpNavigationChange() {
+      await sourceDb.importSchemaStrings([navigationChangeSchema]);
+      await sourceDb.pushChanges({
+        description: "Import navigation change schema",
+        retainLocks: true,
+      });
+      const ids = withEditTxn(sourceDb, "create navigation targets", (txn) => {
+        const subjectId = Subject.insert(
+          txn,
+          IModel.rootSubjectId,
+          "NavigationChangeSubject"
+        );
+        const modelId = DefinitionModel.insert(
+          txn,
+          subjectId,
+          "NavigationChangeModel"
+        );
+        const insert = (userLabel: string, parentId?: Id64String) =>
+          txn.insertElement({
+            classFullName: DefinitionContainer.classFullName,
+            model: modelId,
+            code: Code.createEmpty(),
+            userLabel,
+            parent:
+              parentId === undefined
+                ? undefined
+                : new ElementOwnsChildElements(parentId),
+          });
+        const parentAId = insert("NavigationParentA");
+        const parentBId = insert("NavigationParentB");
+        const childId = insert("NavigationChild", parentAId);
+        const noteId = txn.insertAspect({
+          classFullName: "TestNavChange:Note",
+          element: { id: parentAId },
+          text: "original",
+        } as ElementAspectProps);
+        return { parentBId, childId, noteId };
+      });
+      await sourceDb.pushChanges({
+        description: "Create navigation targets",
+        retainLocks: true,
+      });
+
+      const editTxn = createStartedEditTxn(targetDb);
+      const transformer = new IModelTransformer({
+        source: sourceDb,
+        target: editTxn,
+      });
+      try {
+        await transformer.processSchemas();
+        await transformer.process();
+      } finally {
+        transformer.dispose();
+        editTxn.end();
+      }
+      await targetDb.pushChanges({
+        description: "Transform navigation targets",
+        retainLocks: true,
+      });
+      return ids;
+    }
+
+    async function editSourceAndPush(
+      description: string,
+      edit: (txn: EditTxn) => void
+    ) {
+      withEditTxn(sourceDb, description, edit);
+      await sourceDb.pushChanges({ description, retainLocks: true });
+    }
+
+    async function transformChanges() {
+      const editTxn = createStartedEditTxn(targetDb);
+      const transformer = new IModelTransformer(
+        { source: sourceDb, target: editTxn },
+        { argsForProcessChanges: {} }
+      );
+      try {
+        await transformer.process();
+      } finally {
+        transformer.dispose();
+        editTxn.end();
+      }
+    }
+
+    const targetIdOf = (userLabel: string) =>
+      IModelTestUtils.queryByUserLabel(targetDb, userLabel);
+
+    async function reparentChild(deleteChild: boolean) {
+      const { parentBId, childId } = await setUpNavigationChange();
+      await editSourceAndPush("reparent child", (txn) =>
+        txn.updateElement({
+          ...sourceDb.elements.getElementProps(childId),
+          parent: new ElementOwnsChildElements(parentBId),
+        })
+      );
+      if (deleteChild) {
+        await editSourceAndPush("delete reparented child", (txn) =>
+          txn.deleteElement(childId)
+        );
+      }
+      await transformChanges();
+    }
+
+    it("should delete an element after a reparenting change", async () => {
+      await reparentChild(true);
+      expect(targetIdOf("NavigationChild")).to.equal(Id64.invalid);
+    });
+
+    it("should reparent a surviving element", async () => {
+      await reparentChild(false);
+      expect(
+        targetDb.elements.getElementProps(targetIdOf("NavigationChild")).parent
+          ?.id
+      ).to.equal(targetIdOf("NavigationParentB"));
+    });
+
+    async function changeNoteThenDelete(
+      change: (
+        txn: EditTxn,
+        noteProps: ElementAspectProps,
+        parentBId: Id64String
+      ) => void
+    ) {
+      const { parentBId, noteId } = await setUpNavigationChange();
+      const targetNotes = () =>
+        ["NavigationParentA", "NavigationParentB"].map(
+          (label) =>
+            targetDb.elements.getAspects(
+              targetIdOf(label),
+              "TestNavChange:Note"
+            ).length
+        );
+      expect(targetNotes()).to.deep.equal([1, 0]);
+
+      await editSourceAndPush("change note", (txn) =>
+        change(txn, sourceDb.elements.getAspect(noteId).toJSON(), parentBId)
+      );
+      await editSourceAndPush("delete note", (txn) => txn.deleteAspect(noteId));
+      await transformChanges();
+      expect(targetNotes()).to.deep.equal([0, 0]);
+    }
+
+    it("should delete an aspect after its owner changed", async () => {
+      await changeNoteThenDelete((txn, noteProps, parentBId) =>
+        txn.updateAspect({
+          ...noteProps,
+          element: new ElementOwnsMultiAspects(parentBId),
+        })
+      );
+    });
+
+    it("should delete an aspect after its properties changed", async () => {
+      await changeNoteThenDelete((txn, noteProps) =>
+        txn.updateAspect({
+          ...noteProps,
+          text: "updated",
+        } as ElementAspectProps)
+      );
+    });
+
     it("should process changes successfully when element is deleted after existing elements were expanded into overflow table", async () => {
       // Import initial schema with property count that does not require overflow table
       const initialSchema = generateSchema(1, "SourceProperty", 5);
@@ -8056,7 +8230,9 @@ describe("IModelTransformerHub", () => {
         expect(
           openFileSpy.mock.calls.map(([args]) => args.propFilter)
         ).to.deep.equal(
-          selectedChangesetPaths.map(() => PropertyFilter.BisCoreElement)
+          selectedChangesetPaths.map(
+            () => PropertyFilter.InstanceKeyAndIdentifiers
+          )
         );
         expect(findTargetElementIdSpy).toHaveBeenCalledWith(elementId);
         expect(processedDeletionIds).toContain(elementId);

@@ -11,15 +11,15 @@ packages:
 # exact because they require exactly this core version. peerDependencies stay literal
 # because they state the supported range, not the version we develop against.
 catalog:
-  '@itwin/build-tools': ^5.13.0
-  '@itwin/core-backend': ^5.13.0
-  '@itwin/core-bentley': ^5.13.0
-  '@itwin/core-common': ^5.13.0
-  '@itwin/core-geometry': ^5.13.0
-  '@itwin/core-quantity': ^5.13.0
-  '@itwin/ecschema-editing': 5.13.0
-  '@itwin/ecschema-locaters': 5.13.0
-  '@itwin/ecschema-metadata': ^5.13.0
+  '@itwin/build-tools': ^5.14.0
+  '@itwin/core-backend': ^5.14.0
+  '@itwin/core-bentley': ^5.14.0
+  '@itwin/core-common': ^5.14.0
+  '@itwin/core-geometry': ^5.14.0
+  '@itwin/core-quantity': ^5.14.0
+  '@itwin/ecschema-editing': 5.14.0
+  '@itwin/ecschema-locaters': 5.14.0
+  '@itwin/ecschema-metadata': ^5.14.0
   '@itwin/imodels-access-backend': ^6.0.2
   '@itwin/imodels-access-common': ^6.0.2
   '@itwin/imodels-client-authoring': ^6.0.2
@@ -52,12 +52,12 @@ allowBuilds:
   protobufjs: false
 
 minimumReleaseAgeExclude:
-  - '@itwin/build-tools@5.13.0'
-  - '@itwin/core-backend@5.13.0'
-  - '@itwin/core-bentley@5.13.0'
-  - '@itwin/core-common@5.13.0'
-  - '@itwin/core-geometry@5.13.0'
-  - '@itwin/core-quantity@5.13.0'
-  - '@itwin/ecschema-editing@5.13.0'
-  - '@itwin/ecschema-locaters@5.13.0'
-  - '@itwin/ecschema-metadata@5.13.0'
+  - '@itwin/build-tools@5.14.0'
+  - '@itwin/core-backend@5.14.0'
+  - '@itwin/core-bentley@5.14.0'
+  - '@itwin/core-common@5.14.0'
+  - '@itwin/core-geometry@5.14.0'
+  - '@itwin/core-quantity@5.14.0'
+  - '@itwin/ecschema-editing@5.14.0'
+  - '@itwin/ecschema-locaters@5.14.0'
+  - '@itwin/ecschema-metadata@5.14.0'
