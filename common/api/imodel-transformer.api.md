@@ -553,7 +553,6 @@ export interface ReadonlySchemaAccessor {
 
 // @beta
 export interface RelationshipDeletionRecord extends DeletionRecordBase {
-    classFullName: string;
     sourceECInstanceId: Id64String;
     targetECInstanceId: Id64String;
 }

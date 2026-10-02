@@ -25,12 +25,12 @@ It doesn't call `scanChanges` when the exporter already has changed instance IDs
 
 `deletionBatches` holds an ordered list of [DeletionBatch]($transformer) objects. The transformer uses them to find the target instance of each deleted source instance, because the deleted instance can no longer be read from the source iModel. Each batch lists deletions of one kind per array. Every record has the deleted instance's `ecInstanceId` and `ecClassId`, from [DeletionRecordBase]($transformer); the table lists the other fields:
 
-| Array                   | Record                                             | Fields used to find the target                              |
-| ----------------------- | -------------------------------------------------- | ----------------------------------------------------------- |
-| `elements`              | [ElementDeletionRecord]($transformer)              | `federationGuid`, when the element had one                  |
-| `models`                | [ModelDeletionRecord]($transformer)                | none beyond the instance ID                                 |
-| `relationships`         | [RelationshipDeletionRecord]($transformer)         | `classFullName`, `sourceECInstanceId`, `targetECInstanceId` |
-| `externalSourceAspects` | [ExternalSourceAspectDeletionRecord]($transformer) | `elementId`, `scopeId`, `kind`, `identifier`                |
+| Array                   | Record                                             | Fields used to find the target                                                             |
+| ----------------------- | -------------------------------------------------- | ------------------------------------------------------------------------------------------ |
+| `elements`              | [ElementDeletionRecord]($transformer)              | `federationGuid`, when the element had one                                                 |
+| `models`                | [ModelDeletionRecord]($transformer)                | none beyond the instance ID                                                                |
+| `relationships`         | [RelationshipDeletionRecord]($transformer)         | `sourceECInstanceId` and `targetECInstanceId`, with `ecClassId` for the relationship class |
+| `externalSourceAspects` | [ExternalSourceAspectDeletionRecord]($transformer) | `elementId`, `scopeId`, `kind`, `identifier`                                               |
 
 Relationships are those derived from `BisCore:ElementRefersToElements`, excluding `BisCore:ElementDrivesElement`. ExternalSourceAspects are listed only when their scope, kind, and identifier are all set. A deleted ExternalSourceAspect helps only when the source iModel holds this transformation's provenance, as in a reverse synchronization: if its scope is the transformation's [target scope element](./branching-imodels.md#targetscopeelement) and its kind is `Element`, its `identifier` is used as the target ID of its owning element. An empty array means nothing of that kind was deleted.
 

@@ -110,9 +110,7 @@ import {
   ChangeScanResult,
   ChangesetScanner,
   DeletionBatch,
-  ElementDeletionRecord,
   ExternalSourceAspectDeletionRecord,
-  ModelDeletionRecord,
   RelationshipDeletionRecord,
 } from "./ChangesetScanner";
 import {
@@ -1033,7 +1031,7 @@ export class IModelTransformer extends IModelExportHandler {
     return combinedTransform;
   }
 
-  // if undefined, it can be initialized by calling [[this.processChangesets]]
+  // if undefined, it can be initialized by calling [[this.prepareSourceChanges]]
   private _deletedSourceRelationshipData?: Map<
     Id64String,
     {
@@ -2198,8 +2196,6 @@ export class IModelTransformer extends IModelExportHandler {
   /** state to prevent reinitialization, @see [[initialize]] */
   private _initialized = false;
   private _sourceChangeDataState: ChangeDataState = "uninited";
-  /** Changeset files downloaded by the default [[scanChanges]]. Undefined when no changesets were downloaded. */
-  private _csFileProps?: ChangesetFileProps[] = undefined;
   private _deletionBatches?: DeletionBatch[];
 
   /**
@@ -2222,8 +2218,8 @@ export class IModelTransformer extends IModelExportHandler {
     );
     await this.initializeChangesetScanAndExporter(exporterInitOptions);
 
-    // Exporter must be initialized prior to processing changesets in order to properly handle entity recreations (an entity delete followed by an insert of that same entity).
-    await this.processChangesets();
+    // Exporter must be initialized prior to remapping deletions in order to properly handle entity recreations (an entity delete followed by an insert of that same entity).
+    await this.prepareSourceChanges();
 
     this._initialized = true;
   }
@@ -2247,8 +2243,7 @@ export class IModelTransformer extends IModelExportHandler {
         this._deletionBatches = await ChangesetScanner.scan(
           this.sourceDb,
           await this.downloadChangesets(ranges),
-          changedInstanceIds,
-          { populateChangedInstanceIds: false }
+          {}
         );
       } else {
         const scanResult = await this.scanChanges(ranges);
@@ -2295,7 +2290,7 @@ export class IModelTransformer extends IModelExportHandler {
     const deletionBatches = await ChangesetScanner.scan(
       this.sourceDb,
       await this.downloadChangesets(ranges),
-      changedInstanceIds
+      { changedInstanceIds }
     );
     return { changedInstanceIds, deletionBatches };
   }
@@ -2315,17 +2310,14 @@ export class IModelTransformer extends IModelExportHandler {
         })
       );
     }
-    this._csFileProps = csFileGroups.flat();
     return csFileGroups;
   }
 
   /**
-   * Finds the corresponding target entity for any deleted source entities and remaps the sourceId to the targetId,
-   * using the deletion records read for the changeset ranges being processed.
-   * This function returns early if there are no changeset ranges to process.
-   * @returns void
+   * Remaps tracked elements, adds custom changes, and remaps deleted source entities to their targets using the
+   * deletion batches read for the changeset ranges being processed.
    */
-  private async processChangesets(): Promise<void> {
+  private async prepareSourceChanges(): Promise<void> {
     await this._provenanceManager.forEachTrackedElement(
       (sourceElementId: Id64String, targetElementId: Id64String) => {
         this.context.remapElement(sourceElementId, targetElementId);
@@ -2388,9 +2380,18 @@ export class IModelTransformer extends IModelExportHandler {
       }
       for (const relationship of batch.relationships)
         await this.processDeletedRelationship(relationship, elemIdToScopeEsa);
-      for (const element of [...batch.elements, ...batch.models])
+      for (const element of batch.elements)
         await this.processDeletedElement(
-          element,
+          element.ecInstanceId,
+          element.federationGuid,
+          elemIdToScopeEsa,
+          alreadyImportedElementInserts,
+          alreadyImportedModelInserts
+        );
+      for (const model of batch.models)
+        await this.processDeletedElement(
+          model.ecInstanceId,
+          undefined,
           elemIdToScopeEsa,
           alreadyImportedElementInserts,
           alreadyImportedModelInserts
@@ -2411,13 +2412,14 @@ export class IModelTransformer extends IModelExportHandler {
   ): Promise<void> {}
 
   /**
-   * Finds the target ID of a deleted or surviving source element, first through the transformation's
-   * ExternalSourceAspects when the source holds the provenance, then through the federation GUID.
+   * Finds the target ID of a source element while processing deletions, first through the transformation's
+   * ExternalSourceAspects when the source holds the provenance, then through the federation GUID. The element may be
+   * deleted itself, or be a surviving endpoint of a deleted relationship.
    * @param sourceId the source element ID.
    * @param federationGuid the source element's federation GUID, if known.
    * @param mapOfDeletedElemIdToScopeEsas this transformation scope's deleted ESAs in the same batch, keyed by the ID of the element that owned each one.
    */
-  private async getTargetIdOfDeletedSourceId(
+  private async findTargetElementIdForDeletion(
     sourceId: Id64String,
     federationGuid: string | undefined,
     mapOfDeletedElemIdToScopeEsas: Map<
@@ -2457,7 +2459,7 @@ export class IModelTransformer extends IModelExportHandler {
   }
 
   /**
-   * Helper function for processChangesets. Records how to find the target relationship of a deleted source relationship.
+   * Helper function for [[prepareSourceChanges]]. Records how to find the target relationship of a deleted source relationship.
    * @param deletion the deleted source relationship.
    * @param mapOfDeletedElemIdToScopeEsas this transformation scope's deleted ESAs in the same batch, keyed by the ID of the element that owned each one.
    */
@@ -2468,9 +2470,10 @@ export class IModelTransformer extends IModelExportHandler {
       ExternalSourceAspectDeletionRecord
     >
   ): Promise<void> {
-    const { ecInstanceId, classFullName } = deletion;
+    const { ecInstanceId } = deletion;
+    const classFullName = this.sourceDb.getClassNameFromId(deletion.ecClassId);
     const getEndpointInTarget = async (sourceId: Id64String) =>
-      this.getTargetIdOfDeletedSourceId(
+      this.findTargetElementIdForDeletion(
         sourceId,
         this.sourceDb.elements.tryGetElement(sourceId)?.federationGuid,
         mapOfDeletedElemIdToScopeEsas
@@ -2509,14 +2512,16 @@ export class IModelTransformer extends IModelExportHandler {
   }
 
   /**
-   * Helper function for processChangesets. Remaps a deleted source element or model to its target.
-   * @param deletion the deleted source element or model.
+   * Helper function for [[prepareSourceChanges]]. Remaps a deleted source element or model to its target.
+   * @param sourceId the deleted source element or model.
+   * @param federationGuid the deleted source element's federation GUID, if it had one. Undefined for models.
    * @param mapOfDeletedElemIdToScopeEsas this transformation scope's deleted ESAs in the same batch, keyed by the ID of the element that owned each one.
    * @param alreadyImportedElementInserts used to handle entity recreation and not delete already handled element inserts.
    * @param alreadyImportedModelInserts used to handle entity recreation and not delete already handled model inserts.
    */
   private async processDeletedElement(
-    deletion: ElementDeletionRecord | ModelDeletionRecord,
+    sourceId: Id64String,
+    federationGuid: string | undefined,
     mapOfDeletedElemIdToScopeEsas: Map<
       Id64String,
       ExternalSourceAspectDeletionRecord
@@ -2524,33 +2529,29 @@ export class IModelTransformer extends IModelExportHandler {
     alreadyImportedElementInserts: Set<Id64String>,
     alreadyImportedModelInserts: Set<Id64String>
   ): Promise<void> {
-    const changedInstanceId = deletion.ecInstanceId;
-    let targetId = await this.getTargetIdOfDeletedSourceId(
-      changedInstanceId,
-      "federationGuid" in deletion ? deletion.federationGuid : undefined,
+    let targetId = await this.findTargetElementIdForDeletion(
+      sourceId,
+      federationGuid,
       mapOfDeletedElemIdToScopeEsas
     );
     if (
       targetId === undefined &&
       this.sourceDb === (await this._provenanceManager.getProvenanceSourceDb())
     ) {
-      const contextTargetId =
-        this.context.findTargetElementId(changedInstanceId);
+      const contextTargetId = this.context.findTargetElementId(sourceId);
       if (Id64.isValidId64(contextTargetId)) targetId = contextTargetId;
     }
     // Entities inserted and deleted since the last synchronization were never synced and can be safely ignored.
     if (!targetId) return;
 
-    this.context.remapElement(changedInstanceId, targetId);
+    this.context.remapElement(sourceId, targetId);
     // If an entity insert and an entity delete both point to the same entity in target iModel, that means that entity was recreated.
     // In such case an entity update will be triggered and we no longer need to delete the entity.
     if (alreadyImportedElementInserts.has(targetId)) {
-      this.exporter.sourceDbChanges?.element.deleteIds.delete(
-        changedInstanceId
-      );
+      this.exporter.sourceDbChanges?.element.deleteIds.delete(sourceId);
     }
     if (alreadyImportedModelInserts.has(targetId)) {
-      this.exporter.sourceDbChanges?.model.deleteIds.delete(changedInstanceId);
+      this.exporter.sourceDbChanges?.model.deleteIds.delete(sourceId);
     }
   }
 
@@ -2784,17 +2785,15 @@ export class IModelTransformer extends IModelExportHandler {
     return {
       skipPropagateChangesToRootElements:
         this._options.skipPropagateChangesToRootElements,
-      ...(this._csFileProps
-        ? { csFileProps: this._csFileProps }
-        : this._changesetRanges
-          ? { changesetRanges: this._changesetRanges }
-          : startChangeset
-            ? { startChangeset }
-            : {
-                startChangeset: {
-                  index: (await this.getSynchronizationVersion()).index + 1,
-                },
-              }),
+      ...(this._changesetRanges
+        ? { changesetRanges: this._changesetRanges }
+        : startChangeset
+          ? { startChangeset }
+          : {
+              startChangeset: {
+                index: (await this.getSynchronizationVersion()).index + 1,
+              },
+            }),
     };
   }
 

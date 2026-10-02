@@ -61,6 +61,7 @@ import {
   IModelTransformerErrorScope,
 } from "./IModelTransformerError";
 import { ChangesetScanner } from "./ChangesetScanner";
+import { SourceClassKinds } from "./SourceClassKinds";
 import { ChangedElementForest } from "./ChangedElementForest";
 
 const loggerCategory = TransformerLoggerCategory.IModelExporter;
@@ -2064,12 +2065,7 @@ export class ChangedInstanceIds {
   public aspect = new ChangedInstanceOps();
   public relationship = new ChangedInstanceOps();
   public font = new ChangedInstanceOps();
-  private _codeSpecSubclassIds?: Set<string>;
-  private _modelSubclassIds?: Set<string>;
-  private _elementSubclassIds?: Set<string>;
-  private _aspectSubclassIds?: Set<string>;
-  private _relationshipSubclassIds?: Set<string>;
-  private _relationshipSubclassIdsToSkip?: Set<string>;
+  private _classKinds?: SourceClassKinds;
   private readonly _aspectOwnerElementIds = new Set<Id64String>();
 
   /** Element IDs that own the aspects represented by `aspect` changes.
@@ -2082,78 +2078,6 @@ export class ChangedInstanceIds {
   private _db: IModelDb;
   public constructor(db: IModelDb) {
     this._db = db;
-  }
-
-  private async setupECClassIds(): Promise<void> {
-    this._codeSpecSubclassIds = new Set<string>();
-    this._modelSubclassIds = new Set<string>();
-    this._elementSubclassIds = new Set<string>();
-    this._aspectSubclassIds = new Set<string>();
-    this._relationshipSubclassIds = new Set<string>();
-    this._relationshipSubclassIdsToSkip = new Set<string>();
-
-    const addECClassIdsToSet = async (
-      setToModify: Set<string>,
-      baseClass: string
-    ) => {
-      for await (const row of this._db.createQueryReader(
-        `SELECT ECInstanceId FROM ECDbMeta.ECClassDef where ECInstanceId IS (${baseClass})`,
-        undefined,
-        { usePrimaryConn: true }
-      )) {
-        setToModify.add(row.ECInstanceId);
-      }
-    };
-    const promises = [
-      addECClassIdsToSet(this._codeSpecSubclassIds, "BisCore.CodeSpec"),
-      addECClassIdsToSet(this._modelSubclassIds, "BisCore.Model"),
-      addECClassIdsToSet(this._elementSubclassIds, "BisCore.Element"),
-      addECClassIdsToSet(
-        this._aspectSubclassIds,
-        "BisCore.ElementUniqueAspect"
-      ),
-      addECClassIdsToSet(this._aspectSubclassIds, "BisCore.ElementMultiAspect"),
-      addECClassIdsToSet(
-        this._relationshipSubclassIds,
-        "BisCore.ElementRefersToElements"
-      ),
-      addECClassIdsToSet(
-        this._relationshipSubclassIdsToSkip,
-        "BisCore.ElementDrivesElement"
-      ),
-    ];
-    await Promise.all(promises);
-  }
-
-  private get _ecClassIdsInitialized() {
-    return (
-      this._codeSpecSubclassIds &&
-      this._modelSubclassIds &&
-      this._elementSubclassIds &&
-      this._aspectSubclassIds &&
-      this._relationshipSubclassIds &&
-      this._relationshipSubclassIdsToSkip
-    );
-  }
-
-  private isRelationship(ecClassId: string) {
-    return this._relationshipSubclassIds?.has(ecClassId);
-  }
-
-  private isCodeSpec(ecClassId: string) {
-    return this._codeSpecSubclassIds?.has(ecClassId);
-  }
-
-  private isAspect(ecClassId: string) {
-    return this._aspectSubclassIds?.has(ecClassId);
-  }
-
-  private isModel(ecClassId: string) {
-    return this._modelSubclassIds?.has(ecClassId);
-  }
-
-  private isElement(ecClassId: string) {
-    return this._elementSubclassIds?.has(ecClassId);
   }
 
   /** Checks if there are any changes.
@@ -2227,26 +2151,33 @@ export class ChangedInstanceIds {
     change: ChangeRecord,
     unresolvedAspectIds: Set<Id64String> | undefined
   ): Promise<void> {
-    if (!this._ecClassIdsInitialized) await this.setupECClassIds();
+    // Await only the first time, so later changes are classified without yielding.
+    this._classKinds ??= await SourceClassKinds.query(this._db);
     const { id, ecClassId, op } = change;
-    if (this._relationshipSubclassIdsToSkip?.has(ecClassId)) return;
-
-    if (this.isRelationship(ecClassId))
-      this.handleChange(this.relationship, op, id);
-    else if (this.isCodeSpec(ecClassId))
-      this.handleChange(this.codeSpec, op, id);
-    else if (this.isAspect(ecClassId)) {
-      let ownerElementId = change.aspectOwnerElementId;
-      if (ownerElementId === undefined) {
-        if (unresolvedAspectIds !== undefined) unresolvedAspectIds.add(id);
-        else ownerElementId = this.tryGetAspectOwnerElementId(id);
+    switch (this._classKinds.kindOf(ecClassId)) {
+      case "relationship":
+        return this.handleChange(this.relationship, op, id);
+      case "codeSpec":
+        return this.handleChange(this.codeSpec, op, id);
+      case "aspect":
+      case "externalSourceAspect": {
+        let ownerElementId = change.aspectOwnerElementId;
+        if (ownerElementId === undefined) {
+          if (unresolvedAspectIds !== undefined) unresolvedAspectIds.add(id);
+          else ownerElementId = this.tryGetAspectOwnerElementId(id);
+        }
+        if (ownerElementId !== undefined)
+          this._aspectOwnerElementIds.add(ownerElementId);
+        return this.handleChange(this.aspect, op, id);
       }
-      if (ownerElementId !== undefined) {
-        this._aspectOwnerElementIds.add(ownerElementId);
-      }
-      this.handleChange(this.aspect, op, id);
-    } else if (this.isModel(ecClassId)) this.handleChange(this.model, op, id);
-    else if (this.isElement(ecClassId)) this.handleChange(this.element, op, id);
+      case "model":
+        return this.handleChange(this.model, op, id);
+      case "element":
+        return this.handleChange(this.element, op, id);
+      case "skippedRelationship":
+      case undefined:
+        return;
+    }
   }
 
   private tryGetAspectOwnerElementId(
@@ -2558,14 +2489,10 @@ export class ChangedInstanceIds {
     if (csFileProps === undefined) return undefined;
 
     const changedInstanceIds = new ChangedInstanceIds(opts.iModel);
-    await ChangesetScanner.scan(
-      opts.iModel,
-      [csFileProps],
+    await ChangesetScanner.scan(opts.iModel, [csFileProps], {
       changedInstanceIds,
-      {
-        collectDeletionRecords: false,
-      }
-    );
+      collectDeletionRecords: false,
+    });
     return changedInstanceIds;
   }
 

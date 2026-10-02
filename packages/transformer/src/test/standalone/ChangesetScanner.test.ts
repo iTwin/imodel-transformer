@@ -19,7 +19,13 @@ import {
   IModel,
   QueryBinder,
 } from "@itwin/core-common";
-import { ChangesetScanner, DeletionBatch } from "../../ChangesetScanner";
+import {
+  addDeletionRecord,
+  ChangesetScanner,
+  DeletedInstance,
+  DeletionBatch,
+} from "../../ChangesetScanner";
+import { SourceClassKinds } from "../../SourceClassKinds";
 import { IModelTransformerError } from "../../IModelTransformerError";
 import { expectTransformerError } from "../IModelTransformerUtils";
 import { ChangedInstanceIds } from "../../IModelExporter";
@@ -99,9 +105,9 @@ describe("ChangesetScanner owner resolution", () => {
       const ids = new ChangedInstanceIds(db);
       const querySpy = vi.spyOn(db, "withQueryReader");
       const getAspectSpy = vi.spyOn(db.elements, "getAspect");
-      expect(await ChangesetScanner.scan(db, [files], ids)).toEqual([
-        noDeletions,
-      ]);
+      expect(
+        await ChangesetScanner.scan(db, [files], { changedInstanceIds: ids })
+      ).toEqual([noDeletions]);
       expect([...ids.aspectOwnerElementIds].sort()).toEqual(
         [seed.oldOwner, seed.newOwner].sort()
       );
@@ -201,7 +207,6 @@ describe("ChangesetScanner owner resolution", () => {
             ElementGroupsMembers.classFullName,
             seed.relationship
           ),
-          classFullName: ElementGroupsMembers.classFullName,
           sourceECInstanceId: seed.owner,
           targetECInstanceId: seed.target,
         },
@@ -231,7 +236,9 @@ describe("ChangesetScanner owner resolution", () => {
       });
       txn.deleteElement(seed.element);
       const ids = new ChangedInstanceIds(db);
-      const records = await ChangesetScanner.scan(db, [files], ids);
+      const records = await ChangesetScanner.scan(db, [files], {
+        changedInstanceIds: ids,
+      });
       expect(records).toEqual([expected]);
       expect([...ids.aspectOwnerElementIds]).toEqual([seed.owner]);
       expect([...ids.aspect.deleteIds]).toEqual([seed.aspect]);
@@ -240,7 +247,7 @@ describe("ChangesetScanner owner resolution", () => {
     });
   });
 
-  it("collects deletions without populating changed IDs or querying current owners", async () => {
+  it("collects deletions without changed IDs or querying current owners", async () => {
     const seed = withEditTxn(db, "create deletion-only fixture", (txn) => {
       const owner = Subject.insert(txn, IModel.rootSubjectId, "owner");
       return { owner, aspect: insertAspect(txn, owner) };
@@ -248,11 +255,8 @@ describe("ChangesetScanner owner resolution", () => {
     const classId = classIdFor(ExternalSourceAspect.classFullName, seed.aspect);
     await withEditTxn(db, "delete aspect", async (txn) => {
       txn.deleteAspect(seed.aspect);
-      const ids = new ChangedInstanceIds(db);
       const querySpy = vi.spyOn(db, "withQueryReader");
-      const records = await ChangesetScanner.scan(db, [files], ids, {
-        populateChangedInstanceIds: false,
-      });
+      const records = await ChangesetScanner.scan(db, [files], {});
       expect(records).toEqual([
         {
           ...noDeletions,
@@ -268,8 +272,6 @@ describe("ChangesetScanner owner resolution", () => {
           ],
         },
       ]);
-      expect(ids.hasChanges).toBe(false);
-      expect([...ids.aspectOwnerElementIds]).toEqual([]);
       expect(querySpy).not.toHaveBeenCalled();
     });
   });
@@ -280,31 +282,13 @@ describe("ChangesetScanner owner resolution", () => {
       throw readerError;
     });
     await expect(
-      ChangesetScanner.scan(db, [files], new ChangedInstanceIds(db))
+      ChangesetScanner.scan(db, [files], {
+        changedInstanceIds: new ChangedInstanceIds(db),
+      })
     ).rejects.toBe(readerError);
   });
 
   describe("deletion classification", () => {
-    const classIds = {
-      elements: new Set<string>(),
-      models: new Set<string>(),
-      relationships: new Set(["0x456"]),
-      relationshipsToSkip: new Set<string>(),
-    };
-
-    it("identifies a relationship deletion missing an endpoint", async () => {
-      await expectTransformerError(
-        async () =>
-          ChangesetScanner["toDeletionBatch"](
-            db,
-            [{ ecInstanceId: "0x123", ecClassId: "0x456" }],
-            classIds
-          ),
-        IModelTransformerError.ChangedInstanceMetadataMissing,
-        "Relationship deletion 0x123 is missing an endpoint."
-      );
-    });
-
     const classIdOf = (classFullName: string) => {
       const [schemaName, className] = classFullName.split(".");
       return db.withQueryReader(
@@ -317,32 +301,51 @@ describe("ChangesetScanner owner resolution", () => {
       );
     };
 
+    async function classify(...deleted: DeletedInstance[]) {
+      const classKinds = await SourceClassKinds.query(db);
+      const batch: DeletionBatch = {
+        elements: [],
+        models: [],
+        relationships: [],
+        externalSourceAspects: [],
+      };
+      for (const instance of deleted)
+        addDeletionRecord(batch, instance, classKinds, db);
+      return batch;
+    }
+
+    it("identifies a relationship deletion missing an endpoint", async () => {
+      await expectTransformerError(
+        async () =>
+          classify({
+            ecInstanceId: "0x123",
+            ecClassId: classIdOf("BisCore.ElementGroupsMembers"),
+          }),
+        IModelTransformerError.ChangedInstanceMetadataMissing,
+        "Relationship deletion 0x123 is missing an endpoint."
+      );
+    });
+
     it("classifies deletions by class rather than owner metadata", async () => {
-      const deletionClassIds =
-        await ChangesetScanner["queryDeletionClassIds"](db);
-      const records = ChangesetScanner["toDeletionBatch"](
-        db,
-        [
-          // An element row with an owner ID must still be an element.
-          {
-            ecInstanceId: "0x20",
-            ecClassId: classIdOf("BisCore.Subject"),
-            elementId: IModel.rootSubjectId,
-          },
-          // A complete ExternalSourceAspect row without an owner must not become an element.
-          {
-            ecInstanceId: "0x21",
-            ecClassId: classIdOf("BisCore.ExternalSourceAspect"),
-            scopeId: IModel.rootSubjectId,
-            kind: "Element",
-            identifier: "aspect",
-          },
-          {
-            ecInstanceId: "0x22",
-            ecClassId: classIdOf("BisCore.DefinitionModel"),
-          },
-        ],
-        deletionClassIds
+      const records = await classify(
+        // An element row with an owner ID must still be an element.
+        {
+          ecInstanceId: "0x20",
+          ecClassId: classIdOf("BisCore.Subject"),
+          elementId: IModel.rootSubjectId,
+        },
+        // A complete ExternalSourceAspect row without an owner must not become an element.
+        {
+          ecInstanceId: "0x21",
+          ecClassId: classIdOf("BisCore.ExternalSourceAspect"),
+          scopeId: IModel.rootSubjectId,
+          kind: "Element",
+          identifier: "aspect",
+        },
+        {
+          ecInstanceId: "0x22",
+          ecClassId: classIdOf("BisCore.DefinitionModel"),
+        }
       );
       expect(records).toEqual({
         ...noDeletions,
@@ -364,8 +367,8 @@ describe("ChangesetScanner owner resolution", () => {
 
     it.each(["scopeId", "kind", "identifier"] as const)(
       "omits an ExternalSourceAspect deletion without %s",
-      (missingField) => {
-        const row = {
+      async (missingField) => {
+        const deleted: DeletedInstance = {
           ecInstanceId: "0x123",
           ecClassId: classIdOf("BisCore.ExternalSourceAspect"),
           elementId: "0x1",
@@ -373,45 +376,26 @@ describe("ChangesetScanner owner resolution", () => {
           kind: "Element",
           identifier: "aspect",
         };
+        expect((await classify(deleted)).externalSourceAspects).toHaveLength(1);
         expect(
-          ChangesetScanner["toDeletionBatch"](db, [row], classIds)
-            .externalSourceAspects
-        ).toHaveLength(1);
-        expect(
-          ChangesetScanner["toDeletionBatch"](
-            db,
-            [{ ...row, [missingField]: undefined }],
-            classIds
-          )
+          await classify({ ...deleted, [missingField]: undefined })
         ).toEqual(noDeletions);
       }
     );
 
     it("skips ElementDrivesElement deletions without reading their endpoints", async () => {
-      const deletionClassIds =
-        await ChangesetScanner["queryDeletionClassIds"](db);
       expect(
-        ChangesetScanner["toDeletionBatch"](
-          db,
-          [
-            {
-              ecInstanceId: "0x123",
-              ecClassId: classIdOf("BisCore.ElementDrivesElement"),
-            },
-          ],
-          deletionClassIds
-        )
+        await classify({
+          ecInstanceId: "0x123",
+          ecClassId: classIdOf("BisCore.ElementDrivesElement"),
+        })
       ).toEqual(noDeletions);
     });
 
-    it("preserves the error for a class missing from the schema", () => {
-      expect(() =>
-        ChangesetScanner["toDeletionBatch"](
-          db,
-          [{ ecInstanceId: "0x123", ecClassId: "0xfffffff" }],
-          classIds
-        )
-      ).toThrow(
+    it("preserves the error for a class missing from the schema", async () => {
+      await expect(
+        classify({ ecInstanceId: "0x123", ecClassId: "0xfffffff" })
+      ).rejects.toThrow(
         expect.objectContaining({ errorNumber: IModelStatus.NotFound })
       );
     });
