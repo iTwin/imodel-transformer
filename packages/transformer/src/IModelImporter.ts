@@ -55,6 +55,10 @@ import {
 } from "./IModelTransformerError";
 import { planBulkDelete } from "./ElementBulkDelete";
 import { EntityExistenceCache } from "./EntityExistenceCache";
+import {
+  lookUpWithCore,
+  TargetRelationshipLookup,
+} from "./TargetRelationshipLookup";
 
 const loggerCategory: string = TransformerLoggerCategory.IModelImporter;
 
@@ -167,6 +171,7 @@ export class IModelImporter {
    */
   private _duplicateCodeValueMap: Map<Id64String, string>;
   private readonly _entityExistenceCaches = new Set<EntityExistenceCache>();
+  private readonly _relationshipLookup: TargetRelationshipLookup;
   /**
    * A set of elementIds that the transformer adds to while exporting elements to indicate that the element already exists in the target.
    * Defaults to an empty set.
@@ -220,6 +225,7 @@ export class IModelImporter {
         options?.skipPropagateChangesToRootElements ?? true,
     };
     this._duplicateCodeValueMap = new Map<Id64String, string>();
+    this._relationshipLookup = new TargetRelationshipLookup(this.targetDb);
     this._elementAspectCleanup = new ElementAspectCleanup(
       this.targetDb,
       this._editTxn,
@@ -578,7 +584,12 @@ export class IModelImporter {
       );
     }
     if (idsToDelete.size === 0) return;
-    await this.onDeleteElements(idsToDelete);
+    try {
+      await this.onDeleteElements(idsToDelete);
+    } finally {
+      // Element deletes cascade to relationships whose source or target is deleted.
+      this._relationshipLookup.clear();
+    }
     // Element deletion cascades can remove descendants and their submodels.
     for (const cache of this._entityExistenceCaches)
       cache.clearDb(this.targetDb);
@@ -595,7 +606,11 @@ export class IModelImporter {
 
   /** Delete the specified Model from the target iModel. */
   public async deleteModel(modelId: Id64String): Promise<void> {
-    await this.onDeleteModel(modelId);
+    try {
+      await this.onDeleteModel(modelId);
+    } finally {
+      this._relationshipLookup.clear();
+    }
     const modelReference = EntityReferences.fromEntityType(
       modelId,
       ConcreteEntityTypes.Model
@@ -777,6 +792,11 @@ export class IModelImporter {
 
   /** Import the specified RelationshipProps (either as an insert or an update) into the target iModel.
    * @returns The instance Id of the inserted or updated Relationship.
+   * @note Once a relationship class has been imported often enough relative to its number of target relationships,
+   * existing ElementRefersToElements relationships of that class are found with one query that reads all of them. That
+   * query sees writes made through this importer,
+   * but not writes made to those relationships in other ways, such as directly through the target [EditTxn]($backend),
+   * until [[finalize]] is called or the importer deletes elements or models.
    */
   public async importRelationship(
     relationshipProps: RelationshipProps
@@ -802,25 +822,59 @@ export class IModelImporter {
       return Id64.invalid;
     }
     // check for an existing relationship
-    const relSourceAndTarget: SourceAndTarget = {
-      sourceId: relationshipProps.sourceId,
-      targetId: relationshipProps.targetId,
-    };
-    const relationship: Relationship | undefined =
-      this.targetDb.relationships.tryGetInstance(
-        relationshipProps.classFullName,
-        relSourceAndTarget
-      );
+    const { sourceId, targetId } = relationshipProps;
+    const relationship = await this.findExistingRelationship(
+      relationshipProps.classFullName,
+      { sourceId, targetId }
+    );
     if (undefined !== relationship) {
       // if relationship found, update it
       relationshipProps.id = relationship.id;
       if (hasEntityChanged(relationship, relationshipProps)) {
         await this.onUpdateRelationship(relationshipProps);
+        this.markRelationshipWritten(sourceId, targetId, relationshipProps);
       }
       return relationshipProps.id;
     } else {
-      return this.onInsertRelationship(relationshipProps);
+      const relationshipId = await this.onInsertRelationship(relationshipProps);
+      this.markRelationshipWritten(sourceId, targetId, relationshipProps);
+      return relationshipId;
     }
+  }
+
+  /** Find the relationship that `Relationships.tryGetInstance(classFullName, sourceAndTarget)` returns. */
+  private async findExistingRelationship(
+    classFullName: string,
+    sourceAndTarget: SourceAndTarget
+  ): Promise<Relationship | undefined> {
+    const relationship = await this._relationshipLookup.find(
+      classFullName,
+      sourceAndTarget.sourceId,
+      sourceAndTarget.targetId
+    );
+    return relationship === lookUpWithCore
+      ? this.targetDb.relationships.tryGetInstance(
+          classFullName,
+          sourceAndTarget
+        )
+      : relationship;
+  }
+
+  /** Record a relationship write, including a changed source or target from an [[onInsertRelationship]] or [[onUpdateRelationship]] override. */
+  private markRelationshipWritten(
+    sourceId: Id64String,
+    targetId: Id64String,
+    relationshipProps: RelationshipProps
+  ): void {
+    this._relationshipLookup.markWritten(sourceId, targetId);
+    if (
+      relationshipProps.sourceId !== sourceId ||
+      relationshipProps.targetId !== targetId
+    )
+      this._relationshipLookup.markWritten(
+        relationshipProps.sourceId,
+        relationshipProps.targetId
+      );
   }
 
   /** Create a new Relationship from the specified RelationshipProps and insert it into the target iModel.
@@ -897,7 +951,11 @@ export class IModelImporter {
   public async deleteRelationship(
     relationshipProps: RelationshipPropsForDelete
   ): Promise<void> {
-    await this.onDeleteRelationship(relationshipProps);
+    try {
+      await this.onDeleteRelationship(relationshipProps);
+    } finally {
+      this._relationshipLookup.markDeleted(relationshipProps.id);
+    }
   }
 
   /** Format a Relationship for the Logger. */
@@ -1032,6 +1090,7 @@ export class IModelImporter {
    */
   public finalize(): void {
     this.resolveDuplicateCodeValues();
+    this._relationshipLookup.clear();
   }
 }
 
