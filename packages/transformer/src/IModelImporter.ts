@@ -792,8 +792,9 @@ export class IModelImporter {
 
   /** Import the specified RelationshipProps (either as an insert or an update) into the target iModel.
    * @returns The instance Id of the inserted or updated Relationship.
-   * @note Existing ElementRefersToElements relationships are found with one query per relationship class, which reads
-   * all relationships of that class the first time it is imported. That query sees writes made through this importer,
+   * @note Once a relationship class has been imported often enough relative to its number of target relationships,
+   * existing ElementRefersToElements relationships of that class are found with one query that reads all of them. That
+   * query sees writes made through this importer,
    * but not writes made to those relationships in other ways, such as directly through the target [EditTxn]($backend),
    * until [[finalize]] is called or the importer deletes elements or models.
    */

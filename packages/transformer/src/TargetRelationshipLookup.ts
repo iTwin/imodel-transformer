@@ -47,6 +47,15 @@ interface PreloadedRelationship {
   readonly values: readonly unknown[];
 }
 
+/** A class that can be preloaded, but whose lookups do not yet justify reading all of its relationships. */
+interface PendingClass {
+  readonly relClass: RelationshipClass;
+  readonly propertyNames: readonly string[];
+  lookups: number;
+  /** The number of relationships of the class and its subclasses, counted after [[TargetRelationshipLookup.coreLookupsBeforeCount]] lookups. */
+  rowCount?: number;
+}
+
 /** The target relationships of one relationship class and its subclasses, keyed by source and target id. */
 interface PreloadedClass {
   readonly propertyJsNames: readonly string[];
@@ -68,24 +77,38 @@ function lowerFirstChar(name: string): string {
 
 /** Finds existing target relationships for [IModelImporter.importRelationship]($transformer) without one ECSQL query per relationship.
  *
- * The first lookup of an ElementRefersToElements class reads every target relationship of that class and its subclasses
- * with one polymorphic query on the primary connection, so it sees changes in the current transaction. Later lookups of
+ * Reading every relationship of a class costs about as much as [[rowsPerCoreLookup]] rows per `Relationships.tryGetInstance`
+ * call, so a class is preloaded only once its lookups would have paid for that read. The first [[coreLookupsBeforeCount]]
+ * lookups of an ElementRefersToElements class use core. The next lookup counts the relationships of the class and its
+ * subclasses, and the class is preloaded as soon as its lookups reach that count divided by [[rowsPerCoreLookup]], which
+ * is immediately for a class without relationships. Small incremental imports into large targets never preload.
+ *
+ * A preload reads every target relationship of the class and its subclasses with one polymorphic query on the primary
+ * connection, so it sees changes in the current transaction, including writes made before the preload. Later lookups of
  * that class return the same relationship that `Relationships.tryGetInstance(classFullName, { sourceId, targetId })`
  * would construct, or `undefined` when it would find none.
  *
- * Lookups return [[lookUpWithCore]] for any case that the preloaded rows cannot answer exactly: classes outside the
+ * Lookups return [[lookUpWithCore]] for classes that are not preloaded yet, and for any case that the preloaded rows
+ * cannot answer exactly: classes outside the
  * ElementRefersToElements hierarchy, classes with properties that core reshapes, classes that cannot be resolved,
  * source and target pairs with more than one relationship, and relationships that the importer has since inserted,
  * updated, or deleted.
  *
- * The importer reports its own relationship writes through [[markWritten]] and [[markDeleted]], and calls [[clear]]
+ * Clearing the lookup also restarts the lookup counts of every class. The importer reports its own relationship writes through [[markWritten]] and [[markDeleted]], and calls [[clear]]
  * after element and model deletes, which can delete relationships through cascades. The lookup also clears itself after
  * schema changes, undo or redo, and applied changesets. It does not see other writes to relationships of a preloaded
  * class, such as writes made directly through the target `EditTxn` during an import, or abandoned changes.
  * @internal
  */
 export class TargetRelationshipLookup {
+  /** Lookups of a class that use core before its relationships are counted. */
+  public static coreLookupsBeforeCount = 32;
+  /** Measured ratio of a `Relationships.tryGetInstance` call's cost to the cost of reading one row in a preload. */
+  public static rowsPerCoreLookup = 24;
+
+  /** Preloaded classes, and `undefined` for classes that are never preloaded. */
   private readonly _classes = new Map<string, PreloadedClass | undefined>();
+  private readonly _pendingClasses = new Map<string, PendingClass>();
   private readonly _deletedIds = new Set<Id64String>();
   private _schemaContext: SchemaContext | undefined;
   private _removeListeners: Array<() => void> = [];
@@ -105,13 +128,9 @@ export class TargetRelationshipLookup {
       this._schemaContext !== this._db.schemaContext
     )
       this.clear();
-    let preloaded = this._classes.get(classFullName);
-    if (!this._classes.has(classFullName)) {
-      const generation = this._generation;
-      preloaded = await this.preload(classFullName);
-      if (generation !== this._generation) return lookUpWithCore;
-      this._classes.set(classFullName, preloaded);
-    }
+    const preloaded = this._classes.has(classFullName)
+      ? this._classes.get(classFullName)
+      : await this.recordLookup(classFullName);
     if (preloaded === undefined) return lookUpWithCore;
     const relationship = preloaded.relationships.get(
       sourceAndTargetKey(sourceId, targetId)
@@ -154,6 +173,7 @@ export class TargetRelationshipLookup {
   public clear(): void {
     this._generation++;
     this._classes.clear();
+    this._pendingClasses.clear();
     this._deletedIds.clear();
     this._schemaContext = undefined;
     for (const removeListener of this._removeListeners) removeListener();
@@ -175,11 +195,48 @@ export class TargetRelationshipLookup {
     return relClass;
   }
 
-  private async preload(
+  /** Count a lookup of a class that is not preloaded, and preload it if its lookups justify that.
+   * @returns The preloaded class, or `undefined` if core must look up the relationship.
+   */
+  private async recordLookup(
     classFullName: string
   ): Promise<PreloadedClass | undefined> {
-    // Resolution results, including unsupported classes, are discarded when the schema context changes.
-    this._schemaContext = this._db.schemaContext;
+    let pending = this._pendingClasses.get(classFullName);
+    if (pending === undefined) {
+      // Resolution results, including unsupported classes, are discarded when the schema context changes.
+      this._schemaContext = this._db.schemaContext;
+      pending = this.resolvePreloadableClass(classFullName);
+      if (pending === undefined) {
+        this._classes.set(classFullName, undefined);
+        return undefined;
+      }
+      this._pendingClasses.set(classFullName, pending);
+    }
+    pending.lookups++;
+    if (pending.lookups <= TargetRelationshipLookup.coreLookupsBeforeCount)
+      return undefined;
+    const generation = this._generation;
+    if (pending.rowCount === undefined) {
+      const rowCount = await this.countRows(pending.relClass);
+      if (generation !== this._generation) return undefined;
+      pending.rowCount = rowCount;
+    }
+    if (
+      pending.lookups * TargetRelationshipLookup.rowsPerCoreLookup <
+      pending.rowCount
+    )
+      return undefined;
+    const preloaded = await this.preload(classFullName, pending);
+    // A preload that a clear interrupts is discarded.
+    if (generation !== this._generation) return undefined;
+    this._pendingClasses.delete(classFullName);
+    this._classes.set(classFullName, preloaded);
+    return preloaded;
+  }
+
+  private resolvePreloadableClass(
+    classFullName: string
+  ): PendingClass | undefined {
     const relClass = this.resolveClass(classFullName);
     if (relClass === undefined) return undefined;
     const propertyNames: string[] = [];
@@ -188,7 +245,27 @@ export class TargetRelationshipLookup {
         return undefined;
       propertyNames.push(property.name);
     }
+    return { relClass, propertyNames, lookups: 0 };
+  }
 
+  private async countRows(relClass: RelationshipClass): Promise<number> {
+    const reader = this._db.createQueryReader(
+      `SELECT COUNT(*) FROM [${relClass.schema.name}].[${relClass.name}]`,
+      undefined,
+      { usePrimaryConn: true }
+    );
+    const rowCount: number = (await reader.step()) ? reader.current[0] : 0;
+    Logger.logTrace(
+      loggerCategory,
+      `Counted ${rowCount} target relationships of ${relClass.fullName}`
+    );
+    return rowCount;
+  }
+
+  private async preload(
+    classFullName: string,
+    { relClass, propertyNames }: PendingClass
+  ): Promise<PreloadedClass> {
     this.watchForExternalChanges();
     const startTime = performance.now();
     // Like core's `SELECT * FROM <class>`, this query is polymorphic and returns only the properties of the queried class.

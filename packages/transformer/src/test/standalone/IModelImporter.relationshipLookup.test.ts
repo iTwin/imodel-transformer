@@ -15,6 +15,7 @@ import {
 import { IModel, QueryBinder } from "@itwin/core-common";
 import { Id64, Id64String } from "@itwin/core-bentley";
 import { hasEntityChanged, IModelImporter } from "../../IModelImporter";
+import { TargetRelationshipLookup } from "../../TargetRelationshipLookup";
 import {
   createStartedEditTxn,
   IModelTransformerTestUtils,
@@ -147,6 +148,8 @@ describe("IModelImporter.importRelationship lookup", () => {
   let importer: RecordingImporter;
   let elementIds: Id64String[];
   let dbCount = 0;
+  const defaultCoreLookupsBeforeCount =
+    TargetRelationshipLookup.coreLookupsBeforeCount;
 
   const props = (
     classFullName: string,
@@ -183,9 +186,13 @@ describe("IModelImporter.importRelationship lookup", () => {
     );
     editTxn.saveChanges();
     importer = new RecordingImporter(editTxn);
+    // Most tests preload on the first lookup, which makes the preloaded path answer it.
+    TargetRelationshipLookup.coreLookupsBeforeCount = 0;
   });
 
   afterEach(() => {
+    TargetRelationshipLookup.coreLookupsBeforeCount =
+      defaultCoreLookupsBeforeCount;
     vi.restoreAllMocks();
     if (editTxn.isActive) editTxn.end("abandon");
     targetDb.close();
@@ -278,32 +285,163 @@ describe("IModelImporter.importRelationship lookup", () => {
     ).to.deep.equal({ decision: "none", id: first.id });
   });
 
-  it("inserts missing relationships with one query per class", async () => {
-    const [e0, e1, e2, e3] = elementIds;
-    const tryGetInstance = vi.spyOn(targetDb.relationships, "tryGetInstance");
-    const createQueryReader = vi.spyOn(targetDb, "createQueryReader");
+  describe("with the default preload threshold", () => {
+    const isCount = (ecsql: string) => ecsql.includes("COUNT(*)");
 
-    for (const [sourceId, targetId] of [
-      [e0, e1],
-      [e1, e2],
-      [e2, e3],
-    ])
+    beforeEach(() => {
+      TargetRelationshipLookup.coreLookupsBeforeCount =
+        defaultCoreLookupsBeforeCount;
+      expect(TargetRelationshipLookup.coreLookupsBeforeCount).to.equal(32);
+      expect(TargetRelationshipLookup.rowsPerCoreLookup).to.equal(24);
+    });
+
+    let subjectCount = 0;
+    const insertSubjects = (count: number) => {
+      const ids = Array.from({ length: count }, () =>
+        Subject.create(
+          targetDb,
+          IModel.rootSubjectId,
+          `Extra${subjectCount++}`
+        ).insert(editTxn)
+      );
+      editTxn.saveChanges();
+      return ids;
+    };
+
+    /** Distinct source and target pairs of the specified elements. */
+    const pairsOf = (ids: Id64String[]) =>
+      ids.flatMap((sourceId) =>
+        ids
+          .filter((targetId) => targetId !== sourceId)
+          .map((targetId) => ({ sourceId, targetId }))
+      );
+
+    /** A target with 960 relationships, which justifies a preload after 960 / 24 = 40 lookups. */
+    const insert960Relationships = () => {
+      const pairs = pairsOf(insertSubjects(32)).slice(0, 960);
+      for (const pair of pairs)
+        editTxn.insertRelationship(
+          props(refersTo, pair.sourceId, pair.targetId)
+        );
+      editTxn.saveChanges();
+      return pairs;
+    };
+
+    it("counts a target class without relationships once and preloads it right away", async () => {
+      const pairs = pairsOf(insertSubjects(8)).slice(0, 40);
+      const tryGetInstance = vi.spyOn(targetDb.relationships, "tryGetInstance");
+      const createQueryReader = vi.spyOn(targetDb, "createQueryReader");
+
+      for (const [i, pair] of pairs.entries()) {
+        expect(
+          (
+            await importer.importAndDecide(
+              props(groupsMembers, pair.sourceId, pair.targetId, {
+                memberPriority: 1,
+              })
+            )
+          ).decision
+        ).to.equal("insert");
+        expect(tryGetInstance).toHaveBeenCalledTimes(Math.min(i + 1, 32));
+        expect(createQueryReader).toHaveBeenCalledTimes(i < 32 ? 0 : 2);
+      }
+      expect(isCount(createQueryReader.mock.calls[0][0])).to.be.true;
       expect(
-        (
-          await importer.importAndDecide(
-            props(groupsMembers, sourceId, targetId, { memberPriority: 1 })
-          )
-        ).decision
-      ).to.equal("insert");
+        targetDb.relationships.tryGetInstance(groupsMembers, pairs[35])?.id
+      ).to.equal(importer.insertedIds[35]);
+    });
 
-    expect(tryGetInstance).not.toHaveBeenCalled();
-    expect(createQueryReader).toHaveBeenCalledTimes(1);
-    expect(
-      targetDb.relationships.tryGetInstance(groupsMembers, {
-        sourceId: e1,
-        targetId: e2,
-      })?.id
-    ).to.equal(importer.insertedIds[1]);
+    it("never preloads for a small import into a large target", async () => {
+      const pairs = insert960Relationships();
+      const tryGetInstance = vi.spyOn(targetDb.relationships, "tryGetInstance");
+      const createQueryReader = vi.spyOn(targetDb, "createQueryReader");
+
+      for (const pair of pairs.slice(0, 39))
+        expect(
+          (
+            await importer.importAndDecide(
+              props(refersTo, pair.sourceId, pair.targetId)
+            )
+          ).decision
+        ).to.equal("none");
+
+      expect(tryGetInstance).toHaveBeenCalledTimes(39);
+      expect(createQueryReader).toHaveBeenCalledTimes(1);
+      expect(isCount(createQueryReader.mock.calls[0][0])).to.be.true;
+    });
+
+    it("preloads once lookups reach the counted relationships divided by 24", async () => {
+      const pairs = insert960Relationships();
+      const tryGetInstance = vi.spyOn(targetDb.relationships, "tryGetInstance");
+      const createQueryReader = vi.spyOn(targetDb, "createQueryReader");
+
+      for (const [i, pair] of pairs.slice(0, 50).entries()) {
+        expect(
+          (
+            await importer.importAndDecide(
+              props(refersTo, pair.sourceId, pair.targetId)
+            )
+          ).decision
+        ).to.equal("none");
+        expect(tryGetInstance).toHaveBeenCalledTimes(Math.min(i + 1, 39));
+        expect(createQueryReader).toHaveBeenCalledTimes(
+          i < 32 ? 0 : i < 39 ? 1 : 2
+        );
+      }
+
+      // Element deletes clear the lookup, so the class is looked up with core and counted again.
+      await importer.deleteElements(new Set(insertSubjects(1)));
+      tryGetInstance.mockClear();
+      await importer.importAndDecide(
+        props(refersTo, pairs[0].sourceId, pairs[0].targetId)
+      );
+      expect(tryGetInstance).toHaveBeenCalledTimes(1);
+    });
+
+    it("makes the same decisions as core before and after the preload", async () => {
+      const ids = elementIds.slice(0, 5);
+      const pairs = pairsOf(ids);
+      editTxn.insertRelationship(
+        props(refersTo, ids[0], ids[1], { note: "seed" })
+      );
+      editTxn.insertRelationship(props(refersTo, ids[0], ids[2]));
+      editTxn.insertRelationship(
+        props(refersToChild, ids[0], ids[3], { note: "seed", childNote: "c" })
+      );
+      editTxn.saveChanges();
+      const tryGetInstance = vi.spyOn(targetDb.relationships, "tryGetInstance");
+      const createQueryReader = vi.spyOn(targetDb, "createQueryReader");
+
+      const writtenAfterPreload = new Set<string>();
+      const seen = new Set<Decision>();
+      for (let i = 0; i < 70; i++) {
+        const pair = pairs[i % pairs.length];
+        // Pairs alternate between notes, so later rounds both update relationships and leave them unchanged.
+        const round = Math.floor(i / pairs.length);
+        const note = `v${round === 0 ? 0 : (i + round) % 2}`;
+        const caseProps = props(refersTo, pair.sourceId, pair.targetId, {
+          note,
+        });
+        const expected = expectedDecision(targetDb, caseProps);
+        const preloaded = createQueryReader.mock.calls.length === 2;
+        const key = `${pair.sourceId}/${pair.targetId}`;
+        tryGetInstance.mockClear();
+
+        const actual = await importer.importAndDecide(caseProps);
+
+        const label = `lookup ${i + 1} ${key} ${note}`;
+        expect(actual.decision, label).to.equal(expected.decision);
+        if (expected.id !== undefined)
+          expect(actual.id, label).to.equal(expected.id);
+        seen.add(expected.decision);
+        // Before the preload, core finds every relationship. After it, core finds only those the importer has since written.
+        const usesCore = i < 32 || (preloaded && writtenAfterPreload.has(key));
+        expect(tryGetInstance, label).toHaveBeenCalledTimes(usesCore ? 1 : 0);
+        if (i >= 32 && actual.decision !== "none") writtenAfterPreload.add(key);
+      }
+      expect(createQueryReader).toHaveBeenCalledTimes(2);
+      expect([...seen].sort()).to.deep.equal(["insert", "none", "update"]);
+    });
   });
 
   it("matches a subclass instance through a base-class import, but not the reverse", async () => {
@@ -479,7 +617,8 @@ describe("IModelImporter.importRelationship lookup", () => {
       (await importer.importAndDecide(props(refersTo, e2, e3))).decision
     ).to.equal("none");
     expect(tryGetInstance).not.toHaveBeenCalled();
-    expect(createQueryReader).toHaveBeenCalledTimes(2);
+    // a count and a preload for each class
+    expect(createQueryReader).toHaveBeenCalledTimes(4);
   });
 
   it("reads external writes again after finalize", async () => {
