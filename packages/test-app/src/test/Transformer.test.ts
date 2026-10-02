@@ -37,8 +37,9 @@ function assertAtLeast(actual: number, min: number): void {
 }
 
 describe("imodel-transformer", () => {
-  const sourceDbFileName =
-    require.resolve("../../../transformer/src/test/assets/CompatibilityTestSeed.bim");
+  const sourceDbFileName = require.resolve(
+    "../../../transformer/src/test/assets/CompatibilityTestSeed.bim"
+  );
   let sourceDb: IModelDb;
 
   before(async () => {
