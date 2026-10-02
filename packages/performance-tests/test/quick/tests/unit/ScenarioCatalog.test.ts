@@ -14,7 +14,9 @@ import {
   listRegisteredScenarios,
 } from "../../src/catalogs/BenchmarkRegistry.js";
 import { validateFixtureDescriptor } from "../../src/fixtures/FixtureDescriptor.js";
+import { hierarchicalIncrementalRecipe } from "../../src/fixtures/recipes/hierarchicalIncremental.js";
 import { largeBaseIncrementalRecipe } from "../../src/fixtures/recipes/largeBaseIncremental.js";
+import { referenceHeavyTransformRecipe } from "../../src/fixtures/recipes/referenceHeavyTransform.js";
 import {
   realisticBuildingExpectedCounts,
   realisticBuildingTransformParameters,
@@ -242,12 +244,65 @@ describe("quick performance scenario catalog", () => {
     ).to.equal(1_000);
   });
 
+  it("registers the reference-heavy standalone workload at its calibrated shape", () => {
+    const resolved = resolveBenchmarkRun(
+      "standalone-full-transformation",
+      "reference-heavy-transform"
+    );
+    expect(resolved.descriptor.distribution.base).to.deep.equal({
+      aspects: 0,
+      elements: 45_000,
+      geometricElements: 0,
+      relationships: 0,
+    });
+    expect(resolved.descriptor.scenarioClaims).to.include(
+      "full transformation"
+    );
+    expect(resolved.descriptor.layout.topology).to.equal(
+      "standalone-source-and-empty-target"
+    );
+  });
+
+  it.each([
+    { parentElementCount: 0, childElementCount: 1 },
+    { parentElementCount: 1.5, childElementCount: 2 },
+    { parentElementCount: 2, childElementCount: 1 },
+    { parentElementCount: 2, childElementCount: 2.5 },
+  ])("rejects invalid reference-heavy parameters %j", (parameters) => {
+    expect(() =>
+      referenceHeavyTransformRecipe.distribution(parameters)
+    ).to.throw(/Reference-heavy/);
+  });
+
   it.each([0, -1, 1.5])(
     "rejects invalid large-base fixture scale %s",
     (scale) => {
       expect(() => largeBaseIncrementalRecipe.distribution({ scale })).to.throw(
         "Large-base fixture scale must be a positive integer"
       );
+    }
+  );
+
+  it("registers the hierarchical fixture for incremental synchronization", () => {
+    const resolved = resolveBenchmarkRun(
+      "incremental-synchronization",
+      "hierarchical-incremental"
+    );
+    expect(resolved.descriptor.scenarioClaims).to.include("element hierarchy");
+    // each changed part needs its own assembly, and half of the assemblies stay unchanged
+    const { base, operations } = resolved.descriptor.distribution;
+    expect(base.elements).to.equal(11_000);
+    expect(operations.elements.inserts).to.equal(250);
+    expect(operations.elements.updates).to.equal(250);
+    expect(operations.sourceChangesets).to.equal(2);
+  });
+
+  it.each([0, -1, 1.5])(
+    "rejects invalid hierarchical fixture scale %s",
+    (scale) => {
+      expect(() =>
+        hierarchicalIncrementalRecipe.distribution({ scale })
+      ).to.throw("Hierarchical fixture scale must be a positive integer");
     }
   );
 

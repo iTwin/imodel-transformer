@@ -45,6 +45,7 @@ import {
   SnapshotDb,
   SpatialCategory,
   SpatialViewDefinition,
+  SubCategory,
   Subject,
   SubjectOwnsPartitionElements,
   SubjectOwnsSubjects,
@@ -104,6 +105,7 @@ import {
   assertTransformerError,
   CountingIModelImporter,
   createStartedEditTxn,
+  expectTransformerError,
   HubWrappers,
   IModelToTextFileExporter,
   IModelTransformerTestUtils,
@@ -519,6 +521,208 @@ describe("IModelTransformerHub", () => {
         "PhysicalTwo should be deleted after the second processChanges"
       ).to.equal(Id64.invalid);
     } finally {
+      if (sourceDb)
+        await HubWrappers.closeAndDeleteBriefcaseDb(accessToken, sourceDb);
+      if (targetDb)
+        await HubWrappers.closeAndDeleteBriefcaseDb(accessToken, targetDb);
+      await transformerTestHub.deleteIModel({
+        accessToken,
+        iTwinId,
+        iModelId: sourceIModelId,
+      });
+      await transformerTestHub.deleteIModel({
+        accessToken,
+        iTwinId,
+        iModelId: targetIModelId,
+      });
+    }
+  });
+
+  it("keeps a category that target-only elements still use when the source deletes it, and does not retry the deletion", async () => {
+    const sourceIModelId = await createPopulatedIModelHubIModel(
+      IModelTransformerTestUtils.generateUniqueName("KeptCategorySource")
+    );
+    const targetIModelId = await createPopulatedIModelHubIModel(
+      IModelTransformerTestUtils.generateUniqueName("KeptCategoryTarget")
+    );
+    let sourceDb: BriefcaseDb | undefined;
+    let targetDb: BriefcaseDb | undefined;
+    const warningSpy = vi.spyOn(Logger, "logWarning");
+    const deleteSpy = vi.spyOn(IModelImporter.prototype, "deleteElements");
+    const keptWarnings = () =>
+      warningSpy.mock.calls.filter(([, message]) =>
+        String(message).startsWith("Kept ")
+      );
+
+    try {
+      sourceDb = await HubWrappers.downloadAndOpenBriefcase({
+        accessToken,
+        iTwinId,
+        iModelId: sourceIModelId,
+      });
+      targetDb = await HubWrappers.downloadAndOpenBriefcase({
+        accessToken,
+        iTwinId,
+        iModelId: targetIModelId,
+      });
+      await sourceDb.locks.acquireLocks({ shared: "0x10", exclusive: "0x1" });
+      await targetDb.locks.acquireLocks({ shared: "0x10", exclusive: "0x1" });
+
+      const insertPhysicalObject = (
+        txn: EditTxn,
+        modelId: Id64String,
+        categoryId: Id64String,
+        name: string
+      ) =>
+        txn.insertElement({
+          classFullName: PhysicalObject.classFullName,
+          model: modelId,
+          category: categoryId,
+          code: new Code({ scope: "0x1", spec: "0x1", value: name }),
+          userLabel: name,
+        } as PhysicalElementProps);
+      const source = withEditTxn(sourceDb, "insert source data", (txn) => {
+        const modelId = PhysicalModel.insert(
+          txn,
+          IModel.rootSubjectId,
+          "SourceModel"
+        );
+        const categoryId = SpatialCategory.insert(
+          txn,
+          IModel.dictionaryId,
+          "SourceCategory",
+          {}
+        );
+        const elementId = insertPhysicalObject(
+          txn,
+          modelId,
+          categoryId,
+          "SourceElement"
+        );
+        return { modelId, categoryId, elementId };
+      });
+      await sourceDb.pushChanges({
+        accessToken,
+        description: "Initial source data",
+        retainLocks: true,
+      });
+      const sourceCategoryFederationGuid = sourceDb.elements.getElement(
+        source.categoryId
+      ).federationGuid;
+      expect(sourceCategoryFederationGuid).to.not.be.undefined;
+
+      const processAllEditTxn = createStartedEditTxn(targetDb);
+      const processAllTransformer = new IModelTransformer({
+        source: sourceDb,
+        target: processAllEditTxn,
+      });
+      await processAllTransformer.process();
+      processAllTransformer.dispose();
+      processAllEditTxn.end();
+      await targetDb.pushChanges({
+        accessToken,
+        description: "Initial processAll transformation",
+        retainLocks: true,
+      });
+
+      const processChanges = async (description: string) => {
+        const editTxn = createStartedEditTxn(targetDb!);
+        const transformer = new IModelTransformer(
+          { source: sourceDb!, target: editTxn },
+          { argsForProcessChanges: {} }
+        );
+        await transformer.process();
+        transformer.dispose();
+        editTxn.end();
+        await targetDb!.pushChanges({
+          accessToken,
+          description,
+          retainLocks: true,
+        });
+      };
+
+      const targetCategoryId = targetDb.elements.queryElementIdByCode(
+        SpatialCategory.createCode(
+          targetDb,
+          IModel.dictionaryId,
+          "SourceCategory"
+        )
+      )!;
+      const targetModelId = IModelTestUtils.queryByCodeValue(
+        targetDb,
+        "SourceModel"
+      );
+      const targetOnlyId = withEditTxn(targetDb, "insert target-only", (txn) =>
+        insertPhysicalObject(txn, targetModelId, targetCategoryId, "TargetOnly")
+      );
+      await targetDb.pushChanges({
+        accessToken,
+        description: "Insert target-only element",
+        retainLocks: true,
+      });
+
+      withEditTxn(sourceDb, "delete element and category", (txn) => {
+        txn.deleteElement(source.elementId);
+        txn.deleteDefinitionElements([source.categoryId]);
+      });
+      await sourceDb.pushChanges({
+        accessToken,
+        description: "Delete source element and category",
+        retainLocks: true,
+      });
+      await processChanges("Process source category deletion");
+
+      const expectCategoryKeptWithProvenance = () => {
+        // Provenance is the FederationGuid shared with the source category.
+        expect(
+          targetDb!.elements.tryGetElement(targetCategoryId)?.federationGuid
+        ).to.equal(sourceCategoryFederationGuid);
+      };
+      expect(
+        IModelTestUtils.queryByCodeValue(targetDb, "SourceElement")
+      ).to.equal(Id64.invalid);
+      expectCategoryKeptWithProvenance();
+      expect(keptWarnings()).to.have.length(1);
+      expect(keptWarnings()[0][1]).to.contain(targetCategoryId);
+      expect(keptWarnings()[0][1]).to.contain(targetOnlyId);
+
+      // Once nothing uses the category, a later sync still doesn't delete it: its source deletion was already processed.
+      withEditTxn(targetDb, "delete target-only", (txn) =>
+        txn.deleteElement(targetOnlyId)
+      );
+      await targetDb.pushChanges({
+        accessToken,
+        description: "Delete target-only element",
+        retainLocks: true,
+      });
+      withEditTxn(sourceDb, "insert later source data", (txn) => {
+        const categoryId = SpatialCategory.insert(
+          txn,
+          IModel.dictionaryId,
+          "LaterCategory",
+          {}
+        );
+        insertPhysicalObject(txn, source.modelId, categoryId, "LaterElement");
+      });
+      await sourceDb.pushChanges({
+        accessToken,
+        description: "Insert later source element",
+        retainLocks: true,
+      });
+      warningSpy.mockClear();
+      deleteSpy.mockClear();
+      await processChanges("Process later source change");
+
+      expect(
+        IModelTestUtils.queryByCodeValue(targetDb, "LaterElement")
+      ).to.not.equal(Id64.invalid);
+      expectCategoryKeptWithProvenance();
+      expect(keptWarnings()).to.have.length(0);
+      for (const [elementIds] of deleteSpy.mock.calls)
+        expect(elementIds.has(targetCategoryId)).to.be.false;
+    } finally {
+      warningSpy.mockRestore();
+      deleteSpy.mockRestore();
       if (sourceDb)
         await HubWrappers.closeAndDeleteBriefcaseDb(accessToken, sourceDb);
       if (targetDb)
@@ -5234,7 +5438,6 @@ describe("IModelTransformerHub", () => {
       { master: { 3: 1 } },
       { branch: { branch: "master" } },
       { branch: { 1: 2, 4: 1 } },
-      // eslint-disable-next-line @typescript-eslint/no-shadow
       {
         assert({ master, branch }) {
           expect(master.db.changeset.index).to.equal(3);
@@ -5271,7 +5474,6 @@ describe("IModelTransformerHub", () => {
         },
       },
       { master: { sync: ["branch"] } },
-      // eslint-disable-next-line @typescript-eslint/no-shadow
       {
         assert({ master, branch }) {
           expect(master.db.changeset.index).to.equal(4);
@@ -7373,6 +7575,267 @@ describe("IModelTransformerHub", () => {
       secondEditTxn.end();
     });
 
+    /** Rejects fixed elements, like a filter based on categories or a saved view. */
+    class RejectingTransformer extends IModelTransformer {
+      private readonly _rejectedIds: ReadonlySet<Id64String>;
+
+      public constructor(
+        source: IModelDb,
+        target: EditTxn,
+        rejectedIds: Id64String[],
+        options?: IModelTransformOptions
+      ) {
+        super({ source, target }, options);
+        this._rejectedIds = new Set(rejectedIds);
+      }
+
+      public override async shouldExportElement(sourceElement: Element) {
+        return !this._rejectedIds.has(sourceElement.id);
+      }
+    }
+
+    /** Transforms while rejecting the given elements, then pushes the target; abandons the target changes on failure. */
+    async function transformRejecting(
+      rejectedIds: Id64String[],
+      options?: IModelTransformOptions
+    ) {
+      const editTxn = createStartedEditTxn(targetDb);
+      const transformer = new RejectingTransformer(
+        sourceDb,
+        editTxn,
+        rejectedIds,
+        options
+      );
+      try {
+        await transformer.process();
+        editTxn.end();
+      } finally {
+        transformer.dispose();
+        if (editTxn.isActive) editTxn.end("abandon");
+      }
+      await targetDb.pushChanges({
+        description: "transform",
+        retainLocks: true,
+      });
+    }
+
+    const processChanges: IModelTransformOptions = {
+      argsForProcessChanges: {},
+    };
+
+    async function pushSource<T>(
+      description: string,
+      write: (txn: EditTxn) => T
+    ) {
+      const result = withEditTxn(sourceDb, description, write);
+      await sourceDb.pushChanges({ description, retainLocks: true });
+      return result;
+    }
+
+    /** Inserts a category that a full run rejects, then a subcategory under it. */
+    async function insertSubCategoryUnderRejectedCategory() {
+      const categoryId = await pushSource("insert category", (txn) =>
+        SpatialCategory.insert(
+          txn,
+          IModel.dictionaryId,
+          "RejectedCategory",
+          new SubCategoryAppearance()
+        )
+      );
+      await transformRejecting([categoryId]);
+      const subCategoryId = await pushSource("insert subcategory", (txn) =>
+        SubCategory.insert(
+          txn,
+          categoryId,
+          "NewSubCategory",
+          new SubCategoryAppearance()
+        )
+      );
+      return { categoryId, subCategoryId };
+    }
+
+    it("should skip a changed child when shouldExportElement rejects its unchanged parent", async () => {
+      const { categoryId } = await insertSubCategoryUnderRejectedCategory();
+
+      // Completing proves the subcategory was skipped: importing it without its category would throw.
+      await transformRejecting([categoryId], processChanges);
+    });
+
+    it("should throw DependencyMappingMissing when a changed child requires an unchanged parent that is not in the target", async () => {
+      const { categoryId, subCategoryId } =
+        await insertSubCategoryUnderRejectedCategory();
+
+      const shouldExport = vi.spyOn(
+        RejectingTransformer.prototype,
+        "shouldExportElement"
+      );
+
+      // The filter now accepts the category, but nobody added it in addCustomChanges.
+      await expectTransformerError(
+        transformRejecting([], processChanges),
+        IModelTransformerError.DependencyMappingMissing,
+        `Element ${subCategoryId} requires unchanged element ${categoryId}, which is not in the target iModel. Change processing does not insert unchanged elements; to insert element ${categoryId}, add it in addCustomChanges.`
+      );
+      // The traversal filtered the category; mapping the subcategory reuses that result.
+      expect(
+        shouldExport.mock.calls.filter(([element]) => element.id === categoryId)
+      ).to.have.length(1);
+      shouldExport.mockRestore();
+    });
+
+    it("should map a changed child's unchanged parent that is found in the target by Code", async () => {
+      const { categoryId, subCategoryId } =
+        await insertSubCategoryUnderRejectedCategory();
+      const targetCategoryId = withEditTxn(targetDb, "insert category", (txn) =>
+        SpatialCategory.insert(
+          txn,
+          IModel.dictionaryId,
+          "RejectedCategory",
+          new SubCategoryAppearance()
+        )
+      );
+      const onExportElement = vi.spyOn(
+        RejectingTransformer.prototype,
+        "onExportElement"
+      );
+
+      await transformRejecting([], processChanges);
+
+      expect(
+        targetDb.elements.queryElementIdByCode(
+          SubCategory.createCode(targetDb, targetCategoryId, "NewSubCategory")
+        )
+      ).to.not.equal(undefined);
+      // The lookup does not run export hooks for the unchanged category, which is never imported.
+      expect(
+        onExportElement.mock.calls.filter(
+          ([element]) => element.id === categoryId
+        )
+      ).to.have.length(0);
+      expect(
+        onExportElement.mock.calls.filter(
+          ([element]) => element.id === subCategoryId
+        )
+      ).to.have.length(1);
+      onExportElement.mockRestore();
+    });
+
+    it("should throw DependencyMappingMissing when a changed element requires a changed category that shouldExportElement rejects", async () => {
+      const modelId = await pushSource("insert model", (txn) =>
+        PhysicalModel.insert(txn, IModel.rootSubjectId, "PhysicalModel")
+      );
+      await transformRejecting([]);
+      const { categoryId, elementId } = await pushSource(
+        "insert category and physical object",
+        (txn) => {
+          const category = SpatialCategory.insert(
+            txn,
+            IModel.dictionaryId,
+            "RejectedCategory",
+            new SubCategoryAppearance()
+          );
+          return {
+            categoryId: category,
+            elementId: txn.insertElement({
+              classFullName: PhysicalObject.classFullName,
+              model: modelId,
+              category,
+              code: Code.createEmpty(),
+            } as GeometricElementProps),
+          };
+        }
+      );
+
+      await expectTransformerError(
+        transformRejecting([categoryId], processChanges),
+        IModelTransformerError.DependencyMappingMissing,
+        `Element ${elementId} requires element ${categoryId}, which was not exported because the export filter rejects it or one of its ancestors. Accept element ${categoryId} and its ancestors, or reject element ${elementId}.`
+      );
+    });
+
+    it("should throw DependencyMappingMissing when a changed element requires a changed category whose unchanged parent shouldExportElement rejects", async () => {
+      const { modelId, parentCategoryId } = await pushSource(
+        "insert model and parent category",
+        (txn) => ({
+          modelId: PhysicalModel.insert(
+            txn,
+            IModel.rootSubjectId,
+            "PhysicalModel"
+          ),
+          parentCategoryId: SpatialCategory.insert(
+            txn,
+            IModel.dictionaryId,
+            "RejectedParentCategory",
+            new SubCategoryAppearance()
+          ),
+        })
+      );
+      await transformRejecting([parentCategoryId]);
+      const categoryId = await pushSource(
+        "insert child category and physical object",
+        (txn) => {
+          const category = txn.insertElement({
+            classFullName: SpatialCategory.classFullName,
+            model: IModel.dictionaryId,
+            code: SpatialCategory.createCode(
+              sourceDb,
+              IModel.dictionaryId,
+              "ChildCategory"
+            ),
+            parent: new ElementOwnsChildElements(parentCategoryId),
+          });
+          txn.insertElement({
+            classFullName: PhysicalObject.classFullName,
+            model: modelId,
+            category,
+            code: Code.createEmpty(),
+          } as GeometricElementProps);
+          return category;
+        }
+      );
+
+      // The element is exported before its category's rejected parent is filtered, so the error is about the category.
+      await expectTransformerError(
+        transformRejecting([parentCategoryId], processChanges),
+        IModelTransformerError.DependencyMappingMissing,
+        `Element ${categoryId} requires element ${parentCategoryId}, which the export filter rejects. Accept element ${parentCategoryId}, or reject element ${categoryId} and every element that requires it.`
+      );
+    });
+
+    it("should throw DependencyMappingMissing when a changed element requires an unchanged category that shouldExportElement rejects", async () => {
+      const { modelId, categoryId } = await pushSource(
+        "insert model and category",
+        (txn) => ({
+          modelId: PhysicalModel.insert(
+            txn,
+            IModel.rootSubjectId,
+            "PhysicalModel"
+          ),
+          categoryId: SpatialCategory.insert(
+            txn,
+            IModel.dictionaryId,
+            "RejectedCategory",
+            new SubCategoryAppearance()
+          ),
+        })
+      );
+      await transformRejecting([categoryId]);
+      const elementId = await pushSource("insert physical object", (txn) =>
+        txn.insertElement({
+          classFullName: PhysicalObject.classFullName,
+          model: modelId,
+          category: categoryId,
+          code: Code.createEmpty(),
+        } as GeometricElementProps)
+      );
+
+      await expectTransformerError(
+        transformRejecting([categoryId], processChanges),
+        IModelTransformerError.DependencyMappingMissing,
+        `Element ${elementId} requires element ${categoryId}, which the export filter rejects. Accept element ${categoryId}, or reject element ${elementId} and every element that requires it.`
+      );
+    });
+
     it("should still export updated aspects when the owning element is unchanged during processChanges", async () => {
       // Import a schema with a custom UniqueAspect so we can test aspect-only updates
       // without interference from the provenance system
@@ -8445,7 +8908,6 @@ describe("IModelTransformerHub", () => {
 
   async function closeAndDeleteBriefcase(iModel: BriefcaseDb) {
     await HubWrappers.closeAndDeleteBriefcaseDb(accessToken, iModel);
-    // eslint-disable-next-line @itwin/no-internal
     await transformerTestHub.deleteIModel({
       iTwinId,
       iModelId: iModel.iModelId,

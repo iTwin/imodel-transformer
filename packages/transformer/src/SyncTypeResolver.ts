@@ -123,12 +123,4 @@ export class SyncTypeResolver {
     }
     return this._syncType;
   }
-
-  private async getIsReverseSynchronization(): Promise<boolean> {
-    return (await this.getSyncType()) === "reverse";
-  }
-
-  private async getIsForwardSynchronization(): Promise<boolean> {
-    return (await this.getSyncType()) === "forward";
-  }
 }
