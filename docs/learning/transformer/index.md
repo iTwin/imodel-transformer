@@ -145,12 +145,7 @@ See [schema processing](./schema-processing.md) for schema selection, dynamic sc
 
 When the source and target iModels are located differently, set [IModelTransformOptions.tryAlignGeolocation]($transformer) to move spatial elements so that they keep their real-world position in the target:
 
-```ts
-const transformer = new IModelTransformer(
-  { source: sourceDb, target: targetEditTxn },
-  { tryAlignGeolocation: true }
-);
-```
+[[include:GeolocationAlignment.try-align-geolocation]]
 
 The option is off by default. When enabled, the transformer applies one rigid transform to the placement of every 3D geometric element:
 

@@ -204,17 +204,16 @@ describe("Linear Geolocation Transformations", () => {
     const srcElements = await getGeometric3dElements(sourceDb);
     const srcElemFedGuid = srcElements[0].federationGuid;
 
+    // __PUBLISH_EXTRACT_START__ GeolocationAlignment.try-align-geolocation
     const editTxn = createStartedEditTxn(targetDb);
-    const transformerOptions: IModelTransformOptions = {
-      tryAlignGeolocation: true,
-    };
-    const transfrom = new IModelTransformer(
+    const transformer = new IModelTransformer(
       { source: sourceDb, target: editTxn },
-      transformerOptions
+      { tryAlignGeolocation: true }
     );
-
-    await transfrom.process();
+    await transformer.process();
+    transformer.dispose();
     editTxn.end("save", "clone contents from source");
+    // __PUBLISH_EXTRACT_END__
 
     const srcElemPositionPostTransform =
       targetDb.elements.getElement<GeometricElement3d>(
@@ -229,7 +228,6 @@ describe("Linear Geolocation Transformations", () => {
 
     targetDb.close();
     sourceDb.close();
-    transfrom.dispose();
   });
 
   it("should log a trace if no GCS or ECEF data is present when tryAlignGeolocation is true", async function () {
