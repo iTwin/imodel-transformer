@@ -156,9 +156,15 @@ The option is off by default. When enabled, the transformer applies one rigid tr
 
 - If either iModel has a geographic coordinate system (GCS), both must have the same horizontal and vertical CRS and the same `additionalTransform` (Helmert) scale. The transform accounts for differences in the `additionalTransform`.
 - Otherwise, if both iModels have an ECEF location, the transform accounts for the difference between them.
-- If the geolocation already matches, or neither iModel has GCS or ECEF data, nothing is moved.
+- If the geolocation already matches, or neither iModel has a GCS and at most one has an ECEF location, nothing is moved.
 
-If the iModels can't be aligned, the constructor throws `ITwinError` with key `GeographicCoordinateSystemUnavailable`, `GeographicCoordinateSystemMismatch`, or `GeolocationUnavailable`.
+> **Note:** ECEF alignment loses geolocation accuracy as the distance between the two iModels increases. Each ECEF location treats the earth as flat around its own origin, so elements aligned across a large distance end up tilted and offset relative to the target's ground plane.
+
+If the iModels can't be aligned, the constructor throws `ITwinError`. For example:
+
+- `GeographicCoordinateSystemUnavailable`: the source has a GCS but the target has none, or a GCS is missing its horizontal or vertical CRS.
+- `GeographicCoordinateSystemMismatch`: the iModels use different coordinate systems, such as two different Transverse Mercator projections, or their `additionalTransform` scales differ, so the transform would not be rigid.
+- `GeolocationUnavailable`: the target's ECEF location or `additionalTransform` can't be inverted.
 
 ## Logging
 
