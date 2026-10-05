@@ -109,16 +109,16 @@ Potential transformations include:
 - Schema Mapping - mapping classes and properties to a new schema during transformation
 - Change Squashing - each iModel has its own change ledger, so multiple changesets from the source could be _squashed_ into a single changeset to the target
 
-### Filtering during change processing
+### Filtering and required elements
 
-The export filter is [IModelExporter.shouldExportElement]($transformer). It applies the exporter's exclusions, such as `excludeElement`, `excludeElementClass`, and `excludeElementsInCategory`, then calls the handler's `shouldExportElement`, which `IModelTransformer` subclasses override. When the filter rejects an element, its descendants are skipped during both full and change processing.
+The export filter is [IModelExporter.shouldExportElement]($transformer). It applies the exporter's exclusions, such as `excludeElement`, `excludeElementClass`, and `excludeElementsInCategory`, then calls the handler's `shouldExportElement`, which `IModelTransformer` subclasses override. When the filter rejects an element, its descendants are skipped too.
 
-During change processing, a changed element can require an unchanged element that has no mapping in the target, such as its parent or category. If the filter rejects an unchanged parent, the changed element is skipped along with the parent's other descendants, and no error is thrown. In every other case, if the required element passes the export filter, the transformer looks for it in the target by FederationGuid and then by Code. Change processing does not insert unchanged elements, so the transformer throws `ITwinError` with key `DependencyMappingMissing` when the required element is rejected or can't be found. This happens in two cases:
+Some elements must be in the target before an element can be imported, such as its category. The transformer exports such a required element first. If the filter rejects it or one of its ancestors, the transformer throws `ITwinError` with key `DependencyMappingMissing` instead of importing the element that needs it. This applies to full transforms, such as `processAll()`, as well as change processing. Accept the required element and its ancestors, or reject the element that needs it. For example, a filter that accepts the elements in a view must also accept their categories.
 
-- The filter rejects a required element other than the parent, such as the category of an element that the filter accepts. Accept the required element, or reject every element that requires it.
-- The required element passes the filter but is missing from the target. This happens when the element was deleted from the target, or when the filter starts accepting elements that it rejected in an earlier run, for example after the categories or views it filters by change. To insert the element, override `addCustomChanges` and add it with [ChangedInstanceIds.addCustomElementChange]($transformer).
+Change processing doesn't insert unchanged elements, so for an unchanged required element the transformer only checks the filter and looks for the element in the target, by FederationGuid and then by Code. If the filter rejects an unchanged parent, the changed element is skipped with the parent's other descendants, without an error. Otherwise the transformer throws `DependencyMappingMissing` in two cases:
 
-A changed required element is exported before the element that requires it. If it is still not mapped afterwards, because the filter rejects it or one of its ancestors, the transformer throws the same error. Accept the required element and its ancestors, or reject the element that requires it.
+- The filter rejects the required element, such as the category of an element that the filter accepts. Accept the required element, or reject every element that needs it.
+- The required element isn't in the target, because it was deleted there or because the filter rejected it in an earlier run, for example before the categories or views it filters by changed. To insert it, override `addCustomChanges` and add it with [ChangedInstanceIds.addCustomElementChange]($transformer).
 
 ### Processing a subset
 
