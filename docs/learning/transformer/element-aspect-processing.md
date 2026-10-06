@@ -69,8 +69,9 @@ sequenceDiagram
 Reconciliation uses the same accepted owner set for recording target aspects and exporting source aspects. If an element changes, the exporter exports all accepted current aspects for that owner, including aspects without their own change record. The importer matches each source aspect to an existing target aspect of the same class on the same owner:
 
 - A unique aspect matches the owner's target aspect of the same class.
-- Multi-aspects of one class are matched in order. Extra source aspects are inserted, and extra target aspects are deleted.
+- A multi-aspect that this source imported before matches the target aspect recorded for it. The remaining multi-aspects of one class are matched in order. Extra source aspects are inserted, and extra target aspects are deleted.
 - A matched aspect is updated only when its properties differ, and it keeps its target ID.
+- Aspects recorded for another source iModel are never matched or deleted. See [Aspects from several sources](#aspects-from-several-sources).
 
 After the owner batch is exported, cleanup deletes the recorded target aspects that the importer did not reuse. That removes aspects deleted from the source, aspects of classes that became empty, and aspects rejected by `shouldExportElementAspect`. A rerun with no source changes therefore inserts, updates, and deletes no aspects, unless a target aspect has a value for a property only the target schema has (see [Schema changes](#schema-changes)). `onInsertElementAspect`, `onUpdateElementAspect`, and `onDeleteElementAspect` run only for those actual writes.
 
@@ -81,6 +82,29 @@ iModel unique-aspect writes treat a class and its base or derived classes as one
 Matching uses the class of the aspect that the transformer sends to the importer. That is the source aspect's class, unless an `onTransformElementAspect` override changes it. If a source schema change moves aspects to another class, including a base or derived class, the moved aspects have no exact-class match on the next run. The importer inserts them with the new class, and the old ones are deleted through the deletion hook: by cleanup after the batch or, for a unique aspect that moves to a base or derived class, by the importer before the insert. Those aspects get new target IDs once. Later reruns reuse them.
 
 A target schema upgrade that adds a property the source doesn't have causes no writes while that property is unset. If a target aspect has a value for such a property, each rerun updates that aspect. The change check sees the target-only value as a difference, but the update doesn't include the property, so the value and the aspect ID are kept.
+
+## Aspects from several sources
+
+Several source iModels can map to the same target element. For example, two sources may each have a SpatialCategory with the same Code, and both transform into one target. Each source's aspects on that element belong to that source. A transform must not delete or overwrite another source's aspects just because its own source doesn't have them.
+
+The transformer therefore records, for each target aspect it imports, the source iModel and the source aspect it came from. During reconciliation:
+
+- Aspects recorded for the current source iModel are matched through their records and updated, kept, or deleted as the source changes.
+- Aspects recorded for another source iModel are left alone: the importer doesn't match them, and cleanup doesn't delete them.
+- Records take precedence over the transformer provenance rule. Provenance cloned with `includeSourceProvenance` that the current source recorded is matched through its record, and deleted when the source deletes it. Unrecorded transformer provenance is never deleted, as described in [Cleanup and importer hooks](#cleanup-and-importer-hooks).
+- Aspects without a record, such as those written before records existed or by an application, are matched by position as before. The first source that matches one records it.
+- A unique aspect slot that another source holds stays with that source. The current source's unique aspect of that class isn't imported.
+
+Records are keyed by source iModel, not target scope, so one source imported in parts under different target scope elements shares one set of records.
+
+Records are file properties in namespace `IModelTransformer` named `ElementAspectSource`, one per target aspect. They aren't ElementAspects: `getAspects` doesn't return them, and they're never exported, even with `includeSourceProvenance`. At the end of `process()`, the transformer removes records of target aspects that no longer exist, including aspects removed with their element or deleted outside the transformer. Subset methods such as `processElement` write records but don't remove stale ones; the next `process()` does.
+
+Nothing is recorded with `noProvenance` or in reverse synchronization; those transforms match every aspect by position. With `wasSourceIModelCopiedToTarget`, the first run removes the records copied from the source iModel. They describe the source's own upstream imports, and keeping them would make every copied aspect look like it belongs to another source.
+
+Two limits apply:
+
+- An existing target written before records existed has no records. If a source without the shared element's aspects runs first, it treats them as its own and deletes them. The original source's next run inserts them again.
+- Recording takes no locks. If two briefcases record the same target aspect at the same time, the second push fails with a conflict. Pull and run the transform again.
 
 ## Customization points
 
@@ -135,7 +159,14 @@ Matching is by exact class. `getAspects` also returns aspects of derived classes
 
 - `importElementUniqueAspect` reuses the owner's unique aspect of exactly the given class. It updates that aspect only when its properties differ and returns its ID.
 - If there's no exact-class match, `importElementUniqueAspect` deletes the owner's unique aspects of a base or derived class through `onDeleteElementAspect`, then inserts the aspect and returns the new ID. iModel unique-aspect writes treat those classes as one slot, so leaving them would let the insert or a later delete remove data without the hook running.
-- `importElementMultiAspects` groups the props by `classFullName`. Within each class, it matches target aspects of exactly that class in `getAspects` order, updates only changed ones, inserts extra props, and deletes extra target aspects of that class. Aspects of other classes, including derived classes, aren't touched. The optional filter removes target aspects from matching and deletion.
+- `importElementMultiAspects` groups the props by `classFullName`. Within each class, it matches target aspects of exactly that class, first through `targetAspectIds` and then in `getAspects` order, updates only changed ones, inserts extra props, and deletes extra target aspects of that class. Aspects of other classes, including derived classes, aren't touched.
+
+Both methods take an options object:
+
+- `filter` returns false for existing target aspects that the call must not match, update, or delete. If such an aspect holds the unique slot, `importElementUniqueAspect` imports nothing and returns `undefined`.
+- `targetAspectIds` (multi-aspects only) gives, for each entry, the existing target aspect it updates, for example from the caller's own record of earlier imports. Entries without one, or whose target aspect no longer exists, has another class, or is rejected by `filter`, are matched in order as above.
+
+The importer never matches by an incoming `props.id`, because props copied from another iModel carry that iModel's IDs.
 
 Pass each aspect with its concrete `classFullName`, as `getAspects` and `getAspect` return it. To remove aspects of a class that the call doesn't include, delete them with `EditTxn.deleteAspect`.
 

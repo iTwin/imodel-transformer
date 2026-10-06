@@ -235,9 +235,8 @@ export class IModelImporter {
     get elementAspectCleanup(): ElementAspectCleanup;
     finalize(): void;
     importElement(elementProps: ElementProps): Promise<Id64String>;
-    importElementMultiAspects(aspectPropsArray: ElementAspectProps[],
-    filterFunc?: (a: ElementMultiAspect) => boolean): Promise<Id64String[]>;
-    importElementUniqueAspect(aspectProps: ElementAspectProps): Promise<Id64String>;
+    importElementMultiAspects(aspectPropsArray: ElementAspectProps[], options?: ImportElementMultiAspectsOptions): Promise<Id64String[]>;
+    importElementUniqueAspect(aspectProps: ElementAspectProps, options?: ImportElementUniqueAspectOptions): Promise<Id64String | undefined>;
     importModel(modelProps: ModelProps): Promise<void>;
     importRelationship(relationshipProps: RelationshipProps): Promise<Id64String>;
     markElementToUpdateDuringPreserveIds(elementId: Id64String): void;
@@ -443,6 +442,17 @@ export interface IModelTransformOptions {
     targetScopeElementId?: Id64String;
     tryAlignGeolocation?: boolean;
     wasSourceIModelCopiedToTarget?: boolean;
+}
+
+// @beta
+export interface ImportElementMultiAspectsOptions {
+    filter?: (aspect: ElementMultiAspect) => boolean;
+    targetAspectIds?: ReadonlyArray<Id64String | undefined>;
+}
+
+// @beta
+export interface ImportElementUniqueAspectOptions {
+    filter?: (aspect: ElementUniqueAspect) => boolean;
 }
 
 // @alpha (undocumented)

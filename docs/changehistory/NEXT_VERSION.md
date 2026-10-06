@@ -12,6 +12,26 @@ With `includeSourceProvenance`, cloned source `ExternalSourceAspect`s whose scop
 
 See [Processing ElementAspects](../learning/transformer/element-aspect-processing.md) for details.
 
+## ElementAspects from several sources on one element
+
+Two source iModels can map to the same target element, for example when both have an element with the same Code. Previously, each transform treated all of that element's aspects as its own. A source without aspects deleted the other source's aspects, and a source with aspects overwrote them.
+
+The transformer now records which source iModel and source aspect each target aspect was imported from. A transform updates or deletes only the aspects recorded for its own source iModel, plus aspects that have no record yet. Aspects recorded for another source are left alone. If two sources each have a unique aspect of the same class on a shared element, the first source to import it keeps it, and the other source's aspect isn't imported.
+
+- **Where records live:** in file properties (`be_Prop`), not as aspects, so `getAspects` results are unchanged and records are never exported. Each record adds roughly 200 bytes to the target. At the end of `process()`, records of aspects that no longer exist are removed.
+- **Not recorded:** with `noProvenance` or in reverse synchronization. Those transforms behave as before.
+- **Existing targets:** aspects written before this release have no record. The next run of their source matches them by position, as before, and records them. If another source runs first on a shared element, it can still treat those aspects as its own and delete them. The original source's next run inserts them again.
+- **Copied targets:** with `wasSourceIModelCopiedToTarget`, records inherited from the source iModel are removed on the first run, because they describe the source's own upstream imports.
+- **Locks:** recording takes no locks. If two briefcases record the same target aspect at the same time, the second push fails with a conflict; pull and run the transform again.
+- **Cloned provenance:** with `includeSourceProvenance`, provenance that a source cloned and recorded is deleted when that source deletes it. Without a record, it is never deleted.
+- **Multi-aspect deletions:** when a source deletes one of several multi-aspects of a class, the transformer now deletes only that aspect's copy. Previously the later aspects were matched by position, so each was updated and the last was deleted.
+
+`IModelImporter.importElementUniqueAspect` and `importElementMultiAspects` take new beta options objects, `ImportElementUniqueAspectOptions` and `ImportElementMultiAspectsOptions`. `filter` excludes existing target aspects that the call must not match, update, or delete. `targetAspectIds` gives the known target aspect for each multi-aspect entry. `importElementUniqueAspect` returns `undefined` when `filter` rejects the aspect holding the unique slot and nothing is imported.
+
+`importElementMultiAspects` no longer takes a filter function as its second argument. Pass it in the options object instead: replace `importElementMultiAspects(props, filterFn)` with `importElementMultiAspects(props, { filter: filterFn })`.
+
+See [Aspects from several sources](../learning/transformer/element-aspect-processing.md#aspects-from-several-sources) for details.
+
 ## Context-based provenance resolution for incremental deletions
 
 `IModelTransformer.process()` now resolves guidless incremental element

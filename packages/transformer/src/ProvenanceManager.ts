@@ -11,7 +11,6 @@ import {
 import {
   EditTxn,
   ElementAspect,
-  ElementMultiAspect,
   ElementOwnsExternalSourceAspects,
   type Entity,
   ExternalSource,
@@ -1113,7 +1112,7 @@ export function sourceProvenanceMatchFilter(
   incoming: readonly ElementAspectProps[],
   targetScopeElementIds: ReadonlySet<Id64String>,
   currentScopeElementId: Id64String
-): (aspect: ElementMultiAspect) => boolean {
+): (aspect: ElementAspect) => boolean {
   const incomingKeys = new Set(
     incoming
       .filter((props) => isSameClass(props, ExternalSourceAspect.classFullName))

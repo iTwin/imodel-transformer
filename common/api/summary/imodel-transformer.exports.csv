@@ -18,6 +18,8 @@ beta;class;IModelTransformer
 beta;enum;IModelTransformerError
 beta;const;IModelTransformerErrorScope
 beta;interface;IModelTransformOptions
+beta;interface;ImportElementMultiAspectsOptions
+beta;interface;ImportElementUniqueAspectOptions
 alpha;function;initializeBranchProvenance
 beta;interface;InitOptions
 beta;class;NewerVersionSchemaImportStrategy
