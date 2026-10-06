@@ -97,18 +97,18 @@ import {
   IModelExportHandler,
 } from "./IModelExporter";
 import { IModelImporter, OptimizeGeometryOptions } from "./IModelImporter";
-import {
-  isTransformerProvenanceAspect,
-  queryTargetScopeElementIds,
-  sourceProvenanceMatchFilter,
-} from "./TransformerProvenance";
 import type { ElementAspectExportCompletion } from "./ElementAspectExportCoordinator";
 import { TransformerLoggerCategory } from "./TransformerLoggerCategory";
 import { IModelCloneContext } from "./IModelCloneContext";
 import type { IModelTransformContext } from "./IModelTransformContext";
 import { rangesFromRangeAndSkipped } from "./Algo";
 import { SyncTypeResolver } from "./SyncTypeResolver";
-import { ProvenanceManager } from "./ProvenanceManager";
+import {
+  isTransformerProvenanceAspect,
+  ProvenanceManager,
+  queryTargetScopeElementIds,
+  sourceProvenanceMatchFilter,
+} from "./ProvenanceManager";
 import {
   NewerVersionSchemaImportStrategy,
   ProcessSchemasOptions,
@@ -2029,7 +2029,7 @@ export class IModelTransformer extends IModelExportHandler {
     }
 
     const cleanup = this.importer.elementAspectCleanup;
-    const targetScopeElementIds = await this.getTargetScopeElementIds();
+    const targetScopeElementIds = this.getTargetScopeElementIds();
     await cleanup.collect(
       targetElementIds,
       excludedElementAspectClassFullNames,
@@ -2079,7 +2079,7 @@ export class IModelTransformer extends IModelExportHandler {
       this._options.includeSourceProvenance
         ? sourceProvenanceMatchFilter(
             targetAspectProps,
-            await this.getTargetScopeElementIds(),
+            this.getTargetScopeElementIds(),
             this.targetScopeElementId
           )
         : undefined
@@ -2089,11 +2089,14 @@ export class IModelTransformer extends IModelExportHandler {
     }
   }
 
-  private _targetScopeElementIds?: Promise<ReadonlySet<Id64String>>;
+  private _targetScopeElementIds?: ReadonlySet<Id64String>;
 
-  /** The target scope elements, including the current one, read once per transformer. */
-  private async getTargetScopeElementIds(): Promise<ReadonlySet<Id64String>> {
-    this._targetScopeElementIds ??= queryTargetScopeElementIds(this.targetDb);
+  /** The target scope elements, including the current one. Read by [[initialize]], after the current scope's provenance exists. */
+  private getTargetScopeElementIds(): ReadonlySet<Id64String> {
+    assert(
+      this._targetScopeElementIds !== undefined,
+      "initialize() reads the target scope elements"
+    );
     return this._targetScopeElementIds;
   }
 
@@ -2238,6 +2241,9 @@ export class IModelTransformer extends IModelExportHandler {
     this.assertEditTxnActive();
 
     await this.initScopeProvenance();
+    this._targetScopeElementIds = await queryTargetScopeElementIds(
+      this.targetDb
+    );
 
     await this._tryInitChangesetData(this._options.argsForProcessChanges);
     await this._cloneContext.initialize();

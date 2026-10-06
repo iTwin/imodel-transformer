@@ -23,7 +23,7 @@ import {
 import { Id64String } from "@itwin/core-bentley";
 import { IModelImporter } from "../../IModelImporter";
 import { IModelTransformerError } from "../../IModelTransformerError";
-import { isTransformerProvenanceAspect } from "../../TransformerProvenance";
+import { isTransformerProvenanceAspect } from "../../ProvenanceManager";
 import {
   createStartedEditTxn,
   expectTransformerError,
