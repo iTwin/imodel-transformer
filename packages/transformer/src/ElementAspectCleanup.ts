@@ -8,13 +8,12 @@ import {
   ElementAspect,
   ElementMultiAspect,
   ElementUniqueAspect,
-  ExternalSourceAspect,
   IModelDb,
 } from "@itwin/core-backend";
 import { Id64String, IModelStatus } from "@itwin/core-bentley";
 import { IModelError, QueryBinder } from "@itwin/core-common";
 
-/** Deletes replaceable ElementAspects of target owners that an owner batch did not reuse, while preserving excluded classes and transformer provenance aspects.
+/** Deletes replaceable ElementAspects of target owners that an owner batch did not reuse, while preserving excluded classes and aspects the caller protects, such as transformer provenance.
  *
  * Usage per owner batch: [[collect]] the aspects the owners have before import, let the importer [[retain]] each aspect it reuses or deletes itself, then [[deleteUnretained]] to delete the rest, or [[discard]] the batch if its export failed.
  * While a batch is active, [[getAspects]] answers target aspect reads for its owners from the aspects loaded by [[collect]], so the importer doesn't query each owner separately.
@@ -35,12 +34,12 @@ export class ElementAspectCleanup {
   ) {}
 
   /** Records the replaceable unique and multi-aspects owned by the supplied target elements as deletion candidates, replacing any previous candidates.
-   * Excluded classes and transformer provenance aspects are never candidates: those of `provenanceScopeId` and of every other target scope element (see [[isTransformerProvenanceAspect]]).
+   * Aspects of excluded classes, and aspects for which `isProtected` returns true, are never candidates.
    */
   public async collect(
     targetElementIds: ReadonlySet<Id64String>,
     excludedElementAspectClassFullNames: ReadonlySet<string>,
-    provenanceScopeId?: Id64String
+    isProtected: (aspect: ElementAspect) => boolean = () => false
   ): Promise<void> {
     // Build the batch locally so a failed query leaves no partial batch behind.
     this.discard();
@@ -59,8 +58,7 @@ export class ElementAspectCleanup {
       const { ecsql, params } = replaceableAspectQuery(
         aspectClassFullName,
         targetElementIds,
-        targetExcludedElementAspectClassFullNames,
-        provenanceScopeId
+        targetExcludedElementAspectClassFullNames
       );
       for await (const row of this._targetDb.createQueryReader(ecsql, params, {
         usePrimaryConn: true,
@@ -69,8 +67,8 @@ export class ElementAspectCleanup {
       }
     }
 
-    // Load every aspect, including excluded classes and provenance, so reads
-    // answer exactly what getAspects would for these owners.
+    // Load every aspect, including excluded classes and protected aspects, so
+    // reads answer exactly what getAspects would for these owners.
     for (const elementId of targetElementIds) aspectsByOwner.set(elementId, []);
     for await (const aspect of this._targetDb.elements.queryAspects({
       elementIds: [...targetElementIds],
@@ -78,6 +76,7 @@ export class ElementAspectCleanup {
       usePrimaryConn: true,
     })) {
       aspectsByOwner.get(aspect.element.id)?.push(aspect);
+      if (isProtected(aspect)) candidateIds.delete(aspect.id);
     }
 
     this._candidateIds = candidateIds;
@@ -172,50 +171,17 @@ export class ElementAspectCleanup {
   }
 }
 
-/** Builds the query for aspects of `aspectClassFullName` owned by `elementIds`, skipping excluded classes and provenance aspects for `provenanceScopeId`. */
+/** Builds the query for aspects of `aspectClassFullName` owned by `elementIds`, skipping excluded classes. */
 function replaceableAspectQuery(
   aspectClassFullName: string,
   elementIds: ReadonlySet<Id64String>,
-  excludedClassFullNames: readonly string[],
-  provenanceScopeId: Id64String | undefined
+  excludedClassFullNames: readonly string[]
 ): { ecsql: string; params: QueryBinder } {
   const params = new QueryBinder().bindIdSet("elementIds", elementIds);
-  const conditions: string[] = [];
-  if (excludedClassFullNames.length > 0) {
-    conditions.push(
-      `aspect.ECClassId IS NOT (${excludedClassFullNames.join(", ")})`
-    );
-  }
-  // ExternalSourceAspect is a multi-aspect, so provenance aspects are only found
-  // when querying ElementMultiAspect. For each candidate, check whether it is a
-  // provenance aspect rather than listing every provenance aspect. This must
-  // match isTransformerProvenanceAspect: a target scope element is one that
-  // owns a Scope ExternalSourceAspect.
-  if (
-    provenanceScopeId !== undefined &&
-    aspectClassFullName === ElementMultiAspect.classFullName
-  ) {
-    params
-      .bindId("provenanceScopeId", provenanceScopeId)
-      .bindString("elementKind", ExternalSourceAspect.Kind.Element)
-      .bindString("relationshipKind", ExternalSourceAspect.Kind.Relationship)
-      .bindString("scopeKind", ExternalSourceAspect.Kind.Scope);
-    conditions.push(`NOT EXISTS (
-      SELECT 1 FROM ${ExternalSourceAspect.classFullName} esa
-      WHERE esa.ECInstanceId = aspect.ECInstanceId
-        AND (
-          esa.Kind = :scopeKind
-          OR (esa.Kind IN (:elementKind, :relationshipKind) AND (
-            esa.Scope.Id = :provenanceScopeId
-            OR esa.Scope.Id IN (
-              SELECT scopeEsa.Element.Id FROM ${ExternalSourceAspect.classFullName} scopeEsa
-              WHERE scopeEsa.Kind = :scopeKind)
-          ))
-        )
-    )`);
-  }
   const whereClause =
-    conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
+    excludedClassFullNames.length > 0
+      ? `WHERE aspect.ECClassId IS NOT (${excludedClassFullNames.join(", ")})`
+      : "";
   const ecsql = `SELECT aspect.ECInstanceId as id
     FROM ${aspectClassFullName} aspect
     INNER JOIN IdSet(:elementIds) ids ON ids.id = aspect.Element.Id
@@ -223,45 +189,11 @@ function replaceableAspectQuery(
   return { ecsql, params };
 }
 
-/** Whether an ExternalSourceAspect is transformer provenance: scope provenance, or element or relationship provenance scoped to one of `targetScopeElementIds`.
- * Every target scope element counts, not just the current one: an element shared by several target scopes, such as one source imported in parts, carries each scope's provenance.
- * Other ExternalSourceAspects, including source provenance cloned with a scope that maps to a target scope element, are replaceable unless they have the same kind.
- * @internal
- */
-export function isTransformerProvenanceAspect(
-  aspect: ExternalSourceAspect,
-  targetScopeElementIds: ReadonlySet<Id64String>
-): boolean {
-  if (aspect.kind === ExternalSourceAspect.Kind.Scope) return true;
-  return (
-    (aspect.kind === ExternalSourceAspect.Kind.Element ||
-      aspect.kind === ExternalSourceAspect.Kind.Relationship) &&
-    aspect.scope !== undefined &&
-    targetScopeElementIds.has(aspect.scope.id)
-  );
-}
-
-/** Returns the target scope elements: those that own a Scope ExternalSourceAspect.
- * @internal
- */
-export async function queryTargetScopeElementIds(
-  db: IModelDb
-): Promise<Set<Id64String>> {
-  const ids = new Set<Id64String>();
-  for await (const row of db.createQueryReader(
-    `SELECT Element.Id id FROM ${ExternalSourceAspect.classFullName} WHERE Kind = :scopeKind`,
-    new QueryBinder().bindString("scopeKind", ExternalSourceAspect.Kind.Scope),
-    { usePrimaryConn: true }
-  ))
-    ids.add(row.id);
-  return ids;
-}
-
 /** Whether an aspect is exactly of class `classFullName`, which may use either `:` or `.` as the separator.
  * @internal
  */
 export function isSameClass(
-  aspect: ElementAspect,
+  aspect: { readonly classFullName: string },
   classFullName: string
 ): boolean {
   return (

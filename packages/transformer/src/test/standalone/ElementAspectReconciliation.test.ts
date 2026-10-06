@@ -623,6 +623,20 @@ describe("ElementAspect reconciliation", () => {
     const second = await transform(undefined, options);
     expectAspectWrites(second.importer, 0, 0, 0);
     expect(upstreamProvenance(second.targetOwners[0]).length).to.equal(1);
+
+    // Cleanup never deletes provenance, so the target keeps cloned provenance
+    // that the source deletes.
+    withEditTxn(sourceDb, "delete upstream provenance", (txn) => {
+      for (const aspect of sourceDb.elements.getAspects(
+        owners[0],
+        ExternalSourceAspect.classFullName
+      ))
+        if ((aspect as ExternalSourceAspect).identifier === "0x123")
+          txn.deleteAspect(aspect.id);
+    });
+    const third = await transform(undefined, options);
+    expectAspectWrites(third.importer, 0, 0, 0);
+    expect(upstreamProvenance(third.targetOwners[0]).length).to.equal(1);
   });
 
   it("deletes target aspects of classes that became empty in the source", async () => {

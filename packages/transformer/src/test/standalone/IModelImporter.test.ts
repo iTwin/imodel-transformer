@@ -9,7 +9,6 @@ import {
   ElementOwnsExternalSourceAspects,
   ElementOwnsMultiAspects,
   ElementOwnsUniqueAspect,
-  ElementUniqueAspect,
   ExternalSourceAspect,
   StandaloneDb,
   Subject,
@@ -24,6 +23,7 @@ import {
 import { Id64String } from "@itwin/core-bentley";
 import { IModelImporter } from "../../IModelImporter";
 import { IModelTransformerError } from "../../IModelTransformerError";
+import { isTransformerProvenanceAspect } from "../../TransformerProvenance";
 import {
   createStartedEditTxn,
   expectTransformerError,
@@ -547,19 +547,16 @@ describe("IModelImporter", () => {
       await importer.elementAspectCleanup.collect(
         new Set([elementId, provenanceScopeId]),
         new Set(["TestDeleteAspectsSchema:TestUniqueAspect"]),
-        provenanceScopeId
+        (aspect) =>
+          isTransformerProvenanceAspect(aspect, new Set([provenanceScopeId]))
       );
       importer.elementAspectCleanup.retain(aspectIds.retained);
       await importer.elementAspectCleanup.deleteUnretained();
       editTxn.saveChanges();
 
-      // ExternalSourceAspect is a multi-aspect, so only that pass needs the provenance filter.
-      const queries = querySpy.mock.calls.map(([ecsql]) => ecsql);
-      const uniqueQueries = queries.filter((ecsql) =>
-        ecsql.includes(`FROM ${ElementUniqueAspect.classFullName} aspect`)
-      );
-      expect(uniqueQueries).not.toHaveLength(0);
-      for (const ecsql of uniqueQueries)
+      // Cleanup applies the caller's protection to the aspects it loads, so
+      // its candidate queries know nothing about provenance.
+      for (const [ecsql] of querySpy.mock.calls)
         expect(ecsql).not.toContain(ExternalSourceAspect.classFullName);
       querySpy.mockRestore();
 
