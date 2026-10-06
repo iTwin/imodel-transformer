@@ -25,11 +25,15 @@
   },
   "license": "MIT",
   "devDependencies": {
+    "@itwin/eslint-plugin": "^6.1.0",
     "beachball": "^2.65.5",
+    "eslint": "^9.36.0",
+    "eslint-config-prettier": "^9.1.2",
     "fast-glob": "^3.3.3",
     "husky": "^9.1.7",
     "lint-staged": "^16.2.7",
-    "prettier": "^3.6.2"
+    "prettier": "^3.6.2",
+    "typescript": "catalog:"
   },
   "lint-staged": {
     "*.{ts,html}": [

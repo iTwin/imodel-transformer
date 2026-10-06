@@ -3,7 +3,7 @@
  * See LICENSE.md in the project root for license terms and full copyright notice.
  *--------------------------------------------------------------------------------------------*/
 
-import { assert } from "chai";
+import * as assert from "node:assert/strict";
 import * as path from "node:path";
 import {
   Category,
@@ -32,10 +32,13 @@ import { TransformerLoggerCategory } from "@itwin/imodel-transformer";
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 import { loggerCategory, Transformer } from "../Transformer";
 
+function assertAtLeast(actual: number, min: number): void {
+  assert.ok(actual >= min, `expected ${actual} to be at least ${min}`);
+}
+
 describe("imodel-transformer", () => {
-  const sourceDbFileName = require.resolve(
-    "../../../transformer/src/test/assets/CompatibilityTestSeed.bim"
-  );
+  const sourceDbFileName =
+    require.resolve("../../../transformer/src/test/assets/CompatibilityTestSeed.bim");
   let sourceDb: IModelDb;
 
   before(async () => {
@@ -54,7 +57,7 @@ describe("imodel-transformer", () => {
       );
     }
 
-    assert.isTrue(IModelJsFs.existsSync(sourceDbFileName));
+    assert.equal(IModelJsFs.existsSync(sourceDbFileName), true);
     sourceDb = SnapshotDb.openFile(sourceDbFileName);
   });
 
@@ -100,7 +103,7 @@ describe("imodel-transformer", () => {
       simplifyElementGeometry: true,
     });
     const numSourceElements = await count(sourceDb, Element.classFullName);
-    assert.isAtLeast(numSourceElements, 50);
+    assertAtLeast(numSourceElements, 50);
     assert.equal(
       await count(targetDb, Element.classFullName),
       numSourceElements
@@ -124,13 +127,13 @@ describe("imodel-transformer", () => {
       sourceDb,
       SpatialElement.classFullName
     );
-    assert.isAtLeast(numSourceSpatialElements, 6);
+    assertAtLeast(numSourceSpatialElements, 6);
     assert.equal(
       await count(targetDb, SpatialElement.classFullName),
       numSourceSpatialElements
     );
     assert.equal(await count(targetDb, PhysicalPartition.classFullName), 1);
-    assert.isAtLeast(await count(sourceDb, PhysicalPartition.classFullName), 2);
+    assertAtLeast(await count(sourceDb, PhysicalPartition.classFullName), 2);
     targetDb.close();
   });
 
@@ -189,12 +192,12 @@ describe("imodel-transformer", () => {
       );
     }
 
-    assert.isTrue(await hasTheCategory(sourceDb));
+    assert.equal(await hasTheCategory(sourceDb), true);
 
     const elemsInCategoryInSrc = await getElementCountInTestCategory(sourceDb);
-    assert.isAtLeast(elemsInCategoryInSrc, 6);
+    assertAtLeast(elemsInCategoryInSrc, 6);
 
-    assert.isFalse(await hasTheCategory(targetDb));
+    assert.equal(await hasTheCategory(targetDb), false);
 
     const elemsInCategoryInTarget =
       await getElementCountInTestCategory(targetDb);
@@ -248,12 +251,12 @@ describe("imodel-transformer", () => {
       from: PhysicalModel.classFullName,
       limit: 1,
     });
-    assert.isString(firstModelId);
+    assert.equal(typeof firstModelId, "string");
     const [firstSpatialCategId] = newSchemaSourceDb.queryEntityIds({
       from: SpatialCategory.classFullName,
       limit: 1,
     });
-    assert.isString(firstSpatialCategId);
+    assert.equal(typeof firstSpatialCategId, "string");
 
     const elementProps = {
       myProp: "10",
@@ -338,12 +341,12 @@ describe("imodel-transformer", () => {
       from: PhysicalModel.classFullName,
       limit: 1,
     });
-    assert.isString(firstModelId);
+    assert.equal(typeof firstModelId, "string");
     const [firstSpatialCategId] = newSchemaSourceDb.queryEntityIds({
       from: SpatialCategory.classFullName,
       limit: 1,
     });
-    assert.isString(firstSpatialCategId);
+    assert.equal(typeof firstSpatialCategId, "string");
 
     const elementProps = {
       myStruct: { myStructProp: "5" },

@@ -2149,7 +2149,6 @@ describe("IModelTransformer", () => {
       DisplayStyle3d.insert(txn, IModel.dictionaryId, "DisplayStyle")
     );
     for (let x = 0; x < categoryNames.length; x++) {
-      // eslint-disable-line @typescript-eslint/prefer-for-of
       const categoryId = sourceDb.elements.queryElementIdByCode(
         SpatialCategory.createCode(
           sourceDb,
@@ -2165,7 +2164,6 @@ describe("IModelTransformer", () => {
         )
       )!;
       for (let y = 0; y < modelNames.length; y++) {
-        // eslint-disable-line @typescript-eslint/prefer-for-of
         const modelId = sourceDb.elements.queryElementIdByCode(
           PhysicalPartition.createCode(
             sourceDb,
@@ -3621,7 +3619,6 @@ describe("IModelTransformer", () => {
         id: myDisplayStyleId,
         relClassName: ElementOwnsUniqueAspect.classFullName,
       },
-      // eslint-disable-next-line @typescript-eslint/naming-convention
       myProp1: "prop_value",
     };
     sourceTxn.insertAspect(uniqueAspectProps);
@@ -4666,7 +4663,6 @@ describe("IModelTransformer", () => {
       expect(rows).to.equal(args.expectedMatchCount);
     };
 
-    // eslint-disable-next-line @typescript-eslint/no-shadow
     for (const [initialVal, expectedMatchCount] of [
       ["SpatialCategory", 2],
       ["PhysicalModel", 1],
@@ -4686,7 +4682,6 @@ describe("IModelTransformer", () => {
     sourceDb.close();
     sourceDb = SnapshotDb.openFile(sourceDbFile);
 
-    // eslint-disable-next-line @typescript-eslint/no-shadow
     for (const [initialVal, expectedMatchCount] of [
       ["SpatialCategory", 2],
       ["PhysicalModel", 1],
@@ -4742,7 +4737,6 @@ describe("IModelTransformer", () => {
       targetDb.elements.getElement(physObjectInTargetId).code.value
     ).to.equal("PhysicalObject");
 
-    // eslint-disable-next-line @typescript-eslint/no-shadow
     for (const [initialVal, expectedMatchCount] of [
       ["SpatialCategory", 2],
       ["PhysicalModel", 1],
@@ -5358,7 +5352,7 @@ describe("IModelTransformer", () => {
           {
             paletteName: "something",
             patternMap: {
-              TextureId: texture1Id, // eslint-disable-line @typescript-eslint/naming-convention
+              TextureId: texture1Id,
             },
           }
         )
@@ -5374,7 +5368,7 @@ describe("IModelTransformer", () => {
           {
             paletteName: "something",
             normalMap: {
-              TextureId: texture2Id, // eslint-disable-line @typescript-eslint/naming-convention
+              TextureId: texture2Id,
             },
           }
         )
