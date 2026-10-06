@@ -294,15 +294,22 @@ describe("IModelExporter", () => {
   it("processes explicit aspect owner sets in bounded groups", async () => {
     const preparedOwnerBatchSizes: number[] = [];
     const exportedOwnerBatchSizes: number[] = [];
+    const steps: string[] = [];
     const coordinator = new ElementAspectExportCoordinator(
       1_000,
       () => new Set<string>(),
       async (ownerBatch) => {
         exportedOwnerBatchSizes.push(ownerBatch.size);
+        steps.push(`export ${ownerBatch.size}`);
       }
     );
     coordinator.setPreparation(async (_excludedClasses, ownerBatch) => {
       preparedOwnerBatchSizes.push(ownerBatch.size);
+      steps.push(`prepare ${ownerBatch.size}`);
+      return async (exported) => {
+        steps.push(`complete ${ownerBatch.size}`);
+        expect(exported).to.equal(true);
+      };
     });
     const ownerIds = new Set<Id64String>();
     for (let index = 0; index < 2_001; index++) {
@@ -313,6 +320,33 @@ describe("IModelExporter", () => {
 
     expect(preparedOwnerBatchSizes).to.deep.equal([1_000, 1_000, 1]);
     expect(exportedOwnerBatchSizes).to.deep.equal([1_000, 1_000, 1]);
+    expect(steps.slice(-3)).to.deep.equal([
+      "prepare 1",
+      "export 1",
+      "complete 1",
+    ]);
+    expect(steps.filter((step) => step.startsWith("complete"))).to.have.length(
+      3
+    );
+  });
+
+  it("completes a failed owner group as not exported and rethrows its error", async () => {
+    const completions: boolean[] = [];
+    const coordinator = new ElementAspectExportCoordinator(
+      1_000,
+      () => new Set<string>(),
+      async () => {
+        throw new Error("aspect export failed");
+      }
+    );
+    coordinator.setPreparation(async () => async (exported) => {
+      completions.push(exported);
+    });
+
+    await expect(
+      coordinator.exportOwners(new Set([Id64.fromLocalAndBriefcaseIds(1, 0)]))
+    ).rejects.toThrow("aspect export failed");
+    expect(completions).to.deep.equal([false]);
   });
 
   it("deduplicates owners across scope batches and resets at outer scope boundaries", async () => {
