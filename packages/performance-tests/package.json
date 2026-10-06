@@ -6,8 +6,8 @@
   "scripts": {
     "build:profiler": "pnpm --dir ../performance-scripts build",
     "build": "pnpm build:profiler && tsc --noEmit --incremental false 1>&2",
-    "build:quick-cli": "pnpm build:profiler && rimraf test/quick/runtime/.compiled && tsc -p tsconfig.quick-cli.json 1>&2",
-    "clean": "rimraf lib test/quick/runtime/.compiled",
+    "build:quick-cli": "pnpm build:profiler && node ../../scripts/rm.js test/quick/runtime/.compiled && tsc -p tsconfig.quick-cli.json 1>&2",
+    "clean": "node ../../scripts/rm.js lib test/quick/runtime/.compiled",
     "lint": "pnpm build:profiler && pnpm --dir ../transformer build:cjs && eslint \"./test/**/*.ts\" 1>&2",
     "test": "pnpm build:profiler && vitest run",
     "format": "prettier \"./test/**/*.ts\" --write",
@@ -25,47 +25,28 @@
   "repository": {},
   "dependencies": {
     "@bentley/hook-profiler": "workspace:*",
-    "@itwin/core-backend": "^5.13.0",
-    "@itwin/core-bentley": "^5.13.0",
-    "@itwin/core-common": "^5.13.0",
-    "@itwin/core-geometry": "^5.13.0",
-    "@itwin/core-quantity": "^5.13.0",
-    "@itwin/ecschema-metadata": "^5.13.0",
+    "@itwin/core-backend": "catalog:",
+    "@itwin/core-bentley": "catalog:",
+    "@itwin/core-common": "catalog:",
+    "@itwin/core-geometry": "catalog:",
+    "@itwin/core-quantity": "catalog:",
+    "@itwin/ecschema-metadata": "catalog:",
     "@itwin/imodel-transformer": "workspace:*",
     "@itwin/imodel-transformer-test-utils": "workspace:*",
-    "@itwin/imodels-access-backend": "^6.0.1",
-    "@itwin/imodels-access-common": "^6.0.1",
-    "@itwin/imodels-client-authoring": "^6.0.1",
-    "@itwin/node-cli-authorization": "^3.0.1",
-    "@itwin/object-storage-azure": "^3.0.4",
-    "@itwin/perf-tools": "^4.10.12",
-    "fs-extra": "^8.1.0",
-    "yargs": "^16.0.0"
+    "@itwin/imodels-access-backend": "catalog:",
+    "@itwin/imodels-access-common": "catalog:",
+    "@itwin/imodels-client-authoring": "catalog:",
+    "@itwin/node-cli-authorization": "catalog:",
+    "@itwin/object-storage-azure": "catalog:",
+    "@itwin/perf-tools": "^4.10.12"
   },
   "devDependencies": {
-    "@itwin/build-tools": "^5.13.0",
-    "@itwin/eslint-plugin": "^6.1.0",
-    "@itwin/itwins-client": "^1.6.1",
+    "@itwin/build-tools": "catalog:",
     "@itwin/oidc-signin-tool": "^6.0.0",
     "@itwin/service-authorization": "^2.1.2",
-    "@types/fs-extra": "^4.0.7",
-    "@types/node": "^22",
-    "@types/yargs": "^12.0.5",
-    "eslint": "^9.11.1",
-    "eslint-config-prettier": "^9.1.0",
-    "prettier": "^3.1.1",
-    "rimraf": "^3.0.2",
-    "@typescript/native": "npm:typescript@~7.0.2",
-    "typescript": "npm:@typescript/typescript6@~6.0.2",
-    "vitest": "4.1.10"
-  },
-  "eslintConfig": {
-    "plugins": [
-      "@itwin"
-    ],
-    "extends": "plugin:@itwin/itwinjs-recommended",
-    "parserOptions": {
-      "project": "./tsconfig.json"
-    }
+    "@types/node": "catalog:",
+    "@typescript/native": "catalog:",
+    "typescript": "catalog:",
+    "vitest": "catalog:"
   }
 }

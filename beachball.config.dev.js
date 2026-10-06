@@ -8,9 +8,10 @@ const base = require("./beachball.config.js");
 /** @type {import("beachball").BeachballConfig } */
 module.exports = {
   ...base,
-  tag: !process.env.SPECIAL_TAG || process.env.SPECIAL_TAG === "dev"
-    ? "nightly"
-    : process.env.SPECIAL_TAG,
+  tag:
+    !process.env.SPECIAL_TAG || process.env.SPECIAL_TAG === "dev"
+      ? "nightly"
+      : process.env.SPECIAL_TAG,
   prereleasePrefix: process.env.SPECIAL_TAG || "dev",
   generateChangelog: false,
   gitTags: false,

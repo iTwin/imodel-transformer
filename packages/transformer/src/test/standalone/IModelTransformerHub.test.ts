@@ -5461,7 +5461,6 @@ describe("IModelTransformerHub", () => {
       { master: { 3: 1 } },
       { branch: { branch: "master" } },
       { branch: { 1: 2, 4: 1 } },
-      // eslint-disable-next-line @typescript-eslint/no-shadow
       {
         assert({ master, branch }) {
           expect(master.db.changeset.index).to.equal(3);
@@ -5498,7 +5497,6 @@ describe("IModelTransformerHub", () => {
         },
       },
       { master: { sync: ["branch"] } },
-      // eslint-disable-next-line @typescript-eslint/no-shadow
       {
         assert({ master, branch }) {
           expect(master.db.changeset.index).to.equal(4);
@@ -7501,6 +7499,41 @@ describe("IModelTransformerHub", () => {
       );
     });
 
+    it("should throw DependencyMappingMissing when a full transform accepts an element whose category shouldExportElement rejects", async () => {
+      const { categoryId, elementId } = await pushSource(
+        "insert model, category, and physical object",
+        (txn) => {
+          const model = PhysicalModel.insert(
+            txn,
+            IModel.rootSubjectId,
+            "PhysicalModel"
+          );
+          const category = SpatialCategory.insert(
+            txn,
+            IModel.dictionaryId,
+            "RejectedCategory",
+            new SubCategoryAppearance()
+          );
+          return {
+            categoryId: category,
+            elementId: txn.insertElement({
+              classFullName: PhysicalObject.classFullName,
+              model,
+              category,
+              code: Code.createEmpty(),
+            } as GeometricElementProps),
+          };
+        }
+      );
+
+      // Without the check, native cloning inserts a copy of the rejected category.
+      await expectTransformerError(
+        transformRejecting([categoryId]),
+        IModelTransformerError.DependencyMappingMissing,
+        `Element ${elementId} requires element ${categoryId}, which was not exported because the export filter rejects it or one of its ancestors. Accept element ${categoryId} and its ancestors, or reject element ${elementId}.`
+      );
+    });
+
     it("should throw DependencyMappingMissing when a changed element requires a changed category whose unchanged parent shouldExportElement rejects", async () => {
       const { modelId, parentCategoryId } = await pushSource(
         "insert model and parent category",
@@ -8520,7 +8553,6 @@ describe("IModelTransformerHub", () => {
 
   async function closeAndDeleteBriefcase(iModel: BriefcaseDb) {
     await HubWrappers.closeAndDeleteBriefcaseDb(accessToken, iModel);
-    // eslint-disable-next-line @itwin/no-internal
     await transformerTestHub.deleteIModel({
       iTwinId,
       iModelId: iModel.iModelId,
