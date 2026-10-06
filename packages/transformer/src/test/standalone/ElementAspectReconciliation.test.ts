@@ -223,8 +223,33 @@ describe("ElementAspect reconciliation", () => {
       deleted: importer.numElementAspectsDeleted,
     }).to.deep.equal({ inserted, updated, deleted });
 
+  /** Spies on target reads that bypass the owner batch's loaded aspects until `stop` is called. */
+  function spyOnTargetReads() {
+    const getAspects = vi.spyOn(targetDb.elements, "getAspects");
+    const queries = vi.spyOn(targetDb, "createQueryReader");
+    return {
+      stop: () => {
+        const reads = {
+          /** Owners whose aspects were read from the target instead of the batch. */
+          owners: new Set(getAspects.mock.calls.map(([id]) => id)),
+          /** Queries for unique aspects of a related class. */
+          relatedUniqueQueries: queries.mock.calls.filter(([ecsql]) =>
+            ecsql.includes("ClassHasAllBaseClasses")
+          ).length,
+        };
+        getAspects.mockRestore();
+        queries.mockRestore();
+        return reads;
+      },
+    };
+  }
+
   it("does not write aspects when processAll reruns without source changes", async () => {
+    // A first import inserts each owner's unique aspect. The owners have no
+    // unique aspect of another class, so the batch answers that without a query.
+    const firstReads = spyOnTargetReads();
     const first = await transform();
+    expect(firstReads.stop().relatedUniqueQueries).to.equal(0);
     expectAspectWrites(first.importer, 12, 0, 0);
     expectTargetMatchesSource(first.targetOwners);
     const before = first.targetOwners.map((id) => readAspects(targetDb, id));
@@ -278,7 +303,10 @@ describe("ElementAspect reconciliation", () => {
       txn.deleteAspect(sourceAspectIds["o1-a1"]);
     });
 
+    const reads = spyOnTargetReads();
     const second = await transform();
+    // Only owners written during the batch are read from the target afterward.
+    expect(reads.stop().owners).not.to.include(first.targetOwners[2]);
     expectTargetMatchesSource(second.targetOwners);
     // Updates: o0-unique, o0-a2, and o1's two remaining MultiA aspects, which
     // shift into the first two existing slots. Deletes: o0-b1, o1-unique, and

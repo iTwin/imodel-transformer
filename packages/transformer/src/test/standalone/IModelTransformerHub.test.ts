@@ -7702,6 +7702,111 @@ describe("IModelTransformerHub", () => {
       ).to.equal("updated-value");
     });
 
+    it("reads unwritten owners' aspects from the owner batch during processChanges", async () => {
+      const testSchemaPath =
+        IModelTransformerTestUtils.getPathToSchemaWithUniqueAspect();
+      await sourceDb.importSchemas([testSchemaPath]);
+      await targetDb.importSchemas([testSchemaPath]);
+      await sourceDb.pushChanges({
+        description: "Import test schema",
+        retainLocks: true,
+      });
+      await targetDb.pushChanges({
+        description: "Import test schema",
+        retainLocks: true,
+      });
+
+      const [labelChanged, aspectChanged] = withEditTxn(
+        sourceDb,
+        "create elements with unique aspects",
+        (txn) => {
+          const model = PhysicalModel.insert(
+            txn,
+            IModel.rootSubjectId,
+            "BatchReadModel"
+          );
+          const category = SpatialCategory.insert(
+            txn,
+            IModel.dictionaryId,
+            "BatchReadCategory",
+            {}
+          );
+          return ["LabelChanged", "AspectChanged"].map((userLabel) => {
+            const id = txn.insertElement({
+              classFullName: PhysicalObject.classFullName,
+              model,
+              category,
+              code: Code.createEmpty(),
+              userLabel,
+            } as GeometricElementProps);
+            txn.insertAspect({
+              classFullName: "TestSchema1:MyUniqueAspect",
+              element: { id },
+              myProp1: "original-value",
+            } as any);
+            return id;
+          });
+        }
+      );
+      await sourceDb.pushChanges({
+        description: "Elements with unique aspects",
+        retainLocks: true,
+      });
+
+      const firstEditTxn = createStartedEditTxn(targetDb);
+      let transformer = new IModelTransformer({
+        source: sourceDb,
+        target: firstEditTxn,
+      });
+      await transformer.process();
+      transformer.dispose();
+      firstEditTxn.end();
+      await targetDb.pushChanges({
+        description: "Initial transformation",
+        retainLocks: true,
+      });
+
+      // One owner changes only its element, so its aspect is reused without a
+      // write; the other changes only its aspect.
+      withEditTxn(sourceDb, "change one element and one aspect", (txn) => {
+        txn.updateElement({
+          ...sourceDb.elements.getElementProps(labelChanged),
+          userLabel: "LabelChanged2",
+        });
+        const [aspect] = sourceDb.elements.getAspects(
+          aspectChanged,
+          "TestSchema1:MyUniqueAspect"
+        );
+        txn.updateAspect({
+          ...aspect.toJSON(),
+          myProp1: "updated-value",
+        } as any);
+      });
+      await sourceDb.pushChanges({
+        description: "Change one element and one aspect",
+        retainLocks: true,
+      });
+
+      const getAspects = vi.spyOn(targetDb.elements, "getAspects");
+      const secondEditTxn = createStartedEditTxn(targetDb);
+      const importer = new CountingIModelImporter(secondEditTxn);
+      transformer = new IModelTransformer(
+        { source: sourceDb, target: importer },
+        { argsForProcessChanges: {} }
+      );
+      await transformer.process();
+      const targetLabelChanged =
+        transformer.context.findTargetElementId(labelChanged);
+      transformer.dispose();
+      secondEditTxn.end();
+      const ownersRead = new Set(getAspects.mock.calls.map(([id]) => id));
+      getAspects.mockRestore();
+
+      expect(importer.numElementAspectsUpdated).to.equal(1);
+      expect(importer.numElementAspectsInserted).to.equal(0);
+      expect(ownersRead).not.to.include(targetLabelChanged);
+    });
+
     it("should process changes successfully when element is deleted after existing elements were expanded into overflow table", async () => {
       // Import initial schema with property count that does not require overflow table
       const initialSchema = generateSchema(1, "SourceProperty", 5);

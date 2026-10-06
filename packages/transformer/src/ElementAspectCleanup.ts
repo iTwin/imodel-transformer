@@ -84,17 +84,17 @@ export class ElementAspectCleanup {
     this._expectedChangeCount = this.targetChangeCount();
   }
 
-  /** Returns the owner's target aspects of exactly `classFullName`, in ECInstanceId order, from the aspects loaded by [[collect]].
+  /** Returns the owner's target aspects of exactly `classFullName`, or all of them when it is omitted, in ECInstanceId order, from the aspects loaded by [[collect]].
    * Returns undefined when the owner is not in the active batch or has been written since [[collect]]; the caller must then read the target.
    */
   public getAspects(
     elementId: Id64String,
-    classFullName: string
+    classFullName?: string
   ): ElementAspect[] | undefined {
     this.dropLoadedAspectsIfChangedElsewhere();
-    return this._aspectsByOwner
-      .get(elementId)
-      ?.filter((aspect) => isSameClass(aspect, classFullName));
+    const aspects = this._aspectsByOwner.get(elementId);
+    if (classFullName === undefined) return aspects;
+    return aspects?.filter((aspect) => isSameClass(aspect, classFullName));
   }
 
   /** Stops answering reads for an owner from the loaded aspects. Call after writing any of its aspects. */

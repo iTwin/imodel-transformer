@@ -34,6 +34,7 @@ import {
   EditTxn,
   ElementAspect,
   ElementMultiAspect,
+  ElementUniqueAspect,
   Entity,
   EntityReferences,
   IModelDb,
@@ -633,7 +634,6 @@ export class IModelImporter {
       aspectProps.classFullName
     )[0];
     if (existing === undefined) {
-      this._elementAspectCleanup.invalidate(elementId);
       // iModel unique-aspect writes treat base and derived classes as one slot:
       // inserting replaces an aspect of a derived class, and deleting an aspect
       // of a base class also deletes derived ones. Delete related aspects first
@@ -646,6 +646,7 @@ export class IModelImporter {
         const aspect = tryGetAspect(this.targetDb, aspectId);
         if (aspect !== undefined) await this.onDeleteElementAspect(aspect);
       }
+      this._elementAspectCleanup.invalidate(elementId);
       return this.onInsertElementAspect(aspectProps);
     }
     this._elementAspectCleanup.retain(existing.id);
@@ -679,6 +680,18 @@ export class IModelImporter {
     elementId: Id64String,
     classFullName: string
   ): Promise<Id64String[]> {
+    // Most owners have no unique aspect of another class; the loaded batch
+    // aspects answer that without a query.
+    const loaded = this._elementAspectCleanup.getAspects(elementId);
+    if (
+      loaded !== undefined &&
+      !loaded.some(
+        (aspect) =>
+          aspect instanceof ElementUniqueAspect &&
+          !isSameClass(aspect, classFullName)
+      )
+    )
+      return [];
     const ids: Id64String[] = [];
     for await (const row of this.targetDb.createQueryReader(
       `SELECT aspect.ECInstanceId id FROM bis.ElementUniqueAspect aspect

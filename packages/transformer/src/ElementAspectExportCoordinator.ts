@@ -158,7 +158,11 @@ export class ElementAspectExportCoordinator {
     try {
       await this._exportAspects(ownerElementIds);
     } catch (error) {
-      await complete?.(false);
+      try {
+        await complete?.(false);
+      } catch {
+        // Keep the export error; it explains why the group failed.
+      }
       throw error;
     }
     await complete?.(true);
