@@ -97,7 +97,10 @@ import {
   IModelExportHandler,
 } from "./IModelExporter";
 import { IModelImporter, OptimizeGeometryOptions } from "./IModelImporter";
-import { isTransformerProvenanceAspect } from "./ElementAspectCleanup";
+import {
+  isTransformerProvenanceAspect,
+  queryTargetScopeElementIds,
+} from "./ElementAspectCleanup";
 import type { ElementAspectExportCompletion } from "./ElementAspectExportCoordinator";
 import { TransformerLoggerCategory } from "./TransformerLoggerCategory";
 import { IModelCloneContext } from "./IModelCloneContext";
@@ -2068,21 +2071,54 @@ export class IModelTransformer extends IModelExportHandler {
       }
     }
     // const targetAspectsToImport = targetAspectPropsArray.filter((targetAspect, i) => hasEntityChanged(sourceAspects[i], targetAspect));
+    const targetAspectProps = await Promise.all(targetAspectPropsArray);
+    const targetScopeElementIds = await this.getTargetScopeElementIds();
+    // Provenance of another target scope looks exactly like source provenance
+    // cloned with includeSourceProvenance, so it may only be reused by a
+    // source aspect with the same kind, scope, and identifier.
+    const incomingKeys = new Set(
+      targetAspectProps
+        .filter(
+          (props) =>
+            props.classFullName.replace(".", ":").toLowerCase() ===
+            ExternalSourceAspect.classFullName.toLowerCase()
+        )
+        .map((props) =>
+          externalSourceAspectKey(props as ExternalSourceAspectProps)
+        )
+    );
     const targetIds = await this.importer.importElementMultiAspects(
-      await Promise.all(targetAspectPropsArray),
+      targetAspectProps,
       (a) => {
-        const isExternalSourceAspectFromTransformer =
-          a instanceof ExternalSourceAspect &&
-          isTransformerProvenanceAspect(a, this.targetScopeElementId);
-        return (
+        if (
           !this._options.includeSourceProvenance ||
-          !isExternalSourceAspectFromTransformer
+          !(a instanceof ExternalSourceAspect) ||
+          !isTransformerProvenanceAspect(a, targetScopeElementIds)
+        )
+          return true;
+        const isCurrentScopeProvenance =
+          a.kind === ExternalSourceAspect.Kind.Scope
+            ? a.element.id === this.targetScopeElementId
+            : a.scope?.id === this.targetScopeElementId;
+        return (
+          !isCurrentScopeProvenance &&
+          incomingKeys.has(externalSourceAspectKey(a))
         );
       }
     );
     for (let i = 0; i < targetIds.length; ++i) {
       this.context.remapElementAspect(sourceAspects[i].id, targetIds[i]);
     }
+  }
+
+  private _targetScopeElementIds?: Promise<ReadonlySet<Id64String>>;
+
+  /** The target scope elements, including the current one. Read once per transformer: scope elements are created before aspects are exported. */
+  private async getTargetScopeElementIds(): Promise<ReadonlySet<Id64String>> {
+    this._targetScopeElementIds ??= queryTargetScopeElementIds(
+      this.targetDb
+    ).then((ids) => ids.add(this.targetScopeElementId));
+    return this._targetScopeElementIds;
   }
 
   /** Transform the specified sourceElementAspect into ElementAspectProps for the target iModel.
@@ -2971,4 +3007,11 @@ export class TemplateModelCloner extends IModelTransformer {
     this._sourceIdToTargetIdMap?.set(sourceElement.id, Id64.invalid); // keep track of (source) elementIds from the template model, but the target hasn't been inserted yet
     return targetElementProps;
   }
+}
+
+/** The natural key of an ExternalSourceAspect on its owner. */
+function externalSourceAspectKey(
+  aspect: Pick<ExternalSourceAspectProps, "kind" | "scope" | "identifier">
+): string {
+  return `${aspect.kind}|${aspect.scope?.id}|${aspect.identifier}`;
 }

@@ -16,7 +16,7 @@ import {
   Subject,
   withEditTxn,
 } from "@itwin/core-backend";
-import { Id64String } from "@itwin/core-bentley";
+import { Guid, Id64String } from "@itwin/core-bentley";
 import {
   ElementAspectProps,
   ExternalSourceAspectProps,
@@ -535,6 +535,94 @@ describe("ElementAspect reconciliation", () => {
     const second = await transform(undefined, options);
     expectAspectWrites(second.importer, 0, 0, 0);
     expect(readEsas(second.targetOwners[0])).to.deep.equal(before);
+  });
+
+  it("keeps element provenance of other target scopes on a shared element", async () => {
+    // Without a FederationGuid, the owner's provenance is an Element
+    // ExternalSourceAspect scoped to each target scope that imports it. Importing
+    // the same source under two scopes maps both to one target element.
+    withEditTxn(sourceDb, "drop FederationGuid", (txn) =>
+      txn.updateElement({
+        ...sourceDb.elements.getElementProps(owners[0]),
+        federationGuid: Guid.empty,
+      })
+    );
+    const [scope1, scope2] = withEditTxn(targetDb, "insert scopes", (txn) => [
+      Subject.insert(txn, IModel.rootSubjectId, "Scope1"),
+      Subject.insert(txn, IModel.rootSubjectId, "Scope2"),
+    ]);
+    const options = (targetScopeElementId: Id64String) => ({
+      includeSourceProvenance: true,
+      targetScopeElementId,
+    });
+    const elementProvenanceScopes = (targetOwner: Id64String) =>
+      (
+        targetDb.elements.getAspects(
+          targetOwner,
+          ExternalSourceAspect.classFullName
+        ) as ExternalSourceAspect[]
+      )
+        .filter((a) => a.kind === ExternalSourceAspect.Kind.Element)
+        .map((a) => a.scope?.id)
+        .sort();
+
+    const first = await transform(undefined, options(scope1));
+    const second = await transform(undefined, options(scope2));
+    expect(second.targetOwners[0]).to.equal(first.targetOwners[0]);
+    expect(elementProvenanceScopes(first.targetOwners[0])).to.deep.equal(
+      [scope1, scope2].sort()
+    );
+
+    const rerun = await transform(undefined, options(scope1));
+    expectAspectWrites(rerun.importer, 0, 0, 0);
+    expect(elementProvenanceScopes(first.targetOwners[0])).to.deep.equal(
+      [scope1, scope2].sort()
+    );
+    expectTargetMatchesSource(rerun.targetOwners);
+  });
+
+  it("reuses element provenance cloned from another transformation's scope", async () => {
+    // The source got owners[0] by its own transformation into a scope Subject,
+    // so it has that scope's Scope and Element ExternalSourceAspects. Cloned
+    // into the target, they look like provenance of another target scope.
+    withEditTxn(sourceDb, "clone upstream provenance", (txn) => {
+      const scope = Subject.insert(txn, IModel.rootSubjectId, "Upstream");
+      txn.insertAspect({
+        classFullName: ExternalSourceAspect.classFullName,
+        element: new ElementOwnsExternalSourceAspects(scope),
+        scope: { id: IModel.rootSubjectId },
+        identifier: Guid.createValue(),
+        kind: ExternalSourceAspect.Kind.Scope,
+      } as ExternalSourceAspectProps);
+      txn.insertAspect({
+        classFullName: ExternalSourceAspect.classFullName,
+        element: new ElementOwnsExternalSourceAspects(owners[0]),
+        scope: { id: scope },
+        identifier: "0x123",
+        kind: ExternalSourceAspect.Kind.Element,
+      } as ExternalSourceAspectProps);
+    });
+    const options = { includeSourceProvenance: true };
+    const upstreamProvenance = (targetOwner: Id64String) =>
+      (
+        targetDb.elements.getAspects(
+          targetOwner,
+          ExternalSourceAspect.classFullName
+        ) as ExternalSourceAspect[]
+      ).filter((a) => a.identifier === "0x123");
+
+    const first = await transform(undefined, options);
+    expect(upstreamProvenance(first.targetOwners[0]).length).to.equal(1);
+    // Its scope is the target copy of the upstream scope Subject.
+    expect(upstreamProvenance(first.targetOwners[0])[0].scope?.id).to.equal(
+      first.importer.targetDb.elements.queryElementIdByCode(
+        Subject.createCode(targetDb, IModel.rootSubjectId, "Upstream")
+      )
+    );
+
+    const second = await transform(undefined, options);
+    expectAspectWrites(second.importer, 0, 0, 0);
+    expect(upstreamProvenance(second.targetOwners[0]).length).to.equal(1);
   });
 
   it("deletes target aspects of classes that became empty in the source", async () => {

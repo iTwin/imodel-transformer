@@ -35,7 +35,7 @@ export class ElementAspectCleanup {
   ) {}
 
   /** Records the replaceable unique and multi-aspects owned by the supplied target elements as deletion candidates, replacing any previous candidates.
-   * Excluded classes and transformer provenance aspects for `provenanceScopeId` are never candidates.
+   * Excluded classes and transformer provenance aspects are never candidates: those of `provenanceScopeId` and of every other target scope element (see [[isTransformerProvenanceAspect]]).
    */
   public async collect(
     targetElementIds: ReadonlySet<Id64String>,
@@ -189,7 +189,8 @@ function replaceableAspectQuery(
   // ExternalSourceAspect is a multi-aspect, so provenance aspects are only found
   // when querying ElementMultiAspect. For each candidate, check whether it is a
   // provenance aspect rather than listing every provenance aspect. This must
-  // match isTransformerProvenanceAspect.
+  // match isTransformerProvenanceAspect: a target scope element is one that
+  // owns a Scope ExternalSourceAspect.
   if (
     provenanceScopeId !== undefined &&
     aspectClassFullName === ElementMultiAspect.classFullName
@@ -203,8 +204,13 @@ function replaceableAspectQuery(
       SELECT 1 FROM ${ExternalSourceAspect.classFullName} esa
       WHERE esa.ECInstanceId = aspect.ECInstanceId
         AND (
-          (esa.Scope.Id = :provenanceScopeId AND esa.Kind IN (:elementKind, :relationshipKind))
-          OR (esa.Element.Id = :provenanceScopeId AND esa.Kind = :scopeKind)
+          esa.Kind = :scopeKind
+          OR (esa.Kind IN (:elementKind, :relationshipKind) AND (
+            esa.Scope.Id = :provenanceScopeId
+            OR esa.Scope.Id IN (
+              SELECT scopeEsa.Element.Id FROM ${ExternalSourceAspect.classFullName} scopeEsa
+              WHERE scopeEsa.Kind = :scopeKind)
+          ))
         )
     )`);
   }
@@ -217,21 +223,38 @@ function replaceableAspectQuery(
   return { ecsql, params };
 }
 
-/** Whether an ExternalSourceAspect is provenance that a transformation into `provenanceScopeId` writes: element or relationship provenance scoped to it, or scope provenance owned by it.
- * Other ExternalSourceAspects, including source provenance cloned with a scope that maps to `provenanceScopeId`, are replaceable.
+/** Whether an ExternalSourceAspect is transformer provenance: scope provenance, or element or relationship provenance scoped to one of `targetScopeElementIds`.
+ * Every target scope element counts, not just the current one: an element shared by several target scopes, such as one source imported in parts, carries each scope's provenance.
+ * Other ExternalSourceAspects, including source provenance cloned with a scope that maps to a target scope element, are replaceable unless they have the same kind.
  * @internal
  */
 export function isTransformerProvenanceAspect(
   aspect: ExternalSourceAspect,
-  provenanceScopeId: Id64String
+  targetScopeElementIds: ReadonlySet<Id64String>
 ): boolean {
+  if (aspect.kind === ExternalSourceAspect.Kind.Scope) return true;
   return (
-    (aspect.scope?.id === provenanceScopeId &&
-      (aspect.kind === ExternalSourceAspect.Kind.Element ||
-        aspect.kind === ExternalSourceAspect.Kind.Relationship)) ||
-    (aspect.element.id === provenanceScopeId &&
-      aspect.kind === ExternalSourceAspect.Kind.Scope)
+    (aspect.kind === ExternalSourceAspect.Kind.Element ||
+      aspect.kind === ExternalSourceAspect.Kind.Relationship) &&
+    aspect.scope !== undefined &&
+    targetScopeElementIds.has(aspect.scope.id)
   );
+}
+
+/** Returns the target scope elements: those that own a Scope ExternalSourceAspect.
+ * @internal
+ */
+export async function queryTargetScopeElementIds(
+  db: IModelDb
+): Promise<Set<Id64String>> {
+  const ids = new Set<Id64String>();
+  for await (const row of db.createQueryReader(
+    `SELECT Element.Id id FROM ${ExternalSourceAspect.classFullName} WHERE Kind = :scopeKind`,
+    new QueryBinder().bindString("scopeKind", ExternalSourceAspect.Kind.Scope),
+    { usePrimaryConn: true }
+  ))
+    ids.add(row.id);
+  return ids;
 }
 
 /** Whether an aspect is exactly of class `classFullName`, which may use either `:` or `.` as the separator.
