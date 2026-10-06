@@ -235,8 +235,8 @@ export class IModelImporter {
     get elementAspectCleanup(): ElementAspectCleanup;
     finalize(): void;
     importElement(elementProps: ElementProps): Promise<Id64String>;
-    importElementMultiAspects(aspectPropsArray: ElementAspectProps[], options?: ImportElementMultiAspectsOptions | ((a: ElementMultiAspect) => boolean)): Promise<Id64String[]>;
-    importElementUniqueAspect(aspectProps: ElementAspectProps, options?: ImportElementUniqueAspectOptions): Promise<Id64String>;
+    importElementMultiAspects(aspectPropsArray: ElementAspectProps[], options?: ImportElementMultiAspectsOptions): Promise<Id64String[]>;
+    importElementUniqueAspect(aspectProps: ElementAspectProps, options?: ImportElementUniqueAspectOptions): Promise<Id64String | undefined>;
     importModel(modelProps: ModelProps): Promise<void>;
     importRelationship(relationshipProps: RelationshipProps): Promise<Id64String>;
     markElementToUpdateDuringPreserveIds(elementId: Id64String): void;

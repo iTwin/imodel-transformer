@@ -231,345 +231,356 @@ const sharedCategory = (db: IModelDb) =>
   SpatialCategory.queryCategoryIdByName(db, IModel.dictionaryId, "shared")!;
 
 describe("ElementAspect ownership", () => {
-  it("1. keeps S1's aspects when S2 maps to the same element and has none", async () => {
-    const s1 = await createSource("S1", [
-      [multiA, "s1-a"],
-      [multiA, "s1-b"],
-      [uniqueA, "s1-u"],
-    ]);
-    const s2 = await createSource("S2", []);
-    const t = await createTarget();
+  describe("on a shared element", () => {
+    it("keeps S1's aspects when S2 maps to the same element and has none", async () => {
+      const s1 = await createSource("S1", [
+        [multiA, "s1-a"],
+        [multiA, "s1-b"],
+        [uniqueA, "s1-u"],
+      ]);
+      const s2 = await createSource("S2", []);
+      const t = await createTarget();
 
-    const first = await run(s1.db, t.db, { targetScopeElementId: t.scope1 });
-    expect(first.aspects.inserted).to.equal(3);
-    expect(first.records.inserted).to.equal(3);
-    const cat = sharedCategory(t.db);
-    const before = readAspects(t.db, cat);
+      const first = await run(s1.db, t.db, { targetScopeElementId: t.scope1 });
+      expect(first.aspects.inserted).to.equal(3);
+      expect(first.records.inserted).to.equal(3);
+      const cat = sharedCategory(t.db);
+      const before = readAspects(t.db, cat);
 
-    expect(
-      await run(s2.db, t.db, { targetScopeElementId: t.scope2 })
-    ).to.deep.equal(noWrites);
-    expect(readAspects(t.db, cat)).to.deep.equal(before);
+      expect(
+        await run(s2.db, t.db, { targetScopeElementId: t.scope2 })
+      ).to.deep.equal(noWrites);
+      expect(readAspects(t.db, cat)).to.deep.equal(before);
 
-    // 5. Unchanged reruns write nothing, for either source.
-    expect(
-      await run(s1.db, t.db, { targetScopeElementId: t.scope1 })
-    ).to.deep.equal(noWrites);
-    expect(
-      await run(s2.db, t.db, { targetScopeElementId: t.scope2 })
-    ).to.deep.equal(noWrites);
-    expect(readAspects(t.db, cat)).to.deep.equal(before);
-  });
-
-  it("2. keeps both sources' multi-aspects of one class; the first source keeps a shared unique slot", async () => {
-    const s1 = await createSource("S1", [
-      [multiA, "s1-a"],
-      [uniqueA, "s1-u"],
-    ]);
-    const s2 = await createSource("S2", [
-      [multiA, "s2-a"],
-      [uniqueA, "s2-u"],
-    ]);
-    const t = await createTarget();
-    await run(s1.db, t.db, { targetScopeElementId: t.scope1 });
-    const cat = sharedCategory(t.db);
-
-    const second = await run(s2.db, t.db, { targetScopeElementId: t.scope2 });
-    expect(second.aspects).to.deep.equal({
-      inserted: 1,
-      updated: 0,
-      deleted: 0,
+      // 5. Unchanged reruns write nothing, for either source.
+      expect(
+        await run(s1.db, t.db, { targetScopeElementId: t.scope1 })
+      ).to.deep.equal(noWrites);
+      expect(
+        await run(s2.db, t.db, { targetScopeElementId: t.scope2 })
+      ).to.deep.equal(noWrites);
+      expect(readAspects(t.db, cat)).to.deep.equal(before);
     });
-    expect(keys(t.db, cat)).to.deep.equal([
-      "MultiA=s1-a",
-      "MultiA=s2-a",
-      "UniqueA=s1-u",
-    ]);
 
-    expect(
-      await run(s1.db, t.db, { targetScopeElementId: t.scope1 })
-    ).to.deep.equal(noWrites);
-    expect(
-      await run(s2.db, t.db, { targetScopeElementId: t.scope2 })
-    ).to.deep.equal(noWrites);
-    expect(keys(t.db, cat)).to.deep.equal([
-      "MultiA=s1-a",
-      "MultiA=s2-a",
-      "UniqueA=s1-u",
-    ]);
-  });
+    it("keeps both sources' multi-aspects of one class; the first source keeps a shared unique slot", async () => {
+      const s1 = await createSource("S1", [
+        [multiA, "s1-a"],
+        [uniqueA, "s1-u"],
+      ]);
+      const s2 = await createSource("S2", [
+        [multiA, "s2-a"],
+        [uniqueA, "s2-u"],
+      ]);
+      const t = await createTarget();
+      await run(s1.db, t.db, { targetScopeElementId: t.scope1 });
+      const cat = sharedCategory(t.db);
 
-  it("3. applies S1's later updates and deletes only to S1's copies (full rerun)", async () => {
-    const s1 = await createSource("S1", [
-      [multiA, "same"],
-      [multiA, "s1-b"],
-      [uniqueA, "s1-u"],
-    ]);
-    // S2 has an identical aspect, which content matching cannot tell apart.
-    const s2 = await createSource("S2", [[multiA, "same"]]);
-    const t = await createTarget();
-    await run(s1.db, t.db, { targetScopeElementId: t.scope1 });
-    await run(s2.db, t.db, { targetScopeElementId: t.scope2 });
-    const cat = sharedCategory(t.db);
-    const s2Copy = readAspects(t.db, cat).filter(
-      (a) => a.key === "MultiA=same"
-    );
-    expect(s2Copy.length).to.equal(2);
+      const second = await run(s2.db, t.db, { targetScopeElementId: t.scope2 });
+      expect(second.aspects).to.deep.equal({
+        inserted: 1,
+        updated: 0,
+        deleted: 0,
+      });
+      expect(keys(t.db, cat)).to.deep.equal([
+        "MultiA=s1-a",
+        "MultiA=s2-a",
+        "UniqueA=s1-u",
+      ]);
 
-    withEditTxn(s1.db, "change S1", (txn) => {
-      txn.deleteAspect(s1.aspectIds[0]);
-      txn.updateAspect({
-        ...s1.db.elements.getAspect(s1.aspectIds[1]).toJSON(),
-        value: "s1-b2",
-      } as ElementAspectProps);
-      txn.deleteAspect(s1.aspectIds[2]);
+      expect(
+        await run(s1.db, t.db, { targetScopeElementId: t.scope1 })
+      ).to.deep.equal(noWrites);
+      expect(
+        await run(s2.db, t.db, { targetScopeElementId: t.scope2 })
+      ).to.deep.equal(noWrites);
+      expect(keys(t.db, cat)).to.deep.equal([
+        "MultiA=s1-a",
+        "MultiA=s2-a",
+        "UniqueA=s1-u",
+      ]);
     });
-    const writes = await run(s1.db, t.db, { targetScopeElementId: t.scope1 });
-    expect(writes.aspects).to.deep.equal({
-      inserted: 0,
-      updated: 1,
-      deleted: 2,
+
+    it("applies S1's later updates and deletes only to S1's copies (full rerun)", async () => {
+      const s1 = await createSource("S1", [
+        [multiA, "same"],
+        [multiA, "s1-b"],
+        [uniqueA, "s1-u"],
+      ]);
+      // S2 has an identical aspect, which content matching cannot tell apart.
+      const s2 = await createSource("S2", [[multiA, "same"]]);
+      const t = await createTarget();
+      await run(s1.db, t.db, { targetScopeElementId: t.scope1 });
+      await run(s2.db, t.db, { targetScopeElementId: t.scope2 });
+      const cat = sharedCategory(t.db);
+      const s2Copy = readAspects(t.db, cat).filter(
+        (a) => a.key === "MultiA=same"
+      );
+      expect(s2Copy.length).to.equal(2);
+
+      withEditTxn(s1.db, "change S1", (txn) => {
+        txn.deleteAspect(s1.aspectIds[0]);
+        txn.updateAspect({
+          ...s1.db.elements.getAspect(s1.aspectIds[1]).toJSON(),
+          value: "s1-b2",
+        } as ElementAspectProps);
+        txn.deleteAspect(s1.aspectIds[2]);
+      });
+      const writes = await run(s1.db, t.db, { targetScopeElementId: t.scope1 });
+      expect(writes.aspects).to.deep.equal({
+        inserted: 0,
+        updated: 1,
+        deleted: 2,
+      });
+      expect(writes.records).to.deep.equal({
+        inserted: 0,
+        updated: 0,
+        deleted: 2,
+      });
+      expect(keys(t.db, cat)).to.deep.equal(["MultiA=s1-b2", "MultiA=same"]);
+      expect(
+        await run(s2.db, t.db, { targetScopeElementId: t.scope2 })
+      ).to.deep.equal(noWrites);
+      expect(
+        await run(s1.db, t.db, { targetScopeElementId: t.scope1 })
+      ).to.deep.equal(noWrites);
     });
-    expect(writes.records).to.deep.equal({
-      inserted: 0,
-      updated: 0,
-      deleted: 2,
+
+    it("keeps each source's element provenance on a shared element without a FederationGuid", async () => {
+      // Without a FederationGuid, each source's provenance of the shared category
+      // is an Element ExternalSourceAspect scoped to that source's target scope.
+      const s1 = await createSource("S1", [[multiA, "a"]]);
+      const s2 = await createSource("S2", []);
+      for (const s of [s1, s2])
+        withEditTxn(s.db, "drop FederationGuid", (txn) =>
+          txn.updateElement({
+            ...s.db.elements.getElementProps(s.categoryId),
+            federationGuid: Guid.empty,
+          })
+        );
+      const t = await createTarget();
+      const options = (targetScopeElementId: Id64String) => ({
+        targetScopeElementId,
+        includeSourceProvenance: true,
+      });
+      const provenanceScopes = (ownerId: Id64String) =>
+        (
+          t.db.elements.getAspects(
+            ownerId,
+            ExternalSourceAspect.classFullName
+          ) as ExternalSourceAspect[]
+        )
+          .filter((a) => a.kind === ExternalSourceAspect.Kind.Element)
+          .map((a) => a.scope?.id)
+          .sort();
+
+      await run(s1.db, t.db, options(t.scope1));
+      const cat = sharedCategory(t.db);
+      await run(s2.db, t.db, options(t.scope2));
+      expect(provenanceScopes(cat)).to.deep.equal([t.scope1, t.scope2].sort());
+      expect(keys(t.db, cat)).to.deep.equal(["MultiA=a"]);
+
+      expect(await run(s1.db, t.db, options(t.scope1))).to.deep.equal(noWrites);
+      expect(provenanceScopes(cat)).to.deep.equal([t.scope1, t.scope2].sort());
     });
-    expect(keys(t.db, cat)).to.deep.equal(["MultiA=s1-b2", "MultiA=same"]);
-    expect(
-      await run(s2.db, t.db, { targetScopeElementId: t.scope2 })
-    ).to.deep.equal(noWrites);
-    expect(
-      await run(s1.db, t.db, { targetScopeElementId: t.scope1 })
-    ).to.deep.equal(noWrites);
   });
 
-  it("4. imports one source in parts with different target scopes without duplicates", async () => {
-    const s = await createSource("S", [
-      [multiA, "a"],
-      [multiA, "b"],
-      [uniqueA, "u"],
-    ]);
-    const t = await createTarget();
-    await run(s.db, t.db, { targetScopeElementId: t.scope1 });
-    const cat = sharedCategory(t.db);
-    const before = readAspects(t.db, cat);
+  describe("across target scopes", () => {
+    it("imports one source in parts with different target scopes without duplicates", async () => {
+      const s = await createSource("S", [
+        [multiA, "a"],
+        [multiA, "b"],
+        [uniqueA, "u"],
+      ]);
+      const t = await createTarget();
+      await run(s.db, t.db, { targetScopeElementId: t.scope1 });
+      const cat = sharedCategory(t.db);
+      const before = readAspects(t.db, cat);
 
-    expect(
-      await run(s.db, t.db, { targetScopeElementId: t.scope2 })
-    ).to.deep.equal(noWrites);
-    expect(readAspects(t.db, cat)).to.deep.equal(before);
+      expect(
+        await run(s.db, t.db, { targetScopeElementId: t.scope2 })
+      ).to.deep.equal(noWrites);
+      expect(readAspects(t.db, cat)).to.deep.equal(before);
 
-    // A later delete, seen first by part 2, is applied once and not undone by part 1.
-    withEditTxn(s.db, "delete", (txn) => txn.deleteAspect(s.aspectIds[0]));
-    const part2 = await run(s.db, t.db, { targetScopeElementId: t.scope2 });
-    expect(part2.aspects.deleted).to.equal(1);
-    expect(
-      await run(s.db, t.db, { targetScopeElementId: t.scope1 })
-    ).to.deep.equal(noWrites);
-    expect(keys(t.db, cat)).to.deep.equal(["MultiA=b", "UniqueA=u"]);
-  });
-
-  it("6. adopts a copied target's aspects without aspect writes on the first sync", async () => {
-    const s = await createSource("S", [
-      [multiA, "a"],
-      [multiA, "b"],
-      [uniqueA, "u"],
-    ]);
-    const forkFile = IModelTransformerTestUtils.prepareOutputFile(
-      "AspectOwnership",
-      `Fork-${dbCount++}.bim`
-    );
-    const fork = SnapshotDb.createFrom(s.db, forkFile);
-    const before = readAspects(fork, s.categoryId);
-
-    const first = await run(s.db, fork, {
-      wasSourceIModelCopiedToTarget: true,
+      // A later delete, seen first by part 2, is applied once and not undone by part 1.
+      withEditTxn(s.db, "delete", (txn) => txn.deleteAspect(s.aspectIds[0]));
+      const part2 = await run(s.db, t.db, { targetScopeElementId: t.scope2 });
+      expect(part2.aspects.deleted).to.equal(1);
+      expect(
+        await run(s.db, t.db, { targetScopeElementId: t.scope1 })
+      ).to.deep.equal(noWrites);
+      expect(keys(t.db, cat)).to.deep.equal(["MultiA=b", "UniqueA=u"]);
     });
-    expect(first.aspects).to.deep.equal({
-      inserted: 0,
-      updated: 0,
-      deleted: 0,
-    });
-    expect(first.records.inserted).to.equal(3);
-    expect(readAspects(fork, s.categoryId)).to.deep.equal(before);
-    expect(await run(s.db, fork, {})).to.deep.equal(noWrites);
   });
 
-  it("7. adopts a pre-existing target's unrecorded aspects once, then tracks them", async () => {
-    const s1 = await createSource("S1", [
-      [multiA, "a"],
-      [uniqueA, "u"],
-    ]);
-    const s2 = await createSource("S2", []);
-    const t = await createTarget();
-    await run(s1.db, t.db, { targetScopeElementId: t.scope1 });
-    const cat = sharedCategory(t.db);
-    const before = readAspects(t.db, cat);
-    dropRecords(t.db, cat);
-
-    const adopt = await run(s1.db, t.db, { targetScopeElementId: t.scope1 });
-    expect(adopt.aspects).to.deep.equal({
-      inserted: 0,
-      updated: 0,
-      deleted: 0,
-    });
-    expect(adopt.records.inserted).to.equal(2);
-    expect(readAspects(t.db, cat)).to.deep.equal(before);
-    // From now on S2 can't touch them.
-    expect(
-      await run(s2.db, t.db, { targetScopeElementId: t.scope2 })
-    ).to.deep.equal(noWrites);
-    expect(readAspects(t.db, cat)).to.deep.equal(before);
-  });
-
-  it("7b. a pre-existing shared target loses unrecorded aspects if the other source runs first", async () => {
-    const s1 = await createSource("S1", [[multiA, "a"]]);
-    const s2 = await createSource("S2", []);
-    const t = await createTarget();
-    await run(s1.db, t.db, { targetScopeElementId: t.scope1 });
-    const cat = sharedCategory(t.db);
-    dropRecords(t.db, cat);
-    // Same as #447 today: unrecorded aspects look like S2's own leftovers.
-    const writes = await run(s2.db, t.db, { targetScopeElementId: t.scope2 });
-    expect(writes.aspects.deleted).to.equal(1);
-    // S1's next run puts it back and records it.
-    await run(s1.db, t.db, { targetScopeElementId: t.scope1 });
-    expect(keys(t.db, cat)).to.deep.equal(["MultiA=a"]);
-  });
-
-  it("8. does not copy a source's own records with includeSourceProvenance", async () => {
-    const s0 = await createSource("S0", [
-      [multiA, "a"],
-      [uniqueA, "u"],
-    ]);
-    const mid = await createDb("Mid");
-    await run(s0.db, mid, {});
-    const midCat = sharedCategory(mid);
-    expect(readRecords(mid, midCat).size).to.equal(2);
-
-    const t = await createTarget();
-    const options = {
-      includeSourceProvenance: true,
-      targetScopeElementId: t.scope1,
-    };
-    await run(mid, t.db, options);
-    const cat = sharedCategory(t.db);
-    expect(keys(t.db, cat)).to.deep.equal(["MultiA=a", "UniqueA=u"]);
-    // Only this hop's records: one per copied content aspect, none copied from Mid.
-    const records = [...readRecords(t.db, cat).values()];
-    expect(records.length).to.equal(2);
-    expect(records.every((r) => r.sourceIModel === mid.iModelId)).to.equal(
-      true
-    );
-    expect(await run(mid, t.db, options)).to.deep.equal(noWrites);
-  });
-
-  it("9. a fork of a target syncs its source's updates; inherited upstream records are dropped", async () => {
-    // S has records of its own upstream import from U.
-    const u = await createSource("U", [
-      [multiA, "a"],
-      [uniqueA, "u"],
-    ]);
-    const s = await createDb("S");
-    await run(u.db, s, {});
-    const sCat = sharedCategory(s);
-    expect(readRecords(s, sCat).size).to.equal(2);
-
-    const fork = SnapshotDb.createFrom(
-      s,
-      IModelTransformerTestUtils.prepareOutputFile(
+  describe("on existing, copied, and forked targets", () => {
+    it("adopts a copied target's aspects without aspect writes on the first sync", async () => {
+      const s = await createSource("S", [
+        [multiA, "a"],
+        [multiA, "b"],
+        [uniqueA, "u"],
+      ]);
+      const forkFile = IModelTransformerTestUtils.prepareOutputFile(
         "AspectOwnership",
         `Fork-${dbCount++}.bim`
-      )
-    );
-    // The fork inherits S's scope for U on the root subject, so S needs its own scope.
-    const fromS = withEditTxn(fork, "scope", (txn) =>
-      Subject.insert(txn, IModel.rootSubjectId, "fromS")
-    );
-    const first = await run(s, fork, {
-      wasSourceIModelCopiedToTarget: true,
-      targetScopeElementId: fromS,
-    });
-    expect(first.aspects).to.deep.equal({
-      inserted: 0,
-      updated: 0,
-      deleted: 0,
-    });
-    expect(
-      [...readRecords(fork, sCat).values()].every(
-        (r) => r.sourceIModel === s.iModelId
-      )
-    ).to.equal(true);
-
-    // Without dropping U's records, S would treat every forked aspect as foreign.
-    withEditTxn(s, "edit", (txn) => {
-      for (const aspect of s.elements.getAspects(sCat))
-        if (aspect.classFullName.startsWith(`${schemaName}:`))
-          txn.updateAspect({ ...aspect.toJSON(), value: "edited" } as any);
-    });
-    const sync = await run(s, fork, { targetScopeElementId: fromS });
-    expect(sync.aspects.updated).to.equal(2);
-    expect(keys(fork, sCat)).to.deep.equal(["MultiA=edited", "UniqueA=edited"]);
-  });
-
-  it("11. keeps each source's element provenance on a shared element without a FederationGuid", async () => {
-    // Without a FederationGuid, each source's provenance of the shared category
-    // is an Element ExternalSourceAspect scoped to that source's target scope.
-    const s1 = await createSource("S1", [[multiA, "a"]]);
-    const s2 = await createSource("S2", []);
-    for (const s of [s1, s2])
-      withEditTxn(s.db, "drop FederationGuid", (txn) =>
-        txn.updateElement({
-          ...s.db.elements.getElementProps(s.categoryId),
-          federationGuid: Guid.empty,
-        })
       );
-    const t = await createTarget();
-    const options = (targetScopeElementId: Id64String) => ({
-      targetScopeElementId,
-      includeSourceProvenance: true,
+      const fork = SnapshotDb.createFrom(s.db, forkFile);
+      const before = readAspects(fork, s.categoryId);
+
+      const first = await run(s.db, fork, {
+        wasSourceIModelCopiedToTarget: true,
+      });
+      expect(first.aspects).to.deep.equal({
+        inserted: 0,
+        updated: 0,
+        deleted: 0,
+      });
+      expect(first.records.inserted).to.equal(3);
+      expect(readAspects(fork, s.categoryId)).to.deep.equal(before);
+      expect(await run(s.db, fork, {})).to.deep.equal(noWrites);
     });
-    const provenanceScopes = (ownerId: Id64String) =>
-      (
-        t.db.elements.getAspects(
-          ownerId,
-          ExternalSourceAspect.classFullName
-        ) as ExternalSourceAspect[]
-      )
-        .filter((a) => a.kind === ExternalSourceAspect.Kind.Element)
-        .map((a) => a.scope?.id)
-        .sort();
 
-    await run(s1.db, t.db, options(t.scope1));
-    const cat = sharedCategory(t.db);
-    await run(s2.db, t.db, options(t.scope2));
-    expect(provenanceScopes(cat)).to.deep.equal([t.scope1, t.scope2].sort());
-    expect(keys(t.db, cat)).to.deep.equal(["MultiA=a"]);
+    it("adopts a pre-existing target's unrecorded aspects once, then tracks them", async () => {
+      const s1 = await createSource("S1", [
+        [multiA, "a"],
+        [uniqueA, "u"],
+      ]);
+      const s2 = await createSource("S2", []);
+      const t = await createTarget();
+      await run(s1.db, t.db, { targetScopeElementId: t.scope1 });
+      const cat = sharedCategory(t.db);
+      const before = readAspects(t.db, cat);
+      dropRecords(t.db, cat);
 
-    expect(await run(s1.db, t.db, options(t.scope1))).to.deep.equal(noWrites);
-    expect(provenanceScopes(cat)).to.deep.equal([t.scope1, t.scope2].sort());
+      const adopt = await run(s1.db, t.db, { targetScopeElementId: t.scope1 });
+      expect(adopt.aspects).to.deep.equal({
+        inserted: 0,
+        updated: 0,
+        deleted: 0,
+      });
+      expect(adopt.records.inserted).to.equal(2);
+      expect(readAspects(t.db, cat)).to.deep.equal(before);
+      // From now on S2 can't touch them.
+      expect(
+        await run(s2.db, t.db, { targetScopeElementId: t.scope2 })
+      ).to.deep.equal(noWrites);
+      expect(readAspects(t.db, cat)).to.deep.equal(before);
+    });
+
+    it("a pre-existing shared target loses unrecorded aspects if the other source runs first", async () => {
+      const s1 = await createSource("S1", [[multiA, "a"]]);
+      const s2 = await createSource("S2", []);
+      const t = await createTarget();
+      await run(s1.db, t.db, { targetScopeElementId: t.scope1 });
+      const cat = sharedCategory(t.db);
+      dropRecords(t.db, cat);
+      // Same as #447 today: unrecorded aspects look like S2's own leftovers.
+      const writes = await run(s2.db, t.db, { targetScopeElementId: t.scope2 });
+      expect(writes.aspects.deleted).to.equal(1);
+      // S1's next run puts it back and records it.
+      await run(s1.db, t.db, { targetScopeElementId: t.scope1 });
+      expect(keys(t.db, cat)).to.deep.equal(["MultiA=a"]);
+    });
+
+    it("a fork of a target syncs its source's updates; inherited upstream records are dropped", async () => {
+      // S has records of its own upstream import from U.
+      const u = await createSource("U", [
+        [multiA, "a"],
+        [uniqueA, "u"],
+      ]);
+      const s = await createDb("S");
+      await run(u.db, s, {});
+      const sCat = sharedCategory(s);
+      expect(readRecords(s, sCat).size).to.equal(2);
+
+      const fork = SnapshotDb.createFrom(
+        s,
+        IModelTransformerTestUtils.prepareOutputFile(
+          "AspectOwnership",
+          `Fork-${dbCount++}.bim`
+        )
+      );
+      // The fork inherits S's scope for U on the root subject, so S needs its own scope.
+      const fromS = withEditTxn(fork, "scope", (txn) =>
+        Subject.insert(txn, IModel.rootSubjectId, "fromS")
+      );
+      const first = await run(s, fork, {
+        wasSourceIModelCopiedToTarget: true,
+        targetScopeElementId: fromS,
+      });
+      expect(first.aspects).to.deep.equal({
+        inserted: 0,
+        updated: 0,
+        deleted: 0,
+      });
+      expect(
+        [...readRecords(fork, sCat).values()].every(
+          (r) => r.sourceIModel === s.iModelId
+        )
+      ).to.equal(true);
+
+      // Without dropping U's records, S would treat every forked aspect as foreign.
+      withEditTxn(s, "edit", (txn) => {
+        for (const aspect of s.elements.getAspects(sCat))
+          if (aspect.classFullName.startsWith(`${schemaName}:`))
+            txn.updateAspect({ ...aspect.toJSON(), value: "edited" } as any);
+      });
+      const sync = await run(s, fork, { targetScopeElementId: fromS });
+      expect(sync.aspects.updated).to.equal(2);
+      expect(keys(fork, sCat)).to.deep.equal([
+        "MultiA=edited",
+        "UniqueA=edited",
+      ]);
+    });
   });
 
-  it("10. removes records whose target aspect no longer exists", async () => {
-    const s1 = await createSource("S1", [
-      [multiA, "a"],
-      [multiA, "b"],
-    ]);
-    const s2 = await createSource("S2", []);
-    const t = await createTarget();
-    await run(s1.db, t.db, { targetScopeElementId: t.scope1 });
-    const cat = sharedCategory(t.db);
-    expect(countAllRecords(t.db)).to.equal(2);
+  describe("records", () => {
+    it("does not copy a source's own records with includeSourceProvenance", async () => {
+      const s0 = await createSource("S0", [
+        [multiA, "a"],
+        [uniqueA, "u"],
+      ]);
+      const mid = await createDb("Mid");
+      await run(s0.db, mid, {});
+      const midCat = sharedCategory(mid);
+      expect(readRecords(mid, midCat).size).to.equal(2);
 
-    // Deleted outside the transformer; the next run of any source drops its record.
-    withEditTxn(t.db, "delete one", (txn) =>
-      txn.deleteAspect(readAspects(t.db, cat)[0].id)
-    );
-    const writes = await run(s2.db, t.db, { targetScopeElementId: t.scope2 });
-    expect(writes.records.deleted).to.equal(1);
-    expect(countAllRecords(t.db)).to.equal(1);
-    expect(keys(t.db, cat)).to.deep.equal(["MultiA=b"]);
+      const t = await createTarget();
+      const options = {
+        includeSourceProvenance: true,
+        targetScopeElementId: t.scope1,
+      };
+      await run(mid, t.db, options);
+      const cat = sharedCategory(t.db);
+      expect(keys(t.db, cat)).to.deep.equal(["MultiA=a", "UniqueA=u"]);
+      // Only this hop's records: one per copied content aspect, none copied from Mid.
+      const records = [...readRecords(t.db, cat).values()];
+      expect(records.length).to.equal(2);
+      expect(records.every((r) => r.sourceIModel === mid.iModelId)).to.equal(
+        true
+      );
+      expect(await run(mid, t.db, options)).to.deep.equal(noWrites);
+    });
+
+    it("removes records whose target aspect no longer exists", async () => {
+      const s1 = await createSource("S1", [
+        [multiA, "a"],
+        [multiA, "b"],
+      ]);
+      const s2 = await createSource("S2", []);
+      const t = await createTarget();
+      await run(s1.db, t.db, { targetScopeElementId: t.scope1 });
+      const cat = sharedCategory(t.db);
+      expect(countAllRecords(t.db)).to.equal(2);
+
+      // Deleted outside the transformer; the next run of any source drops its record.
+      withEditTxn(t.db, "delete one", (txn) =>
+        txn.deleteAspect(readAspects(t.db, cat)[0].id)
+      );
+      const writes = await run(s2.db, t.db, { targetScopeElementId: t.scope2 });
+      expect(writes.records.deleted).to.equal(1);
+      expect(countAllRecords(t.db)).to.equal(1);
+      expect(keys(t.db, cat)).to.deep.equal(["MultiA=b"]);
+    });
   });
 });
 
@@ -615,7 +626,7 @@ describe("ElementAspect ownership with change processing", () => {
     });
   }
 
-  it("3. processChanges applies S1's update and delete only to S1's copies after S2 ran", async () => {
+  it("processChanges applies S1's update and delete only to S1's copies after S2 ran", async () => {
     const seedSource = (aspects: Array<[string, string]>) => (db: SnapshotDb) =>
       withEditTxn(db, "seed", (txn) => {
         const categoryId = SpatialCategory.insert(

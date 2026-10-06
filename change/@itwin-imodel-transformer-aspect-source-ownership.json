@@ -1,6 +1,6 @@
 {
-  "type": "minor",
-  "comment": "Record which source iModel each target ElementAspect was imported from, so transforms from different sources into a shared element no longer delete or overwrite each other's aspects. Add beta options objects to IModelImporter.importElementUniqueAspect and importElementMultiAspects: a filter for target aspects the import must leave alone, and known target aspect IDs for multi-aspects.",
+  "type": "major",
+  "comment": "Record which source iModel each target ElementAspect was imported from, so transforms from different sources into a shared element no longer delete or overwrite each other's aspects. IModelImporter.importElementUniqueAspect and importElementMultiAspects take beta options objects: a filter for target aspects the import must leave alone, and known target aspect IDs for multi-aspects. importElementMultiAspects no longer takes a filter function as its second argument, and importElementUniqueAspect returns undefined when its filter skips the import.",
   "packageName": "@itwin/imodel-transformer",
   "email": "50554904+hl662@users.noreply.github.com",
   "dependentChangeType": "patch"

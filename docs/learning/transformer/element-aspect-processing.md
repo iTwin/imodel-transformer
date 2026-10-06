@@ -159,11 +159,11 @@ Matching is by exact class. `getAspects` also returns aspects of derived classes
 
 - `importElementUniqueAspect` reuses the owner's unique aspect of exactly the given class. It updates that aspect only when its properties differ and returns its ID.
 - If there's no exact-class match, `importElementUniqueAspect` deletes the owner's unique aspects of a base or derived class through `onDeleteElementAspect`, then inserts the aspect and returns the new ID. iModel unique-aspect writes treat those classes as one slot, so leaving them would let the insert or a later delete remove data without the hook running.
-- `importElementMultiAspects` groups the props by `classFullName`. Within each class, it matches target aspects of exactly that class in `getAspects` order, updates only changed ones, inserts extra props, and deletes extra target aspects of that class. Aspects of other classes, including derived classes, aren't touched.
+- `importElementMultiAspects` groups the props by `classFullName`. Within each class, it matches target aspects of exactly that class, first through `targetAspectIds` and then in `getAspects` order, updates only changed ones, inserts extra props, and deletes extra target aspects of that class. Aspects of other classes, including derived classes, aren't touched.
 
 Both methods take an options object:
 
-- `filter` returns false for existing target aspects that the call must not match, update, or delete. If such an aspect holds the unique slot, `importElementUniqueAspect` imports nothing and returns `Id64.invalid`.
+- `filter` returns false for existing target aspects that the call must not match, update, or delete. If such an aspect holds the unique slot, `importElementUniqueAspect` imports nothing and returns `undefined`.
 - `targetAspectIds` (multi-aspects only) gives, for each entry, the existing target aspect it updates, for example from the caller's own record of earlier imports. Entries without one, or whose target aspect no longer exists, has another class, or is rejected by `filter`, are matched in order as above.
 
 The importer never matches by an incoming `props.id`, because props copied from another iModel carry that iModel's IDs.

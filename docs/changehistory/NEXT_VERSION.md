@@ -26,7 +26,9 @@ The transformer now records which source iModel and source aspect each target as
 - **Cloned provenance:** with `includeSourceProvenance`, provenance that a source cloned and recorded is deleted when that source deletes it. Without a record, it is never deleted.
 - **Multi-aspect deletions:** when a source deletes one of several multi-aspects of a class, the transformer now deletes only that aspect's copy. Previously the later aspects were matched by position, so each was updated and the last was deleted.
 
-`IModelImporter.importElementUniqueAspect` and `importElementMultiAspects` take new beta options objects, `ImportElementUniqueAspectOptions` and `ImportElementMultiAspectsOptions`. `filter` excludes existing target aspects that the call must not match, update, or delete. `targetAspectIds` gives the known target aspect for each multi-aspect entry. `importElementMultiAspects` still accepts a filter function as its second argument.
+`IModelImporter.importElementUniqueAspect` and `importElementMultiAspects` take new beta options objects, `ImportElementUniqueAspectOptions` and `ImportElementMultiAspectsOptions`. `filter` excludes existing target aspects that the call must not match, update, or delete. `targetAspectIds` gives the known target aspect for each multi-aspect entry. `importElementUniqueAspect` returns `undefined` when `filter` rejects the aspect holding the unique slot and nothing is imported.
+
+`importElementMultiAspects` no longer takes a filter function as its second argument. Pass it in the options object instead: replace `importElementMultiAspects(props, filterFn)` with `importElementMultiAspects(props, { filter: filterFn })`.
 
 See [Aspects from several sources](../learning/transformer/element-aspect-processing.md#aspects-from-several-sources) for details.
 

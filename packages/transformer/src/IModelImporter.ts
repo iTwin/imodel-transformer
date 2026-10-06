@@ -649,19 +649,19 @@ export class IModelImporter {
   /** Import an ElementUniqueAspect into the target iModel.
    * @note Only an existing aspect of exactly `aspectProps.classFullName` on the owner is reused, and it is updated only when its properties differ.
    * If there is none, the owner's unique aspects of a base or derived class are deleted through [[onDeleteElementAspect]] before the aspect is inserted, because iModel unique-aspect writes treat those classes as one slot.
-   * @returns the ID of the reused or inserted aspect, or `Id64.invalid` when `options.filter` rejected the aspect holding the slot and nothing was imported
+   * @returns the ID of the reused or inserted aspect, or undefined when `options.filter` rejected the aspect holding the slot and nothing was imported
    */
   public async importElementUniqueAspect(
     aspectProps: ElementAspectProps,
     options: ImportElementUniqueAspectOptions = {}
-  ): Promise<Id64String> {
+  ): Promise<Id64String | undefined> {
     const { filter = () => true } = options;
     const elementId = aspectProps.element.id;
     const existing = this.getTargetAspects(
       elementId,
       aspectProps.classFullName
     )[0];
-    if (existing !== undefined && !filter(existing)) return Id64.invalid;
+    if (existing !== undefined && !filter(existing)) return undefined;
     if (existing === undefined) {
       const relatedAspects: ElementAspect[] = [];
       for (const aspectId of await this.queryRelatedUniqueAspectIds(
@@ -671,7 +671,7 @@ export class IModelImporter {
         const aspect = tryGetAspect(this.targetDb, aspectId);
         if (aspect !== undefined) relatedAspects.push(aspect);
       }
-      if (relatedAspects.some((a) => !filter(a))) return Id64.invalid;
+      if (relatedAspects.some((a) => !filter(a))) return undefined;
       // iModel unique-aspect writes treat base and derived classes as one slot:
       // inserting replaces an aspect of a derived class, and deleting an aspect
       // of a base class also deletes derived ones. Delete related aspects first
@@ -750,19 +750,16 @@ export class IModelImporter {
 
   /** Import the collection of ElementMultiAspects into the target iModel.
    * @param aspectPropsArray The ElementMultiAspects to import
-   * @param options See [[ImportElementMultiAspectsOptions]]. A filter function is also accepted directly, as before.
+   * @param options See [[ImportElementMultiAspectsOptions]].
    * @note For insert vs. update reasons, it is important to process all ElementMultiAspects owned by an Element at once since we don't have aspect-specific provenance.
-   * @note Aspects are grouped by `classFullName`. Each group is matched in order only against existing target aspects of exactly that class: matches are updated when their properties differ, extra props are inserted, and extra target aspects of that class are deleted. Target aspects of other classes, including derived classes, are not changed.
+   * @note Aspects are grouped by `classFullName`. Each group is matched only against existing target aspects of exactly that class: first through `options.targetAspectIds`, then in order. Matches are updated when their properties differ, extra props are inserted, and extra target aspects of that class are deleted. Target aspects of other classes, including derived classes, are not changed.
    * @returns the array of ids of the resulting ElementMultiAspects, in the same order of the aspectPropsArray parameter
    */
   public async importElementMultiAspects(
     aspectPropsArray: ElementAspectProps[],
-    options:
-      | ImportElementMultiAspectsOptions
-      | ((a: ElementMultiAspect) => boolean) = {}
+    options: ImportElementMultiAspectsOptions = {}
   ): Promise<Id64String[]> {
-    const { filter = () => true, targetAspectIds } =
-      typeof options === "function" ? { filter: options } : options;
+    const { filter = () => true, targetAspectIds } = options;
     const result = new Array<Id64String | undefined>(
       aspectPropsArray.length
     ).fill(undefined);
@@ -786,77 +783,45 @@ export class IModelImporter {
     // Handle ElementMultiAspects in groups by class
     for (const [
       aspectClassFullName,
-      proposedAspectsOfClass,
+      proposedAspects,
     ] of proposedAspectsByClass) {
       const targetAspects = this.getTargetAspects(
         elementId,
         aspectClassFullName
       ).filter((aspect) => filter(aspect));
-      // Entries with a known target aspect update it in place; the rest are
-      // matched by position against the remaining target aspects.
-      const knownIds = new Set<Id64String>();
-      const proposedAspects: typeof proposedAspectsOfClass = [];
-      for (const proposed of proposedAspectsOfClass) {
-        const knownId = targetAspectIds?.[proposed.index];
-        const known =
-          knownId === undefined
-            ? undefined
-            : targetAspects.find((aspect) => aspect.id === knownId);
-        if (known === undefined) {
-          proposedAspects.push(proposed);
+      for (const aspect of targetAspects)
+        this._elementAspectCleanup.retain(aspect.id);
+
+      // Pair each entry with its known target aspect, then the rest in order
+      // with the remaining target aspects.
+      const byId = new Map(targetAspects.map((aspect) => [aspect.id, aspect]));
+      const known = proposedAspects.map(({ index }) => {
+        const id = targetAspectIds?.[index];
+        const aspect = id === undefined ? undefined : byId.get(id);
+        if (aspect !== undefined) byId.delete(aspect.id);
+        return aspect;
+      });
+      const unmatched = [...byId.values()];
+      const pairs = proposedAspects.map(
+        (proposed, i) => [proposed, known[i] ?? unmatched.shift()] as const
+      );
+
+      for (const [{ props, index }, target] of pairs) {
+        if (target === undefined) {
+          this._elementAspectCleanup.invalidate(elementId);
+          result[index] = await this.onInsertElementAspect(props);
           continue;
         }
-        knownIds.add(known.id);
-        this._elementAspectCleanup.retain(known.id);
-        proposed.props.id = known.id;
-        if (hasEntityChanged(known, proposed.props)) {
+        props.id = target.id;
+        if (hasEntityChanged(target, props)) {
           this._elementAspectCleanup.invalidate(elementId);
-          await this.onUpdateElementAspect(proposed.props);
+          await this.onUpdateElementAspect(props);
         }
-        result[proposed.index] = known.id;
+        result[index] = target.id;
       }
-      const currentAspects = targetAspects
-        .map((props, index) => ({ props, index }) as const)
-        .filter(({ props }) => !knownIds.has(props.id));
-      for (const { props } of currentAspects)
-        this._elementAspectCleanup.retain(props.id);
-
-      if (proposedAspects.length >= currentAspects.length) {
-        for (let index = 0; index < proposedAspects.length; index++) {
-          const { props, index: resultIndex } = proposedAspects[index];
-          let id: Id64String;
-          if (index < currentAspects.length) {
-            id = currentAspects[index].props.id;
-            props.id = id;
-            if (hasEntityChanged(currentAspects[index].props, props)) {
-              this._elementAspectCleanup.invalidate(elementId);
-              await this.onUpdateElementAspect(props);
-            }
-            id = props.id;
-          } else {
-            this._elementAspectCleanup.invalidate(elementId);
-            id = await this.onInsertElementAspect(props);
-          }
-          result[resultIndex] = id;
-        }
-      } else {
-        for (let index = 0; index < currentAspects.length; index++) {
-          const { props } = currentAspects[index];
-          if (index < proposedAspects.length) {
-            const { props: proposedProps, index: resultIndex } =
-              proposedAspects[index];
-            const id = props.id;
-            proposedProps.id = id;
-            if (hasEntityChanged(props, proposedProps)) {
-              this._elementAspectCleanup.invalidate(elementId);
-              await this.onUpdateElementAspect(proposedProps);
-            }
-            result[resultIndex] = id;
-          } else {
-            this._elementAspectCleanup.invalidate(elementId);
-            await this.onDeleteElementAspect(props);
-          }
-        }
+      for (const target of unmatched) {
+        this._elementAspectCleanup.invalidate(elementId);
+        await this.onDeleteElementAspect(target);
       }
     }
 

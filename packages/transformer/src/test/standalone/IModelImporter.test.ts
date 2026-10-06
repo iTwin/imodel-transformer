@@ -20,7 +20,7 @@ import {
   ExternalSourceAspectProps,
   IModel,
 } from "@itwin/core-common";
-import { Id64, Id64String } from "@itwin/core-bentley";
+import { Id64String } from "@itwin/core-bentley";
 import { IModelImporter } from "../../IModelImporter";
 import { IModelTransformerError } from "../../IModelTransformerError";
 import { isTransformerProvenanceAspect } from "../../ProvenanceManager";
@@ -175,7 +175,7 @@ describe("IModelImporter", () => {
         await importer.importElementUniqueAspect(unique("u2"), {
           filter: (a) => a.id !== uniqueId,
         })
-      ).to.equal(Id64.invalid);
+      ).to.equal(undefined);
       expect(values("ImportOptions:UniqueValue")).to.deep.equal([
         `${uniqueId}=u`,
       ]);
