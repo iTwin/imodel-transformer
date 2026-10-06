@@ -20,7 +20,7 @@ import {
   ExternalSourceAspectProps,
   IModel,
 } from "@itwin/core-common";
-import { Id64String } from "@itwin/core-bentley";
+import { Id64, Id64String } from "@itwin/core-bentley";
 import { IModelImporter } from "../../IModelImporter";
 import { IModelTransformerError } from "../../IModelTransformerError";
 import { isTransformerProvenanceAspect } from "../../ProvenanceManager";
@@ -112,6 +112,92 @@ describe("IModelImporter", () => {
         targetDb.elements.getAspects(elementId, aspectClassFullName).length,
         "surplus aspect should have been deleted"
       ).to.equal(1);
+      editTxn.end();
+    } finally {
+      targetDb.close();
+    }
+  });
+
+  it("aspect import options protect filtered aspects and update known target aspects", async () => {
+    const targetDb = StandaloneDb.createEmpty(
+      IModelTransformerTestUtils.prepareOutputFile(
+        "IModelImporter",
+        "AspectImportOptions.bim"
+      ),
+      { rootSubject: { name: "AspectImportOptions" } }
+    );
+    try {
+      await targetDb.importSchemaStrings([
+        `<?xml version="1.0" encoding="UTF-8"?>
+<ECSchema schemaName="ImportOptions" alias="io" version="01.00.00" xmlns="http://www.bentley.com/schemas/Bentley.ECXML.3.1">
+  <ECSchemaReference name="BisCore" version="01.00.04" alias="bis"/>
+  <ECEntityClass typeName="UniqueValue" modifier="Sealed">
+    <BaseClass>bis:ElementUniqueAspect</BaseClass>
+    <ECProperty propertyName="Value" typeName="string"/>
+  </ECEntityClass>
+  <ECEntityClass typeName="MultiValue" modifier="Sealed">
+    <BaseClass>bis:ElementMultiAspect</BaseClass>
+    <ECProperty propertyName="Value" typeName="string"/>
+  </ECEntityClass>
+</ECSchema>`,
+      ]);
+      const ownerId = withEditTxn(targetDb, "insert subject", (txn) =>
+        Subject.create(targetDb, IModel.rootSubjectId, "Owner").insert(txn)
+      );
+      const unique = (value: string): ElementAspectProps =>
+        ({
+          classFullName: "ImportOptions:UniqueValue",
+          element: new ElementOwnsUniqueAspect(ownerId),
+          value,
+        }) as ElementAspectProps;
+      const multi = (value: string, id?: Id64String): ElementAspectProps =>
+        ({
+          classFullName: "ImportOptions:MultiValue",
+          element: new ElementOwnsMultiAspects(ownerId),
+          value,
+          id,
+        }) as ElementAspectProps;
+      const values = (classFullName: string) =>
+        targetDb.elements
+          .getAspects(ownerId, classFullName)
+          .map((a) => `${a.id}=${a.asAny.value}`);
+
+      const editTxn = createStartedEditTxn(targetDb);
+      const importer = new IModelImporter(editTxn);
+      const uniqueId = await importer.importElementUniqueAspect(unique("u"));
+      const [aId, bId] = await importer.importElementMultiAspects([
+        multi("a"),
+        multi("b"),
+      ]);
+
+      // A rejected aspect holding the unique slot is kept; nothing is imported.
+      expect(
+        await importer.importElementUniqueAspect(unique("u2"), {
+          filter: (a) => a.id !== uniqueId,
+        })
+      ).to.equal(Id64.invalid);
+      expect(values("ImportOptions:UniqueValue")).to.deep.equal([
+        `${uniqueId}=u`,
+      ]);
+
+      // A rejected multi-aspect is neither matched nor deleted.
+      expect(
+        await importer.importElementMultiAspects([multi("x")], {
+          filter: (a) => a.id !== aId,
+        })
+      ).to.deep.equal([bId]);
+      expect(values("ImportOptions:MultiValue")).to.deep.equal([
+        `${aId}=a`,
+        `${bId}=x`,
+      ]);
+
+      // A known target aspect is updated in place; a stray incoming props.id is ignored.
+      expect(
+        await importer.importElementMultiAspects([multi("b2", aId)], {
+          targetAspectIds: [bId],
+        })
+      ).to.deep.equal([bId]);
+      expect(values("ImportOptions:MultiValue")).to.deep.equal([`${bId}=b2`]);
       editTxn.end();
     } finally {
       targetDb.close();

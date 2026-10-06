@@ -97,6 +97,7 @@ import {
   IModelExportHandler,
 } from "./IModelExporter";
 import { IModelImporter, OptimizeGeometryOptions } from "./IModelImporter";
+import { ElementAspectOwnership } from "./ElementAspectOwnership";
 import type { ElementAspectExportCompletion } from "./ElementAspectExportCoordinator";
 import { TransformerLoggerCategory } from "./TransformerLoggerCategory";
 import { IModelCloneContext } from "./IModelCloneContext";
@@ -1822,6 +1823,9 @@ export class IModelTransformer extends IModelExportHandler {
 
   /** Complete a high-level transformation after all export operations finish. */
   private async finalizeTransformation() {
+    const aspectOwnership = await this.getAspectOwnership();
+    aspectOwnership.flush(true);
+    aspectOwnership.sweep();
     this.importer.finalize();
     this._cloneContext.existenceCache.clear();
     await this.updateSynchronizationVersion({
@@ -2009,6 +2013,26 @@ export class IModelTransformer extends IModelExportHandler {
     return this.context.findTargetElementId(aspect.element.id) !== Id64.invalid;
   }
 
+  private _aspectOwnership?: Promise<ElementAspectOwnership>;
+
+  /** Records which source aspect each target aspect was copied from. Untracked with `noProvenance` and in reverse synchronization. */
+  private async getAspectOwnership(): Promise<ElementAspectOwnership> {
+    this._aspectOwnership ??= (async () => {
+      if (
+        this._options.noProvenance ||
+        (await this._syncTypeResolver.getSyncType()) === "reverse"
+      )
+        return ElementAspectOwnership.untracked;
+      const ownership = new ElementAspectOwnership({
+        editTxn: this._targetEditTxn,
+        sourceIModelId: this.sourceDb.iModelId,
+      });
+      if (this._options.wasSourceIModelCopiedToTarget) ownership.clear();
+      return ownership;
+    })();
+    return this._aspectOwnership;
+  }
+
   /** Records the target aspects of an owner batch before its source aspects are imported.
    * The returned callback deletes the recorded replaceable aspects that the importer did not reuse, or discards the recorded state if the export failed.
    */
@@ -2030,14 +2054,25 @@ export class IModelTransformer extends IModelExportHandler {
 
     const cleanup = this.importer.elementAspectCleanup;
     const targetScopeElementIds = this.getTargetScopeElementIds();
+    const ownership = await this.getAspectOwnership();
+    // This source may delete what it recorded. Otherwise, another source's
+    // aspects and transformer provenance are never ours to delete.
     await cleanup.collect(
       targetElementIds,
       excludedElementAspectClassFullNames,
-      (aspect) => isTransformerProvenanceAspect(aspect, targetScopeElementIds)
+      (aspect) => {
+        const owner = ownership.forOwner(aspect.element.id);
+        return (
+          !owner.isOwned(aspect.id) &&
+          (owner.foreignAspectIds.has(aspect.id) ||
+            isTransformerProvenanceAspect(aspect, targetScopeElementIds))
+        );
+      }
     );
     return async (exported) => {
       if (exported) await cleanup.deleteUnretained();
       else cleanup.discard();
+      ownership.flush(exported);
     };
   }
 
@@ -2051,9 +2086,20 @@ export class IModelTransformer extends IModelExportHandler {
     if (!(await this.doAllReferencesExistInTarget(sourceAspect))) {
       this._partiallyCommittedAspectIds.add(sourceAspect.id);
     }
-    const targetId =
-      await this.importer.importElementUniqueAspect(targetAspectProps);
+    const ownership = (await this.getAspectOwnership()).forOwner(
+      targetAspectProps.element.id
+    );
+    // First writer wins: a unique slot that another source owns is kept.
+    const targetId = await this.importer.importElementUniqueAspect(
+      targetAspectProps,
+      { filter: (a) => !ownership.foreignAspectIds.has(a.id) }
+    );
+    if (!Id64.isValid(targetId)) {
+      this._partiallyCommittedAspectIds.delete(sourceAspect.id);
+      return;
+    }
     this.context.remapElementAspect(sourceAspect.id, targetId);
+    ownership.record(sourceAspect.id, targetId);
   }
 
   /** Override of [IModelExportHandler.onExportElementMultiAspects]($transformer) that imports ElementMultiAspects into the target iModel when they are exported from the source iModel.
@@ -2072,20 +2118,28 @@ export class IModelTransformer extends IModelExportHandler {
         this._partiallyCommittedAspectIds.add(a.id);
       }
     }
-    // const targetAspectsToImport = targetAspectPropsArray.filter((targetAspect, i) => hasEntityChanged(sourceAspects[i], targetAspect));
     const targetAspectProps = await Promise.all(targetAspectPropsArray);
+    if (targetAspectProps.length === 0) return;
+    const ownership = (await this.getAspectOwnership()).forOwner(
+      targetAspectProps[0].element.id
+    );
+    const isReusableProvenance = sourceProvenanceMatchFilter(
+      targetAspectProps,
+      this.getTargetScopeElementIds(),
+      this.targetScopeElementId
+    );
     const targetIds = await this.importer.importElementMultiAspects(
       targetAspectProps,
-      this._options.includeSourceProvenance
-        ? sourceProvenanceMatchFilter(
-            targetAspectProps,
-            this.getTargetScopeElementIds(),
-            this.targetScopeElementId
-          )
-        : undefined
+      {
+        filter: (a) =>
+          ownership.isOwned(a.id) ||
+          (!ownership.foreignAspectIds.has(a.id) && isReusableProvenance(a)),
+        targetAspectIds: sourceAspects.map((a) => ownership.ownedTarget(a.id)),
+      }
     );
     for (let i = 0; i < targetIds.length; ++i) {
       this.context.remapElementAspect(sourceAspects[i].id, targetIds[i]);
+      ownership.record(sourceAspects[i].id, targetIds[i]);
     }
   }
 

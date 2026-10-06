@@ -6,7 +6,6 @@
 import { expect, vi } from "vitest";
 import {
   EditTxn,
-  ElementAspect,
   ElementOwnsExternalSourceAspects,
   ElementOwnsMultiAspects,
   ElementOwnsUniqueAspect,
@@ -26,8 +25,9 @@ import {
   IModelTransformer,
   IModelTransformOptions,
 } from "../../IModelTransformer";
+import { elementAspectRecordProperty } from "../../ElementAspectOwnership";
 import {
-  CountingIModelImporter,
+  AspectCountingImporter,
   createStartedEditTxn,
   IModelTransformerTestUtils,
 } from "../IModelTransformerUtils";
@@ -62,17 +62,6 @@ const schemaXml = `<?xml version="1.0" encoding="UTF-8"?>
     <ECProperty propertyName="Value" typeName="string"/>
   </ECEntityClass>
 </ECSchema>`;
-
-class AspectCountingImporter extends CountingIModelImporter {
-  public numElementAspectsDeleted = 0;
-
-  protected override async onDeleteElementAspect(
-    aspect: ElementAspect
-  ): Promise<void> {
-    this.numElementAspectsDeleted++;
-    await super.onDeleteElementAspect(aspect);
-  }
-}
 
 interface AspectSummary {
   id: Id64String;
@@ -308,10 +297,9 @@ describe("ElementAspect reconciliation", () => {
     // Only owners written during the batch are read from the target afterward.
     expect(reads.stop().owners).not.to.include(first.targetOwners[2]);
     expectTargetMatchesSource(second.targetOwners);
-    // Updates: o0-unique, o0-a2, and o1's two remaining MultiA aspects, which
-    // shift into the first two existing slots. Deletes: o0-b1, o1-unique, and
-    // o1's surplus MultiA slot.
-    expectAspectWrites(second.importer, 1, 4, 3);
+    // Updates: o0-unique and o0-a2. Deletes: o0-b1, o1-unique, and o1-a1.
+    // Ownership records keep o1's remaining MultiA aspects in their own slots.
+    expectAspectWrites(second.importer, 1, 2, 3);
 
     const after = second.targetOwners.map((id) => readAspects(targetDb, id));
     const afterId = (owner: number, value: string) =>
@@ -319,11 +307,9 @@ describe("ElementAspect reconciliation", () => {
     expect(afterId(0, "o0-unique-changed")).to.equal(targetId(0, "o0-unique"));
     expect(afterId(0, "o0-a1")).to.equal(targetId(0, "o0-a1"));
     expect(afterId(0, "o0-a2-changed")).to.equal(targetId(0, "o0-a2"));
-    // Multi-aspects match by position within a class: the remaining source
-    // aspects take over the first two target slots and the last slot goes.
-    expect(afterId(1, "o1-a2")).to.equal(targetId(1, "o1-a1"));
-    expect(afterId(1, "o1-a3")).to.equal(targetId(1, "o1-a2"));
-    expect(after[1].map(({ id }) => id)).not.to.include(targetId(1, "o1-a3"));
+    expect(afterId(1, "o1-a2")).to.equal(targetId(1, "o1-a2"));
+    expect(afterId(1, "o1-a3")).to.equal(targetId(1, "o1-a3"));
+    expect(after[1].map(({ id }) => id)).not.to.include(targetId(1, "o1-a1"));
     expect(after[2]).to.deep.equal(before[2]);
   });
 
@@ -652,8 +638,18 @@ describe("ElementAspect reconciliation", () => {
     expectAspectWrites(second.importer, 0, 0, 0);
     expect(upstreamProvenance(second.targetOwners[0]).length).to.equal(1);
 
-    // Cleanup never deletes provenance, so the target keeps cloned provenance
-    // that the source deletes.
+    // A target written before ownership records existed has no record of the
+    // copy. It is matched once by its kind, scope, and identifier, then recorded.
+    withEditTxn(targetDb, "drop ownership records", (txn) => {
+      for (const aspect of targetDb.elements.getAspects(second.targetOwners[0]))
+        txn.deleteFileProperty(elementAspectRecordProperty(aspect.id));
+    });
+    const legacy = await transform(undefined, options);
+    expectAspectWrites(legacy.importer, 0, 0, 0);
+    expect(upstreamProvenance(legacy.targetOwners[0]).length).to.equal(1);
+
+    // The source recorded the cloned provenance it copied, so it deletes the
+    // copy when it deletes the original.
     withEditTxn(sourceDb, "delete upstream provenance", (txn) => {
       for (const aspect of sourceDb.elements.getAspects(
         owners[0],
@@ -663,8 +659,8 @@ describe("ElementAspect reconciliation", () => {
           txn.deleteAspect(aspect.id);
     });
     const third = await transform(undefined, options);
-    expectAspectWrites(third.importer, 0, 0, 0);
-    expect(upstreamProvenance(third.targetOwners[0]).length).to.equal(1);
+    expectAspectWrites(third.importer, 0, 0, 1);
+    expect(upstreamProvenance(third.targetOwners[0]).length).to.equal(0);
   });
 
   it("deletes target aspects of classes that became empty in the source", async () => {

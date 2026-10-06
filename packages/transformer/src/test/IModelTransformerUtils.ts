@@ -2133,6 +2133,18 @@ export class CountingIModelImporter extends IModelImporter {
   }
 }
 
+/** Also counts ElementAspect deletions. */
+export class AspectCountingImporter extends CountingIModelImporter {
+  public numElementAspectsDeleted = 0;
+
+  protected override async onDeleteElementAspect(
+    aspect: ElementAspect
+  ): Promise<void> {
+    this.numElementAspectsDeleted++;
+    await super.onDeleteElementAspect(aspect);
+  }
+}
+
 /** Specialization of IModelImporter that creates an InformationRecordElement for each PhysicalElement that it imports. */
 export class RecordingIModelImporter extends CountingIModelImporter {
   /** Cache mapping PhysicalPartition IDs to their corresponding record partition IDs */
