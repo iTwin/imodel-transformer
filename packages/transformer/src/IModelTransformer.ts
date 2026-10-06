@@ -2383,8 +2383,19 @@ export class IModelTransformer extends IModelExportHandler {
         )
           elemIdToScopeEsa.set(aspect.elementId, aspect);
       }
+      const deletedElemIdToFedGuid = new Map<Id64String, string>();
+      for (const element of batch.elements)
+        if (element.federationGuid)
+          deletedElemIdToFedGuid.set(
+            element.ecInstanceId,
+            element.federationGuid
+          );
       for (const relationship of batch.relationships)
-        await this.processDeletedRelationship(relationship, elemIdToScopeEsa);
+        await this.processDeletedRelationship(
+          relationship,
+          elemIdToScopeEsa,
+          deletedElemIdToFedGuid
+        );
       for (const element of batch.elements)
         await this.processDeletedElement(
           element.ecInstanceId,
@@ -2467,20 +2478,23 @@ export class IModelTransformer extends IModelExportHandler {
    * Helper function for [[prepareSourceChanges]]. Records how to find the target relationship of a deleted source relationship.
    * @param deletion the deleted source relationship.
    * @param mapOfDeletedElemIdToScopeEsas this transformation scope's deleted ESAs in the same batch, keyed by the ID of the element that owned each one.
+   * @param deletedElemIdToFedGuid federation GUIDs of the elements deleted in the same batch, for endpoints that no longer exist in the source.
    */
   private async processDeletedRelationship(
     deletion: RelationshipDeletionRecord,
     mapOfDeletedElemIdToScopeEsas: Map<
       Id64String,
       ExternalSourceAspectDeletionRecord
-    >
+    >,
+    deletedElemIdToFedGuid: ReadonlyMap<Id64String, string>
   ): Promise<void> {
     const { ecInstanceId } = deletion;
     const classFullName = this.sourceDb.getClassNameFromId(deletion.ecClassId);
     const getEndpointInTarget = async (sourceId: Id64String) =>
       this.findTargetElementIdForDeletion(
         sourceId,
-        this.sourceDb.elements.tryGetElement(sourceId)?.federationGuid,
+        this.sourceDb.elements.tryGetElement(sourceId)?.federationGuid ??
+          deletedElemIdToFedGuid.get(sourceId),
         mapOfDeletedElemIdToScopeEsas
       );
     const sourceIdInTarget = await getEndpointInTarget(

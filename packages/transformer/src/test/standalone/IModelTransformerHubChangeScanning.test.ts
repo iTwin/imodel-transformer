@@ -104,12 +104,13 @@ describe("IModelTransformerHub change scanning", () => {
     }
 
     /**
-     * Runs a test on a master whose elements "1" and "2" have no FederationGuid and are related by an
-     * ElementGroupsMembers, and a branch of it that tracks them with ExternalSourceAspects.
+     * Runs a test on a master whose elements "1" and "2" are related by an ElementGroupsMembers, and a branch of it.
+     * By default the elements have no FederationGuid, so the branch tracks them with ExternalSourceAspects.
      */
     async function withBranch(
       name: string,
-      test: (fixture: BranchFixture) => Promise<void>
+      test: (fixture: BranchFixture) => Promise<void>,
+      { keepFederationGuids = false } = {}
     ): Promise<void> {
       const seedFileName = path.join(outputDir, `${name}.bim`);
       if (IModelJsFs.existsSync(seedFileName))
@@ -126,10 +127,12 @@ describe("IModelTransformerHub change scanning", () => {
         seedDb = db;
         populateTimelineSeed(db, { 1: 1, 2: 1 });
         withEditTxn(db, "remove federation GUIDs and relate", (txn) => {
-          for (const elemId of db.queryEntityIds({
-            from: "Bis.Element",
-            where: "UserLabel IN ('1','2')",
-          }))
+          for (const elemId of keepFederationGuids
+            ? []
+            : db.queryEntityIds({
+                from: "Bis.Element",
+                where: "UserLabel IN ('1','2')",
+              }))
             db.withSqliteStatement(
               `UPDATE bis_Element SET FederationGuid=NULL WHERE Id=${elemId}`,
               (stmt) => {
@@ -319,6 +322,51 @@ describe("IModelTransformerHub change scanning", () => {
         expect(masterDb.elements.tryGetElementProps(masterElement2Id)).to.be
           .undefined;
       }));
+
+    it("finds a deleted relationship's endpoint through the FederationGuid of an element deleted in the same batch", async () =>
+      withBranch(
+        "RelThenFedGuidEndpointDelete",
+        async ({ masterDb, branchDb }) => {
+          const [masterElement1Id, masterElement2Id] = elementIds(masterDb);
+          const [branchElement1Id, branchElement2Id] = elementIds(branchDb);
+          expect(branchDb.elements.getElement(branchElement2Id).federationGuid)
+            .to.not.be.undefined;
+          expect(
+            elementProvenanceAspectIds(branchDb, branchElement2Id)
+          ).to.have.lengthOf(0);
+          const branchRel =
+            branchDb.relationships.getInstance<ElementGroupsMembers>(
+              ElementGroupsMembers.classFullName,
+              { sourceId: branchElement1Id, targetId: branchElement2Id }
+            );
+
+          await editAndPush(branchDb, "delete relationship", (txn) =>
+            txn.deleteRelationship(branchRel.toJSON())
+          );
+          await editAndPush(branchDb, "delete endpoint element", (txn) =>
+            txn.deleteElement(branchElement2Id)
+          );
+          let relationshipInTarget: unknown;
+          await synchronize(branchDb, masterDb, {
+            reverse: true,
+            process: async (transformer) => {
+              await transformer.process();
+              relationshipInTarget = transformer[
+                "_deletedSourceRelationshipData"
+              ]?.get(branchRel.id);
+            },
+          });
+
+          // The endpoint no longer exists in the branch, so only its deletion record has its FederationGuid.
+          expect(relationshipInTarget).to.deep.include({
+            sourceIdInTarget: masterElement1Id,
+            targetIdInTarget: masterElement2Id,
+          });
+          expect(masterDb.elements.tryGetElementProps(masterElement2Id)).to.be
+            .undefined;
+        },
+        { keepFederationGuids: true }
+      ));
 
     it("deletes an element whose provenance aspect was deleted in an earlier changeset", async () =>
       withBranch("AspectThenElementDelete", async ({ masterDb, branchDb }) => {
