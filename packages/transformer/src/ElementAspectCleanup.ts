@@ -21,6 +21,7 @@ import { IModelError, QueryBinder } from "@itwin/core-common";
  * @internal
  */
 export class ElementAspectCleanup {
+  /** IDs of the batch owners' replaceable target aspects that the importer has not yet reused or deleted. [[collect]] fills it, [[retain]] removes from it, and [[deleteUnretained]] deletes what is left. */
   private _candidateIds = new Set<Id64String>();
   /** Every target aspect of each batch owner that has not been written since [[collect]], keyed by owner. */
   private _aspectsByOwner = new Map<Id64String, ElementAspect[]>();
@@ -97,15 +98,10 @@ export class ElementAspectCleanup {
     return aspects?.filter((aspect) => isSameClass(aspect, classFullName));
   }
 
-  /** Stops answering reads for an owner from the loaded aspects. Call after writing any of its aspects. */
-  public invalidate(elementId: Id64String): void {
-    this._aspectsByOwner.delete(elementId);
-  }
-
-  /** Call right before the importer writes an aspect of `elementId`. */
+  /** Call right before the importer writes an aspect of `elementId`. Later reads for that owner go to the target. */
   public beforeWrite(elementId: Id64String): void {
     this.dropLoadedAspectsIfChangedElsewhere();
-    this.invalidate(elementId);
+    this._aspectsByOwner.delete(elementId);
   }
 
   /** Call right after the importer's write so that it isn't mistaken for a write made elsewhere. */

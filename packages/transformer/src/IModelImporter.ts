@@ -646,13 +646,11 @@ export class IModelImporter {
         const aspect = tryGetAspect(this.targetDb, aspectId);
         if (aspect !== undefined) await this.onDeleteElementAspect(aspect);
       }
-      this._elementAspectCleanup.invalidate(elementId);
       return this.onInsertElementAspect(aspectProps);
     }
     this._elementAspectCleanup.retain(existing.id);
     if (hasEntityChanged(existing, aspectProps)) {
       aspectProps.id = existing.id;
-      this._elementAspectCleanup.invalidate(elementId);
       await this.onUpdateElementAspect(aspectProps);
     }
     return existing.id;
@@ -768,12 +766,10 @@ export class IModelImporter {
             id = currentAspects[index].props.id;
             props.id = id;
             if (hasEntityChanged(currentAspects[index].props, props)) {
-              this._elementAspectCleanup.invalidate(elementId);
               await this.onUpdateElementAspect(props);
             }
             id = props.id;
           } else {
-            this._elementAspectCleanup.invalidate(elementId);
             id = await this.onInsertElementAspect(props);
           }
           result[resultIndex] = id;
@@ -787,12 +783,10 @@ export class IModelImporter {
             const id = props.id;
             proposedProps.id = id;
             if (hasEntityChanged(props, proposedProps)) {
-              this._elementAspectCleanup.invalidate(elementId);
               await this.onUpdateElementAspect(proposedProps);
             }
             result[resultIndex] = id;
           } else {
-            this._elementAspectCleanup.invalidate(elementId);
             await this.onDeleteElementAspect(props);
           }
         }
