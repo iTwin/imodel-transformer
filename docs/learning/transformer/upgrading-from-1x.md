@@ -80,7 +80,7 @@ Replace `instanceof IModelError`, `errorNumber`, and message checks for transfor
 
 2.0 takes over work that 1.x consumers often did themselves. Look for these and remove them:
 
-- Custom ElementAspect export strategies or importer shims that worked around delete-and-reinsert aspect processing. `IModelExporter` no longer accepts an aspect-processing strategy, and the importer now reconciles aspects itself. See [ElementAspects](#elementaspects).
+- Custom ElementAspect export strategies passed to the `IModelExporter` constructor, and code that deleted target aspects the source no longer has. `IModelExporter` no longer accepts an aspect-processing strategy, and the transformer now deletes those aspects itself. See [ElementAspects](#elementaspects).
 - Custom schema enumeration, ordering, import, or dynamic-schema merging. Use `processSchemas({ strategy })` with `NewerVersionSchemaImportStrategy` or `DynamicSchemaUnionStrategy`, and subclass a strategy for custom policy. See [Schema processing in a transformation](./schema-processing.md).
 - Per-element deletion overrides that retried or skipped elements still in use. The importer now keeps them with a warning. See [Elements that are still in use](./element-deletion.md#elements-that-are-still-in-use).
 - Local patches for defects fixed since 1.2.0, such as changes stored in overflow tables or models deleted after their partition element was remapped. The [2.0 release notes](https://github.com/iTwin/imodel-transformer/releases) list the fixes.
@@ -90,7 +90,7 @@ Replace `instanceof IModelError`, `errorNumber`, and message checks for transfor
 Run your tests against real data and check these, because none of them fails to compile:
 
 - **Filters.** A filter that accepts elements must also accept their categories and other required elements, or the transform throws `DependencyMappingMissing`. See [Element filtering and required elements](#element-filtering-and-required-elements).
-- **ElementAspect callbacks.** Aspect callbacks no longer run beside their owning element's callback, and `onInsertElementAspect`, `onUpdateElementAspect`, and `onDeleteElementAspect` run only for actual writes, so a rerun with no source changes calls none of them. Code that saves or reports progress per element and assumes its aspects were processed with it, or that counts aspect hooks, must change. See [ElementAspects](#elementaspects).
+- **ElementAspect callbacks.** Aspect callbacks no longer run beside their owning element's callback, and `onDeleteElementAspect` now runs for target aspects whose source aspects were removed. Code that saves or reports progress per element and assumes its aspects were processed with it must change. See [ElementAspects](#elementaspects).
 - **Shared target elements.** When elements from two sources map to the same target element, each transformation reconciles that element's aspects against its own source only, so it deletes the aspects the other source added. See [Processing ElementAspects](./element-aspect-processing.md).
 - **Exporter subclasses.** `exportRelationships()` no longer calls `exportRelationship()` per relationship, and overriding `exportElement` or `exportChildElements` opts out of the faster traversal. See [IModelExporter subclasses](#imodelexporter-subclasses).
 - **Change processing.** Unchanged elements are no longer exported during change processing, and filters run on unchanged ancestors only when a changed descendant is reached. See [Incremental exports](./index.md#incremental-exports).
