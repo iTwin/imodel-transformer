@@ -11,6 +11,12 @@ Guidance for AI agents working in `iTwin/imodel-transformer`. Read `packages/tra
 | `packages/performance-tests`   | Vitest weekly and quick performance suites. Run them explicitly; root `pnpm test` excludes this package. |
 | `packages/performance-scripts` | Performance profiling helpers.                                                                           |
 
+## Dependencies
+
+- A dependency declared by two or more workspace packages uses `"catalog:"`, with its version in the `catalog:` block of `pnpm-workspace.yaml`. When a second package adds a dependency, move it into the catalog. `@itwin/core-*` and `@itwin/ecschema-*` dev dependencies always use the catalog so they move together. Keep `peerDependencies` as literal ranges because they state what consumers may install.
+- Changing a catalog version that `packages/transformer` uses requires a beachball change file, even when the bump targets another package. Use type `none` when the published package is unaffected.
+- ESLint and Prettier tooling is declared only in the root `package.json`; package scripts resolve it from there.
+
 ## Build and test
 
 - In `packages/transformer`, use `pnpm build`, `pnpm test`, and `pnpm cover`. Vitest runs `src/test/**/*.test.ts` directly; `build` type-checks all sources, emits only production CommonJS, and extracts the public API.

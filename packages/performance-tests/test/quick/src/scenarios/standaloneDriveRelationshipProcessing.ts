@@ -1,0 +1,107 @@
+/*---------------------------------------------------------------------------------------------
+ * Copyright (c) Bentley Systems, Incorporated. All rights reserved.
+ * See LICENSE.md in the project root for license terms and full copyright notice.
+ *--------------------------------------------------------------------------------------------*/
+
+import { EditTxn, ElementDrivesElement } from "@itwin/core-backend";
+import { IModelTransformer } from "@itwin/imodel-transformer";
+import {
+  PreparedDataset,
+  requireStandaloneDataset,
+} from "../fixtures/FixtureProvider.js";
+import { realisticBuildingTransformLargeFixture } from "../fixtures/recipes/realisticBuildingTransformLarge.js";
+import { realisticBuildingTransformFixture } from "../fixtures/recipes/realisticBuildingTransform.js";
+import { defineBenchmark } from "../framework/BenchmarkRegistration.js";
+import {
+  BenchmarkScenario,
+  BenchmarkScenarioDefinition,
+} from "../framework/BenchmarkScenario.js";
+import { outputShapeDigest } from "./outputShape.js";
+
+const outputClassQueries = {
+  aspects: "bis.ElementAspect",
+  drives: "bis.ElementDrivesElement",
+  elements: "bis.Element",
+  geometricElementsWithGeometry:
+    "bis.GeometricElement3d WHERE GeometryStream IS NOT NULL",
+  geometryPartsWithGeometry:
+    "bis.GeometryPart WHERE GeometryStream IS NOT NULL",
+  models: "bis.Model",
+  relationships: "bis.ElementRefersToElements",
+} as const;
+
+export function standaloneDriveRelationshipProcessing(
+  dataset: PreparedDataset
+): BenchmarkScenario {
+  const { sourceDb, targetDb } = requireStandaloneDataset(dataset);
+  const editTxn = new EditTxn(
+    targetDb,
+    "Quick standalone drive relationship processing"
+  );
+  editTxn.start();
+  const transformer = new IModelTransformer(
+    { source: sourceDb, target: editTxn },
+    { loadSourceGeometry: true, noProvenance: true }
+  );
+  let disposed = false;
+  const dispose = () => {
+    if (disposed) return;
+    disposed = true;
+    const errors: unknown[] = [];
+    try {
+      transformer.dispose();
+    } catch (error) {
+      errors.push(error);
+    }
+    try {
+      if (editTxn.isActive) editTxn.end();
+    } catch (error) {
+      errors.push(error);
+    }
+    if (errors.length === 1) throw errors[0];
+    if (errors.length > 1)
+      throw new AggregateError(
+        errors,
+        "Failed to dispose standalone drive relationship processing"
+      );
+  };
+  return {
+    abort: dispose,
+    async prepare() {
+      await transformer.processSchemas();
+      await transformer.process();
+    },
+    async measure() {
+      await transformer.processRelationships(
+        ElementDrivesElement.classFullName
+      );
+    },
+    async finish() {
+      transformer.importer.finalize();
+      editTxn.saveChanges(
+        "complete quick standalone drive relationship processing"
+      );
+      dispose();
+      return outputShapeDigest(targetDb, outputClassQueries);
+    },
+  };
+}
+
+export const standaloneDriveRelationshipProcessingScenario: BenchmarkScenarioDefinition =
+  {
+    id: "standalone-drive-relationship-processing",
+    defaultFixtureId: "realistic-building-transform",
+    capabilities: {
+      topology: "standalone-source-and-empty-target",
+      requiredClaims: ["full transformation", "drive relationship processing"],
+    },
+    factory: standaloneDriveRelationshipProcessing,
+  };
+
+export const standaloneDriveRelationshipProcessingBenchmark = defineBenchmark({
+  scenario: standaloneDriveRelationshipProcessingScenario,
+  fixtures: [
+    realisticBuildingTransformFixture,
+    realisticBuildingTransformLargeFixture,
+  ],
+});

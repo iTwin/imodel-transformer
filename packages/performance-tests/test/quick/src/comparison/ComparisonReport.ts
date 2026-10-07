@@ -43,7 +43,7 @@ export type InformationalComparisonStatus =
   | "within-informational-threshold";
 
 export interface ComparisonSummary {
-  readonly reportSchemaVersion: 2;
+  readonly reportSchemaVersion: 3;
   readonly scenarioId: string;
   readonly fixtureId: string;
   readonly fixtureVersion: number;
@@ -261,7 +261,7 @@ export function createComparisonSummary(
   const identity = allSamples[0];
 
   return {
-    reportSchemaVersion: 2,
+    reportSchemaVersion: 3,
     scenarioId: identity.scenarioId,
     fixtureId: identity.fixtureId,
     fixtureVersion: identity.fixtureVersion,
@@ -362,6 +362,16 @@ function currentStatusMeaning(summary: ComparisonSummary): string {
   }
 }
 
+function relativePerformance(summary: ComparisonSummary): string {
+  const baseline = summary.baseline.medianMilliseconds;
+  const candidate = summary.candidate.medianMilliseconds;
+  if (candidate < baseline)
+    return `Candidate is ${(baseline / candidate).toFixed(2)}× faster than baseline.`;
+  if (candidate > baseline)
+    return `Candidate is ${(candidate / baseline).toFixed(2)}× slower than baseline.`;
+  return "Candidate and baseline have equal median duration.";
+}
+
 function markdown(summary: ComparisonSummary): string {
   const signedDelta = `${summary.percentageDelta >= 0 ? "+" : ""}${summary.percentageDelta.toFixed(2)}%`;
   const configuration = Object.entries(summary.scenarioConfiguration ?? {});
@@ -372,6 +382,14 @@ function markdown(summary: ComparisonSummary): string {
     markdownCode(value)
   );
   const threshold = summary.policy.informationalThresholdPercent;
+  const baselineCore =
+    summary.baseline.transformerProvenance.coreBackendVersion;
+  const candidateCore =
+    summary.candidate.transformerProvenance.coreBackendVersion;
+  const coreBackendSummary =
+    baselineCore === candidateCore
+      ? `Core backend: both arms use ${markdownCode(baselineCore)}.`
+      : `Core backend: baseline ${markdownCode(baselineCore)}, candidate ${markdownCode(candidateCore)}.`;
   return [
     "# Quick performance A/B comparison",
     "",
@@ -388,6 +406,8 @@ function markdown(summary: ComparisonSummary): string {
     "",
     "## Result",
     "",
+    coreBackendSummary,
+    "",
     "| Arm | Revision | Transformer | Median | P90 | Range | Peak worker RSS |",
     "| --- | --- | --- | ---: | ---: | ---: | ---: |",
     `| Baseline | ${markdownCode(formatRevision(summary.baseline.revision))} | ${markdownCode(summary.baseline.transformerProvenance.version)} | ${formatMilliseconds(summary.baseline.medianMilliseconds)} | ${formatMilliseconds(summary.baseline.p90Milliseconds)} | ${formatMilliseconds(summary.baseline.minimumMilliseconds)}–${formatMilliseconds(summary.baseline.maximumMilliseconds)} | ${formatBytes(summary.baseline.medianPeakRssBytes)} |`,
@@ -396,6 +416,7 @@ function markdown(summary: ComparisonSummary): string {
     "Peak worker RSS is reported by the isolated worker's process resource usage across its complete lifetime, including setup and teardown.",
     "",
     `**Candidate delta:** ${signedDelta}  `,
+    `**Relative performance:** ${relativePerformance(summary)}  `,
     `**Status:** \`${summary.informationalStatus}\``,
     "",
     "<details>",

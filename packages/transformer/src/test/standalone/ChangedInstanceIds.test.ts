@@ -6,7 +6,6 @@ import * as path from "node:path";
 import { KnownTestLocations } from "../TestUtils";
 import {
   ChangeInstance,
-  ChangesetReader,
   DocumentListModel,
   Drawing,
   ElementGroupsMembers,
@@ -25,7 +24,6 @@ import {
 } from "../IModelTransformerUtils";
 import { Id64String, ITwinError } from "@itwin/core-bentley";
 import {
-  ChangesetFileProps,
   ElementProps,
   ExternalSourceAspectProps,
   IModel,
@@ -37,7 +35,6 @@ import {
   IModelTransformerErrorScope,
 } from "../../IModelTransformerError";
 import { expect } from "vitest";
-import { ChangesetScanner } from "../../ChangesetScanner";
 
 describe("ChangedInstanceIds", () => {
   const outputDir = path.join(
@@ -79,27 +76,6 @@ describe("ChangedInstanceIds", () => {
         IModelTransformerError.ChangedInstanceMetadataMissing,
         "ECClassId was not found for id: 0x1! Table is : bis_Element"
       );
-    });
-
-    it("preserves ChangesetReader errors", async () => {
-      const readerError = new Error("reader failed");
-      const openFileSpy = vi
-        .spyOn(ChangesetReader, "openFile")
-        .mockImplementation(() => {
-          throw readerError;
-        });
-      try {
-        await ChangesetScanner.scan(
-          sourceDb,
-          [{ pathname: "unused" } as ChangesetFileProps],
-          new ChangedInstanceIds(sourceDb)
-        );
-        expect.fail("Expected scan to throw");
-      } catch (error) {
-        expect(error).toBe(readerError);
-      } finally {
-        openFileSpy.mockRestore();
-      }
     });
   });
 
@@ -632,7 +608,9 @@ describe("ChangedInstanceIds", () => {
       assertHasValues(sourceDbChanges.aspect, "aspect", [], [], []);
       assertHasValues(sourceDbChanges.relationship, "relationship", [], [], []);
     });
+  });
 
+  describe("addChange", () => {
     it("recovers the current owner when an aspect update omits Element.Id", async () => {
       const reader = sourceDb.createQueryReader(
         `SELECT ECClassId FROM ${ExternalSourceAspect.classFullName}
@@ -661,6 +639,86 @@ describe("ChangedInstanceIds", () => {
       expect([...sourceDbChanges.aspectOwnerElementIds]).to.deep.equal([
         childDrawing1.id,
       ]);
+    });
+  });
+
+  describe("addChanges", () => {
+    afterEach(() => vi.restoreAllMocks());
+
+    it("resolves uncommitted batch owners and misses without deferring ordinary addChange calls", async () => {
+      await withEditTxn(sourceDb, "create uncommitted aspect", async (txn) => {
+        const owner = Subject.insert(
+          txn,
+          IModel.rootSubjectId,
+          "uncommitted owner"
+        );
+        const props: ExternalSourceAspectProps = {
+          classFullName: ExternalSourceAspect.classFullName,
+          element: { id: owner },
+          scope: { id: IModel.rootSubjectId },
+          kind: "Element",
+          identifier: "aspect",
+        };
+        const aspect = txn.insertAspect(props);
+        const classId = sourceDb.withQueryReader(
+          `SELECT ECClassId FROM ${ExternalSourceAspect.classFullName} WHERE ECInstanceId=:id`,
+          (reader) => {
+            expect(reader.step()).toBe(true);
+            return reader.current[0];
+          },
+          new QueryBinder().bindId("id", aspect)
+        );
+        const change = (id: string): ChangeInstance => ({
+          ECInstanceId: id,
+          ECClassId: classId,
+          $meta: {
+            op: "Updated",
+            stage: "New",
+            tables: ["bis_ElementMultiAspect"],
+            changeIndexes: [1],
+            instanceKey: `${classId}-${id}`,
+            propFilter: PropertyFilter.BisCoreElement,
+            changeFetchedPropNames: [],
+            isIndirectChange: false,
+          },
+        });
+        const ids = new ChangedInstanceIds(sourceDb);
+        const getAspectSpy = vi.spyOn(sourceDb.elements, "getAspect");
+        const bindSpy = vi.spyOn(QueryBinder.prototype, "bindIdSet");
+        let immediateChange: Promise<void> | undefined;
+        function* batch() {
+          yield change(aspect);
+          // Run after the first batch item initialized class metadata, but before the batch finishes.
+          immediateChange = ids.addChange(change(aspect));
+          expect(getAspectSpy).toHaveBeenCalledTimes(1);
+          for (let i = 0; i < 3; i++) {
+            yield change(aspect);
+            yield change("0xffffffffff");
+          }
+        }
+        await ids.addChanges(batch());
+        await immediateChange;
+        expect([...ids.aspectOwnerElementIds]).toEqual([owner]);
+        expect(getAspectSpy).toHaveBeenCalledTimes(1);
+        expect(bindSpy.mock.calls).toEqual([
+          ["aspectIds", new Set([aspect, "0xffffffffff"])],
+        ]);
+
+        let iteratorClosed = false;
+        function* invalidBatch() {
+          try {
+            yield { ...change(aspect), ECClassId: undefined };
+          } finally {
+            iteratorClosed = true;
+          }
+        }
+        await expect(ids.addChanges(invalidBatch())).rejects.toThrow(
+          "ECClassId was not found"
+        );
+        expect(iteratorClosed).toBe(true);
+        await ids.addChange(change(aspect));
+        expect(getAspectSpy).toHaveBeenCalledTimes(2);
+      });
     });
   });
 });

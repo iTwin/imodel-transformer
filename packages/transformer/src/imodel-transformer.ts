@@ -81,12 +81,20 @@ if (
  * Logger categories used by this package.
  */
 /**
+ * @docs-group-description ChangedElementForest
+ * Internal indexing of changed elements and their ancestors for incremental export traversal.
+ */
+/**
  * @docs-group-description ElementAspectExportCoordinator
  * Internal coordination for scoped, owner-batched ElementAspect export.
  */
 /**
  * @docs-group-description ElementAspectExportProcessor
  * Internal source queries, filtering, and export callbacks for ElementAspects owned by accepted elements.
+ */
+/**
+ * @docs-group-description ChangedElementForest
+ * Internal index of changed elements and their ancestors for incremental traversal.
  */
 /**
  * @docs-group-description IModelTransformerError

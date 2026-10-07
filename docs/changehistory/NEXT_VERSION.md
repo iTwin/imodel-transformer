@@ -1,5 +1,96 @@
 # Next release notes
 
+## Context-based provenance resolution for incremental deletions
+
+`IModelTransformer.process()` now resolves guidless incremental element
+deletions from its transformation context, which is populated from matching
+federation GUIDs and current-scope element provenance before changes are
+processed. This removes the additional per-deletion provenance query while
+preserving changeset order, recreation handling, federation-GUID-first
+resolution, scope isolation, relationship deletion behavior, and database
+error propagation.
+
+ElementAspect deletions, identified by their ECClass, no longer enter element
+deletion handling. Aspects are synchronized through their owning elements, and
+their IDs are not element IDs, so looking them up as element deletions only
+added work and could match an unrelated element with the same numeric ID.
+
+Deletion processing now also honors a valid context remap supplied by
+`addCustomChanges()` after provenance initialization. A conflicting remap made
+before `process()` can still be replaced while the context is initialized from
+the current scope. Context mappings are not target-existence checks, so custom
+remaps must identify a valid target element. If duplicate current-scope element
+provenance exists for one source identifier, the earliest
+`ExternalSourceAspect` remains authoritative.
+
+## Set-based element hierarchy traversal in full exports
+
+`IModelExporter` now discovers element hierarchies during full exports (`exportAll()`, `exportModelContents()`, `exportChildElements()`) with a single streamed recursive ECSQL query per traversal root instead of one `queryChildren()` round trip per visited element. Observable export behavior is unchanged for root order, sibling order (ECInstanceId ascending), depth-first pre-order, element filtering, subtree suppression, and exporter callbacks. The streamed loop yields while consuming every result row, including descendants skipped inside rejected subtrees, so large exports remain responsive.
+
+Changes-mode exports can use the separate sparse changed-element traversal described below. The legacy per-element path remains the fallback for incompatible cases, including subclasses that override `exportElement` or `exportChildElements`, so subclass dispatch semantics are preserved.
+
+The streamed traversal relies on SQLite's documented recursive-CTE queue behavior — an `ORDER BY` inside the recursive member turns the queue into a priority queue, yielding depth-first pre-order — via ECSQL `WITH RECURSIVE`, which is supported across the package's supported `@itwin/core-backend` range. Exporter-level traversal tests exercise the resulting order through the production query.
+
+## Faster element traversal during change processing
+
+`IModelExporter.exportChanges()` now finds elements marked as inserted or updated, elements excluded by ID, and the parents needed to reach them in one query. It visits only those paths instead of checking every element in each changed model. `IModelTransformer.process()` uses the same behavior when `argsForProcessChanges` is set. This reduces traversal work when changes affect a small part of a large iModel. Model discovery and other export phases are unchanged.
+
+Existing export callbacks keep the same arguments and parent-before-child order. Unchanged ancestors are not exported. When the exporter reaches a changed element, it calls `shouldExportElement` once for each unchanged ancestor that has not been checked yet, starting at the top. If an ancestor is rejected, `onSkipElement` is called for it and its descendants are skipped, as in a full export. Unchanged elements excluded by ID still trigger `onSkipElement`, and modeled elements continue through the existing model filters. Custom `IModelExporter` subclasses that override `exportElement` or `exportChildElements` use the previous traversal so those overrides continue to receive every element.
+
+A changed element can require an unchanged element that has no mapping in the target, such as its category. `IModelTransformer` does not insert unchanged elements, so it now throws `ITwinError` with key `DependencyMappingMissing` when it cannot map one. Previously, a required parent that was missing from the target could make change processing recurse until the process ran out of memory. Full transforms such as `processAll()` and change processing also throw this error when an accepted element requires an element that the filter rejects, directly or through an ancestor. Previously, native cloning copied such a category into the target anyway, with a new FederationGuid. A filter that accepts elements must now also accept their categories. See [Filtering and required elements](../learning/transformer/index.md#filtering-and-required-elements) for when this error occurs and how to fix it.
+
+See [Incremental exports](../learning/transformer/index.md#incremental-exports) for callback and customization details.
+
+## Breaking change: batched incremental element deletion
+
+Incremental synchronization now deletes elements in one batch. `IModelExporter.exportChanges()` passes all deleted source IDs to `IModelExportHandler.onDeleteElements()`, `IModelTransformer` maps them to target IDs, and `IModelImporter.deleteElements()` deletes the target elements through the native bulk-delete API. Children, sub-model contents, and elements whose code is scoped by a deleted element are still deleted with it.
+
+These callbacks have been removed:
+
+- `IModelExportHandler.onDeleteElement()`
+- `IModelTransformer.onDeleteElement()`
+- the protected `IModelImporter.onDeleteElement()` hook
+
+Move per-element logic to `onDeleteElements(elementIds: ReadonlySet<Id64String>)`, which receives every deleted ID:
+
+```ts
+public override async onDeleteElements(
+  sourceElementIds: ReadonlySet<Id64String>
+): Promise<void> {
+  for (const sourceElementId of sourceElementIds)
+    this.recordDeletion(sourceElementId);
+  await super.onDeleteElements(sourceElementIds);
+}
+```
+
+A custom importer's override receives target IDs. `super.onDeleteElements()` does the deletion, so finish any work that reads the elements before calling it:
+
+```ts
+protected override async onDeleteElements(
+  targetElementIds: ReadonlySet<Id64String>
+): Promise<void> {
+  for (const targetElementId of targetElementIds)
+    this.insertDeleteAuditRecord(targetElementId);
+  await super.onDeleteElements(targetElementIds);
+}
+```
+
+Calls to the public `IModelImporter.deleteElement(elementId)` don't need to change.
+
+If an element outside the batch still uses an element in it through a reference that the importer checks, such as its category, its code scope, or a view definition's display style, the importer keeps the used element, the elements it needs, and the elements that contain it, deletes the rest, and logs a warning listing up to ten kept elements. Later syncs don't try to delete kept elements again. Per-element deletion also kept definitions that were still in use, but without a warning.
+
+If a native deletion call fails anyway, for example because geometry outside the batch uses a geometry part in it, or because of a reference from a domain schema, `IModelImporter.deleteElements()` throws an `ElementBulkDeleteError` with scope `IModelTransformerErrorScope` and key `IModelTransformerError.ElementBulkDeleteFailed`. Its `status`, `sqlDeleteStatus`, and `failedIds` describe the failed call. Deletions from that call and earlier ones are still pending in the caller's target transaction, so abandon the transaction before fixing the dependency and retrying.
+
+See [Deleting elements](../learning/transformer/element-deletion.md) for details and an error-handling example.
+
+Batched deletion is 8 to 10 times faster than per-element deletion. A batch that deletes both a category and elements that use it takes two native calls, because core refuses to delete a category still used by an element in the same call. Together with the reference checks, that costs 14% to 20% compared with one unchecked call, which throws and leaves the categories behind. Other batches cost 3% to 7% more. These medians come from interleaved runs of `IModelImporter` deletion on core-backend 5.13.0 with 100,000 physical elements and 100 spatial categories, measured before later planning changes that add about 40 ms to a batch like this:
+
+| Requested elements              | Per-element deletion (2.0.0-dev.50)       | One native call without reference checks      | Batched deletion with reference checks |
+| ------------------------------- | ----------------------------------------- | --------------------------------------------- | -------------------------------------- |
+| Elements, then their categories | 19.4 s                                    | 1.96 s, throws, and the 100 categories remain | 2.35 s                                 |
+| Categories, then their elements | 19.3 s, silently keeps all 100 categories | 1.91 s, throws, and the 100 categories remain | 2.18 s                                 |
+| Elements only                   | 21.0 s                                    | 1.97 s                                        | 2.03 s                                 |
+
 ## Schema-processing strategies
 
 `IModelTransformer.processSchemas()` now accepts a `SchemaProcessingStrategy`. Calls without options use `NewerVersionSchemaImportStrategy`, which preserves the existing newer-version selection and schema hooks. `DynamicSchemaUnionStrategy`, imported from `@itwin/imodel-transformer/schema-processing`, is available for iModels that may contain different compatible additions to the same schema marked with `CoreCustomAttributes.DynamicSchema`. See [Schema processing in a transformation](../learning/transformer/schema-processing.md) for strategy selection, compatibility rules, extension points, and failure handling.

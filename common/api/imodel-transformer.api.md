@@ -5,10 +5,12 @@
 ```ts
 
 import { BriefcaseDb } from '@itwin/core-backend';
+import { BulkDeleteElementsStatus } from '@itwin/core-backend';
 import { ChangeInstance } from '@itwin/core-backend';
 import { ChangesetFileProps } from '@itwin/core-common';
 import { ChangesetIndexAndId } from '@itwin/core-common';
 import { CodeSpec } from '@itwin/core-common';
+import { DbResult } from '@itwin/core-bentley';
 import * as ECSchemaMetaData from '@itwin/ecschema-metadata';
 import { EditTxn } from '@itwin/core-backend';
 import { Element as Element_2 } from '@itwin/core-backend';
@@ -19,7 +21,7 @@ import { ElementProps } from '@itwin/core-common';
 import { ElementUniqueAspect } from '@itwin/core-backend';
 import { Entity } from '@itwin/core-backend';
 import { EntityProps } from '@itwin/core-common';
-import type { EntityReference } from '@itwin/core-common';
+import { EntityReference } from '@itwin/core-common';
 import { ExternalSourceAspect } from '@itwin/core-backend';
 import { ExternalSourceAspectProps } from '@itwin/core-common';
 import { FontFamilyDescriptor } from '@itwin/core-common';
@@ -32,6 +34,7 @@ import { Id64Set } from '@itwin/core-bentley';
 import { Id64String } from '@itwin/core-bentley';
 import { IModelDb } from '@itwin/core-backend';
 import { IModelJsNative } from '@itwin/core-backend';
+import { ITwinError } from '@itwin/core-bentley';
 import { Model } from '@itwin/core-backend';
 import { ModelProps } from '@itwin/core-common';
 import { Placement2d } from '@itwin/core-common';
@@ -47,6 +50,8 @@ import { Transform } from '@itwin/core-geometry';
 export class ChangedInstanceIds {
     constructor(db: IModelDb);
     addChange(change: ChangeInstance): Promise<void>;
+    // @internal
+    addChanges(changes: Iterable<ChangeInstance>): Promise<void>;
     // @beta
     addCustomAspectChange(changeType: SqliteChangeOp, ids: Id64Arg, elementIds?: Id64Arg): void;
     // @beta
@@ -86,6 +91,13 @@ export class ChangedInstanceOps {
     get isEmpty(): boolean;
     // (undocumented)
     updateIds: Set<string>;
+}
+
+// @beta
+export interface ElementBulkDeleteError extends ITwinError {
+    readonly failedIds: ReadonlySet<Id64String>;
+    readonly sqlDeleteStatus: DbResult;
+    readonly status: BulkDeleteElementsStatus;
 }
 
 // @public
@@ -168,6 +180,8 @@ export class IModelExporter {
     exportRelationships(baseRelClassFullName: string): Promise<void>;
     exportSchemas(): Promise<void>;
     exportSubModels(parentModelId: Id64String): Promise<void>;
+    // @internal
+    getUnchangedAncestorFilterResult(elementId: Id64String): boolean | undefined;
     protected get handler(): IModelExportHandler;
     initialize(options: ExporterInitOptions): Promise<void>;
     progressInterval: number;
@@ -184,7 +198,7 @@ export class IModelExporter {
 
 // @beta
 export abstract class IModelExportHandler {
-    onDeleteElement(_elementId: Id64String): Promise<void>;
+    onDeleteElements(_elementIds: ReadonlySet<Id64String>): Promise<void>;
     onDeleteModel(_modelId: Id64String): Promise<void>;
     onDeleteRelationship(_relInstanceId: Id64String): Promise<void>;
     onExportCodeSpec(_codeSpec: CodeSpec, _isUpdate: boolean | undefined): Promise<void>;
@@ -211,6 +225,7 @@ export class IModelImporter {
     constructor(editTxn: EditTxn, options?: IModelImportOptions);
     computeProjectExtents(): void;
     deleteElement(elementId: Id64String): Promise<void>;
+    deleteElements(elementIds: ReadonlySet<Id64String>): Promise<void>;
     deleteModel(modelId: Id64String): Promise<void>;
     deleteRelationship(relationshipProps: RelationshipPropsForDelete): Promise<void>;
     readonly doNotUpdateElementIds: Set<string>;
@@ -226,8 +241,8 @@ export class IModelImporter {
     importModel(modelProps: ModelProps): Promise<void>;
     importRelationship(relationshipProps: RelationshipProps): Promise<Id64String>;
     markElementToUpdateDuringPreserveIds(elementId: Id64String): void;
-    protected onDeleteElement(elementId: Id64String): Promise<void>;
     protected onDeleteElementAspect(targetElementAspect: ElementAspect): Promise<void>;
+    protected onDeleteElements(elementIds: ReadonlySet<Id64String>): Promise<void>;
     protected onDeleteModel(modelId: Id64String): Promise<void>;
     protected onDeleteRelationship(relationshipProps: RelationshipPropsForDelete): Promise<void>;
     protected onInsertElement(elementProps: ElementProps): Promise<Id64String>;
@@ -242,7 +257,11 @@ export class IModelImporter {
     optimizeGeometry(options: OptimizeGeometryOptions): void;
     readonly options: Required<IModelImportOptions>;
     progressInterval: number;
+    // @internal
+    registerEntityExistenceCache(cache: EntityExistenceCache): void;
     readonly targetDb: IModelDb;
+    // @internal
+    unregisterEntityExistenceCache(cache: EntityExistenceCache): void;
 }
 
 // @beta
@@ -306,7 +325,7 @@ export class IModelTransformer extends IModelExportHandler {
     initElementProvenance(sourceElementId: Id64String, targetElementId: Id64String): Promise<ExternalSourceAspectProps>;
     initialize(): Promise<void>;
     protected initScopeProvenance(): Promise<void>;
-    onDeleteElement(sourceElementId: Id64String): Promise<void>;
+    onDeleteElements(sourceElementIds: ReadonlySet<Id64String>): Promise<void>;
     onDeleteModel(sourceModelId: Id64String): Promise<void>;
     onDeleteRelationship(sourceRelInstanceId: Id64String): Promise<void>;
     onExportCodeSpec(sourceCodeSpec: CodeSpec): Promise<void>;
@@ -371,6 +390,7 @@ export enum IModelTransformerError {
     DependencyMappingMissing = "dependency-mapping-missing",
     DependencyVersionMismatch = "dependency-version-mismatch",
     EditTxnNotActive = "edit-txn-not-active",
+    ElementBulkDeleteFailed = "element-bulk-delete-failed",
     ElementIdNotPreservable = "element-id-not-preservable",
     ElementIdRequired = "element-id-required",
     ExportChangesRequiresBriefcase = "export-changes-requires-briefcase",

@@ -24,6 +24,14 @@ While it is possible to export data from an iModel using the standard [IModelDb]
 - Easily exclude certain entity types to filter the export content using [IModelExporter.excludeElementsInCategory]($transformer), [IModelExporter.excludeElementClass]($transformer), or [IModelExporter.excludeElementAspectClass]($transformer)
 - Integration with [IModelTransformer]($transformer)
 
+### Incremental exports
+
+[IModelExporter.exportChanges]($transformer) exports changes collected from the selected changesets or supplied through `ExportChangesOptions.changedInstanceIds`. For inserted and updated elements, the exporter finds each changed element and the parents needed to reach it. It visits only those paths instead of checking every element in each changed model. Deleted element IDs are passed together to [IModelExportHandler.onDeleteElements]($transformer).
+
+Changed elements are visited parent before child. The exporter passes through unchanged ancestors without exporting them. When it reaches a changed element, it calls `shouldExportElement` once for each unchanged ancestor that has not been checked yet, starting at the top. If an ancestor is rejected, `onSkipElement` is called for it and its descendants are skipped, as in a full export. A changed element rejected by `shouldExportElement` also causes its descendants to be skipped. An element excluded by ID triggers `onSkipElement` even when unchanged, and its descendants are skipped. Because unchanged ancestors are filtered only when a changed element is reached, an excluded element can receive `onSkipElement` before a rejected ancestor above it does. Configure exclusions before starting an export operation; changing them while an export is in progress is unsupported.
+
+A custom `IModelExporter` subclass that overrides `exportElement` or `exportChildElements` uses the previous per-element traversal. This preserves calls to those overrides, but the subclass does not receive the faster changed-element traversal.
+
 Learn how `IModelExporter` filters, batches, and exports ElementAspects in the [Processing ElementAspects guide](./element-aspect-processing.md). The guide also covers change handling and the owner metadata required for custom deleted aspect changes.
 
 Below is an example of using [IModelExporter]($transformer) and [IModelExportHandler]($transformer) to export all [Code]($common) values from an iModel:
@@ -42,6 +50,14 @@ While it is possible to import data into an iModel using the standard [IModelDb]
 - Automatically compute the [IModel.projectExtents]($common) during import via the [IModelImportOptions.autoExtendProjectExtents]($transformer) setting.
 - The ability to optionally simplify element geometry to optimize visualization workflows via the [IModelImportOptions.simplifyElementGeometry]($transformer) setting.
 - Integration with [IModelTransformer]($transformer)
+
+### Incremental element deletion callbacks
+
+[IModelExporter.exportChanges]($transformer) passes all deleted source element IDs to one [IModelExportHandler.onDeleteElements]($transformer) callback. Custom export handlers and [IModelTransformer]($transformer) subclasses must use this callback because there is no singular deletion callback.
+
+[IModelTransformer]($transformer) maps the source IDs before [IModelImporter]($transformer) deletes the target elements as one batch. The importer keeps elements that something outside the batch still uses, and deletes the rest. A custom importer can inspect, count, or audit the requested elements by overriding `onDeleteElements(elementIds: ReadonlySet<Id64String>)`. Finish any work that needs the elements to exist before calling `super.onDeleteElements()`, which does the deletion. The public `deleteElement()` method goes through the same hook with a one-element set.
+
+See [Deleting elements](./element-deletion.md) for what a deletion removes, which elements it keeps, and how to handle deletion errors.
 
 ### IModelImportOptions.autoExtendProjectExtents
 
@@ -93,7 +109,57 @@ Potential transformations include:
 - Schema Mapping - mapping classes and properties to a new schema during transformation
 - Change Squashing - each iModel has its own change ledger, so multiple changesets from the source could be _squashed_ into a single changeset to the target
 
+### Filtering and required elements
+
+The export filter is [IModelExporter.shouldExportElement]($transformer). It applies the exporter's exclusions, such as `excludeElement`, `excludeElementClass`, and `excludeElementsInCategory`, then calls the handler's `shouldExportElement`, which `IModelTransformer` subclasses override. When the filter rejects an element, its descendants are skipped too.
+
+Some elements must be in the target before an element can be imported, such as its category. The transformer exports such a required element first. If the filter rejects it or one of its ancestors, the transformer throws `ITwinError` with key `DependencyMappingMissing` instead of importing the element that needs it. This applies to full transforms, such as `processAll()`, as well as change processing. Accept the required element and its ancestors, or reject the element that needs it. For example, a filter that accepts the elements in a view must also accept their categories.
+
+Change processing doesn't insert unchanged elements, so for an unchanged required element the transformer only checks the filter and looks for the element in the target, by FederationGuid and then by Code. If the filter rejects an unchanged parent, the changed element is skipped with the parent's other descendants, without an error. Otherwise the transformer throws `DependencyMappingMissing` in two cases:
+
+- The filter rejects the required element, such as the category of an element that the filter accepts. Accept the required element, or reject every element that needs it.
+- The required element isn't in the target, because it was deleted there or because the filter rejected it in an earlier run, for example before the categories or views it filters by changed. To insert it, override `addCustomChanges` and add it with [ChangedInstanceIds.addCustomElementChange]($transformer).
+
+### Processing a subset
+
+`IModelTransformer.process()` finalizes its importer automatically. The subset methods
+`processElement`, `processChildElements`, `processModel`, `processModelContents`,
+`processRelationships`, and `processSubject` are composable and do not finalize after each call.
+After the last subset operation, call [IModelImporter.finalize]($transformer) before saving target
+changes:
+
+```ts
+try {
+  await transformer.processElement(sourceElementId);
+  await transformer.processRelationships(relationshipClassName);
+  transformer.importer.finalize();
+  targetEditTxn.saveChanges();
+} finally {
+  transformer.dispose();
+}
+```
+
 See [schema processing](./schema-processing.md) for schema selection, dynamic schema unions, conflict handling, and the schema-processing workflow.
+
+### Aligning geolocation
+
+When the source and target iModels are located differently, set [IModelTransformOptions.tryAlignGeolocation]($transformer) to move spatial elements so that they keep their real-world position in the target:
+
+[[include:GeolocationAlignment.try-align-geolocation]]
+
+The option is off by default. When enabled, the transformer applies one rigid transform to the placement of every 3D geometric element:
+
+- If either iModel has a geographic coordinate system (GCS), both must have the same horizontal and vertical CRS and the same `additionalTransform` (Helmert) scale. The transform accounts for differences in the `additionalTransform`.
+- Otherwise, if both iModels have an ECEF location, the transform accounts for the difference between them.
+- If the geolocation already matches, or neither iModel has a GCS and at most one has an ECEF location, nothing is moved.
+
+> **Note:** ECEF alignment loses geolocation accuracy as the distance between the two iModels increases. Each ECEF location treats the earth as flat around its own origin, so elements aligned across a large distance end up tilted and offset relative to the target's ground plane.
+
+If the iModels can't be aligned, the constructor throws `ITwinError`. For example:
+
+- `GeographicCoordinateSystemUnavailable`: the source has a GCS but the target has none, or a GCS is missing its horizontal or vertical CRS.
+- `GeographicCoordinateSystemMismatch`: the iModels use different coordinate systems, such as two different Transverse Mercator projections, or their `additionalTransform` scales differ, so the transform would not be rigid.
+- `GeolocationUnavailable`: the target's ECEF location or `additionalTransform` can't be inverted.
 
 ## Logging
 

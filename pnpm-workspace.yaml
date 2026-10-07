@@ -5,12 +5,36 @@ packages:
   - packages/performance-scripts
   - packages/performance-tests
 
+# Versions for dependencies declared by more than one workspace package, plus every
+# @itwin/core-* and @itwin/ecschema-* dev version so they move together. Reference them
+# as "catalog:" so the copies cannot drift. ecschema-editing and ecschema-locaters stay
+# exact because they require exactly this core version. peerDependencies stay literal
+# because they state the supported range, not the version we develop against.
+catalog:
+  '@itwin/build-tools': ^5.13.0
+  '@itwin/core-backend': ^5.13.0
+  '@itwin/core-bentley': ^5.13.0
+  '@itwin/core-common': ^5.13.0
+  '@itwin/core-geometry': ^5.13.0
+  '@itwin/core-quantity': ^5.13.0
+  '@itwin/ecschema-editing': 5.13.0
+  '@itwin/ecschema-locaters': 5.13.0
+  '@itwin/ecschema-metadata': ^5.13.0
+  '@itwin/imodels-access-backend': ^6.0.2
+  '@itwin/imodels-access-common': ^6.0.2
+  '@itwin/imodels-client-authoring': ^6.0.2
+  '@itwin/node-cli-authorization': ^3.0.1
+  '@itwin/object-storage-azure': ^3.0.4
+  '@types/node': ^22.18.12
+  '@typescript/native': 'npm:typescript@~7.0.2'
+  typescript: 'npm:@typescript/typescript6@~6.0.2'
+  vitest: 4.1.10
+
 # pnpm 11 no longer reads the "pnpm" field in package.json; overrides and
 # the build-script allowlist live here instead. See https://pnpm.io/settings
 overrides:
   semver: ^7.5.2                 # eslint-plugin-import, eslint-plugin-react pull in semver@6 (CVE-2022-25883)
   # --- audit overrides (high/critical advisories locked behind @itwin/* deps) ---
-  axios@0: ^0.32.0               # test-app depends on axios@0 directly
   path-to-regexp@0: ^0.1.13     # transformer-performance-tests -> @itwin/oidc-signin-tool -> @itwin/certa -> express@4 -> path-to-regexp@0
   serialize-javascript: ^7.0.0   # mocha@10/@itwin/build-tools -> mocha@11 -> serialize-javascript
 
@@ -26,3 +50,14 @@ allowBuilds:
   '@itwin/certa': false
   '@itwin/oidc-signin-tool': false
   protobufjs: false
+
+minimumReleaseAgeExclude:
+  - '@itwin/build-tools@5.13.0'
+  - '@itwin/core-backend@5.13.0'
+  - '@itwin/core-bentley@5.13.0'
+  - '@itwin/core-common@5.13.0'
+  - '@itwin/core-geometry@5.13.0'
+  - '@itwin/core-quantity@5.13.0'
+  - '@itwin/ecschema-editing@5.13.0'
+  - '@itwin/ecschema-locaters@5.13.0'
+  - '@itwin/ecschema-metadata@5.13.0'

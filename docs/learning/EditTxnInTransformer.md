@@ -30,9 +30,11 @@ The transformer detects reverse sync automatically based on provenance direction
 
 ## IModelImporter
 
-The importer takes a single `EditTxn` and derives `targetDb` from it:
+The importer takes a single `EditTxn` and derives `targetDb` from it. Pass the target deletion roots to `deleteElements()` as a set:
 
 [[include:EditTxnInTransformer.custom-importer]]
+
+If `deleteElements()` throws an error with key `IModelTransformerError.ElementBulkDeleteFailed`, deletions from earlier native calls are still pending in the transaction. Abandon the transaction before retrying. See [Deleting elements](./transformer/element-deletion.md#handling-deletion-errors).
 
 ## TemplateModelCloner
 

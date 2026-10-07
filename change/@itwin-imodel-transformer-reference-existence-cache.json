@@ -1,0 +1,7 @@
+{
+  "type": "patch",
+  "comment": "Reduce per-reference existence-check queries with a per-run positive-only existence cache and batched source-side checks in danglingReferencesBehavior 'reject' mode",
+  "packageName": "@itwin/imodel-transformer",
+  "email": "DanRod1999@users.noreply.github.com",
+  "dependentChangeType": "patch"
+}

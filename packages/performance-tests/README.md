@@ -53,6 +53,28 @@ That provider supplies source and target `BriefcaseDb`s backed by a running
 `HubMock`. The timed operation is `IModelTransformer.process()` configured to
 process source changes into the existing target.
 
+The `large-base-incremental-synchronization` scenario measures the same
+operation against the `large-base-incremental` fixture. Its recipe derives the
+workload from a positive integer `scale`: at the registered `scale: 25`, it has
+50,000 unchanged base elements in one flat model with a 50-element delta (25
+inserts, 25 updates) across 2 changesets. Increasing the scale multiplies both
+the base and delta while preserving the 1,000:1 base-to-change ratio and the
+two-changeset schedule. Incremental synchronization should scale with
+changeset size, so the extreme ratio exposes any cost proportional to the
+unchanged base that `balanced-incremental`'s proportional churn dilutes. The
+scale is part of the fixture parameters and therefore produces a distinct
+fixture descriptor and artifact identity.
+
+The `hierarchical-incremental` fixture measures the `incremental-synchronization`
+operation on elements with parents. At the registered `scale: 25`, its one model
+holds 1,000 unchanged assemblies, each with 2 sub-assemblies of 4 parts, for
+11,000 base elements. Two changesets insert 250 parts and update 250 parts, one
+per assembly, so every changed element sits beneath two unchanged ancestors that
+no other change shares; the other 500 assemblies stay unchanged. Change
+processing reaches each changed element through its unchanged ancestors, so the
+fixture exposes per-ancestor work that the flat fixtures never reach. Select it
+with `QUICK_PERF_FIXTURE=hierarchical-incremental`.
+
 The package also contains a `source-only` fixture backed by
 `detachedBriefcaseProvider`. It supplies a read-only source `BriefcaseDb` and
 local changeset files without a running Hub during scenario execution. No
@@ -66,10 +88,58 @@ The `standalone-full-transformation` scenario uses
 source copy and a newly-created empty target. Untimed `prepare()` imports
 schemas, `measure()` contains only `IModelTransformer.process()`, and
 `finish()` computes the target output-shape digest used for A/B comparability.
-Two configured fixtures support it: `standalone-full-transform` (element-heavy,
-no relationships) and `relationship-heavy-transform` (5,000 elements with
-30,000 `ElementGroupsMembers` relationships, exercising the relationship export
-path including federation-guid lookups).
+Five configured fixtures support it: `standalone-full-transform`
+(element-heavy, no relationships), `relationship-heavy-transform` (5,000
+elements with 30,000 `ElementGroupsMembers` relationships, exercising the
+relationship export path including federation-guid lookups),
+`reference-heavy-transform` (8,000 parent elements and 37,000 child elements
+whose round-robin parent navigation references exercise source-reference
+validation with about 8,000 unique references), and the opt-in
+`realistic-building-transform` and `realistic-building-transform-large`
+fixtures described below. Stock `process()` does not copy their
+`ElementDrivesElement` relationships.
+
+The `standalone-drive-relationship-processing` scenario supports the two
+realistic fixtures. Its untimed `prepare()` imports schemas and runs the stock
+full transformation so all relationship endpoints are mapped. Its timed
+`measure()` contains only
+`processRelationships(ElementDrivesElement.classFullName)`; finalization,
+saving, and output-shape validation are untimed. This is a fresh-snapshot
+relationship benchmark, not incremental changeset coverage.
+
+`realistic-building-transform` is a deterministic synthetic workload modeled
+only from aggregate transformer-relevant characteristics of a representative
+building iModel at approximately twice its structural scale. It contains 3,440
+elements, including 1,608 geometric elements (1,064 carrying geometry) and
+1,812 definition elements, plus 14 models, 2,424 multi-aspects, 2,538 unique
+aspects across seven synthetic classes, 2,672 refers-to relationships, and 276
+drives relationships. Its definition mix includes 24 spatial categories, 64
+render materials, 64 geometry parts, and three synthetic definition classes.
+The varied lightweight geometry, names, schema, identifiers, placements, and
+relationships are generated from scratch with a fixed seed. This fixture models
+aggregate transformation structure, not source file bytes or any specific real
+iModel; in particular, it does not reproduce embedded font blobs or proprietary
+geometry.
+
+`realistic-building-transform-large` is a separate deterministic synthetic
+profile for larger accepted-owner and excluded-source-aspect workloads. Its
+source contains 46,715 elements, including 25,467 geometric elements (15,000
+carrying geometry) and 18,626 definition elements, plus 32 models, 17,547
+geometry parts, 64 spatial categories, 128 render materials, and 3,140
+relationships. The source has 43,757 aspects: 2,640 included synthetic aspects
+distributed evenly across 34 classes and 41,117 synthetic
+`ExternalSourceAspect` rows across 40,661 owners. Normal standalone
+transformation excludes those external source aspects, so the expected target
+contains the 2,640 included aspects and no `ExternalSourceAspect` rows. The
+fixture uses shared, lightweight deterministic geometry (2,872,124 bytes
+across non-null source element and GeometryPart streams, approximately 2.74
+MiB) and independently configurable geometry-bearing element, geometry-part,
+included-aspect, external-source-aspect, and relationship counts.
+
+Like the smaller profile, the large fixture models only aggregate
+transformer-relevant cardinality and shape. It is not a byte-size model and
+does not reproduce any real iModel's schemas, labels, identifiers, placements,
+geometry, topology, or embedded payloads.
 
 ## Running the quick suite
 
@@ -96,6 +166,7 @@ Then run commands from `packages/performance-tests`:
 | `pnpm test:quick-integration` | Run the database- and HubMock-backed integration tests                                                |
 | `pnpm test:quick-harness`     | Run all quick unit and integration tests; does not run the benchmark                                  |
 | `pnpm test:quick`             | Run the selected performance scenario                                                                 |
+| `pnpm quick:profile`          | Materialize one pristine sample and profile only its scenario measurement                             |
 | `pnpm quick:build-fixture`    | Compile the native ESM fixture CLI, initialize its output, and write the selected fixture descriptor  |
 | `pnpm quick:verify-fixture`   | Run one warm-up plus one measured sample, verify deterministic results, and write a diagnostic report |
 | `pnpm quick:compare`          | Compile and run the A/B coordinator against prepared baseline and candidate checkouts                 |
@@ -105,6 +176,49 @@ The local benchmark default is one warm-up followed by one measured sample:
 ```sh
 pnpm test:quick
 ```
+
+### Profiling a quick scenario
+
+`pnpm quick:profile` builds the selected fixture, materializes one pristine
+sample, calls `prepare()`, profiles only `measure()`, validates with `finish()`,
+and then cleans up. Profiled wall time is diagnostic and must not be compared
+with normal benchmark results.
+
+External profiling is the default. After fixture preparation, the CLI prints
+the Node process ID and waits before and after the measurement so a native
+profiler or an interactive V8 profiler can be attached:
+
+```powershell
+$env:QUICK_PERF_SCENARIO = "standalone-full-transformation"
+$env:QUICK_PERF_FIXTURE = "standalone-full-transform"
+pnpm quick:profile
+```
+
+Use automatic V8 CPU profiling to write one `.js.cpuprofile` for the exact
+measurement interval without interactive prompts:
+
+```powershell
+$env:QUICK_PERF_PROFILE_MODE = "js-cpu"
+$env:QUICK_PERF_PROFILE_OUTPUT = "$env:TEMP\transformer-profiles"
+pnpm quick:profile
+```
+
+Configuration:
+
+| Environment variable        | Meaning                                                         | Default                                      |
+| --------------------------- | --------------------------------------------------------------- | -------------------------------------------- |
+| `QUICK_PERF_PROFILE_MODE`   | `external` for attach/pause or `js-cpu` for automatic V8 output | `external`                                   |
+| `QUICK_PERF_PROFILE_OUTPUT` | Directory for automatic V8 `.js.cpuprofile` files               | `<QUICK_PERF_OUTPUT>\profiles`               |
+| `QUICK_PERF_SCENARIO`       | Scenario to profile                                             | `incremental-synchronization`                |
+| `QUICK_PERF_FIXTURE`        | Compatible fixture to profile                                   | The selected scenario's default fixture      |
+| `QUICK_PERF_STANDALONE_BIM` | External standalone BIM used by a full-transform fixture        | The configured generated standalone workload |
+
+The external mode requires an interactive terminal. Start Node with
+`NODE_OPTIONS=--inspect` before running it to attach Chrome DevTools for manual
+V8 profiling. Native profilers attach directly to the printed process ID.
+For automatic profiles, open the exact output path printed by the command
+directly in VS Code, or use **Load profile** in Chrome DevTools' **Performance**
+panel.
 
 ### Selecting a scenario and fixture
 
@@ -118,12 +232,13 @@ pnpm test:quick
 
 Registered fixtures per scenario:
 
-| Scenario ID                      | Fixture IDs                                                 | Default                     |
-| -------------------------------- | ----------------------------------------------------------- | --------------------------- |
-| `incremental-synchronization`    | `balanced-incremental`                                      | `balanced-incremental`      |
-| `standalone-full-transformation` | `standalone-full-transform`, `relationship-heavy-transform` | `standalone-full-transform` |
-| `schema-processing`              | `schema-processing-large`                                   | `schema-processing-large`   |
-| `changeset-scanning`             | `update-heavy-scan`                                         | `update-heavy-scan`         |
+| Scenario ID                                | Fixture IDs                                                                                                                                                    | Default                        |
+| ------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------ |
+| `incremental-synchronization`              | `balanced-incremental`, `deletion-heavy-incremental`, `hierarchical-incremental`                                                                               | `balanced-incremental`         |
+| `standalone-full-transformation`           | `standalone-full-transform`, `relationship-heavy-transform`, `reference-heavy-transform`, `realistic-building-transform`, `realistic-building-transform-large` | `standalone-full-transform`    |
+| `standalone-drive-relationship-processing` | `realistic-building-transform`, `realistic-building-transform-large`                                                                                           | `realistic-building-transform` |
+| `schema-processing`                        | `schema-processing-large`                                                                                                                                      | `schema-processing-large`      |
+| `changeset-scanning`                       | `update-heavy-scan`                                                                                                                                            | `update-heavy-scan`            |
 
 Example in a POSIX shell:
 
@@ -148,6 +263,46 @@ Run the generated standalone full-transform workload in a POSIX shell:
 ```sh
 QUICK_PERF_SCENARIO=standalone-full-transformation \
 QUICK_PERF_SAMPLES=3 \
+pnpm test:quick
+```
+
+Run the navigation-reference-heavy standalone workload in PowerShell:
+
+```powershell
+$env:QUICK_PERF_SCENARIO = "standalone-full-transformation"
+$env:QUICK_PERF_FIXTURE = "reference-heavy-transform"
+pnpm test:quick
+```
+
+Run the opt-in realistic synthetic building workload in PowerShell:
+
+```powershell
+$env:QUICK_PERF_SCENARIO = "standalone-full-transformation"
+$env:QUICK_PERF_FIXTURE = "realistic-building-transform"
+pnpm test:quick
+```
+
+The equivalent POSIX selection is:
+
+```sh
+QUICK_PERF_SCENARIO=standalone-full-transformation \
+QUICK_PERF_FIXTURE=realistic-building-transform \
+pnpm test:quick
+```
+
+Run the opt-in large realistic synthetic workload in PowerShell:
+
+```powershell
+$env:QUICK_PERF_SCENARIO = "standalone-full-transformation"
+$env:QUICK_PERF_FIXTURE = "realistic-building-transform-large"
+pnpm test:quick
+```
+
+The equivalent POSIX selection is:
+
+```sh
+QUICK_PERF_SCENARIO=standalone-full-transformation \
+QUICK_PERF_FIXTURE=realistic-building-transform-large \
 pnpm test:quick
 ```
 
@@ -245,7 +400,8 @@ duplicating source-to-target correctness assertions from the transformer test su
 Successful runs publish:
 
 - `comparison.json`: baseline and candidate medians, percentage delta, raw measured wall times and peak worker RSS values, arm transformer versions, baseline fixture-authoring revision and transformer version, shared fixture content hash, execution order, and informational threshold status.
-- `comparison.md`: the same small result set for the Actions job summary.
+- `comparison.md`: the same small result set for the Actions job summary, plus
+  a reader-friendly relative median-performance ratio.
 - `comparison-samples.jsonl`: all warm-up and measured sample records with arm
   and revision labels.
 
@@ -259,6 +415,22 @@ The coordinator accepts `QUICK_PERF_SCENARIO`, `QUICK_PERF_FIXTURE`,
 `QUICK_PERF_COMPARISON_THRESHOLD_PERCENT`, and
 `QUICK_PERF_STANDALONE_BIM` for the standalone topology.
 `QUICK_PERF_COMPARISON_WORKER_TIMEOUT_SECONDS` sets the positive per-process timeout and defaults to 600 seconds. Every isolated worker reports its peak RSS through Node's `process.resourceUsage().maxRSS`, covering the complete worker lifetime including setup and teardown; `rssDeltaBytes` continues to cover only the scenario endpoints. Wall time and peak RSS are reported together but must be interpreted independently, and the informational threshold applies only to wall time. `QUICK_PERF_BASELINE_ROOT` is required; candidate and revision paths are set by the workflow.
+
+Dispatch the deletion-heavy incremental A/B from its candidate branch with:
+
+```sh
+gh workflow run quick-performance-comparison.yml \
+  --ref <candidate-branch> \
+  -f scenario=incremental-synchronization \
+  -f fixture=deletion-heavy-incremental \
+  -f baseline_ref=main \
+  -f samples=3
+```
+
+The candidate checkout supplies the compiled comparison harness to both arms.
+The baseline checkout still authors the immutable fixture artifact, and the
+comparison requires one fixture content hash and semantic digest across all
+baseline and candidate samples.
 
 ## Running the manual workflow
 
@@ -279,6 +451,16 @@ scenario that exists only on a feature branch, set the optional free-form
 ```sh
 gh workflow run quick-performance.yml --ref <branch> \
   -f scenario_override=my-feature-scenario
+```
+
+Run the registered reference-heavy fixture through the A/B workflow:
+
+```sh
+gh workflow run quick-performance-comparison.yml --ref <branch> \
+  -f scenario=standalone-full-transformation \
+  -f fixture=reference-heavy-transform \
+  -f baseline_ref=main \
+  -f samples=40
 ```
 
 ## Adding quick performance coverage
