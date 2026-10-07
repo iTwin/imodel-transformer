@@ -69,6 +69,7 @@ import {
   Guid,
   Id64,
   Id64String,
+  IModelStatus,
   Logger,
   LoggingMetaData,
   LogLevel,
@@ -205,6 +206,81 @@ describe("IModelTransformer", () => {
 
   afterAll(async () => {
     await ReusedSnapshots.cleanup();
+  });
+
+  it("should reject transforming an element when its code is already used by a different element", async () => {
+    const createTestDb = (fileName: string) => {
+      const db = SnapshotDb.createEmpty(
+        IModelTransformerTestUtils.prepareOutputFile(
+          "IModelTransformer",
+          fileName
+        ),
+        { rootSubject: { name: fileName } }
+      );
+      const ids = withEditTxn(db, "prepare test db", (txn) => ({
+        categoryId: SpatialCategory.insert(
+          txn,
+          IModel.dictionaryId,
+          "Equipment",
+          {}
+        ),
+        modelId: PhysicalModel.insert(txn, IModel.rootSubjectId, "Physical"),
+        codeSpecId: db.codeSpecs.insert(
+          txn,
+          CodeSpec.create(db, "EquipmentCode", CodeScopeSpec.Type.Model)
+        ),
+      }));
+      return { db, ...ids };
+    };
+
+    const source = createTestDb("DuplicateCode-Source.bim");
+    const target = createTestDb("DuplicateCode-Target.bim");
+    const codeValue = "CatalogEquipment";
+
+    const insertEquipment = (
+      testDb: ReturnType<typeof createTestDb>,
+      federationGuid: string
+    ) =>
+      withEditTxn(testDb.db, "insert equipment", (txn) =>
+        txn.insertElement({
+          classFullName: PhysicalObject.classFullName,
+          model: testDb.modelId,
+          category: testDb.categoryId,
+          code: new Code({
+            spec: testDb.codeSpecId,
+            scope: testDb.modelId,
+            value: codeValue,
+          }),
+          federationGuid,
+          geom: IModelTransformerTestUtils.createBox(Point3d.create(1, 1, 1)),
+          placement: Placement3d.fromJSON({ origin: {}, angles: {} }),
+        })
+      );
+
+    const sourceFederationGuid = Guid.createValue();
+    const targetFederationGuid = Guid.createValue();
+    const sourceEquipmentId = insertEquipment(source, sourceFederationGuid);
+    const targetEquipmentId = insertEquipment(target, targetFederationGuid);
+    expect(sourceFederationGuid).not.to.equal(targetFederationGuid);
+    expect(source.db.elements.getElement(sourceEquipmentId).code).to.deep.equal(
+      target.db.elements.getElement(targetEquipmentId).code
+    );
+
+    const targetEditTxn = createStartedEditTxn(target.db);
+    const transformer = new IModelTransformer({
+      source: source.db,
+      target: targetEditTxn,
+    });
+    try {
+      await expect(transformer.process()).rejects.toMatchObject({
+        errorNumber: IModelStatus.DuplicateCode,
+      });
+    } finally {
+      transformer.dispose();
+      targetEditTxn.end("abandon");
+      source.db.close();
+      target.db.close();
+    }
   });
 
   it("should transform changes from source to target", async () => {
