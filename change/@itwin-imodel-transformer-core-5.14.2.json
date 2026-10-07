@@ -1,0 +1,7 @@
+{
+  "type": "none",
+  "comment": "Develop and test against iTwin.js 5.14.2 core packages; peer dependency ranges are unchanged.",
+  "packageName": "@itwin/imodel-transformer",
+  "email": "50554904+hl662@users.noreply.github.com",
+  "dependentChangeType": "none"
+}
