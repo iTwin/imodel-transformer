@@ -1,22 +1,63 @@
 # @itwin/imodel-transformer 2.0
 
-Every consumer upgrading from 1.x must change code: constructors take an `EditTxn`, many methods are asynchronous, and transformer-owned errors are `ITwinError`s with stable keys. Code that compiles after those changes can still see different results, mainly in ElementAspect writes, element deletion, and change-mode traversal; see [Results that change without code changes](#results-that-change-without-code-changes).
+Every consumer upgrading from 1.x must change code: constructors take an `EditTxn`, many methods are asynchronous, several APIs were removed or renamed, and transformer-owned errors are `ITwinError`s with stable keys. Code that compiles after those changes can still see different results, mainly in ElementAspect writes, element deletion, and change-mode traversal; see [Results that change without code changes](#results-that-change-without-code-changes).
 
-## Before you upgrade
+## Migrating from 1.x to 2.0
 
-Check each item. Each links to its migration reference below.
+Work through these steps in order. The order follows a production service's migration from 1.x: the first four steps get the code compiling, and the last three catch what the compiler can't. Each step links to its reference section below.
 
-- **Peer dependencies.** iTwin.js peer dependencies are now `^5.13.0`. See [Peer dependencies](#peer-dependencies).
-- **Constructors take an `EditTxn`.** `IModelTransformer`, `IModelImporter`, and `TemplateModelCloner` require an `EditTxn` on the target iModel; reverse sync also requires a `sourceEditTxn`. See [EditTxn constructors](#edittxn-constructors).
-- **Many methods are async.** Await calls to them and make overrides `async`. `isForwardSynchronization` and `isReverseSynchronization` are now async methods. See [Async methods](#async-methods).
-- **Element deletion callbacks are batched.** `onDeleteElement` is removed from `IModelExportHandler`, `IModelTransformer`, and `IModelImporter`; override `onDeleteElements` instead. See [Element deletion](#element-deletion).
-- **Errors are `ITwinError` with stable keys.** Replace `instanceof IModelError`, `errorNumber`, and message checks with `ITwinError.isError`. See [Errors](#errors).
-- **`exportChanges()` no longer falls back to `exportAll()`.** A source briefcase with no changesets and no custom changes now throws `no-changesets`. See [exportChanges() without changesets](#exportchanges-without-changesets).
-- **Context and provenance APIs.** `IModelTransformer.context` is typed as `IModelTransformContext`, and several provenance APIs were removed from `IModelTransformer`. See [Context and provenance APIs](#context-and-provenance-apis).
-- **`ChangedInstanceIds.addChange` input type.** It takes a `ChangeInstance` instead of `ChangedECInstance`. See [ChangedInstanceIds.addChange](#changedinstanceidsaddchange).
-- **Package exports map.** Undocumented deep imports are no longer supported, and `exportSchemas()` overrides no longer control transformer schema discovery. See [Schema processing and package exports](#schema-processing-and-package-exports).
-- **Filters must accept required elements.** Full and change transforms throw `DependencyMappingMissing` when an accepted element requires an element the filter rejects, such as its category. See [Element filtering and required elements](#element-filtering-and-required-elements).
-- **ElementAspect processing.** Aspect callbacks no longer run beside their owning element's callback, direct `IModelImporter` aspect calls match the exact class, and custom deleted aspect changes need the owning element ID. See [ElementAspects](#elementaspects).
+### Step 1: Update Node and iTwin.js
+
+2.0 requires Node `^22.12.0 || ^24.18.0` and iTwin.js `^5.13.0` peer dependencies. 1.2.0 required Node `^18.0.0` and iTwin.js `^4.3.5`. See [Node and peer dependencies](#node-and-peer-dependencies).
+
+### Step 2: Own the target and source transactions
+
+`IModelTransformer`, `IModelImporter`, and `TemplateModelCloner` require a started `EditTxn` on the target iModel instead of an `IModelDb`. Reverse synchronization also requires a started `sourceEditTxn`. The caller ends each transaction: save after success and abandon after failure.
+
+Decide where each transaction starts and ends before changing call sites:
+
+- Only one `EditTxn` can be active for an iModel, and `start()` throws if unsaved changes are present. Finish setup writes, such as creating the target scope element or seeding definitions, in their own transactions and end them before the transformation's transaction starts.
+- End the transformation's transaction in a `finally` block, with `"save"` after success and `"abandon"` after failure, so a failed run never saves partial changes. End both transactions of a reverse synchronization with the same mode.
+- Replace your own `saveChanges()` calls on the target `IModelDb`, such as periodic saves during a long run, with `editTxn.saveChanges()`. Push saved changes as a separate step after the transaction ends.
+
+See [EditTxn constructors](#edittxn-constructors) and [EditTxn in imodel-transformer](../learning/EditTxnInTransformer.md).
+
+### Step 3: Make overrides and calls async
+
+Await every call to a method that now returns a `Promise`, and make every override of one `async`. Watch loops: replace `forEach` callbacks that call these methods with `for...of` and `await`, so calls run in order and errors propagate. See [Async methods](#async-methods).
+
+### Step 4: Replace removed and renamed APIs
+
+- Element deletion: `onDeleteElement` is removed from `IModelExportHandler`, `IModelTransformer`, and `IModelImporter`; override `onDeleteElements` instead. See [Element deletion](#element-deletion).
+- `IModelTransformer.context` is typed as `IModelTransformContext`, and several provenance APIs and getters were removed or became async methods. See [Context and provenance APIs](#context-and-provenance-apis) and [Removed and renamed APIs](#removed-and-renamed-apis).
+- `alignECEFLocations` is replaced by `tryAlignGeolocation`. See [Geolocation alignment](#geolocation-alignment).
+- `ChangedInstanceIds.addChange` takes a `ChangeInstance` instead of `ChangedECInstance`. See [ChangedInstanceIds.addChange](#changedinstanceidsaddchange).
+- The package `exports` map removes undocumented deep imports, such as paths under `lib/cjs`. Import from `@itwin/imodel-transformer` or `@itwin/imodel-transformer/schema-processing`. See [Schema processing and package exports](#schema-processing-and-package-exports).
+- `TransformerLoggerCategory` values changed from `core-backend.*` to `imodel-transformer.*`. See [Logger categories](#logger-categories).
+
+### Step 5: Update error handling
+
+Replace `instanceof IModelError`, `errorNumber`, and message checks for transformer-owned failures with `ITwinError.isError` and an `IModelTransformerError` key. `exportChanges()`, and `process()` with `argsForProcessChanges`, now throw `no-changesets` instead of running a full export when the source has no changesets and no custom changes. See [Errors](#errors) and [exportChanges() without changesets](#exportchanges-without-changesets).
+
+### Step 6: Delete code that 2.0 makes obsolete
+
+2.0 takes over work that 1.x consumers often did themselves. Look for these and remove them:
+
+- Custom ElementAspect export strategies or importer shims that worked around delete-and-reinsert aspect processing. `IModelExporter` no longer accepts an aspect-processing strategy, and the importer now reconciles aspects itself. See [ElementAspects](#elementaspects).
+- Custom schema enumeration, ordering, import, or dynamic-schema merging. Use `processSchemas({ strategy })` with `NewerVersionSchemaImportStrategy` or `DynamicSchemaUnionStrategy`, and subclass a strategy for custom policy. See [Schema-processing strategies](#schema-processing-strategies).
+- Per-element deletion overrides that retried or skipped elements still in use. The importer now keeps them with a warning. See [Element deletion](#element-deletion).
+- Local patches for defects fixed since 1.2.0. See [Fixes since 1.2.0](#fixes-since-120).
+
+### Step 7: Re-test for behavior changes
+
+Run your tests against real data and check these, because none of them fails to compile:
+
+- **Filters.** A filter that accepts elements must also accept their categories and other required elements, or the transform throws `DependencyMappingMissing`. See [Element filtering and required elements](#element-filtering-and-required-elements).
+- **ElementAspect callbacks.** Aspect callbacks no longer run beside their owning element's callback, and aspect write hooks run only for actual writes. Code that saves or reports progress per element and assumes its aspects were processed with it, or that counts aspect hooks, must change. Direct `IModelImporter` aspect calls match the exact class, and custom deleted aspect changes need the owning element ID. See [ElementAspects](#elementaspects) and [ElementAspects are reconciled instead of rewritten](#elementaspects-are-reconciled-instead-of-rewritten).
+- **Shared target elements.** When two sources map to the same target element, each source's transform deletes the aspects the other added. See [ElementAspects are reconciled instead of rewritten](#elementaspects-are-reconciled-instead-of-rewritten).
+- **Exporter subclasses.** `exportRelationships()` no longer calls `exportRelationship()` per relationship, and overriding `exportElement` or `exportChildElements` opts out of the faster traversal. See [IModelExporter subclasses](#imodelexporter-subclasses).
+- **Change processing.** Unchanged elements are no longer exported during change processing, and filters run on unchanged ancestors only when a changed descendant is reached. See [Change-mode traversal visits only changed paths](#change-mode-traversal-visits-only-changed-paths).
+- **Deletion.** Elements still in use are kept with a warning, and a failed native deletion throws `ElementBulkDeleteFailed`. See [Elements still in use are kept during deletion](#elements-still-in-use-are-kept-during-deletion).
 
 ## Results that change without code changes
 
@@ -60,6 +101,13 @@ Package-owned schema conflicts and dependency cycles use `IModelTransformerError
 
 The breaking changes that come with this feature are in [Schema processing and package exports](#schema-processing-and-package-exports).
 
+### Other additions
+
+- `IModelImporter.deleteElements()` deletes a set of target elements in one batch, and `IModelImporter.editTxn` returns the importer's transaction. See [Element deletion](#element-deletion).
+- `IModelExporter.exportFontByFontFamilyDescriptor()` and `exportFontByFontProps()` export a font by its family descriptor or props.
+- `IModelExportHandler.onExportRelationship()` receives the FederationGuids of the relationship's source and target elements as optional arguments, when the exporter has them.
+- `IModelTransformer.calculateTransformFromHelmertTransforms()` and the static `convertHelmertToTransform()` expose the transform that `tryAlignGeolocation` uses for iModels with a geographic coordinate system. See [Geolocation alignment](#geolocation-alignment).
+
 ## Performance
 
 - **Full exports.** `IModelExporter` discovers element hierarchies in `exportAll()`, `exportModelContents()`, and `exportChildElements()` with one streamed recursive ECSQL query per traversal root instead of one `queryChildren()` round trip per visited element. Root order, sibling order (ECInstanceId ascending), depth-first pre-order, element filtering, subtree suppression, and exporter callbacks are unchanged. `IModelExporter` subclasses that override `exportElement` or `exportChildElements` keep the previous traversal.
@@ -67,12 +115,33 @@ The breaking changes that come with this feature are in [Schema processing and p
 - **Element deletion.** Batched deletion is 8 to 10 times faster than per-element deletion. See [Element deletion](#element-deletion).
 - **ElementAspects.** Unchanged aspects are no longer deleted and reinserted. See [ElementAspects are reconciled instead of rewritten](#elementaspects-are-reconciled-instead-of-rewritten).
 - **Incremental deletions.** Guidless element deletions are resolved from the transformation context without an additional per-deletion provenance query. See [Incremental deletions are resolved from the transformation context](#incremental-deletions-are-resolved-from-the-transformation-context).
+- **Relationships.** Relationship export reads relationships and their endpoint FederationGuids with one bulk query instead of separate queries per relationship. See [IModelExporter subclasses](#imodelexporter-subclasses).
+- **Reference and Code lookups.** With `danglingReferencesBehavior: "reject"`, the transformer caches reference existence checks for the run and skips them for entities it has already exported. Finding existing target elements by Code skips empty codes, which can never match.
+
+## Fixes since 1.2.0
+
+If you worked around one of these in 1.x, remove the workaround.
+
+- Change processing handles changes whose data is stored in an overflow table. ([#304](https://github.com/iTwin/imodel-transformer/pull/304))
+- A model is not deleted when its partition element was remapped or recreated. ([#305](https://github.com/iTwin/imodel-transformer/pull/305))
+- Unchanged elements no longer cause an infinite loop during synchronization. ([#270](https://github.com/iTwin/imodel-transformer/pull/270))
+- Change processing no longer recurses until it runs out of memory when it reaches a required parent that is missing from the target; it throws `DependencyMappingMissing`. ([#440](https://github.com/iTwin/imodel-transformer/pull/440))
+- Element codes are preserved when updating identity-mapped elements within the same iModel, such as in-place Category updates. ([#367](https://github.com/iTwin/imodel-transformer/pull/367))
+- Export change options and root-skipping traversal are preserved during synchronization. ([#330](https://github.com/iTwin/imodel-transformer/pull/330))
+- `importElementMultiAspects` returns IDs in input order after deleting surplus multi-aspects. ([#332](https://github.com/iTwin/imodel-transformer/pull/332))
 
 ## Migration reference
 
-### Peer dependencies
+### Node and peer dependencies
 
-This version requires `^5.13.0` of the iTwin.js peer dependencies: `@itwin/core-backend`, `@itwin/core-bentley`, `@itwin/core-common`, `@itwin/core-geometry`, `@itwin/core-quantity`, and `@itwin/ecschema-metadata`. `@itwin/ecschema-editing` and `@itwin/ecschema-locaters` are optional and are needed only for the `schema-processing` subpath; see [Schema processing and package exports](#schema-processing-and-package-exports).
+| Requirement                | 1.2.0     | 2.0                      |
+| -------------------------- | --------- | ------------------------ |
+| Node                       | `^18.0.0` | `^22.12.0 \|\| ^24.18.0` |
+| iTwin.js peer dependencies | `^4.3.5`  | `^5.13.0`                |
+
+The iTwin.js peer dependencies are `@itwin/core-backend`, `@itwin/core-bentley`, `@itwin/core-common`, `@itwin/core-geometry`, `@itwin/core-quantity`, and `@itwin/ecschema-metadata`. `@itwin/ecschema-editing` and `@itwin/ecschema-locaters` are optional and are needed only for the `schema-processing` subpath; see [Schema processing and package exports](#schema-processing-and-package-exports).
+
+The `SUGGEST_TRANSFORMER_VERSIONS` environment variable, which looked up compatible transformer versions when the peer dependency check failed, and the README version-selection script are removed. `TRANSFORMER_NO_STRICT_DEP_CHECK` is unchanged.
 
 ### EditTxn constructors
 
@@ -302,6 +371,7 @@ if (await transformer.getIsForwardSynchronization()) { ... }
 - `shouldExportRelationship`
 - `shouldExportSchema`
 - `tryGetProvenanceScopeAspect`
+- `updateSynchronizationVersion`
 
 ##### TemplateModelCloner
 
@@ -358,7 +428,7 @@ Errors detected and owned by `@itwin/imodel-transformer` now use `ITwinError` wi
 | `IModelError` | `ExportChangesRequiresBriefcase`, `InvalidModelId`, `TargetClassNotFound`, `ElementIdRequired`, `RelationshipIdRequired`, `InvalidSubCategory`, `GeolocationUnavailable`, `GeographicCoordinateSystemUnavailable`, `GeographicCoordinateSystemMismatch`, `DanglingReference`, `RootSubjectNotProcessable`, `ParentModelRequired`, `DependencyMappingMissing`, `ProvenanceSchemaUnsupported`, `ProvenanceScopeConflict`                                     |
 | `Error`       | `SchemaLoadFailed`, `ExportHandlerNotRegistered`, `ChangedInstanceMetadataMissing`, `InvalidEntityReference`, `ImporterOptionMismatch`, `InvalidCode`, `ElementIdNotPreservable`, `SynchronizationRangeInvalid`, `EditTxnNotActive`, `ChangesetIndexUnavailable`, `RelationshipClassNotFound`, `SourceEditTxnRequired`, `SynchronizationVersionMissing`, `RelationshipProvenanceNotFound`, `SynchronizationTypeNotDetermined`, `DependencyVersionMismatch` |
 
-`NoChangesets` is a new failure condition rather than a migration from an existing thrown error. It is covered in [exportChanges() without changesets](#exportchanges-without-changesets).
+These keys are new failure conditions rather than migrations from an existing thrown error: `NoChangesets` (see [exportChanges() without changesets](#exportchanges-without-changesets)), `ElementBulkDeleteFailed` (see [Element deletion](#element-deletion)), `AspectOwnerRequired` (see [ElementAspects](#elementaspects)), `SchemaConflict` and `SchemaDependencyCycle` (see [Schema-processing strategies](#schema-processing-strategies)), and `InvalidRelationshipData`, thrown when a relationship query returns malformed instance data.
 
 Consumers that check `instanceof IModelError`, inspect `errorNumber`, or compare an error message for a transformer-owned condition must switch to `ITwinError.isError`. Check both the exported `IModelTransformerErrorScope` and the expected enum member:
 
@@ -429,19 +499,61 @@ Tests should mock `IModelTransformContext` instead of constructing or stubbing `
 
 #### Provenance APIs
 
-As part of [the decomposition of `IModelTransformer`](https://github.com/iTwin/imodel-transformer/pull/295), synchronization direction resolution and provenance management were moved into focused internal classes. Most commonly used `IModelTransformer` APIs remain available, including `initElementProvenance()`, `getSynchronizationVersion()`, `tryGetProvenanceScopeAspect()`, `initScopeProvenance()`, and `updateSynchronizationVersion()`.
+As part of [the decomposition of `IModelTransformer`](https://github.com/iTwin/imodel-transformer/pull/295), synchronization direction resolution and provenance management were moved into focused internal classes. Most commonly used `IModelTransformer` APIs remain available, including `initElementProvenance()`, `getSynchronizationVersion()`, `tryGetProvenanceScopeAspect()`, `initScopeProvenance()`, and `updateSynchronizationVersion()`, but they are now async.
 
-The following APIs were removed from `IModelTransformer`:
+Several provenance APIs were removed or became async methods; see [Removed and renamed APIs](#removed-and-renamed-apis). Subclasses that need the extracted provenance functionality can use the protected `_provenanceManager`. To determine synchronization direction, use `getIsForwardSynchronization()` or `getIsReverseSynchronization()`.
 
-- `determineSyncType()`
-- `noEsaSyncDirectionErrorMessage`
-- `getProvenanceSourceDb()`
-- `forEachTrackedElement()`
-- `initElementProvenanceOptions()`
-- `initRelationshipProvenanceOptions()`
-- `queryScopeExternalSourceAspect()`
+### Removed and renamed APIs
 
-Subclasses that need the extracted provenance functionality can use the protected `_provenanceManager`. To determine synchronization direction, use `getIsForwardSynchronization()` or `getIsReverseSynchronization()`.
+| 1.x API                                                                                                                                           | 2.0 replacement                                                                                                                                              |
+| ------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `new IModelTransformer(source, target, options)`                                                                                                  | `new IModelTransformer({ source, target }, options)`, where `target` is an `EditTxn` or `IModelImporter`. See [EditTxn constructors](#edittxn-constructors). |
+| `new IModelImporter(targetDb, options)`                                                                                                           | `new IModelImporter(editTxn, options)`                                                                                                                       |
+| `new TemplateModelCloner(sourceDb, targetDb?)`                                                                                                    | `new TemplateModelCloner(editTxn)`. Cross-iModel cloning is removed.                                                                                         |
+| `new IModelExporter(sourceDb, elementAspectsStrategy?)`                                                                                           | `new IModelExporter(sourceDb)`. See [ElementAspects](#elementaspects).                                                                                       |
+| `IModelTransformer.context: IModelCloneContext`                                                                                                   | `IModelTransformContext`. See [Context and provenance APIs](#context-and-provenance-apis).                                                                   |
+| `isForwardSynchronization`, `isReverseSynchronization` getters                                                                                    | `await getIsForwardSynchronization()`, `await getIsReverseSynchronization()`                                                                                 |
+| `provenanceDb` getter                                                                                                                             | `await getProvenanceDb()`                                                                                                                                    |
+| `provenanceSourceDb` getter                                                                                                                       | Removed.                                                                                                                                                     |
+| Protected `synchronizationVersion` getter                                                                                                         | Protected `await getSynchronizationVersion()`                                                                                                                |
+| Static `determineSyncType()` and `noEsaSyncDirectionErrorMessage`                                                                                 | Removed. Use `getIsForwardSynchronization()` or `getIsReverseSynchronization()`.                                                                             |
+| Static `forEachTrackedElement()`, `initElementProvenanceOptions()`, `initRelationshipProvenanceOptions()`, and `queryScopeExternalSourceAspect()` | Removed. Subclasses can use the protected `_provenanceManager`.                                                                                              |
+| `detectElementDeletes()`, `detectRelationshipDeletes()`                                                                                           | Removed. Both were deprecated in 1.x.                                                                                                                        |
+| Protected `hasDefinitionContainerDeletionFeature` getter                                                                                          | Removed.                                                                                                                                                     |
+| `onDeleteElement()` on `IModelExportHandler`, `IModelTransformer`, and `IModelImporter`                                                           | `onDeleteElements()`. See [Element deletion](#element-deletion).                                                                                             |
+| `IModelTransformOptions.alignECEFLocations`, `ecefTransform`, `calculateEcefTransform(srcDb, targetDb)`                                           | `tryAlignGeolocation` and `calculateEcefTransform()`. See [Geolocation alignment](#geolocation-alignment).                                                   |
+| `ChangedInstanceIds.addChange(change: ChangedECInstance)`                                                                                         | `addChange(change: ChangeInstance)`. See [ChangedInstanceIds.addChange](#changedinstanceidsaddchange).                                                       |
+| Deep imports such as `@itwin/imodel-transformer/lib/cjs/...`                                                                                      | Import from `@itwin/imodel-transformer` or `@itwin/imodel-transformer/schema-processing`.                                                                    |
+| `SUGGEST_TRANSFORMER_VERSIONS` environment variable                                                                                               | Removed. See [Node and peer dependencies](#node-and-peer-dependencies).                                                                                      |
+
+`getProvenanceSourceDb()`, added in earlier 2.0 development builds, is also removed.
+
+### Geolocation alignment
+
+`IModelTransformOptions.alignECEFLocations` is replaced by `tryAlignGeolocation`. Like `alignECEFLocations`, it is off by default and aligns iModels whose ECEF locations differ. It also aligns iModels that have a geographic coordinate system with the same CRS but different `additionalTransform`s, and throws `ITwinError` when the iModels can't be aligned.
+
+The public `ecefTransform` property is removed. `calculateEcefTransform()` no longer takes arguments; it uses the transformer's source and target iModels, returns `Transform | undefined`, and throws `GeolocationUnavailable` when either ECEF location is missing.
+
+See [Aligning geolocation](../learning/transformer/index.md#aligning-geolocation) for the alignment rules and errors.
+
+### Logger categories
+
+`TransformerLoggerCategory` values now use the `imodel-transformer` prefix instead of `core-backend`. Code that refers to the enum members needs no change. Logging configuration that uses the strings must be updated:
+
+| Member               | 1.x value                         | 2.0 value                               |
+| -------------------- | --------------------------------- | --------------------------------------- |
+| `IModelExporter`     | `core-backend.IModelExporter`     | `imodel-transformer.IModelExporter`     |
+| `IModelImporter`     | `core-backend.IModelImporter`     | `imodel-transformer.IModelImporter`     |
+| `IModelTransformer`  | `core-backend.IModelTransformer`  | `imodel-transformer.IModelTransformer`  |
+| `IModelCloneContext` | `core-backend.IModelCloneContext` | `imodel-transformer.IModelCloneContext` |
+
+A new `ECReferenceTypesCache` member uses `imodel-transformer.ECReferenceTypesCache`.
+
+### IModelExporter subclasses
+
+`IModelExporter.exportRelationships()` now reads relationships with one streaming query and no longer calls `exportRelationship()` once per relationship. Both paths call the new protected `exportRelationshipInstance()`, which applies exclusions and calls the handler. Move per-relationship logic from an `exportRelationship()` override to `exportRelationshipInstance()`, or to the handler's `shouldExportRelationship()` or `onExportRelationship()`.
+
+Subclasses that override `exportElement` or `exportChildElements` keep the previous per-element traversal, so those overrides continue to receive every element, but they don't get the faster traversal described in [Performance](#performance).
 
 ### ChangedInstanceIds.addChange
 
