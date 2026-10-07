@@ -55,6 +55,12 @@ source-to-target element mappings. It then measures only
 `processRelationships(ElementDrivesElement.classFullName)`. Finalization,
 saving, and output-shape validation remain untimed.
 
+The `standalone-full-retransformation` scenario performs an untimed, saved full
+transformation with provenance, then measures a second full `process()` by a
+new transformer over that populated target. Every exported relationship is
+therefore an existing target relationship. `finish()` requires the re-run to
+leave the target's output-shape digest unchanged.
+
 #### Recipe
 
 A recipe defines the deterministic iModel generated for a fixture. It describes
