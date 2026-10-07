@@ -34,7 +34,7 @@ The importer takes a single `EditTxn` and derives `targetDb` from it. Pass the t
 
 [[include:EditTxnInTransformer.custom-importer]]
 
-If `deleteElements()` throws an error with key `IModelTransformerError.ElementBulkDeleteFailed`, deletions from earlier native calls are still pending in the transaction. Abandon the transaction before retrying. See [Deleting elements](./transformer/element-deletion.md#handling-deletion-errors).
+If `deleteElements()` throws an error with key `IModelTransformerError.ElementBulkDeleteFailed`, deletions from earlier native calls are still pending in the transaction. Abandon the transaction before retrying. See [Deleting elements](./element-deletion.md#handling-deletion-errors).
 
 ## TemplateModelCloner
 

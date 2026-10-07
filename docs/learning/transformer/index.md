@@ -11,6 +11,8 @@ These classes should be considered a framework and not confused with the actual 
 
 See [Error handling in imodel-transformer](./error-handling.md) for the package's error ownership rules and guidance for handling identified transformer errors.
 
+See [EditTxn in imodel-transformer](./edit-txn.md) for how the transformer, importer, and template cloner use edit transactions.
+
 Upgrading from 1.x? See [Upgrading from imodel-transformer 1.x to 2.0](./upgrading-from-1x.md).
 
 ## IModelExporter

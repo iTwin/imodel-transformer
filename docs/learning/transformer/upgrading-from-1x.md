@@ -57,7 +57,7 @@ Decide where each transaction starts and ends before changing call sites:
 - End the transformation's transaction in a `finally` block, with `"save"` after success and `"abandon"` after failure, so a failed run never saves partial changes. End both transactions of a reverse synchronization with the same mode.
 - Replace your own `saveChanges()` calls on the target `IModelDb`, such as periodic saves during a long run, with `editTxn.saveChanges()`. Push saved changes as a separate step after the transaction ends.
 
-See [EditTxn constructors](#edittxn-constructors) and [EditTxn in imodel-transformer](../EditTxnInTransformer.md).
+See [EditTxn constructors](#edittxn-constructors) and [EditTxn in imodel-transformer](./edit-txn.md).
 
 ## Step 3: Make overrides and calls async
 
@@ -83,7 +83,7 @@ Replace `instanceof IModelError`, `errorNumber`, and message checks for transfor
 - Custom ElementAspect export strategies or importer shims that worked around delete-and-reinsert aspect processing. `IModelExporter` no longer accepts an aspect-processing strategy, and the importer now reconciles aspects itself. See [ElementAspects](#elementaspects).
 - Custom schema enumeration, ordering, import, or dynamic-schema merging. Use `processSchemas({ strategy })` with `NewerVersionSchemaImportStrategy` or `DynamicSchemaUnionStrategy`, and subclass a strategy for custom policy. See [Schema processing in a transformation](./schema-processing.md).
 - Per-element deletion overrides that retried or skipped elements still in use. The importer now keeps them with a warning. See [Elements that are still in use](./element-deletion.md#elements-that-are-still-in-use).
-- Local patches for defects fixed since 1.2.0, such as changes stored in overflow tables or models deleted after their partition element was remapped. The 2.0 release notes list the fixes.
+- Local patches for defects fixed since 1.2.0, such as changes stored in overflow tables or models deleted after their partition element was remapped. The [2.0 release notes](https://github.com/iTwin/imodel-transformer/releases) list the fixes.
 
 ## Step 7: Re-test for behavior changes
 
@@ -113,7 +113,7 @@ The `SUGGEST_TRANSFORMER_VERSIONS` environment variable, which looked up compati
 
 `IModelTransformer`, `IModelImporter`, and `TemplateModelCloner` constructors now require an explicit [`EditTxn`](https://www.itwinjs.org/reference/core-backend/imodels/edittxn/) from `@itwin/core-backend` for the target iModel. This aligns the transformer with the iTwin.js platform's move toward explicit edit transactions and eliminates the possibility of mismatched db/txn references.
 
-For detailed usage patterns and lifecycle guidance, see the [EditTxn in Transformer learning doc](../EditTxnInTransformer.md).
+For detailed usage patterns and lifecycle guidance, see the [EditTxn in Transformer learning doc](./edit-txn.md).
 
 #### `IModelTransformer`
 
