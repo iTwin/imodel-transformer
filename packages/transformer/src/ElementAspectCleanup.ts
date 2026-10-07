@@ -161,8 +161,7 @@ export class ElementAspectCleanup {
       // Deleting a unique aspect also deletes unique aspects of derived
       // classes on the same element, so a candidate may already be gone.
       const aspect = tryGetAspect(this._targetDb, aspectId);
-      if (aspect === undefined) continue;
-      await this._deleteAspect(aspect);
+      if (aspect !== undefined) await this._deleteAspect(aspect);
     }
   }
 }
