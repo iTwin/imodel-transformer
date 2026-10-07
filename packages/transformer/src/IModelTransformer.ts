@@ -378,10 +378,7 @@ export type ProcessChangesOptions = ExportChangesOptions & {
 };
 
 type ChangeDataState =
-  | "uninited"
-  | "has-changes"
-  | "no-changes"
-  | "unconnected";
+  "uninited" | "has-changes" | "no-changes" | "unconnected";
 
 /**
  * @beta
@@ -1554,9 +1551,7 @@ export class IModelTransformer extends IModelExportHandler {
       await this._provenanceManager.getProvenanceEditTxn();
     if (!this._options.noProvenance) {
       const provenance:
-        | string
-        | MarkRequired<ExternalSourceAspectProps, "id">
-        | undefined =
+        string | MarkRequired<ExternalSourceAspectProps, "id"> | undefined =
         this._options.forceExternalSourceAspectProvenance ||
         this._elementsWithExplicitlyTrackedProvenance.has(sourceElement.id)
           ? undefined

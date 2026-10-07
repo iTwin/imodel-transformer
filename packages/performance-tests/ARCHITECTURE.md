@@ -36,6 +36,7 @@ The created `BenchmarkScenario` separates:
 
 - `measure()`: the transformer operation included in benchmark wall time.
 - `finish()`: untimed output-comparability and provenance validation.
+- `getMetrics()`: optional per-sample values included in the structured report.
 - `abort()`: cleanup when measurement or validation fails.
 
 The current `incremental-synchronization` scenario measures
@@ -54,6 +55,8 @@ full transformation outside the timed operation, retaining its transformer and
 source-to-target element mappings. It then measures only
 `processRelationships(ElementDrivesElement.classFullName)`. Finalization,
 saving, and output-shape validation remain untimed.
+
+The `aspect-heavy-noop` scenario builds a standalone source with one unique and two multi-aspects per element, performs an initial full transformation in untimed `prepare()`, and measures a second `process()` with no source changes. `aspect-heavy-process-changes` uses a live HubMock fixture and supplies every workload element and its model as updated through `ChangedInstanceIds`, without editing the source. Both report importer aspect insert/update/delete counts and whether target aspect IDs changed. The default fixture has 1,000 elements/3,000 aspects; the process-all scenario also has a 10,000-element fixture, and the recipe parameters control both values.
 
 #### Recipe
 
@@ -412,19 +415,14 @@ excluded from aggregate performance statistics.
 | `teardownMilliseconds`       | Scenario and provider sample cleanup                   |
 | `jobMilliseconds`            | Complete runner execution, used by the scenario budget |
 
-For `incremental-synchronization`, only `IModelTransformer.process()` is inside
-the measured region. Fixture generation, initial target transformation,
-provenance setup, validation, and cleanup remain outside it.
-The standalone full-transform scenario additionally places
-`processSchemas()` in untimed `prepare()`; target creation, edit-transaction
-setup, output-shape digest, and disposal remain outside the measured region.
+For `incremental-synchronization`, only `IModelTransformer.process()` is inside the measured region. Fixture generation, initial target transformation, provenance setup, validation, and cleanup remain outside it. The standalone full-transform scenario additionally places `processSchemas()` in untimed `prepare()`; target creation, edit-transaction setup, output-shape digest, and disposal remain outside the measured region. The `aspect-heavy-noop` scenario also runs its first full transform and records the initial target aspect IDs in `prepare()`; only the second `process()` is timed. The `aspect-heavy-process-changes` fixture provider performs the initial full transform, while its `prepare()` records target IDs and builds the custom updated-element set; only the second `processChanges()` is timed.
 
 ## Reporting and reliability
 
 Every run writes:
 
-- `samples.jsonl`: one record per warm-up or measured sample.
-- `summary.json`: structured aggregate used by workflow reporting.
+- `samples.jsonl`: one record per warm-up or measured sample, including optional scenario metrics.
+- `summary.json`: structured aggregate used by workflow reporting, with optional per-sample scenario metrics.
 - `summary.csv`: compact aggregate for external analysis.
 
 Compare reports only when these identity fields match:

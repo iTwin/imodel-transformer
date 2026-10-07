@@ -8,7 +8,7 @@
     "build": "pnpm build:profiler && tsc --noEmit --incremental false 1>&2",
     "build:quick-cli": "pnpm build:profiler && node ../../scripts/rm.js test/quick/runtime/.compiled && tsc -p tsconfig.quick-cli.json 1>&2",
     "clean": "node ../../scripts/rm.js lib test/quick/runtime/.compiled",
-    "lint": "pnpm build:profiler && eslint \"./test/**/*.ts\" 1>&2",
+    "lint": "pnpm build:profiler && pnpm --dir ../transformer build:cjs && eslint \"./test/**/*.ts\" 1>&2",
     "test": "pnpm build:profiler && vitest run",
     "format": "prettier \"./test/**/*.ts\" --write",
     "test:quick-unit": "pnpm build:profiler && vitest run --config vitest.quick.config.ts tests/unit",
