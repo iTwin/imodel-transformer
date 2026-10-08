@@ -8,7 +8,7 @@ See [Upgrading from imodel-transformer 1.x to 2.0](../learning/transformer/upgra
 
 Each item links to its section of the upgrade guide.
 
-- **Node and iTwin.js.** Node `^22.12.0 || ^24.18.0` and iTwin.js `^5.13.0` peer dependencies. See [Node and peer dependencies](../learning/transformer/upgrading-from-1x.md#node-and-peer-dependencies).
+- **Node and iTwin.js.** Node `^22.12.0 || ^24.18.0` and iTwin.js `^5.14.2` peer dependencies. See [Node and peer dependencies](../learning/transformer/upgrading-from-1x.md#node-and-peer-dependencies).
 - **Constructors take an `EditTxn`.** `IModelTransformer`, `IModelImporter`, and `TemplateModelCloner` require a started `EditTxn` on the target iModel; reverse sync also requires a `sourceEditTxn`. See [EditTxn constructors](../learning/transformer/upgrading-from-1x.md#edittxn-constructors).
 - **Many methods are async.** Await calls to them and make overrides `async`. The synchronization, provenance, and synchronization-version getters are now async methods. See [Async methods](../learning/transformer/upgrading-from-1x.md#async-methods).
 - **Removed and renamed APIs.** Including the static provenance helpers, `detectElementDeletes`, `detectRelationshipDeletes`, and `alignECEFLocations`. See [Removed and renamed APIs](../learning/transformer/upgrading-from-1x.md#removed-and-renamed-apis).

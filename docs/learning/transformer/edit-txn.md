@@ -74,9 +74,9 @@ Reverse synchronization must save or abandon the source and target transactions 
 
 ### Summary
 
-| Pattern | Cleanup |
-|---|---|
-| Test or disposable database | Call `end()` after successful processing. Closing the database cleans up an active transaction after a failure. |
-| Production transformation | In `finally`, save after success or abandon after failure. |
-| Reverse synchronization | End both transactions with the same save or abandon mode. |
-| `initializeBranchProvenance` | No caller-managed transaction. |
+| Pattern                      | Cleanup                                                                                                         |
+| ---------------------------- | --------------------------------------------------------------------------------------------------------------- |
+| Test or disposable database  | Call `end()` after successful processing. Closing the database cleans up an active transaction after a failure. |
+| Production transformation    | In `finally`, save after success or abandon after failure.                                                      |
+| Reverse synchronization      | End both transactions with the same save or abandon mode.                                                       |
+| `initializeBranchProvenance` | No caller-managed transaction.                                                                                  |

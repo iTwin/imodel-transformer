@@ -15,7 +15,7 @@ Goal: the consumer compiles and passes its tests on @itwin/imodel-transformer 2.
    - Writes and saves on the target or source IModelDb: `saveChanges(`, `abandonChanges(`.
    - Overrides of any method in the "Affected classes and methods" lists below, in subclasses of IModelExportHandler, IModelExporter, IModelImporter, IModelTransformer, or TemplateModelCloner.
    - Environment variable `SUGGEST_TRANSFORMER_VERSIONS`.
-2. Dependencies: set iTwin.js core and ecschema packages to one 5.x version satisfying ^5.13.0, all equal. Add `@itwin/ecschema-editing` and `@itwin/ecschema-locaters` only if the code imports `@itwin/imodel-transformer/schema-processing`. Require Node ^22.12.0 or ^24.18.0.
+2. Dependencies: set iTwin.js core and ecschema packages to one 5.x version satisfying ^5.14.2, all equal. Add `@itwin/ecschema-editing` and `@itwin/ecschema-locaters` only if the code imports `@itwin/imodel-transformer/schema-processing`. Require Node ^22.12.0 or ^24.18.0.
 3. Mechanical rewrites. Apply each exactly as the reference section below shows:
    - Constructors: see "EditTxn constructors". The caller creates and starts the EditTxn before construction and ends it after processing: `end("save")` on success and `end("abandon")` on failure, in a finally block. Reverse synchronization passes a started `sourceEditTxn` in options and ends both transactions with the same mode.
    - Async: make every override in the affected lists `async` returning `Promise`, and `await` every call to them. Replace `forEach` callbacks that call them with `for...of` plus `await`. Do not leave a floating promise.
@@ -45,7 +45,7 @@ This guide takes code written for `@itwin/imodel-transformer` 1.x to 2.0. Work t
 
 ## Step 1: Update Node and iTwin.js
 
-2.0 requires Node `^22.12.0 || ^24.18.0` and iTwin.js `^5.13.0` peer dependencies. 1.2.0 required Node `^18.0.0` and iTwin.js `^4.3.5`. See [Node and peer dependencies](#node-and-peer-dependencies).
+2.0 requires Node `^22.12.0 || ^24.18.0` and iTwin.js `^5.14.2` peer dependencies. 1.2.0 required Node `^18.0.0` and iTwin.js `^4.3.5`. See [Node and peer dependencies](#node-and-peer-dependencies).
 
 ## Step 2: Own the target and source transactions
 
@@ -103,7 +103,7 @@ Run your tests against real data and check these, because none of them fails to 
 | Requirement                | 1.2.0     | 2.0                      |
 | -------------------------- | --------- | ------------------------ |
 | Node                       | `^18.0.0` | `^22.12.0 \|\| ^24.18.0` |
-| iTwin.js peer dependencies | `^4.3.5`  | `^5.13.0`                |
+| iTwin.js peer dependencies | `^4.3.5`  | `^5.14.2`                |
 
 The iTwin.js peer dependencies are `@itwin/core-backend`, `@itwin/core-bentley`, `@itwin/core-common`, `@itwin/core-geometry`, `@itwin/core-quantity`, and `@itwin/ecschema-metadata`. `@itwin/ecschema-editing` and `@itwin/ecschema-locaters` are optional and are needed only for the `schema-processing` subpath; see [Schema processing and package exports](#schema-processing-and-package-exports).
 
