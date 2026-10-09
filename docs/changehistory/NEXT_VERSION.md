@@ -1,5 +1,19 @@
 # Next release notes
 
+## Unchanged ElementAspects are no longer rewritten
+
+Full, change, and subset transforms no longer delete and reinsert every replaceable ElementAspect of each accepted owner. The importer now matches each source aspect to an existing target aspect of the same class on the same owner, updates it only if its properties differ, inserts aspects that are new, and deletes target aspects that no longer have a source counterpart. That includes aspects removed from the source and aspect classes that became empty for an owner. A rerun with no source changes writes no aspects, and unchanged aspects keep their target IDs. The exception is a target aspect with a value for a property that only the target schema has: each rerun updates it, keeping its ID and that value. Aspects that a source schema change moves to another class get new target IDs once.
+
+When elements from two source iModels map to the same target element, such as a `SpatialCategory` matched by its code, each transformation reconciles that element's aspects against its own source's aspects only. A full transform from one source therefore deletes the aspects the other source added, and a source with no aspects on that element deletes all of them except aspects of excluded classes and transformer provenance. Change processing does the same when the changes include that source element or its aspects.
+
+`IModelImporter.onInsertElementAspect`, `onUpdateElementAspect`, and `onDeleteElementAspect` now run only for actual inserts, updates, and deletes. Code that counted these hooks during a rerun will see fewer calls.
+
+`IModelImporter.importElementUniqueAspect` and `importElementMultiAspects` now match existing target aspects of the exact class only. Code that calls them directly may see different results; see [Direct `IModelImporter` aspect calls match the exact class](#direct-imodelimporter-aspect-calls-match-the-exact-class).
+
+With `includeSourceProvenance`, cloned source `ExternalSourceAspect`s whose scope maps to the target scope element are no longer mistaken for the transformer's own provenance. Previously they were inserted again on every run, which duplicated them. Only `Scope` aspects, and `Element` and `Relationship` aspects scoped to a target scope element, are treated as transformer provenance. That includes the provenance of other target scopes: when one element is shared by several scopes, such as one source imported in parts, a transformation into one scope keeps the other scopes' provenance. Cloned provenance from another transformation is reused only by a source aspect with the same kind, scope, and identifier, and isn't deleted when the source deletes it. Cloned source aspects with the same kind and scope as the current scope's provenance still can't be told apart from it, so they are still inserted again on every run.
+
+See [Processing ElementAspects](../learning/transformer/element-aspect-processing.md) for details.
+
 ## Context-based provenance resolution for incremental deletions
 
 `IModelTransformer.process()` now resolves guidless incremental element
@@ -474,7 +488,7 @@ In 2.x, ElementAspects are exported separately from element callbacks using boun
 
 Existing `IModelExportHandler` callbacks and `shouldExportElementAspect` remain available. `IModelExporter` also continues to support `excludeElementAspectClass`. These callbacks retain their filtering and export roles, but aspect callbacks are no longer guaranteed to run next to the callback for their owning element.
 
-During change processing, the transformer clears replaceable target aspects for accepted changed owners and rebuilds them from the source. Excluded aspect classes and transformer provenance aspects are preserved. Custom inserted or updated aspect changes infer the owner while the source aspect exists. Custom deleted or missing aspects require the owning element ID and throw when it is omitted:
+For each accepted owner, the transformer reconciles replaceable target aspects with the current source aspects. It keeps unchanged aspects, updates changed ones, inserts new ones, and deletes the rest. Excluded aspect classes and transformer provenance aspects are preserved, with one exception: an included unique aspect replaces an excluded unique aspect of a base or derived class on the same element, because iModels store them in one slot. Custom inserted or updated aspect changes infer the owner while the source aspect exists. Custom deleted or missing aspects require the owning element ID and throw when it is omitted:
 
 ```ts
 changedInstanceIds.addCustomAspectChange(
@@ -485,3 +499,23 @@ changedInstanceIds.addCustomAspectChange(
 ```
 
 For the processing entry points, Exporter/Transformer/Importer boundaries, workflow diagram, filtering, batching, and custom-change examples, see the [Processing ElementAspects learning guide](../learning/transformer/element-aspect-processing.md).
+
+### Direct `IModelImporter` aspect calls match the exact class
+
+`IModelImporter.importElementUniqueAspect` and `importElementMultiAspects` read existing target aspects with `getAspects`, which also returns aspects of derived classes. Before this release, the importer used those derived-class aspects as matches. That could overwrite a derived-class aspect with base-class properties, or delete it as a surplus aspect. The importer now matches, updates, and deletes only existing aspects of exactly the class named by `classFullName`.
+
+| Call                                                                                                             | Before                                                                                                                                                    | Now                                                                                                         |
+| ---------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------- |
+| `importElementUniqueAspect` for class `A` when the owner has a unique aspect of derived class `B`                | Treated the `B` aspect as the match and returned its ID. If properties differed, called `onUpdateElementAspect` with the `B` aspect ID and the `A` props. | Deletes the `B` aspect through `onDeleteElementAspect`, then inserts the `A` aspect and returns its new ID. |
+| `importElementUniqueAspect` for class `B` when the owner has a unique aspect of base class `A`                   | Inserted `B`, leaving both aspects.                                                                                                                       | Deletes the `A` aspect through `onDeleteElementAspect`, then inserts the `B` aspect.                        |
+| `importElementMultiAspects` with aspects of class `A` when the owner also has multi-aspects of derived class `B` | Matched `A` and `B` target aspects in order, so a `B` aspect could be updated with `A` properties or deleted as surplus.                                  | Matches only `A` target aspects. `B` aspects are changed only by props whose `classFullName` is `B`.        |
+
+The unique-aspect deletion happens because iModel unique-aspect writes treat a class and its base or derived classes as one slot for an element. Inserting `A` replaces an existing `B`, and deleting `A` also deletes `B`. Deleting the related aspect first runs your deletion hook and keeps later deletes from removing the new aspect.
+
+To migrate code that calls these methods directly:
+
+- Pass each aspect with its concrete `classFullName`. Props read from an iModel with `getAspects` or `getAspect` already have it.
+- If you relied on a base-class `importElementMultiAspects` call deleting derived-class aspects, include those aspects in the call under their own class, or delete them with `EditTxn.deleteAspect`.
+- If you track IDs returned by `importElementUniqueAspect`, expect a new ID when an owner's unique aspect changes between a base and a derived class, and expect `onDeleteElementAspect` to run for the aspect it replaces.
+
+`IModelTransformer` already passes concrete classes, so transforms need no changes. See [Calling the importer directly](../learning/transformer/element-aspect-processing.md#calling-the-importer-directly).
