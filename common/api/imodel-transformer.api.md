@@ -104,7 +104,7 @@ export interface ChangeRecord {
 }
 
 // @beta
-export interface ChangeScanResult {
+export interface CollectedChanges {
     changedInstanceIds: ChangedInstanceIds;
     deletionBatches: DeletionBatch[];
 }
@@ -348,6 +348,7 @@ export class IModelTransformer extends IModelExportHandler {
     calculateEcefTransform(): Transform | undefined;
     // (undocumented)
     calculateTransformFromHelmertTransforms(): Transform | undefined;
+    protected collectChanges(ranges: readonly (readonly [number, number])[], changedInstanceIds?: ChangedInstanceIds): Promise<CollectedChanges>;
     combineElements(sourceElementIds: Id64Array, targetElementId: Id64String): void;
     // (undocumented)
     protected completePartiallyCommittedAspects(): Promise<void>;
@@ -404,7 +405,6 @@ export class IModelTransformer extends IModelExportHandler {
     static get provenanceElementClasses(): (typeof Entity)[];
     // (undocumented)
     protected _provenanceManager: ProvenanceManager;
-    protected scanChanges(ranges: readonly (readonly [number, number])[], changedInstanceIds?: ChangedInstanceIds): Promise<ChangeScanResult>;
     protected _schemaExportDir: string;
     protected shouldDetectDeletes(): Promise<boolean>;
     shouldExportCodeSpec(_sourceCodeSpec: CodeSpec): Promise<boolean>;

@@ -49,7 +49,7 @@ import {
 } from "@itwin/core-common";
 import {
   ChangedInstanceIds,
-  ChangeScanResult,
+  CollectedChanges,
   IModelTransformer,
   IModelTransformOptions,
 } from "../../imodel-transformer";
@@ -64,7 +64,7 @@ import { IModelTestUtils } from "../TestUtils/IModelTestUtils";
 import { transformerTestHub } from "../TestUtils/TransformerTestHub";
 import { populateTimelineSeed } from "../TestUtils/TimelineTestUtil";
 
-/** Hub tests for reading source changes: deletion batches, the scanChanges hook, and changeset reader filtering. */
+/** Hub tests for reading source changes: deletion batches, the collectChanges hook, and changeset reader filtering. */
 describe("IModelTransformerHub change scanning", () => {
   const outputDir = path.join(
     KnownTestLocations.outputDir,
@@ -417,14 +417,15 @@ describe("IModelTransformerHub change scanning", () => {
 
         const scans: {
           ranges: readonly (readonly [number, number])[];
-          result: ChangeScanResult;
+          result: CollectedChanges;
         }[] = [];
         await synchronize(branchDb, masterDb, {
           reverse: true,
           process: async (transformer) => {
-            const scanChanges = transformer["scanChanges"].bind(transformer);
-            transformer["scanChanges"] = async (ranges) => {
-              const result = await scanChanges(ranges);
+            const collectChanges =
+              transformer["collectChanges"].bind(transformer);
+            transformer["collectChanges"] = async (ranges) => {
+              const result = await collectChanges(ranges);
               scans.push({ ranges, result });
               return result;
             };
@@ -785,7 +786,7 @@ describe("IModelTransformerHub change scanning", () => {
         .undefined;
     });
 
-    it("combines changes from a scanChanges override with the default scan", async () => {
+    it("combines changes from a collectChanges override with the default scan", async () => {
       const { elementId, ecClassId, federationGuid, deleteChangesetIndex } =
         await syncElementThenDeleteInSource();
       const subjectId = withEditTxn(sourceDb, "insert subject", (txn) =>
@@ -799,15 +800,15 @@ describe("IModelTransformerHub change scanning", () => {
 
       // Supplies the delete changeset itself and passes the rest to the default scan.
       class PartlyCachedTransformer extends IModelTransformer {
-        protected override async scanChanges(
+        protected override async collectChanges(
           ranges: readonly (readonly [number, number])[],
           changedInstanceIds = new ChangedInstanceIds(this.sourceDb)
-        ): Promise<ChangeScanResult> {
+        ): Promise<CollectedChanges> {
           const deletionBatches: DeletionBatch[] = [];
           for (const [first, last] of ranges) {
             for (let index = first; index <= last; index++) {
               if (index !== deleteChangesetIndex) {
-                const scanned = await super.scanChanges(
+                const scanned = await super.collectChanges(
                   [[index, index]],
                   changedInstanceIds
                 );
@@ -855,13 +856,13 @@ describe("IModelTransformerHub change scanning", () => {
         .to.not.be.undefined;
     });
 
-    it("doesn't call scanChanges when changedInstanceIds are supplied", async () => {
+    it("doesn't call collectChanges when changedInstanceIds are supplied", async () => {
       const { elementId, federationGuid } =
         await syncElementThenDeleteInSource();
 
       class UnusedScanTransformer extends IModelTransformer {
-        protected override async scanChanges(): Promise<ChangeScanResult> {
-          throw new Error("scanChanges should not be called");
+        protected override async collectChanges(): Promise<CollectedChanges> {
+          throw new Error("collectChanges should not be called");
         }
       }
       const changedInstanceIds = new ChangedInstanceIds(sourceDb);

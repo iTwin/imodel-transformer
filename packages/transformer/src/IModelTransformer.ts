@@ -62,7 +62,6 @@ import {
   Subject,
 } from "@itwin/core-backend";
 import {
-  ChangesetFileProps,
   ChangesetIndexAndId,
   Code,
   CodeProps,
@@ -107,8 +106,8 @@ import {
 } from "./schema-processing/SchemaProcessingStrategy";
 import { SchemaProcessingCoordinator } from "./schema-processing/SchemaProcessingCoordinator";
 import {
-  ChangeScanResult,
   ChangesetScanner,
+  CollectedChanges,
   DeletionBatch,
   ExternalSourceAspectDeletionRecord,
   RelationshipDeletionRecord,
@@ -2232,6 +2231,7 @@ export class IModelTransformer extends IModelExportHandler {
   private async initializeChangesetScanAndExporter(
     exporterInitOptions: ExporterInitOptions
   ): Promise<void> {
+    // TODO: should the first changeset in a reverse sync really be included even though its 'initialized branch provenance'? The answer is no, its a bug that needs to be fixed.
     const ranges = this._changesetRanges;
     if (
       ranges !== undefined &&
@@ -2247,11 +2247,11 @@ export class IModelTransformer extends IModelExportHandler {
         // The caller supplied changed IDs, so only deletion metadata is read.
         this._deletionBatches = await ChangesetScanner.scan(
           this.sourceDb,
-          await this.downloadChangesets(ranges),
+          await ChangesetScanner.download(this.sourceDb, ranges),
           {}
         );
       } else {
-        const scanResult = await this.scanChanges(ranges);
+        const scanResult = await this.collectChanges(ranges);
         changedInstanceIds = scanResult.changedInstanceIds;
         this._deletionBatches = scanResult.deletionBatches;
       }
@@ -2269,7 +2269,7 @@ export class IModelTransformer extends IModelExportHandler {
    * Reads the source changes for the changeset ranges being processed. Override to supply changes from another
    * source, such as a precomputed cache, instead of downloading and reading changesets.
    *
-   * An override can supply some ranges itself and pass the rest to `super.scanChanges()`. Pass the same
+   * An override can supply some ranges itself and pass the rest to `super.collectChanges()`. Pass the same
    * `changedInstanceIds` to every call and handle the ranges in order, so that changes to the same instance in
    * different ranges combine correctly. Use [[ChangedInstanceIds.addChangeRecord]] to add each supplied change.
    * See [Supplying source changes]($docs/learning/transformer/change-scanning.md) for the full contract and an example.
@@ -2278,7 +2278,7 @@ export class IModelTransformer extends IModelExportHandler {
    * override must cover exactly these ranges.
    * @param changedInstanceIds Receives the changes read from the ranges. Defaults to a new, empty instance.
    * @returns The changed instance IDs to export and the records used to find the targets of deleted instances.
-   * See [[ChangeScanResult]] for what the result must include.
+   * See [[CollectedChanges]] for what the result must include.
    * @note The default implementation downloads the changesets, reads them with `ChangesetReader`, and returns one
    * deletion batch per range.
    * @note Not called when the exporter already has changed instance IDs, for example when `changedInstanceIds`
@@ -2286,36 +2286,18 @@ export class IModelTransformer extends IModelExportHandler {
    * the changesets to find deletion records.
    * @beta
    */
-  protected async scanChanges(
+  protected async collectChanges(
     ranges: readonly (readonly [number, number])[],
     changedInstanceIds: ChangedInstanceIds = new ChangedInstanceIds(
       this.sourceDb
     )
-  ): Promise<ChangeScanResult> {
+  ): Promise<CollectedChanges> {
     const deletionBatches = await ChangesetScanner.scan(
       this.sourceDb,
-      await this.downloadChangesets(ranges),
+      await ChangesetScanner.download(this.sourceDb, ranges),
       { changedInstanceIds }
     );
     return { changedInstanceIds, deletionBatches };
-  }
-
-  /** Downloads the changesets in each range. Returns one group of files per range. */
-  private async downloadChangesets(
-    ranges: readonly (readonly [number, number])[]
-  ): Promise<ChangesetFileProps[][]> {
-    const csFileGroups: ChangesetFileProps[][] = [];
-    for (const [first, end] of ranges) {
-      // TODO: should the first changeset in a reverse sync really be included even though its 'initialized branch provenance'? The answer is no, its a bug that needs to be fixed.
-      csFileGroups.push(
-        await BriefcaseManager.downloadChangesets({
-          iModelId: this.sourceDb.iModelId,
-          targetDir: BriefcaseManager.getChangeSetsPath(this.sourceDb.iModelId),
-          range: { first, end },
-        })
-      );
-    }
-    return csFileGroups;
   }
 
   /**

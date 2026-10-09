@@ -108,7 +108,7 @@ A synchronization records the changesets it is about to push, so that a later sy
 
 If another user pushes to one of those iModels after the synchronization runs but before its changes are pushed, the synchronization's changeset lands at a later index than recorded. A later synchronization that reads that iModel can then skip the other user's changeset, so its changes are never synchronized, and process the synchronization's own changeset.
 
-Until this is addressed, push a synchronization's changes as soon as it finishes, and avoid other pushes to either iModel in the meantime. A custom [IModelTransformer.scanChanges]($transformer) receives changeset ranges that already exclude these recorded changesets, so it is subject to the same risk.
+Until this is addressed, push a synchronization's changes as soon as it finishes, and avoid other pushes to either iModel in the meantime. A custom [IModelTransformer.collectChanges]($transformer) receives changeset ranges that already exclude these recorded changesets, so it is subject to the same risk.
 
 ## Synchronization examples
 

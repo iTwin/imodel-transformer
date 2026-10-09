@@ -41,11 +41,11 @@ A changed element can require an unchanged element that has no mapping in the ta
 
 See [Incremental exports](../learning/transformer/index.md#incremental-exports) for callback and customization details.
 
-## Overridable changeset scanning
+## Overridable change collection
 
-`IModelTransformer` now reads source changes through the protected, beta `scanChanges(ranges, changedInstanceIds)` method. Override it to supply changed instance IDs and deletion records from another source, such as a precomputed cache, instead of downloading and reading changesets. An override can pass the ranges it can't cover to `super.scanChanges()`. `ChangedInstanceIds.addChangeRecord()` adds a change from its instance ID, class ID, operation, and, for an aspect, owning element ID. See [Supplying source changes](../learning/transformer/change-scanning.md) for the contract and an example.
+`IModelTransformer` now reads source changes through the protected, beta `collectChanges(ranges, changedInstanceIds)` method. Override it to supply changed instance IDs and deletion records from another source, such as a precomputed cache, instead of downloading and reading changesets. An override can pass the ranges it can't cover to `super.collectChanges()`. `ChangedInstanceIds.addChangeRecord()` adds a change from its instance ID, class ID, operation, and, for an aspect, owning element ID. See [Supplying source changes](../learning/transformer/change-scanning.md) for the contract and an example.
 
-Deletions are now processed in batches of one changeset range instead of one changeset. As a result, a reverse synchronization now also deletes the master element for a branch element without a `FederationGuid` whose provenance aspect was deleted in an earlier changeset of the same range.
+Deletions are now processed in batches of one changeset range instead of one changeset. This fixes a reverse synchronization case. Suppose element B in the branch iModel has no `FederationGuid`, so the branch tracks which element in the master iModel B came from, say M, with a provenance aspect on B. If one branch changeset deletes that aspect and a later one deletes B, the transformer previously couldn't find M when it processed B's deletion, and M stayed in the master iModel. Both changesets are now in the same batch, so the deleted aspect's record identifies M, and M is deleted. See [Deletion batches](../learning/transformer/change-scanning.md#deletion-batches).
 
 ## Breaking change: batched incremental element deletion
 

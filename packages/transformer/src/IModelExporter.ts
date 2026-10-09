@@ -2444,7 +2444,7 @@ export class ChangedInstanceIds {
 
     const startChangeset =
       "startChangeset" in opts ? opts.startChangeset : undefined;
-    const changesetRanges =
+    const changesetRanges: [number, number][] | undefined =
       startChangeset !== undefined
         ? [
             [
@@ -2471,17 +2471,7 @@ export class ChangedInstanceIds {
           : undefined;
     const csFileProps =
       changesetRanges !== undefined
-        ? (
-            await Promise.all(
-              changesetRanges.map(async ([first, end]) =>
-                BriefcaseManager.downloadChangesets({
-                  iModelId,
-                  range: { first, end },
-                  targetDir: BriefcaseManager.getChangeSetsPath(iModelId),
-                })
-              )
-            )
-          ).flat()
+        ? (await ChangesetScanner.download(opts.iModel, changesetRanges)).flat()
         : "csFileProps" in opts
           ? opts.csFileProps
           : undefined;

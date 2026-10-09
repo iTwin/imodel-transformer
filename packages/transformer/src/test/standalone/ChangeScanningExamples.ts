@@ -4,7 +4,7 @@
  *--------------------------------------------------------------------------------------------*/
 
 import { IModelDb } from "@itwin/core-backend";
-import { ChangeScanResult, DeletionBatch } from "../../ChangesetScanner";
+import { CollectedChanges, DeletionBatch } from "../../ChangesetScanner";
 import { ChangedInstanceIds, ChangeRecord } from "../../IModelExporter";
 import { IModelTransformer } from "../../IModelTransformer";
 
@@ -38,16 +38,16 @@ export class CachedChangesTransformer extends IModelTransformer {
     this._cache = cache;
   }
 
-  protected override async scanChanges(
+  protected override async collectChanges(
     ranges: readonly (readonly [number, number])[],
     changedInstanceIds = new ChangedInstanceIds(this.sourceDb)
-  ): Promise<ChangeScanResult> {
+  ): Promise<CollectedChanges> {
     const deletionBatches: DeletionBatch[] = [];
     // Handle the ranges in order, adding every change to the same changedInstanceIds.
     for (const range of ranges) {
       const cached = await this._cache.tryGetChanges(this.sourceDb, range);
       if (cached === undefined) {
-        const scanned = await super.scanChanges([range], changedInstanceIds);
+        const scanned = await super.collectChanges([range], changedInstanceIds);
         deletionBatches.push(...scanned.deletionBatches);
         continue;
       }

@@ -11,7 +11,7 @@ export * from "./schema-processing/SchemaProcessingStrategy";
 export * from "./IModelTransformerError";
 export * from "./BranchProvenanceInitializer";
 export type {
-  ChangeScanResult,
+  CollectedChanges,
   DeletionBatch,
   DeletionRecordBase,
   ElementDeletionRecord,

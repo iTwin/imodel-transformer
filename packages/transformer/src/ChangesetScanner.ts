@@ -7,6 +7,7 @@
  */
 
 import {
+  BriefcaseManager,
   ChangeInstance,
   ChangesetReader,
   IModelDb,
@@ -92,14 +93,14 @@ export interface DeletionBatch {
 }
 
 /**
- * Changes read for [[IModelTransformer.scanChanges]].
- * @note The result must describe every change in the scanned ranges, as the default scan does. Changes missing from
+ * Changes read for [[IModelTransformer.collectChanges]].
+ * @note The result must describe every change in the given ranges, as the default implementation does. Changes missing from
  * `changedInstanceIds`, including CodeSpec changes, aren't exported. Every relationship in
  * `changedInstanceIds.relationship.deleteIds` needs a matching deletion record, or its deletion is skipped with a warning.
  * An element or model deletion whose target can't be found through its record or the transformation's provenance is ignored.
  * @beta
  */
-export interface ChangeScanResult {
+export interface CollectedChanges {
   /** Changed instance IDs, including the owning elements of changed aspects. */
   changedInstanceIds: ChangedInstanceIds;
   /** Deletion batches of any granularity: one per changeset, one per range, or one for all ranges. */
@@ -210,6 +211,28 @@ export function addDeletionRecord(
  * @internal
  */
 export class ChangesetScanner {
+  /**
+   * Downloads the changesets in each range of an iModel.
+   * @param iModel the iModel to download changesets for.
+   * @param ranges inclusive ranges of changeset indices.
+   * @returns one group of changeset files per range, in the order of `ranges`.
+   */
+  public static async download(
+    iModel: IModelDb,
+    ranges: readonly (readonly [number, number])[]
+  ): Promise<ChangesetFileProps[][]> {
+    const iModelId = iModel.iModelId;
+    return Promise.all(
+      ranges.map(async ([first, end]) =>
+        BriefcaseManager.downloadChangesets({
+          iModelId,
+          range: { first, end },
+          targetDir: BriefcaseManager.getChangeSetsPath(iModelId),
+        })
+      )
+    );
+  }
+
   /**
    * Scans each group of changeset files in order with one reader and unifier per file.
    * @param iModel Database used to resolve EC classes.

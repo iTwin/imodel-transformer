@@ -4,7 +4,7 @@ public;class;ChangedInstanceIds
 public;type;ChangedInstanceIdsInitOptions
 public;class;ChangedInstanceOps
 beta;interface;ChangeRecord
-beta;interface;ChangeScanResult
+beta;interface;CollectedChanges
 beta;interface;DeletionBatch
 beta;interface;DeletionRecordBase
 beta;interface;ElementBulkDeleteError
