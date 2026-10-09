@@ -5,10 +5,16 @@
 
 import { Id64String } from "@itwin/core-bentley";
 
+/** Completes an owner group. `exported` is false when exporting the group's aspects failed; the callback must then discard its state without throwing. */
+export type ElementAspectExportCompletion = (
+  exported: boolean
+) => Promise<void>;
+
+/** Prepares an owner group before its aspects are exported. It may return a completion callback that runs after the group's aspects are exported, or after the export fails. */
 export type ElementAspectExportPreparation = (
   excludedElementAspectClassFullNames: ReadonlySet<string>,
   ownerElementIds: ReadonlySet<Id64String>
-) => Promise<void>;
+) => Promise<ElementAspectExportCompletion | void>;
 
 /** Coordinates scoped batches of accepted ElementAspect owners, including preparation before aspect export.
  * @internal
@@ -36,7 +42,7 @@ export class ElementAspectExportCoordinator {
     return this._depth > 0;
   }
 
-  /** Sets the callback that prepares each accepted-owner group before its aspects are exported. */
+  /** Sets the callback that prepares each accepted-owner group before its aspects are exported and optionally completes it afterward. */
   public setPreparation(prepare: ElementAspectExportPreparation): void {
     this._prepare = prepare;
   }
@@ -145,8 +151,21 @@ export class ElementAspectExportCoordinator {
   private async exportOwnerBatch(
     ownerElementIds: ReadonlySet<Id64String>
   ): Promise<void> {
-    await this._prepare?.(this._excludedClassFullNames(), ownerElementIds);
-    await this._exportAspects(ownerElementIds);
+    const complete = await this._prepare?.(
+      this._excludedClassFullNames(),
+      ownerElementIds
+    );
+    try {
+      await this._exportAspects(ownerElementIds);
+    } catch (error) {
+      try {
+        await complete?.(false);
+      } catch {
+        // Keep the export error; it explains why the group failed.
+      }
+      throw error;
+    }
+    await complete?.(true);
   }
 
   private async flush(): Promise<void> {

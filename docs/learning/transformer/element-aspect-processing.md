@@ -18,7 +18,7 @@ flowchart TD
     T --> E
     E --> C["Traverse source elements and record accepted owners"]
     C --> CO["ElementAspectExportCoordinator<br/>internal implementation detail, not an API"]
-    CO -->|"prepare mapped target owners"| CL["ElementAspectCleanup<br/>internal implementation detail, not an API"]
+    CO -->|"prepare and complete mapped target owners"| CL["ElementAspectCleanup<br/>internal implementation detail, not an API"]
     CL --> I["IModelImporter and active EditTxn"]
     CO -->|"bounded, deduplicated owner batches"| P["ElementAspectExportProcessor<br/>internal implementation detail, not an API"]
     P -->|"accepted aspect callbacks"| H{"Registered IModelExportHandler"}
@@ -53,17 +53,34 @@ sequenceDiagram
         E->>CO: Record accepted source owner
         CO->>T: Prepare owner batch
         T->>T: Map source owners to target owners
-        T->>CL: Delete replaceable target aspects
-        CL->>I: Invoke deletion hook with full aspect entity
+        T->>CL: Record replaceable target aspects
         CO->>P: Export current source aspects for owner batch
         P->>T: Accepted unique and multi-aspect callbacks
-        T->>I: Import rebuilt target aspects
+        T->>I: Import aspects, reusing matching target aspects
+        I->>CL: Mark reused target aspects
+        CO->>T: Complete owner batch
+        T->>CL: Delete recorded aspects that were not reused
+        CL->>I: Invoke deletion hook with full aspect entity
     end
 
     T->>T: Complete deferred aspect references
 ```
 
-Cleanup and rebuild use the same accepted owner set. If an element changes, the exporter rebuilds all accepted current aspects for that owner, including aspects without their own change record. This prevents cleanup from deleting unchanged aspects and handles aspect classes that became empty.
+Reconciliation uses the same accepted owner set for recording target aspects and exporting source aspects. If an element changes, the exporter exports all accepted current aspects for that owner, including aspects without their own change record. The importer matches each source aspect to an existing target aspect of the same class on the same owner:
+
+- A unique aspect matches the owner's target aspect of the same class.
+- Multi-aspects of one class are matched in order. Extra source aspects are inserted, and extra target aspects are deleted.
+- A matched aspect is updated only when its properties differ, and it keeps its target ID.
+
+After the owner batch is exported, cleanup deletes the recorded target aspects that the importer did not reuse. That removes aspects deleted from the source, aspects of classes that became empty, and aspects rejected by `shouldExportElementAspect`. A rerun with no source changes therefore inserts, updates, and deletes no aspects, unless a target aspect has a value for a property only the target schema has (see [Schema changes](#schema-changes)). `onInsertElementAspect`, `onUpdateElementAspect`, and `onDeleteElementAspect` run only for those actual writes.
+
+iModel unique-aspect writes treat a class and its base or derived classes as one slot for an element. When a unique aspect has no exact-class match, the importer first deletes the owner's unique aspects of a base or derived class, through the deletion hook, and then inserts the new aspect. That includes a related aspect whose class is excluded: exclusion keeps cleanup from deleting it, but an included aspect of a base or derived class still takes its slot.
+
+### Schema changes
+
+Matching uses the class of the aspect that the transformer sends to the importer. That is the source aspect's class, unless an `onTransformElementAspect` override changes it. If a source schema change moves aspects to another class, including a base or derived class, the moved aspects have no exact-class match on the next run. The importer inserts them with the new class, and the old ones are deleted through the deletion hook: by cleanup after the batch or, for a unique aspect that moves to a base or derived class, by the importer before the insert. Those aspects get new target IDs once. Later reruns reuse them.
+
+A target schema upgrade that adds a property the source doesn't have causes no writes while that property is unset. If a target aspect has a value for such a property, each rerun updates that aspect. The change check sees the target-only value as a difference, but the update doesn't include the property, so the value and the aspect ID are kept.
 
 ## Customization points
 
@@ -81,7 +98,7 @@ The exporter applies owner acceptance first, then class exclusion, then `shouldE
 
 ## Change processing
 
-For an accepted changed owner, the transformer removes replaceable target aspects through the active `EditTxn` and rebuilds the owner from the source. Excluded classes and transformer provenance aspects are not removed.
+For an accepted changed owner, the transformer reconciles the owner's replaceable target aspects with its current source aspects through the active `EditTxn`, as described above. Cleanup does not remove excluded classes or transformer provenance aspects.
 
 Custom inserted and updated aspect changes infer the owner while the source aspect exists. Deleted or missing source aspects cannot provide their owner, so `addCustomAspectChange` requires the source owner ID and throws when it is omitted:
 
@@ -104,11 +121,23 @@ The processor returns before excluded-class resolution or concrete-class queries
 
 A new outermost coordinator scope clears the cached aspect class metadata and expanded excluded class IDs. Nested scopes and batch flushes reuse those caches. The values remain available after the scope ends so internal work that completes the same operation can reuse them. The next outermost scope clears them. Configured excluded class names remain in effect.
 
-## Cleanup paging and importer hooks
+## Cleanup and importer hooks
 
-Target cleanup joins each target owner batch through `IdSet(:elementIds)` and queries replaceable unique and multi-aspect IDs in pages. It reads and buffers all IDs in a page before deleting any aspect, so deletion does not mutate a table while its query is still reading it. Cleanup then loads each candidate with `elements.getAspect` and invokes the importer deletion hook with the full concrete `ElementAspect`. Overrides can inspect class-specific properties before calling the base deletion behavior.
+Before an owner batch is exported, target cleanup joins the target owner batch through `IdSet(:elementIds)` and records the IDs of its replaceable unique and multi-aspects. Excluded target classes and transformer provenance aspects are never recorded. Transformer provenance means the current target scope element's `Scope` `ExternalSourceAspect`, and `Element` and `Relationship` aspects scoped to a target scope element: any element that owns a `Scope` aspect, not just the current one. An element shared by several target scopes, such as one source imported in parts or two sources matched by Code, carries each scope's provenance, and a transformation into one scope must keep the others'. A `Scope` aspect on any other element isn't provenance: with `includeSourceProvenance`, a source that was itself a transformation target carries `Scope` aspects on ordinary elements, and the target's copies are reconciled like any other aspect. When `includeSourceProvenance` is set, other cloned source `ExternalSourceAspect`s are reconciled like any other aspect, even if their scope maps to the target scope element. Cloned `Element` and `Relationship` provenance from another transformation, such as the source's own imports, looks exactly like another target scope's provenance. The importer reuses such an aspect only for a source aspect with the same kind, scope, and identifier, and cleanup never deletes it, so a cloned provenance aspect that the source later deletes stays in the target. A cloned aspect that has the same kind, scope, and owner as the current scope's provenance can't be told apart from it, so the importer doesn't match it and each run inserts another copy. Cleanup also loads every target aspect of the batch's owners with one `elements.queryAspects` call, so `importElementUniqueAspect` and `importElementMultiAspects` match against those loaded aspects instead of querying each owner and class. Once the importer writes an aspect of an owner, later reads for that owner go to the target iModel, and calls made outside an owner batch always do. If the batch's export fails, cleanup discards what it loaded and deletes nothing. The importer marks each recorded aspect it reuses or deletes itself. After the batch is exported, cleanup loads each remaining aspect with `elements.getAspect` and invokes the importer deletion hook with the full concrete `ElementAspect`. Overrides can inspect class-specific properties before calling the base deletion behavior. Deleting requires an active target `EditTxn`.
 
-Excluded target classes and transformer provenance aspects are filtered out before candidates reach the hook. Cleanup requires an active target `EditTxn`.
+Only aspect matches made by `IModelImporter.importElementUniqueAspect` and `IModelImporter.importElementMultiAspects` count as reuse. A custom handler that writes a recorded target aspect some other way does not stop cleanup from deleting it. While a batch is imported, the importer reads its owners' aspects from what cleanup loaded. After the importer writes an owner's aspects, it reads that owner from the target iModel. If anything else writes to the target during the batch, such as a custom handler calling `EditTxn` directly, the importer detects it from SQLite's change count on the target connection and reads from the target iModel for the rest of the batch.
+
+## Calling the importer directly
+
+`IModelImporter.importElementUniqueAspect` and `IModelImporter.importElementMultiAspects` can be called without a transformer. They then compare only against the owner's existing target aspects. No cleanup runs afterward, so a target aspect that the call doesn't match is left as it is.
+
+Matching is by exact class. `getAspects` also returns aspects of derived classes, but the importer ignores those unless the call includes props of that derived class:
+
+- `importElementUniqueAspect` reuses the owner's unique aspect of exactly the given class. It updates that aspect only when its properties differ and returns its ID.
+- If there's no exact-class match, `importElementUniqueAspect` deletes the owner's unique aspects of a base or derived class through `onDeleteElementAspect`, then inserts the aspect and returns the new ID. iModel unique-aspect writes treat those classes as one slot, so leaving them would let the insert or a later delete remove data without the hook running.
+- `importElementMultiAspects` groups the props by `classFullName`. Within each class, it matches target aspects of exactly that class in `getAspects` order, updates only changed ones, inserts extra props, and deletes extra target aspects of that class. Aspects of other classes, including derived classes, aren't touched. The optional filter removes target aspects from matching and deletion.
+
+Pass each aspect with its concrete `classFullName`, as `getAspects` and `getAspect` return it. To remove aspects of a class that the call doesn't include, delete them with `EditTxn.deleteAspect`.
 
 ## Scope memory and large models
 

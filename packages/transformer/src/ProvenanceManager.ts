@@ -10,6 +10,8 @@ import {
 } from "@itwin/core-bentley";
 import {
   EditTxn,
+  ElementAspect,
+  ElementMultiAspect,
   ElementOwnsExternalSourceAspects,
   type Entity,
   ExternalSource,
@@ -21,10 +23,12 @@ import {
 } from "@itwin/core-backend";
 import {
   ChangesetIndexAndId,
+  ElementAspectProps,
   ExternalSourceAspectProps,
   IModel,
   QueryBinder,
 } from "@itwin/core-common";
+import { isSameClass } from "./ElementAspectCleanup";
 import { TransformerLoggerCategory } from "./TransformerLoggerCategory";
 import type {
   IModelTransformOptions,
@@ -275,11 +279,9 @@ export class ProvenanceManager {
     let hasTargetRow = await targetReader.step();
     while (hasSourceRow && hasTargetRow) {
       const sourceFedGuid = sourceReader.current.federationGuid as
-        | GuidString
-        | undefined;
+        GuidString | undefined;
       const targetFedGuid = targetReader.current.federationGuid as
-        | GuidString
-        | undefined;
+        GuidString | undefined;
       if (
         sourceFedGuid !== undefined &&
         targetFedGuid !== undefined &&
@@ -719,10 +721,7 @@ export class ProvenanceManager {
   }: {
     initializeReverseSyncVersion?: boolean;
     sourceChangeDataState:
-      | "uninited"
-      | "has-changes"
-      | "no-changes"
-      | "unconnected";
+      "uninited" | "has-changes" | "no-changes" | "unconnected";
   }) {
     const shouldSkipSyncVersionUpdate =
       !initializeReverseSyncVersion && sourceChangeDataState !== "has-changes";
@@ -1062,4 +1061,85 @@ export class ProvenanceManager {
         this._transformerOptions.skipPropagateChangesToRootElements ?? true,
     });
   }
+}
+
+/** Returns the target scope elements: those that own a Scope ExternalSourceAspect.
+ * A transformation creates its target scope's Scope aspect before it exports any aspect, so the result includes the current target scope.
+ * @internal
+ */
+export async function queryTargetScopeElementIds(
+  db: IModelDb
+): Promise<Set<Id64String>> {
+  const ids = new Set<Id64String>();
+  for await (const row of db.createQueryReader(
+    `SELECT Element.Id id FROM ${ExternalSourceAspect.classFullName} WHERE Kind = :scopeKind`,
+    new QueryBinder().bindString("scopeKind", ExternalSourceAspect.Kind.Scope),
+    { usePrimaryConn: true }
+  ))
+    ids.add(row.id);
+  return ids;
+}
+
+/** Whether an aspect is transformer provenance: the Scope ExternalSourceAspect owned by `currentScopeElementId`, or an Element or Relationship ExternalSourceAspect scoped to one of `targetScopeElementIds`.
+ * Element and Relationship provenance of every target scope counts, not just the current one: an element shared by several target scopes, such as one source imported in parts, carries each scope's provenance.
+ * A Scope aspect on any other element counts only for the current scope. With `includeSourceProvenance`, a source that was itself a transformation target carries Scope aspects on ordinary elements, and they must follow the source.
+ * Cleanup never deletes transformer provenance.
+ * @internal
+ */
+export function isTransformerProvenanceAspect(
+  aspect: ElementAspect,
+  targetScopeElementIds: ReadonlySet<Id64String>,
+  currentScopeElementId: Id64String
+): aspect is ExternalSourceAspect {
+  if (!(aspect instanceof ExternalSourceAspect)) return false;
+  if (aspect.kind === ExternalSourceAspect.Kind.Scope)
+    return aspect.element.id === currentScopeElementId;
+  return (
+    (aspect.kind === ExternalSourceAspect.Kind.Element ||
+      aspect.kind === ExternalSourceAspect.Kind.Relationship) &&
+    aspect.scope !== undefined &&
+    targetScopeElementIds.has(aspect.scope.id)
+  );
+}
+
+/** Returns the `importElementMultiAspects` filter for a transformation that includes source provenance.
+ * Element and Relationship provenance cloned from another transformation looks exactly like another target scope's provenance, so such an aspect is only eligible for reuse when an incoming ExternalSourceAspect has the same kind, scope, and identifier.
+ * The current scope's own provenance is never eligible: the transformer maintains it separately.
+ * @internal
+ */
+export function sourceProvenanceMatchFilter(
+  incoming: readonly ElementAspectProps[],
+  targetScopeElementIds: ReadonlySet<Id64String>,
+  currentScopeElementId: Id64String
+): (aspect: ElementMultiAspect) => boolean {
+  const incomingKeys = new Set(
+    incoming
+      .filter((props) => isSameClass(props, ExternalSourceAspect.classFullName))
+      .map((props) =>
+        externalSourceAspectKey(props as ExternalSourceAspectProps)
+      )
+  );
+  return (aspect) => {
+    if (
+      !isTransformerProvenanceAspect(
+        aspect,
+        targetScopeElementIds,
+        currentScopeElementId
+      )
+    )
+      return true;
+    // The current scope's Scope aspect is the only Scope aspect that counts as provenance.
+    return (
+      aspect.kind !== ExternalSourceAspect.Kind.Scope &&
+      aspect.scope?.id !== currentScopeElementId &&
+      incomingKeys.has(externalSourceAspectKey(aspect))
+    );
+  };
+}
+
+/** The natural key of an ExternalSourceAspect on its owner. Kinds and IDs never contain `|`, and the identifier comes last, so distinct keys can't collide. */
+function externalSourceAspectKey(
+  aspect: Pick<ExternalSourceAspectProps, "kind" | "scope" | "identifier">
+): string {
+  return `${aspect.kind}|${aspect.scope?.id}|${aspect.identifier}`;
 }

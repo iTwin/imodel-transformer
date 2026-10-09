@@ -397,8 +397,7 @@ describe("IModelTransformer", () => {
       // TODO: explain which elements are updated
       assert.equal(targetImporter.numElementsUpdated, 38);
       assert.equal(targetImporter.numElementsExplicitlyDeleted, 0);
-      // Full processing rebuilds the accepted aspect set after cleanup.
-      assert.equal(targetImporter.numElementAspectsInserted, 3);
+      assert.equal(targetImporter.numElementAspectsInserted, 0);
       assert.equal(targetImporter.numElementAspectsUpdated, 0);
       assert.equal(targetImporter.numRelationshipsInserted, 0);
       assert.equal(targetImporter.numRelationshipsUpdated, 0);

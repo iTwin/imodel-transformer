@@ -1025,8 +1025,7 @@ describe("IModelTransformerHub", () => {
         // expect some inserts from transforming the result of updateDb
         assert.equal(targetDbChanges.codeSpec.insertIds.size, 0);
         assert.equal(targetDbChanges.element.insertIds.size, 1);
-        // ElementAspect rebuilds may reinsert replaceable aspects after cleanup.
-        assert.isAtLeast(targetDbChanges.aspect.insertIds.size, 1);
+        assert.equal(targetDbChanges.aspect.insertIds.size, 0);
         assert.equal(targetDbChanges.model.insertIds.size, 0);
         assert.equal(targetDbChanges.relationship.insertIds.size, 2);
         // expect some updates from transforming the result of updateDb
@@ -4046,6 +4045,23 @@ describe("IModelTransformerHub", () => {
       firstTransformEditTxn.end();
       await saveAndPushChanges(targetDb, "First transformation");
 
+      const documentIdsByIdentifier = (db: IModelDb, elementId: Id64String) =>
+        new Map(
+          (
+            db.elements.getAspects(
+              elementId,
+              ExternalSourceAspect.classFullName
+            ) as ExternalSourceAspect[]
+          )
+            .filter((aspect) => aspect.kind === "Document")
+            .map((aspect) => [aspect.identifier, aspect.id])
+        );
+      const firstTargetIds = documentIdsByIdentifier(
+        targetDb,
+        transformer.context.findTargetElementId(elementIds[0])
+      );
+      expect(firstTargetIds.size).to.equal(5);
+
       const addedAspectProps: ExternalSourceAspectProps = {
         classFullName: ExternalSourceAspect.classFullName,
         element: new ElementOwnsExternalSourceAspects(elementIds[0]),
@@ -4079,27 +4095,40 @@ describe("IModelTransformerHub", () => {
       secondTransformEditTxn.end();
       await saveAndPushChanges(targetDb, "Second transformation");
 
-      const targetElementIds = targetDb.queryEntityIds({
-        from: Subject.classFullName,
-        where: "Parent.Id != ?",
-        bindings: [IModel.rootSubjectId],
-      });
-      targetElementIds.forEach((elementId) => {
-        const targetAspects = targetDb.elements.getAspects(
-          elementId,
-          ExternalSourceAspect.classFullName
-        ) as ExternalSourceAspect[];
-        const sourceAspects = sourceDb.elements.getAspects(
-          elementId,
-          ExternalSourceAspect.classFullName
-        ) as ExternalSourceAspect[];
-        expect(targetAspects.length).to.be.equal(sourceAspects.length + 1); // +1 because provenance aspect was added
-        const aspectAddedAfterFirstTransformation = targetAspects.find(
-          (aspect) =>
-            aspect.identifier === "aspectAddedAfterFirstTransformation"
+      const documentIdentifiers = (db: IModelDb, elementId: Id64String) =>
+        (
+          db.elements.getAspects(
+            elementId,
+            ExternalSourceAspect.classFullName
+          ) as ExternalSourceAspect[]
+        )
+          .filter((aspect) => aspect.kind === "Document")
+          .map((aspect) => aspect.identifier)
+          .sort();
+      expect(documentIdentifiers(sourceDb, elementIds[0])).to.deep.equal([
+        "0",
+        "1",
+        "2",
+        "3",
+        "4",
+        "aspectAddedAfterFirstTransformation",
+      ]);
+      expect(documentIdentifiers(sourceDb, elementIds[1])).to.deep.equal([]);
+      // Change processing reconciles the changed owner's aspects: the five
+      // unchanged aspects keep their target IDs.
+      const secondTargetIds = documentIdsByIdentifier(
+        targetDb,
+        transformer2.context.findTargetElementId(elementIds[0])
+      );
+      for (const [identifier, id] of firstTargetIds)
+        expect(secondTargetIds.get(identifier)).to.equal(id);
+      for (const elementId of elementIds) {
+        const targetElementId =
+          transformer2.context.findTargetElementId(elementId);
+        expect(documentIdentifiers(targetDb, targetElementId)).to.deep.equal(
+          documentIdentifiers(sourceDb, elementId)
         );
-        expect(aspectAddedAfterFirstTransformation).to.not.be.undefined;
-      });
+      }
     } finally {
       await transformerTestHub.deleteIModel({
         iTwinId,
@@ -7704,6 +7733,111 @@ describe("IModelTransformerHub", () => {
         (targetAspectsAfter[0] as any).myProp1,
         "target aspect should have been updated to 'updated-value' by processChanges"
       ).to.equal("updated-value");
+    });
+
+    it("reads unwritten owners' aspects from the owner batch during processChanges", async () => {
+      const testSchemaPath =
+        IModelTransformerTestUtils.getPathToSchemaWithUniqueAspect();
+      await sourceDb.importSchemas([testSchemaPath]);
+      await targetDb.importSchemas([testSchemaPath]);
+      await sourceDb.pushChanges({
+        description: "Import test schema",
+        retainLocks: true,
+      });
+      await targetDb.pushChanges({
+        description: "Import test schema",
+        retainLocks: true,
+      });
+
+      const [labelChanged, aspectChanged] = withEditTxn(
+        sourceDb,
+        "create elements with unique aspects",
+        (txn) => {
+          const model = PhysicalModel.insert(
+            txn,
+            IModel.rootSubjectId,
+            "BatchReadModel"
+          );
+          const category = SpatialCategory.insert(
+            txn,
+            IModel.dictionaryId,
+            "BatchReadCategory",
+            {}
+          );
+          return ["LabelChanged", "AspectChanged"].map((userLabel) => {
+            const id = txn.insertElement({
+              classFullName: PhysicalObject.classFullName,
+              model,
+              category,
+              code: Code.createEmpty(),
+              userLabel,
+            } as GeometricElementProps);
+            txn.insertAspect({
+              classFullName: "TestSchema1:MyUniqueAspect",
+              element: { id },
+              myProp1: "original-value",
+            } as any);
+            return id;
+          });
+        }
+      );
+      await sourceDb.pushChanges({
+        description: "Elements with unique aspects",
+        retainLocks: true,
+      });
+
+      const firstEditTxn = createStartedEditTxn(targetDb);
+      let transformer = new IModelTransformer({
+        source: sourceDb,
+        target: firstEditTxn,
+      });
+      await transformer.process();
+      transformer.dispose();
+      firstEditTxn.end();
+      await targetDb.pushChanges({
+        description: "Initial transformation",
+        retainLocks: true,
+      });
+
+      // One owner changes only its element, so its aspect is reused without a
+      // write; the other changes only its aspect.
+      withEditTxn(sourceDb, "change one element and one aspect", (txn) => {
+        txn.updateElement({
+          ...sourceDb.elements.getElementProps(labelChanged),
+          userLabel: "LabelChanged2",
+        });
+        const [aspect] = sourceDb.elements.getAspects(
+          aspectChanged,
+          "TestSchema1:MyUniqueAspect"
+        );
+        txn.updateAspect({
+          ...aspect.toJSON(),
+          myProp1: "updated-value",
+        } as any);
+      });
+      await sourceDb.pushChanges({
+        description: "Change one element and one aspect",
+        retainLocks: true,
+      });
+
+      const getAspects = vi.spyOn(targetDb.elements, "getAspects");
+      const secondEditTxn = createStartedEditTxn(targetDb);
+      const importer = new CountingIModelImporter(secondEditTxn);
+      transformer = new IModelTransformer(
+        { source: sourceDb, target: importer },
+        { argsForProcessChanges: {} }
+      );
+      await transformer.process();
+      const targetLabelChanged =
+        transformer.context.findTargetElementId(labelChanged);
+      transformer.dispose();
+      secondEditTxn.end();
+      const ownersRead = new Set(getAspects.mock.calls.map(([id]) => id));
+      getAspects.mockRestore();
+
+      expect(importer.numElementAspectsUpdated).to.equal(1);
+      expect(importer.numElementAspectsInserted).to.equal(0);
+      expect(ownersRead).not.to.include(targetLabelChanged);
     });
 
     it("should process changes successfully when element is deleted after existing elements were expanded into overflow table", async () => {

@@ -95,12 +95,18 @@ import {
   IModelExportHandler,
 } from "./IModelExporter";
 import { IModelImporter, OptimizeGeometryOptions } from "./IModelImporter";
+import type { ElementAspectExportCompletion } from "./ElementAspectExportCoordinator";
 import { TransformerLoggerCategory } from "./TransformerLoggerCategory";
 import { IModelCloneContext } from "./IModelCloneContext";
 import type { IModelTransformContext } from "./IModelTransformContext";
 import { rangesFromRangeAndSkipped } from "./Algo";
 import { SyncTypeResolver } from "./SyncTypeResolver";
-import { ProvenanceManager } from "./ProvenanceManager";
+import {
+  isTransformerProvenanceAspect,
+  ProvenanceManager,
+  queryTargetScopeElementIds,
+  sourceProvenanceMatchFilter,
+} from "./ProvenanceManager";
 import {
   NewerVersionSchemaImportStrategy,
   ProcessSchemasOptions,
@@ -1997,13 +2003,16 @@ export class IModelTransformer extends IModelExportHandler {
     return this.context.findTargetElementId(aspect.element.id) !== Id64.invalid;
   }
 
+  /** Records the target aspects of an owner batch before its source aspects are imported.
+   * The returned callback deletes the recorded replaceable aspects that the importer did not reuse, or discards the recorded state if the export failed.
+   */
   private async prepareElementAspects(
     excludedElementAspectClassFullNames: ReadonlySet<string>,
     elementIds?: ReadonlySet<Id64String>
-  ): Promise<void> {
-    if (!this.exporter.visitElements) return;
+  ): Promise<ElementAspectExportCompletion | undefined> {
+    if (!this.exporter.visitElements) return undefined;
 
-    if (elementIds === undefined) return;
+    if (elementIds === undefined) return undefined;
 
     const targetElementIds = new Set<Id64String>();
     for (const sourceElementId of elementIds) {
@@ -2013,11 +2022,22 @@ export class IModelTransformer extends IModelExportHandler {
       }
     }
 
-    await this.importer.elementAspectCleanup.delete(
+    const cleanup = this.importer.elementAspectCleanup;
+    const targetScopeElementIds = this.getTargetScopeElementIds();
+    await cleanup.collect(
       targetElementIds,
       excludedElementAspectClassFullNames,
-      this.targetScopeElementId
+      (aspect) =>
+        isTransformerProvenanceAspect(
+          aspect,
+          targetScopeElementIds,
+          this.targetScopeElementId
+        )
     );
+    return async (exported) => {
+      if (exported) await cleanup.deleteUnretained();
+      else cleanup.discard();
+    };
   }
 
   /** Override of [IModelExportHandler.onExportElementUniqueAspect]($transformer) that imports an ElementUniqueAspect into the target iModel when it is exported from the source iModel.
@@ -2051,21 +2071,31 @@ export class IModelTransformer extends IModelExportHandler {
         this._partiallyCommittedAspectIds.add(a.id);
       }
     }
+    const targetAspectProps = await Promise.all(targetAspectPropsArray);
     const targetIds = await this.importer.importElementMultiAspects(
-      await Promise.all(targetAspectPropsArray),
-      (a) => {
-        const isExternalSourceAspectFromTransformer =
-          a instanceof ExternalSourceAspect &&
-          a.scope?.id === this.targetScopeElementId;
-        return (
-          !this._options.includeSourceProvenance ||
-          !isExternalSourceAspectFromTransformer
-        );
-      }
+      targetAspectProps,
+      this._options.includeSourceProvenance
+        ? sourceProvenanceMatchFilter(
+            targetAspectProps,
+            this.getTargetScopeElementIds(),
+            this.targetScopeElementId
+          )
+        : undefined
     );
     for (let i = 0; i < targetIds.length; ++i) {
       this.context.remapElementAspect(sourceAspects[i].id, targetIds[i]);
     }
+  }
+
+  private _targetScopeElementIds?: ReadonlySet<Id64String>;
+
+  /** The target scope elements, including the current one. Read by [[initialize]], after the current scope's provenance exists. */
+  private getTargetScopeElementIds(): ReadonlySet<Id64String> {
+    assert(
+      this._targetScopeElementIds !== undefined,
+      "initialize() reads the target scope elements"
+    );
+    return this._targetScopeElementIds;
   }
 
   /** Transform the specified sourceElementAspect into ElementAspectProps for the target iModel.
@@ -2209,6 +2239,9 @@ export class IModelTransformer extends IModelExportHandler {
     this.assertEditTxnActive();
 
     await this.initScopeProvenance();
+    this._targetScopeElementIds = await queryTargetScopeElementIds(
+      this.targetDb
+    );
 
     await this._tryInitChangesetData(this._options.argsForProcessChanges);
     await this._cloneContext.initialize();
