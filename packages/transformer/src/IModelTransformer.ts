@@ -2231,7 +2231,6 @@ export class IModelTransformer extends IModelExportHandler {
   private async initializeChangesetScanAndExporter(
     exporterInitOptions: ExporterInitOptions
   ): Promise<void> {
-    // TODO: should the first changeset in a reverse sync really be included even though its 'initialized branch provenance'? The answer is no, its a bug that needs to be fixed.
     const ranges = this._changesetRanges;
     if (
       ranges !== undefined &&
