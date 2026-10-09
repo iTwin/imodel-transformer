@@ -20,7 +20,7 @@
 import { execFileSync } from "node:child_process";
 import { mkdtempSync, readFileSync, writeFileSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join, dirname } from "node:path";
+import { join, dirname, posix } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "..", "..", "..");
@@ -76,6 +76,16 @@ function extractAuthoredNotes(raw) {
   return withoutTitle.replace(/_No release notes yet\._/g, "").trim();
 }
 
+/** Point relative links at the tagged files on GitHub, because a release body has no directory to resolve them against. */
+function absolutizeRelativeLinks(markdown, tag) {
+  return markdown.replace(/\]\(([^)\s]+)\)/g, (match, target) => {
+    if (/^([a-z][a-z0-9+.-]*:|#|\/)/i.test(target))
+      return match;
+    const repoPath = posix.normalize(posix.join("docs/changehistory", target));
+    return `](https://github.com/iTwin/imodel-transformer/blob/${tag}/${repoPath})`;
+  });
+}
+
 const prevVersion = process.argv[2] ?? "";
 const pkgJson = JSON.parse(readFileSync(join(repoRoot, "packages", "transformer", "package.json"), "utf8"));
 const newVersion = pkgJson.version;
@@ -89,7 +99,7 @@ const bodyParts = [];
 if (!isPrerelease(newVersion) && isMinorOrMajor(prevVersion, newVersion)) {
   const authored = existsSync(NEXT_VERSION_FILE) ? extractAuthoredNotes(readFileSync(NEXT_VERSION_FILE, "utf8")) : "";
   if (authored) {
-    bodyParts.push(authored);
+    bodyParts.push(absolutizeRelativeLinks(authored, tag));
 
     // Promote: archive the authored notes to a versioned changehistory page, then reset the template.
     const archivePath = join(CHANGEHISTORY_DIR, `${newVersion}.md`);
