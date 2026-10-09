@@ -667,6 +667,103 @@ describe("ElementAspect reconciliation", () => {
     expect(upstreamProvenance(third.targetOwners[0]).length).to.equal(1);
   });
 
+  describe("Scope ExternalSourceAspects cloned from the source", () => {
+    // A source that was itself a transformation target carries Scope aspects on
+    // ordinary elements. Only the current target scope's Scope aspect is the
+    // transformer's own, so cloned ones follow the source.
+    const options = { includeSourceProvenance: true };
+
+    function insertScopeAspect(identifier: string): Id64String {
+      return withEditTxn(sourceDb, "insert Scope aspect", (txn) =>
+        txn.insertAspect({
+          classFullName: ExternalSourceAspect.classFullName,
+          element: new ElementOwnsExternalSourceAspects(owners[0]),
+          scope: { id: IModel.rootSubjectId },
+          identifier,
+          kind: ExternalSourceAspect.Kind.Scope,
+        } as ExternalSourceAspectProps)
+      );
+    }
+
+    const scopeAspects = (targetOwner: Id64String) =>
+      (
+        targetDb.elements.getAspects(
+          targetOwner,
+          ExternalSourceAspect.classFullName
+        ) as ExternalSourceAspect[]
+      )
+        .filter((a) => a.kind === ExternalSourceAspect.Kind.Scope)
+        .map(({ scope, identifier }) => ({ scope: scope?.id, identifier }));
+
+    it("follows the source when it replaces a cloned Scope aspect", async () => {
+      const firstId = insertScopeAspect("First aspect");
+      const first = await transform(undefined, options);
+      expect(scopeAspects(first.targetOwners[0])).to.deep.equal([
+        { scope: IModel.rootSubjectId, identifier: "First aspect" },
+      ]);
+
+      withEditTxn(sourceDb, "delete Scope aspect", (txn) =>
+        txn.deleteAspect(firstId)
+      );
+      insertScopeAspect("Second aspect");
+      const second = await transform(undefined, options);
+      expect(scopeAspects(second.targetOwners[0])).to.deep.equal([
+        { scope: IModel.rootSubjectId, identifier: "Second aspect" },
+      ]);
+    });
+
+    it("follows the source when it changes a cloned Scope aspect's identifier", async () => {
+      const aspectId = insertScopeAspect("Old identifier");
+      await transform(undefined, options);
+
+      withEditTxn(sourceDb, "change Scope aspect identifier", (txn) =>
+        txn.updateAspect({
+          ...sourceDb.elements.getAspect(aspectId).toJSON(),
+          identifier: "New identifier",
+        } as ExternalSourceAspectProps)
+      );
+      const second = await transform(undefined, options);
+      expectAspectWrites(second.importer, 0, 1, 0);
+      expect(scopeAspects(second.targetOwners[0])).to.deep.equal([
+        { scope: IModel.rootSubjectId, identifier: "New identifier" },
+      ]);
+    });
+
+    it("updates the file copy of a cloned Scope aspect whose scope is remapped", async () => {
+      // The target starts as a file copy of the source, and the source root
+      // Subject maps to another Subject, so the cloned aspect's scope no longer
+      // matches the file copy's.
+      insertScopeAspect("The coolest aspect");
+      targetDb.close();
+      targetDb = SnapshotDb.createFrom(
+        sourceDb,
+        IModelTransformerTestUtils.prepareOutputFile(
+          "ElementAspectReconciliation",
+          "ScopeAspectFileCopy-Target.bim"
+        )
+      );
+      const channel = withEditTxn(targetDb, "insert channel", (txn) =>
+        Subject.insert(txn, IModel.rootSubjectId, "Channel")
+      );
+      const intoChannel = async (transformer: IModelTransformer) => {
+        transformer.context.remapElement(IModel.rootSubjectId, channel);
+        await transformer.process();
+      };
+
+      const first = await transform(intoChannel, options);
+      expect(first.targetOwners[0]).to.equal(owners[0]);
+      expect(scopeAspects(owners[0])).to.deep.equal([
+        { scope: channel, identifier: "The coolest aspect" },
+      ]);
+
+      const second = await transform(intoChannel, options);
+      expectAspectWrites(second.importer, 0, 0, 0);
+      expect(scopeAspects(owners[0])).to.deep.equal([
+        { scope: channel, identifier: "The coolest aspect" },
+      ]);
+    });
+  });
+
   it("deletes target aspects of classes that became empty in the source", async () => {
     await transform();
 

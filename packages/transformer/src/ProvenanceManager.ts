@@ -279,11 +279,9 @@ export class ProvenanceManager {
     let hasTargetRow = await targetReader.step();
     while (hasSourceRow && hasTargetRow) {
       const sourceFedGuid = sourceReader.current.federationGuid as
-        | GuidString
-        | undefined;
+        GuidString | undefined;
       const targetFedGuid = targetReader.current.federationGuid as
-        | GuidString
-        | undefined;
+        GuidString | undefined;
       if (
         sourceFedGuid !== undefined &&
         targetFedGuid !== undefined &&
@@ -723,10 +721,7 @@ export class ProvenanceManager {
   }: {
     initializeReverseSyncVersion?: boolean;
     sourceChangeDataState:
-      | "uninited"
-      | "has-changes"
-      | "no-changes"
-      | "unconnected";
+      "uninited" | "has-changes" | "no-changes" | "unconnected";
   }) {
     const shouldSkipSyncVersionUpdate =
       !initializeReverseSyncVersion && sourceChangeDataState !== "has-changes";
@@ -1085,17 +1080,20 @@ export async function queryTargetScopeElementIds(
   return ids;
 }
 
-/** Whether an aspect is transformer provenance: a Scope ExternalSourceAspect, or an Element or Relationship ExternalSourceAspect scoped to one of `targetScopeElementIds`.
- * Every target scope counts, not just the current one: an element shared by several target scopes, such as one source imported in parts, carries each scope's provenance.
+/** Whether an aspect is transformer provenance: the Scope ExternalSourceAspect owned by `currentScopeElementId`, or an Element or Relationship ExternalSourceAspect scoped to one of `targetScopeElementIds`.
+ * Element and Relationship provenance of every target scope counts, not just the current one: an element shared by several target scopes, such as one source imported in parts, carries each scope's provenance.
+ * A Scope aspect on any other element counts only for the current scope. With `includeSourceProvenance`, a source that was itself a transformation target carries Scope aspects on ordinary elements, and they must follow the source.
  * Cleanup never deletes transformer provenance.
  * @internal
  */
 export function isTransformerProvenanceAspect(
   aspect: ElementAspect,
-  targetScopeElementIds: ReadonlySet<Id64String>
+  targetScopeElementIds: ReadonlySet<Id64String>,
+  currentScopeElementId: Id64String
 ): aspect is ExternalSourceAspect {
   if (!(aspect instanceof ExternalSourceAspect)) return false;
-  if (aspect.kind === ExternalSourceAspect.Kind.Scope) return true;
+  if (aspect.kind === ExternalSourceAspect.Kind.Scope)
+    return aspect.element.id === currentScopeElementId;
   return (
     (aspect.kind === ExternalSourceAspect.Kind.Element ||
       aspect.kind === ExternalSourceAspect.Kind.Relationship) &&
@@ -1105,7 +1103,7 @@ export function isTransformerProvenanceAspect(
 }
 
 /** Returns the `importElementMultiAspects` filter for a transformation that includes source provenance.
- * Source provenance cloned from another transformation looks exactly like another target scope's provenance, so a transformer provenance aspect is only eligible for reuse when an incoming ExternalSourceAspect has the same kind, scope, and identifier.
+ * Element and Relationship provenance cloned from another transformation looks exactly like another target scope's provenance, so such an aspect is only eligible for reuse when an incoming ExternalSourceAspect has the same kind, scope, and identifier.
  * The current scope's own provenance is never eligible: the transformer maintains it separately.
  * @internal
  */
@@ -1122,14 +1120,18 @@ export function sourceProvenanceMatchFilter(
       )
   );
   return (aspect) => {
-    if (!isTransformerProvenanceAspect(aspect, targetScopeElementIds))
+    if (
+      !isTransformerProvenanceAspect(
+        aspect,
+        targetScopeElementIds,
+        currentScopeElementId
+      )
+    )
       return true;
-    const scopeElementId =
-      aspect.kind === ExternalSourceAspect.Kind.Scope
-        ? aspect.element.id
-        : aspect.scope?.id;
+    // The current scope's Scope aspect is the only Scope aspect that counts as provenance.
     return (
-      scopeElementId !== currentScopeElementId &&
+      aspect.kind !== ExternalSourceAspect.Kind.Scope &&
+      aspect.scope?.id !== currentScopeElementId &&
       incomingKeys.has(externalSourceAspectKey(aspect))
     );
   };

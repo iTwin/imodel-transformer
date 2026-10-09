@@ -2027,7 +2027,12 @@ export class IModelTransformer extends IModelExportHandler {
     await cleanup.collect(
       targetElementIds,
       excludedElementAspectClassFullNames,
-      (aspect) => isTransformerProvenanceAspect(aspect, targetScopeElementIds)
+      (aspect) =>
+        isTransformerProvenanceAspect(
+          aspect,
+          targetScopeElementIds,
+          this.targetScopeElementId
+        )
     );
     return async (exported) => {
       if (exported) await cleanup.deleteUnretained();

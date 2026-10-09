@@ -548,7 +548,11 @@ describe("IModelImporter", () => {
         new Set([elementId, provenanceScopeId]),
         new Set(["TestDeleteAspectsSchema:TestUniqueAspect"]),
         (aspect) =>
-          isTransformerProvenanceAspect(aspect, new Set([provenanceScopeId]))
+          isTransformerProvenanceAspect(
+            aspect,
+            new Set([provenanceScopeId]),
+            provenanceScopeId
+          )
       );
       importer.elementAspectCleanup.retain(aspectIds.retained);
       await importer.elementAspectCleanup.deleteUnretained();
