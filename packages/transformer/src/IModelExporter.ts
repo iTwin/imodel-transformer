@@ -61,6 +61,7 @@ import {
   IModelTransformerErrorScope,
 } from "./IModelTransformerError";
 import { ChangesetScanner } from "./ChangesetScanner";
+import { SourceClassKinds } from "./SourceClassKinds";
 import { ChangedElementForest } from "./ChangedElementForest";
 
 const loggerCategory = TransformerLoggerCategory.IModelExporter;
@@ -2035,6 +2036,25 @@ export class ChangedInstanceOps {
 }
 
 /**
+ * A change to one EC instance, for recording changes that don't come from a changeset reader.
+ * @see [[ChangedInstanceIds.addChangeRecord]]
+ * @beta
+ */
+export interface ChangeRecord {
+  /** ID of the changed instance. */
+  id: Id64String;
+  /** EC class ID of the changed instance, used to tell elements, models, aspects, relationships, and CodeSpecs apart. */
+  ecClassId: Id64String;
+  /** The operation that changed the instance. */
+  op: SqliteChangeOp;
+  /**
+   * For an aspect, the element that owns it. When undefined, the owner is read from the source iModel, which
+   * no longer has deleted aspects.
+   */
+  aspectOwnerElementId?: Id64String;
+}
+
+/**
  * Class for discovering modified elements between 2 versions of an iModel.
  * @public
  */
@@ -2045,12 +2065,7 @@ export class ChangedInstanceIds {
   public aspect = new ChangedInstanceOps();
   public relationship = new ChangedInstanceOps();
   public font = new ChangedInstanceOps();
-  private _codeSpecSubclassIds?: Set<string>;
-  private _modelSubclassIds?: Set<string>;
-  private _elementSubclassIds?: Set<string>;
-  private _aspectSubclassIds?: Set<string>;
-  private _relationshipSubclassIds?: Set<string>;
-  private _relationshipSubclassIdsToSkip?: Set<string>;
+  private _classKinds?: SourceClassKinds;
   private readonly _aspectOwnerElementIds = new Set<Id64String>();
 
   /** Element IDs that own the aspects represented by `aspect` changes.
@@ -2063,78 +2078,6 @@ export class ChangedInstanceIds {
   private _db: IModelDb;
   public constructor(db: IModelDb) {
     this._db = db;
-  }
-
-  private async setupECClassIds(): Promise<void> {
-    this._codeSpecSubclassIds = new Set<string>();
-    this._modelSubclassIds = new Set<string>();
-    this._elementSubclassIds = new Set<string>();
-    this._aspectSubclassIds = new Set<string>();
-    this._relationshipSubclassIds = new Set<string>();
-    this._relationshipSubclassIdsToSkip = new Set<string>();
-
-    const addECClassIdsToSet = async (
-      setToModify: Set<string>,
-      baseClass: string
-    ) => {
-      for await (const row of this._db.createQueryReader(
-        `SELECT ECInstanceId FROM ECDbMeta.ECClassDef where ECInstanceId IS (${baseClass})`,
-        undefined,
-        { usePrimaryConn: true }
-      )) {
-        setToModify.add(row.ECInstanceId);
-      }
-    };
-    const promises = [
-      addECClassIdsToSet(this._codeSpecSubclassIds, "BisCore.CodeSpec"),
-      addECClassIdsToSet(this._modelSubclassIds, "BisCore.Model"),
-      addECClassIdsToSet(this._elementSubclassIds, "BisCore.Element"),
-      addECClassIdsToSet(
-        this._aspectSubclassIds,
-        "BisCore.ElementUniqueAspect"
-      ),
-      addECClassIdsToSet(this._aspectSubclassIds, "BisCore.ElementMultiAspect"),
-      addECClassIdsToSet(
-        this._relationshipSubclassIds,
-        "BisCore.ElementRefersToElements"
-      ),
-      addECClassIdsToSet(
-        this._relationshipSubclassIdsToSkip,
-        "BisCore.ElementDrivesElement"
-      ),
-    ];
-    await Promise.all(promises);
-  }
-
-  private get _ecClassIdsInitialized() {
-    return (
-      this._codeSpecSubclassIds &&
-      this._modelSubclassIds &&
-      this._elementSubclassIds &&
-      this._aspectSubclassIds &&
-      this._relationshipSubclassIds &&
-      this._relationshipSubclassIdsToSkip
-    );
-  }
-
-  private isRelationship(ecClassId: string) {
-    return this._relationshipSubclassIds?.has(ecClassId);
-  }
-
-  private isCodeSpec(ecClassId: string) {
-    return this._codeSpecSubclassIds?.has(ecClassId);
-  }
-
-  private isAspect(ecClassId: string) {
-    return this._aspectSubclassIds?.has(ecClassId);
-  }
-
-  private isModel(ecClassId: string) {
-    return this._modelSubclassIds?.has(ecClassId);
-  }
-
-  private isElement(ecClassId: string) {
-    return this._elementSubclassIds?.has(ecClassId);
   }
 
   /** Checks if there are any changes.
@@ -2161,11 +2104,20 @@ export class ChangedInstanceIds {
     return this.recordChange(change, undefined);
   }
 
+  /**
+   * Adds a change read from somewhere other than a changeset, such as a precomputed cache, like [[addChange]]
+   * does for a changeset reader's [ChangeInstance]($backend). Add changes in the order they were made, so that,
+   * for example, an insert followed by a delete of the same instance cancels out.
+   * @beta
+   */
+  public async addChangeRecord(change: ChangeRecord): Promise<void> {
+    return this.applyChangeRecord(change, undefined);
+  }
+
   private async recordChange(
     change: ChangeInstance,
     unresolvedAspectIds: Set<Id64String> | undefined
   ): Promise<void> {
-    if (!this._ecClassIdsInitialized) await this.setupECClassIds();
     const ecClassId = change.ECClassId;
     if (ecClassId === undefined)
       ITwinError.throwError({
@@ -2184,28 +2136,48 @@ export class ChangedInstanceIds {
         },
         message: `ChangeType was undefined for id: ${change.ECInstanceId}.`,
       });
-    if (this._relationshipSubclassIdsToSkip?.has(ecClassId)) return;
+    return this.applyChangeRecord(
+      {
+        id: change.ECInstanceId,
+        ecClassId,
+        op: changeType,
+        aspectOwnerElementId: change.Element?.Id,
+      },
+      unresolvedAspectIds
+    );
+  }
 
-    if (this.isRelationship(ecClassId))
-      this.handleChange(this.relationship, changeType, change.ECInstanceId);
-    else if (this.isCodeSpec(ecClassId))
-      this.handleChange(this.codeSpec, changeType, change.ECInstanceId);
-    else if (this.isAspect(ecClassId)) {
-      let ownerElementId = change.Element?.Id;
-      if (ownerElementId === undefined) {
-        if (unresolvedAspectIds !== undefined)
-          unresolvedAspectIds.add(change.ECInstanceId);
-        else
-          ownerElementId = this.tryGetAspectOwnerElementId(change.ECInstanceId);
+  private async applyChangeRecord(
+    change: ChangeRecord,
+    unresolvedAspectIds: Set<Id64String> | undefined
+  ): Promise<void> {
+    // Await only the first time, so later changes are classified without yielding.
+    this._classKinds ??= await SourceClassKinds.query(this._db);
+    const { id, ecClassId, op } = change;
+    switch (this._classKinds.kindOf(ecClassId)) {
+      case "relationship":
+        return this.handleChange(this.relationship, op, id);
+      case "codeSpec":
+        return this.handleChange(this.codeSpec, op, id);
+      case "aspect":
+      case "externalSourceAspect": {
+        let ownerElementId = change.aspectOwnerElementId;
+        if (ownerElementId === undefined) {
+          if (unresolvedAspectIds !== undefined) unresolvedAspectIds.add(id);
+          else ownerElementId = this.tryGetAspectOwnerElementId(id);
+        }
+        if (ownerElementId !== undefined)
+          this._aspectOwnerElementIds.add(ownerElementId);
+        return this.handleChange(this.aspect, op, id);
       }
-      if (ownerElementId !== undefined) {
-        this._aspectOwnerElementIds.add(ownerElementId);
-      }
-      this.handleChange(this.aspect, changeType, change.ECInstanceId);
-    } else if (this.isModel(ecClassId))
-      this.handleChange(this.model, changeType, change.ECInstanceId);
-    else if (this.isElement(ecClassId))
-      this.handleChange(this.element, changeType, change.ECInstanceId);
+      case "model":
+        return this.handleChange(this.model, op, id);
+      case "element":
+        return this.handleChange(this.element, op, id);
+      case "skippedRelationship":
+      case undefined:
+        return;
+    }
   }
 
   private tryGetAspectOwnerElementId(
@@ -2472,7 +2444,7 @@ export class ChangedInstanceIds {
 
     const startChangeset =
       "startChangeset" in opts ? opts.startChangeset : undefined;
-    const changesetRanges =
+    const changesetRanges: [number, number][] | undefined =
       startChangeset !== undefined
         ? [
             [
@@ -2499,17 +2471,7 @@ export class ChangedInstanceIds {
           : undefined;
     const csFileProps =
       changesetRanges !== undefined
-        ? (
-            await Promise.all(
-              changesetRanges.map(async ([first, end]) =>
-                BriefcaseManager.downloadChangesets({
-                  iModelId,
-                  range: { first, end },
-                  targetDir: BriefcaseManager.getChangeSetsPath(iModelId),
-                })
-              )
-            )
-          ).flat()
+        ? (await ChangesetScanner.download(opts.iModel, changesetRanges)).flat()
         : "csFileProps" in opts
           ? opts.csFileProps
           : undefined;
@@ -2517,7 +2479,10 @@ export class ChangedInstanceIds {
     if (csFileProps === undefined) return undefined;
 
     const changedInstanceIds = new ChangedInstanceIds(opts.iModel);
-    await ChangesetScanner.scan(opts.iModel, csFileProps, changedInstanceIds);
+    await ChangesetScanner.scan(opts.iModel, [csFileProps], {
+      changedInstanceIds,
+      collectDeletionRecords: false,
+    });
     return changedInstanceIds;
   }
 

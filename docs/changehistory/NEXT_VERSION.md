@@ -41,6 +41,12 @@ A changed element can require an unchanged element that has no mapping in the ta
 
 See [Incremental exports](../learning/transformer/index.md#incremental-exports) for callback and customization details.
 
+## Overridable change collection
+
+`IModelTransformer` now reads source changes through the protected, beta `collectChanges(ranges, changedInstanceIds)` method. Override it to supply changed instance IDs and deletion records from another source, such as a precomputed cache, instead of downloading and reading changesets. An override can pass the ranges it can't cover to `super.collectChanges()`. `ChangedInstanceIds.addChangeRecord()` adds a change from its instance ID, class ID, operation, and, for an aspect, owning element ID. See [Supplying source changes](../learning/transformer/change-scanning.md) for the contract and an example.
+
+Deletions are now processed in batches of one changeset range instead of one changeset. This fixes a reverse synchronization case. Suppose branch element B is a copy of master element M, and B has no `FederationGuid`, so the only link between them is a provenance aspect on B that stores M's ID. When a reverse synchronization processes B's deletion, it deletes M. If one branch changeset deletes the aspect and a later one deletes B, the transformer previously couldn't find M when it processed B's deletion, so M stayed in the master iModel. Both changesets are now in the same batch, so the transformer reads M's ID from the deleted aspect's record and deletes M. See [Deletion batches](../learning/transformer/change-scanning.md#deletion-batches).
+
 ## Breaking change: batched incremental element deletion
 
 Incremental synchronization now deletes elements in one batch. `IModelExporter.exportChanges()` passes all deleted source IDs to `IModelExportHandler.onDeleteElements()`, `IModelTransformer` maps them to target IDs, and `IModelImporter.deleteElements()` deletes the target elements through the native bulk-delete API. Children, sub-model contents, and elements whose code is scoped by a deleted element are still deleted with it.

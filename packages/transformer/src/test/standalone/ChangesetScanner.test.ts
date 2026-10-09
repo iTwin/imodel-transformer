@@ -12,13 +12,22 @@ import {
   Subject,
   withEditTxn,
 } from "@itwin/core-backend";
+import { IModelStatus } from "@itwin/core-bentley";
 import {
   ChangesetFileProps,
   ExternalSourceAspectProps,
   IModel,
   QueryBinder,
 } from "@itwin/core-common";
-import { ChangesetScanner } from "../../ChangesetScanner";
+import {
+  addDeletionRecord,
+  ChangesetScanner,
+  DeletedInstance,
+  DeletionBatch,
+} from "../../ChangesetScanner";
+import { SourceClassKinds } from "../../SourceClassKinds";
+import { IModelTransformerError } from "../../IModelTransformerError";
+import { expectTransformerError } from "../IModelTransformerUtils";
 import { ChangedInstanceIds } from "../../IModelExporter";
 import { KnownTestLocations } from "../TestUtils";
 import { importElementAspectTestSchema } from "../TestUtils/ElementAspectTestUtils";
@@ -59,6 +68,13 @@ describe("ChangesetScanner owner resolution", () => {
     return txn.insertAspect(props);
   }
 
+  const noDeletions: DeletionBatch = {
+    elements: [],
+    models: [],
+    relationships: [],
+    externalSourceAspects: [],
+  };
+
   function classIdFor(className: string, id: string): string {
     return db.withQueryReader(
       `SELECT ECClassId FROM ${className} WHERE ECInstanceId=:id`,
@@ -89,7 +105,9 @@ describe("ChangesetScanner owner resolution", () => {
       const ids = new ChangedInstanceIds(db);
       const querySpy = vi.spyOn(db, "withQueryReader");
       const getAspectSpy = vi.spyOn(db.elements, "getAspect");
-      expect(await ChangesetScanner.scan(db, files, ids)).toEqual([[]]);
+      expect(
+        await ChangesetScanner.scan(db, [files], { changedInstanceIds: ids })
+      ).toEqual([noDeletions]);
       expect([...ids.aspectOwnerElementIds].sort()).toEqual(
         [seed.oldOwner, seed.newOwner].sort()
       );
@@ -173,34 +191,41 @@ describe("ChangesetScanner owner resolution", () => {
       const relationship = ElementGroupsMembers.insert(txn, owner, target);
       return { owner, target, element, aspect, relationship };
     });
-    const expected = [
-      {
-        ecInstanceId: seed.element,
-        ecClassId: classIdFor(Subject.classFullName, seed.element),
-        classFullName: Subject.classFullName,
-        federationGuid: db.elements.getElement(seed.element).federationGuid,
-      },
-      {
-        ecInstanceId: seed.aspect,
-        ecClassId: classIdFor(ExternalSourceAspect.classFullName, seed.aspect),
-        classFullName: ExternalSourceAspect.classFullName,
-        elementId: seed.owner,
-        scopeId: IModel.rootSubjectId,
-        kind: "Element",
-        identifier: "aspect",
-      },
-      {
-        ecInstanceId: seed.relationship,
-        ecClassId: classIdFor(
-          ElementGroupsMembers.classFullName,
-          seed.relationship
-        ),
-        classFullName: ElementGroupsMembers.classFullName,
-        sourceECInstanceId: seed.owner,
-        targetECInstanceId: seed.target,
-      },
-    ];
-    expect(expected[0].federationGuid).toBeTypeOf("string");
+    const expected: DeletionBatch = {
+      elements: [
+        {
+          ecInstanceId: seed.element,
+          ecClassId: classIdFor(Subject.classFullName, seed.element),
+          federationGuid: db.elements.getElement(seed.element).federationGuid,
+        },
+      ],
+      models: [],
+      relationships: [
+        {
+          ecInstanceId: seed.relationship,
+          ecClassId: classIdFor(
+            ElementGroupsMembers.classFullName,
+            seed.relationship
+          ),
+          sourceECInstanceId: seed.owner,
+          targetECInstanceId: seed.target,
+        },
+      ],
+      externalSourceAspects: [
+        {
+          ecInstanceId: seed.aspect,
+          ecClassId: classIdFor(
+            ExternalSourceAspect.classFullName,
+            seed.aspect
+          ),
+          elementId: seed.owner,
+          scopeId: IModel.rootSubjectId,
+          kind: "Element",
+          identifier: "aspect",
+        },
+      ],
+    };
+    expect(expected.elements[0].federationGuid).toBeTypeOf("string");
     await withEditTxn(db, "delete instances", async (txn) => {
       txn.deleteAspect(seed.aspect);
       txn.deleteRelationship({
@@ -211,11 +236,10 @@ describe("ChangesetScanner owner resolution", () => {
       });
       txn.deleteElement(seed.element);
       const ids = new ChangedInstanceIds(db);
-      const records = await ChangesetScanner.scan(db, files, ids);
-      expect(records).toHaveLength(1);
-      const byId = (a: { ecInstanceId: string }, b: { ecInstanceId: string }) =>
-        a.ecInstanceId.localeCompare(b.ecInstanceId);
-      expect(records[0].sort(byId)).toEqual(expected.sort(byId));
+      const records = await ChangesetScanner.scan(db, [files], {
+        changedInstanceIds: ids,
+      });
+      expect(records).toEqual([expected]);
       expect([...ids.aspectOwnerElementIds]).toEqual([seed.owner]);
       expect([...ids.aspect.deleteIds]).toEqual([seed.aspect]);
       expect([...ids.relationship.deleteIds]).toEqual([seed.relationship]);
@@ -223,7 +247,7 @@ describe("ChangesetScanner owner resolution", () => {
     });
   });
 
-  it("collects deletions without populating changed IDs or querying current owners", async () => {
+  it("collects deletions without changed IDs or querying current owners", async () => {
     const seed = withEditTxn(db, "create deletion-only fixture", (txn) => {
       const owner = Subject.insert(txn, IModel.rootSubjectId, "owner");
       return { owner, aspect: insertAspect(txn, owner) };
@@ -231,26 +255,23 @@ describe("ChangesetScanner owner resolution", () => {
     const classId = classIdFor(ExternalSourceAspect.classFullName, seed.aspect);
     await withEditTxn(db, "delete aspect", async (txn) => {
       txn.deleteAspect(seed.aspect);
-      const ids = new ChangedInstanceIds(db);
       const querySpy = vi.spyOn(db, "withQueryReader");
-      const records = await ChangesetScanner.scan(db, files, ids, {
-        populateChangedInstanceIds: false,
-      });
+      const records = await ChangesetScanner.scan(db, [files], {});
       expect(records).toEqual([
-        [
-          {
-            ecInstanceId: seed.aspect,
-            ecClassId: classId,
-            classFullName: ExternalSourceAspect.classFullName,
-            elementId: seed.owner,
-            scopeId: IModel.rootSubjectId,
-            kind: "Element",
-            identifier: "aspect",
-          },
-        ],
+        {
+          ...noDeletions,
+          externalSourceAspects: [
+            {
+              ecInstanceId: seed.aspect,
+              ecClassId: classId,
+              elementId: seed.owner,
+              scopeId: IModel.rootSubjectId,
+              kind: "Element",
+              identifier: "aspect",
+            },
+          ],
+        },
       ]);
-      expect(ids.hasChanges).toBe(false);
-      expect([...ids.aspectOwnerElementIds]).toEqual([]);
       expect(querySpy).not.toHaveBeenCalled();
     });
   });
@@ -261,7 +282,122 @@ describe("ChangesetScanner owner resolution", () => {
       throw readerError;
     });
     await expect(
-      ChangesetScanner.scan(db, files, new ChangedInstanceIds(db))
+      ChangesetScanner.scan(db, [files], {
+        changedInstanceIds: new ChangedInstanceIds(db),
+      })
     ).rejects.toBe(readerError);
+  });
+
+  describe("deletion classification", () => {
+    const classIdOf = (classFullName: string) => {
+      const [schemaName, className] = classFullName.split(".");
+      return db.withQueryReader(
+        "SELECT c.ECInstanceId FROM meta.ECClassDef c JOIN meta.ECSchemaDef s ON c.Schema.Id = s.ECInstanceId WHERE s.Name = ? AND c.Name = ?",
+        (reader) => {
+          expect(reader.step()).toBe(true);
+          return reader.current[0] as string;
+        },
+        QueryBinder.from([schemaName, className])
+      );
+    };
+
+    async function classify(...deleted: DeletedInstance[]) {
+      const classKinds = await SourceClassKinds.query(db);
+      const batch: DeletionBatch = {
+        elements: [],
+        models: [],
+        relationships: [],
+        externalSourceAspects: [],
+      };
+      for (const instance of deleted)
+        addDeletionRecord(batch, instance, classKinds, db);
+      return batch;
+    }
+
+    it("identifies a relationship deletion missing an endpoint", async () => {
+      await expectTransformerError(
+        async () =>
+          classify({
+            ecInstanceId: "0x123",
+            ecClassId: classIdOf("BisCore.ElementGroupsMembers"),
+          }),
+        IModelTransformerError.ChangedInstanceMetadataMissing,
+        "Relationship deletion 0x123 is missing an endpoint."
+      );
+    });
+
+    it("classifies deletions by class rather than owner metadata", async () => {
+      const records = await classify(
+        // An element row with an owner ID must still be an element.
+        {
+          ecInstanceId: "0x20",
+          ecClassId: classIdOf("BisCore.Subject"),
+          elementId: IModel.rootSubjectId,
+        },
+        // A complete ExternalSourceAspect row without an owner must not become an element.
+        {
+          ecInstanceId: "0x21",
+          ecClassId: classIdOf("BisCore.ExternalSourceAspect"),
+          scopeId: IModel.rootSubjectId,
+          kind: "Element",
+          identifier: "aspect",
+        },
+        {
+          ecInstanceId: "0x22",
+          ecClassId: classIdOf("BisCore.DefinitionModel"),
+        }
+      );
+      expect(records).toEqual({
+        ...noDeletions,
+        elements: [
+          {
+            ecInstanceId: "0x20",
+            ecClassId: classIdOf("BisCore.Subject"),
+            federationGuid: undefined,
+          },
+        ],
+        models: [
+          {
+            ecInstanceId: "0x22",
+            ecClassId: classIdOf("BisCore.DefinitionModel"),
+          },
+        ],
+      });
+    });
+
+    it.each(["scopeId", "kind", "identifier"] as const)(
+      "omits an ExternalSourceAspect deletion without %s",
+      async (missingField) => {
+        const deleted: DeletedInstance = {
+          ecInstanceId: "0x123",
+          ecClassId: classIdOf("BisCore.ExternalSourceAspect"),
+          elementId: "0x1",
+          scopeId: IModel.rootSubjectId,
+          kind: "Element",
+          identifier: "aspect",
+        };
+        expect((await classify(deleted)).externalSourceAspects).toHaveLength(1);
+        expect(
+          await classify({ ...deleted, [missingField]: undefined })
+        ).toEqual(noDeletions);
+      }
+    );
+
+    it("skips ElementDrivesElement deletions without reading their endpoints", async () => {
+      expect(
+        await classify({
+          ecInstanceId: "0x123",
+          ecClassId: classIdOf("BisCore.ElementDrivesElement"),
+        })
+      ).toEqual(noDeletions);
+    });
+
+    it("preserves the error for a class missing from the schema", async () => {
+      await expect(
+        classify({ ecInstanceId: "0x123", ecClassId: "0xfffffff" })
+      ).rejects.toThrow(
+        expect.objectContaining({ errorNumber: IModelStatus.NotFound })
+      );
+    });
   });
 });

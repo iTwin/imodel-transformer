@@ -65,6 +65,7 @@ import {
 } from "@itwin/core-bentley";
 import {
   BisCodeSpec,
+  ChangesetFileProps,
   Code,
   ColorDef,
   DefinitionElementProps,
@@ -94,7 +95,6 @@ import {
   TransformerLoggerCategory,
 } from "../../imodel-transformer";
 import { ProvenanceManager } from "../../ProvenanceManager";
-import { ChangesetScanner } from "../../ChangesetScanner";
 import {
   assertTransformerError,
   CountingIModelImporter,
@@ -133,6 +133,20 @@ const countElementExternalSourceAspects = (
         (aspect as ExternalSourceAspect).kind ===
         ExternalSourceAspect.Kind.Element
     ).length;
+
+/** Records the changeset files downloaded until `restore` is called. */
+function recordChangesetDownloads() {
+  const files: ChangesetFileProps[] = [];
+  const download = BriefcaseManager.downloadChangesets.bind(BriefcaseManager);
+  const spy = vi
+    .spyOn(BriefcaseManager, "downloadChangesets")
+    .mockImplementation(async (args) => {
+      const downloaded = await download(args);
+      files.push(...downloaded);
+      return downloaded;
+    });
+  return { files, restore: () => spy.mockRestore() };
+}
 
 describe("IModelTransformerHub", () => {
   const outputDir = path.join(
@@ -1832,10 +1846,12 @@ describe("IModelTransformerHub", () => {
   }
 
   it("should not include 'initialized branch provenance' changeset in a reverse sync", async () => {
-    const validateCsFileProps = (transformer: IModelTransformer) => {
-      const csFileProps = transformer["_csFileProps"];
+    let downloads: ReturnType<typeof recordChangesetDownloads> | undefined;
+    const validateCsFileProps = () => {
+      downloads!.restore();
+      expect(downloads!.files).not.toHaveLength(0);
       expect(
-        csFileProps?.some((csFileProp) =>
+        downloads!.files.some((csFileProp) =>
           csFileProp.description.includes("initialized branch provenance")
         )
       ).to.be.false;
@@ -1848,7 +1864,12 @@ describe("IModelTransformerHub", () => {
         master: {
           sync: [
             "branch",
-            { assert: { afterProcessChanges: validateCsFileProps } },
+            {
+              initTransformer: () => {
+                downloads = recordChangesetDownloads();
+              },
+              assert: { afterProcessChanges: validateCsFileProps },
+            },
           ],
         },
       },
@@ -7163,33 +7184,6 @@ describe("IModelTransformerHub", () => {
       await closeAndDeleteBriefcase(targetDb);
     });
 
-    it("identifies a relationship deletion missing an endpoint", async () => {
-      const editTxn = createStartedEditTxn(targetDb);
-      const transformer = new IModelTransformer({
-        source: sourceDb,
-        target: editTxn,
-      });
-      try {
-        await expectTransformerError(
-          transformer["processDeletedOp"](
-            {
-              ecInstanceId: "0x123",
-              ecClassId: "0x456",
-            },
-            new Map(),
-            true,
-            new Set<Id64String>(),
-            new Set<Id64String>()
-          ),
-          IModelTransformerError.ChangedInstanceMetadataMissing,
-          "Relationship deletion 0x123 is missing an endpoint."
-        );
-      } finally {
-        transformer.dispose();
-        editTxn.end();
-      }
-    });
-
     it("should skip unchanged parent elements but still export changed child elements during processChanges", async () => {
       // Create a model with a parent element and a child element
       const { parentElementId, childElementId } = withEditTxn(
@@ -7777,12 +7771,13 @@ describe("IModelTransformerHub", () => {
       );
       await transformer.processSchemas();
       const openFileSpy = vi.spyOn(ChangesetReader, "openFile");
+      const downloads = recordChangesetDownloads();
       const processedDeletionIds: Id64String[] = [];
-      const processDeletedOp =
-        transformer["processDeletedOp"].bind(transformer);
-      transformer["processDeletedOp"] = async (...args) => {
-        processedDeletionIds.push(args[0].ecInstanceId);
-        return processDeletedOp(...args);
+      const processDeletedElement =
+        transformer["processDeletedElement"].bind(transformer);
+      transformer["processDeletedElement"] = async (...args) => {
+        processedDeletionIds.push(args[0]);
+        return processDeletedElement(...args);
       };
       const findTargetElementIdSpy = vi.spyOn(
         transformer.context,
@@ -7790,13 +7785,14 @@ describe("IModelTransformerHub", () => {
       );
       try {
         await transformer.process();
+        downloads.restore();
         secondTransformEditTxn.end();
         await targetDb.pushChanges({
           description: "Transformation 2: Process Changes with deletion",
           retainLocks: true,
         });
 
-        const selectedChangesetPaths = transformer["_csFileProps"]!.map(
+        const selectedChangesetPaths = downloads.files.map(
           (csFile) => csFile.pathname
         );
         expect(openFileSpy).toHaveBeenCalledTimes(
@@ -7808,12 +7804,15 @@ describe("IModelTransformerHub", () => {
         expect(
           openFileSpy.mock.calls.map(([args]) => args.propFilter)
         ).to.deep.equal(
-          selectedChangesetPaths.map(() => PropertyFilter.BisCoreElement)
+          selectedChangesetPaths.map(
+            () => PropertyFilter.InstanceKeyAndIdentifiers
+          )
         );
         expect(findTargetElementIdSpy).toHaveBeenCalledWith(elementId);
         expect(processedDeletionIds).toContain(elementId);
         expect(processedDeletionIds).not.toContain(aspectId);
       } finally {
+        downloads.restore();
         openFileSpy.mockRestore();
       }
 
@@ -7826,109 +7825,6 @@ describe("IModelTransformerHub", () => {
         targetElement2,
         "Element should be deleted in target iModel"
       ).to.equal(Id64.invalid);
-    });
-
-    it("classifies aspect deletions by class rather than owner metadata", async () => {
-      const { subjectId, aspectId } = withEditTxn(
-        sourceDb,
-        "insert subject with aspect",
-        (txn) => {
-          const insertedSubjectId = Subject.insert(
-            txn,
-            IModel.rootSubjectId,
-            "Aspect classification"
-          );
-          const insertedAspectId = txn.insertAspect({
-            classFullName: ExternalSourceAspect.classFullName,
-            element: new ElementOwnsExternalSourceAspects(insertedSubjectId),
-            scope: { id: IModel.rootSubjectId },
-            kind: "Document",
-            identifier: "classified-aspect",
-          } as ExternalSourceAspectProps);
-          return { subjectId: insertedSubjectId, aspectId: insertedAspectId };
-        }
-      );
-      await sourceDb.pushChanges({
-        description: "Insert subject with aspect",
-        retainLocks: true,
-      });
-
-      const initialEditTxn = createStartedEditTxn(targetDb);
-      let transformer = new IModelTransformer({
-        source: sourceDb,
-        target: initialEditTxn,
-      });
-      await transformer.process();
-      const targetSubjectId =
-        transformer.context.findTargetElementId(subjectId);
-      transformer.dispose();
-      initialEditTxn.end();
-      await targetDb.pushChanges({
-        description: "Initial aspect classification transformation",
-        retainLocks: true,
-      });
-      expect(Id64.isValid(targetSubjectId)).to.be.true;
-
-      withEditTxn(sourceDb, "delete subject with aspect", (txn) => {
-        txn.deleteElement(subjectId);
-      });
-      await sourceDb.pushChanges({
-        description: "Delete subject with aspect",
-        retainLocks: true,
-      });
-
-      // Swap the owner metadata so only the ECClass can distinguish the records.
-      const scan = ChangesetScanner.scan.bind(ChangesetScanner);
-      let scanCalls = 0;
-      const scanSpy = vi
-        .spyOn(ChangesetScanner, "scan")
-        .mockImplementation(async (...args) => {
-          scanCalls++;
-          const recordsByChangeset = await scan(...args);
-          for (const record of recordsByChangeset.flat()) {
-            if (
-              record.classFullName === ExternalSourceAspect.classFullName &&
-              record.ecInstanceId === aspectId
-            )
-              record.elementId = undefined;
-            else if (
-              record.classFullName === Subject.classFullName &&
-              record.ecInstanceId === subjectId
-            )
-              record.elementId = subjectId;
-          }
-          return recordsByChangeset;
-        });
-      const changesEditTxn = createStartedEditTxn(targetDb);
-      transformer = new IModelTransformer(
-        { source: sourceDb, target: changesEditTxn },
-        { argsForProcessChanges: {} }
-      );
-      const processedDeletions: string[] = [];
-      const processDeletedOp =
-        transformer["processDeletedOp"].bind(transformer);
-      transformer["processDeletedOp"] = async (...args) => {
-        processedDeletions.push(
-          `${args[0].classFullName}:${args[0].ecInstanceId}`
-        );
-        return processDeletedOp(...args);
-      };
-      try {
-        await transformer.process();
-      } finally {
-        scanSpy.mockRestore();
-        transformer.dispose();
-        changesEditTxn.end();
-      }
-
-      expect(processedDeletions).toContain(
-        `${Subject.classFullName}:${subjectId}`
-      );
-      expect(processedDeletions).not.toContain(
-        `${ExternalSourceAspect.classFullName}:${aspectId}`
-      );
-      expect(targetDb.elements.tryGetElement(targetSubjectId)).toBeUndefined();
-      expect(scanCalls).to.equal(1);
     });
 
     it("honors a guidless deletion remap and ignores a missing mapping", async () => {

@@ -642,6 +642,49 @@ describe("ChangedInstanceIds", () => {
     });
   });
 
+  describe("addChangeRecord", () => {
+    const classIdOf = (id: Id64String, classFullName: string) =>
+      sourceDb.withQueryReader(
+        `SELECT ECClassId FROM ${classFullName} WHERE ECInstanceId=:id`,
+        (reader) => {
+          expect(reader.step()).to.be.true;
+          return reader.current[0] as Id64String;
+        },
+        new QueryBinder().bindId("id", id)
+      );
+
+    it("categorizes changes by class and records aspect owners", async () => {
+      const ids = new ChangedInstanceIds(sourceDb);
+      await ids.addChangeRecord({
+        id: childDrawing1.id!,
+        ecClassId: classIdOf(childDrawing1.id!, "BisCore.Element"),
+        op: "Updated",
+      });
+      // The owner given for a deleted aspect is used without reading the source iModel.
+      await ids.addChangeRecord({
+        id: "0xffffffffff",
+        ecClassId: classIdOf(aspect1Id, ExternalSourceAspect.classFullName),
+        op: "Deleted",
+        aspectOwnerElementId: childDrawing2.id,
+      });
+
+      assertHasValues(ids.element, "element", [], [childDrawing1.id!], []);
+      assertHasValues(ids.aspect, "aspect", [], [], ["0xffffffffff"]);
+      expect([...ids.aspectOwnerElementIds]).to.deep.equal([childDrawing2.id]);
+    });
+
+    it("combines changes to the same instance in order", async () => {
+      const ids = new ChangedInstanceIds(sourceDb);
+      const ecClassId = classIdOf(childDrawing1.id!, "BisCore.Element");
+      await ids.addChangeRecord({ id: "0x123", ecClassId, op: "Inserted" });
+      await ids.addChangeRecord({ id: "0x123", ecClassId, op: "Deleted" });
+      await ids.addChangeRecord({ id: "0x456", ecClassId, op: "Updated" });
+      await ids.addChangeRecord({ id: "0x456", ecClassId, op: "Deleted" });
+
+      assertHasValues(ids.element, "element", [], [], ["0x456"]);
+    });
+  });
+
   describe("addChanges", () => {
     afterEach(() => vi.restoreAllMocks());
 

@@ -102,6 +102,18 @@ Some other data in the iModel follows more specific rules for conflicts:
 Synchronization conflicts are not to be confused with concurrent edit conflicts which are handled by the
 [ConcurrencyControl API](/learning/backend/concurrencycontrol).
 
+### Known risk: pushes by other users during a synchronization
+
+A synchronization records the changesets it is about to push, so that a later synchronization that reads those changesets skips them instead of processing the synchronization's own changes. The transformer records these changesets before they are pushed, assuming they will be the next changesets in each iModel: the target, and for a reverse synchronization also the branch, which receives provenance updates.
+
+If another user pushes to one of those iModels after the synchronization runs but before its changes are pushed, the synchronization's changeset lands at a later index than recorded. A later synchronization that reads that iModel can then skip the other user's changeset, so its changes are never synchronized, and process the synchronization's own changeset.
+
+Until this is addressed, push a synchronization's changes as soon as it finishes, and avoid other pushes to either iModel in the meantime.
+
+The schema lock reduces this risk. Acquire it with [IModelDb.acquireSchemaLock]($backend) in the target iModel, and for a reverse synchronization also in the branch, before the synchronization runs. Pass `retainLocks: true` to [BriefcaseDb.pushChanges]($backend) until both iModels are pushed, because a push releases the briefcase's locks by default. While the schema lock is held, other briefcases can't acquire any locks, so they can't make edits that require locks, such as inserting, updating, or deleting elements and their aspects. This isn't a guarantee: an iModel that doesn't use the lock server doesn't enforce locks, and some writes don't require them, such as inserting a CodeSpec.
+
+A custom [IModelTransformer.collectChanges]($transformer) receives changeset ranges that already exclude these recorded changesets, so it is subject to the same risk.
+
 ## Synchronization examples
 
 ### Creating a branch (First Synchronization)

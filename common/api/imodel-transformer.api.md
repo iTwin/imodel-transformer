@@ -50,6 +50,8 @@ import { Transform } from '@itwin/core-geometry';
 export class ChangedInstanceIds {
     constructor(db: IModelDb);
     addChange(change: ChangeInstance): Promise<void>;
+    // @beta
+    addChangeRecord(change: ChangeRecord): Promise<void>;
     // @internal
     addChanges(changes: Iterable<ChangeInstance>): Promise<void>;
     // @beta
@@ -94,10 +96,43 @@ export class ChangedInstanceOps {
 }
 
 // @beta
+export interface ChangeRecord {
+    aspectOwnerElementId?: Id64String;
+    ecClassId: Id64String;
+    id: Id64String;
+    op: SqliteChangeOp;
+}
+
+// @beta
+export interface CollectedChanges {
+    changedInstanceIds: ChangedInstanceIds;
+    deletionBatches: DeletionBatch[];
+}
+
+// @beta
+export interface DeletionBatch {
+    elements: ElementDeletionRecord[];
+    externalSourceAspects: ExternalSourceAspectDeletionRecord[];
+    models: ModelDeletionRecord[];
+    relationships: RelationshipDeletionRecord[];
+}
+
+// @beta
+export interface DeletionRecordBase {
+    ecClassId: Id64String;
+    ecInstanceId: Id64String;
+}
+
+// @beta
 export interface ElementBulkDeleteError extends ITwinError {
     readonly failedIds: ReadonlySet<Id64String>;
     readonly sqlDeleteStatus: DbResult;
     readonly status: BulkDeleteElementsStatus;
+}
+
+// @beta
+export interface ElementDeletionRecord extends DeletionRecordBase {
+    federationGuid?: string;
 }
 
 // @public
@@ -144,6 +179,14 @@ export type ExporterInitOptions = ExportChangesOptions;
 // @beta
 export interface ExportSchemaResult {
     schemaPath?: string;
+}
+
+// @beta
+export interface ExternalSourceAspectDeletionRecord extends DeletionRecordBase {
+    elementId: Id64String;
+    identifier: string;
+    kind: string;
+    scopeId: Id64String;
 }
 
 // @internal
@@ -305,6 +348,7 @@ export class IModelTransformer extends IModelExportHandler {
     calculateEcefTransform(): Transform | undefined;
     // (undocumented)
     calculateTransformFromHelmertTransforms(): Transform | undefined;
+    protected collectChanges(ranges: readonly (readonly [number, number])[], changedInstanceIds?: ChangedInstanceIds): Promise<CollectedChanges>;
     combineElements(sourceElementIds: Id64Array, targetElementId: Id64String): void;
     // (undocumented)
     protected completePartiallyCommittedAspects(): Promise<void>;
@@ -457,6 +501,9 @@ export interface InitOptions {
 }
 
 // @beta
+export type ModelDeletionRecord = DeletionRecordBase;
+
+// @beta
 export class NewerVersionSchemaImportStrategy implements SchemaProcessingStrategy {
     processSchemas(context: SchemaProcessingContext): Promise<SchemaProcessingResult[]>;
 }
@@ -502,6 +549,12 @@ export interface ProvenanceInitResult {
 // @beta
 export interface ReadonlySchemaAccessor {
     getSchema(schemaName: string): Promise<Schema | undefined>;
+}
+
+// @beta
+export interface RelationshipDeletionRecord extends DeletionRecordBase {
+    sourceECInstanceId: Id64String;
+    targetECInstanceId: Id64String;
 }
 
 // @beta (undocumented)
