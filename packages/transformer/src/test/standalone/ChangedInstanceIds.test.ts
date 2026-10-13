@@ -673,6 +673,26 @@ describe("ChangedInstanceIds", () => {
       expect([...ids.aspectOwnerElementIds]).to.deep.equal([childDrawing2.id]);
     });
 
+    it("requires the owner of a deleted aspect", async () => {
+      const ids = new ChangedInstanceIds(sourceDb);
+      const ecClassId = classIdOf(
+        aspect1Id,
+        ExternalSourceAspect.classFullName
+      );
+      await expectTransformerError(
+        ids.addChangeRecord({ id: "0xffffffffff", ecClassId, op: "Deleted" }),
+        IModelTransformerError.AspectOwnerRequired,
+        "Deleted ElementAspect change 0xffffffffff requires the owning element ID."
+      );
+      // An inserted aspect needs no owner, because a later delete of it must give one.
+      await ids.addChangeRecord({
+        id: "0xffffffffff",
+        ecClassId,
+        op: "Inserted",
+      });
+      assertHasValues(ids.aspect, "aspect", ["0xffffffffff"], [], []);
+    });
+
     it("combines changes to the same instance in order", async () => {
       const ids = new ChangedInstanceIds(sourceDb);
       const ecClassId = classIdOf(childDrawing1.id!, "BisCore.Element");

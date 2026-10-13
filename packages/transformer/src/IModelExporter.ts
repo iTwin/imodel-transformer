@@ -2048,8 +2048,8 @@ export interface ChangeRecord {
   /** The operation that changed the instance. */
   op: SqliteChangeOp;
   /**
-   * For an aspect, the element that owns it. When undefined, the owner is read from the source iModel, which
-   * no longer has deleted aspects.
+   * For an aspect, the element that owns it. Required for a deleted aspect, because the source iModel no longer has it.
+   * When undefined for an inserted or updated aspect, the owner is read from the source iModel.
    */
   aspectOwnerElementId?: Id64String;
 }
@@ -2108,9 +2108,23 @@ export class ChangedInstanceIds {
    * Adds a change read from somewhere other than a changeset, such as a precomputed cache, like [[addChange]]
    * does for a changeset reader's [ChangeInstance]($backend). Add changes in the order they were made, so that,
    * for example, an insert followed by a delete of the same instance cancels out.
+   * @throws [ITwinError]($bentley) with key `AspectOwnerRequired` if a deleted aspect has no `aspectOwnerElementId`.
    * @beta
    */
   public async addChangeRecord(change: ChangeRecord): Promise<void> {
+    if (change.op === "Deleted" && change.aspectOwnerElementId === undefined) {
+      this._classKinds ??= await SourceClassKinds.query(this._db);
+      const kind = this._classKinds.kindOf(change.ecClassId);
+      // The source no longer has the aspect, so without its owner the target aspect would silently stay.
+      if (kind === "aspect" || kind === "externalSourceAspect")
+        ITwinError.throwError({
+          iTwinErrorId: {
+            scope: IModelTransformerErrorScope,
+            key: IModelTransformerError.AspectOwnerRequired,
+          },
+          message: `Deleted ElementAspect change ${change.id} requires the owning element ID.`,
+        });
+    }
     return this.applyChangeRecord(change, undefined);
   }
 
