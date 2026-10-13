@@ -16,7 +16,7 @@ const packageRoot =
     ? path.resolve(__dirname, "..")
     : path.resolve(__dirname, "../..");
 
-// eslint-disable-next-line @typescript-eslint/no-var-requires, @typescript-eslint/no-require-imports
+// eslint-disable-next-line @typescript-eslint/no-require-imports
 export const transformerPackageMetadata = require(
   path.join(packageRoot, "package.json")
 ) as TransformerPackageMetadata;

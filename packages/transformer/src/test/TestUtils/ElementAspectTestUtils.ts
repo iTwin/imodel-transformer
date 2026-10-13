@@ -16,11 +16,14 @@ export async function importElementAspectTestSchema(
     <BaseClass>bis:ElementUniqueAspect</BaseClass>
     <ECProperty propertyName="BinaryValue" typeName="binary"/>
   </ECEntityClass>
-  <ECEntityClass typeName="MultiAspectA" modifier="Sealed">
+  <ECEntityClass typeName="MultiAspectBase" modifier="Abstract">
     <BaseClass>bis:ElementMultiAspect</BaseClass>
   </ECEntityClass>
+  <ECEntityClass typeName="MultiAspectA" modifier="Sealed">
+    <BaseClass>MultiAspectBase</BaseClass>
+  </ECEntityClass>
   <ECEntityClass typeName="MultiAspectB" modifier="Sealed">
-    <BaseClass>bis:ElementMultiAspect</BaseClass>
+    <BaseClass>MultiAspectBase</BaseClass>
   </ECEntityClass>
 </ECSchema>`,
   ]);

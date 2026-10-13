@@ -89,7 +89,8 @@ export namespace EntityUnifier {
     const found = new Set<EntityReference>();
     for (const [type, ids] of idsByType) {
       const classFullName = bisCoreRootClasses[type].classFullName;
-      const query = `SELECT ECInstanceId FROM ${classFullName} WHERE InVirtualSet(:ids, ECInstanceId)`;
+      // Join IdSet so SQLite looks up each id by primary key; InVirtualSet scans the whole table.
+      const query = `SELECT e.ECInstanceId FROM ${classFullName} e INNER JOIN IdSet(:ids) s ON s.id = e.ECInstanceId`;
       const params = new QueryBinder().bindIdSet(
         "ids",
         OrderedId64Iterable.sortArray([...ids])

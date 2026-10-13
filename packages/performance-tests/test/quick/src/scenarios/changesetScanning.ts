@@ -13,11 +13,12 @@ import { BenchmarkScenarioDefinition } from "../framework/BenchmarkScenario.js";
 import { defineBenchmark } from "../framework/BenchmarkRegistration.js";
 import { updateHeavyScanFixture } from "../fixtures/recipes/updateHeavyScan.js";
 
-type ScanResult = NonNullable<
-  Awaited<ReturnType<typeof ChangedInstanceIds.initialize>>
+type ScanResult = Pick<
+  NonNullable<Awaited<ReturnType<typeof ChangedInstanceIds.initialize>>>,
+  "aspect" | "codeSpec" | "element" | "font" | "model" | "relationship"
 >;
 
-function scanDigest(result: ScanResult): string {
+export function scanDigest(result: ScanResult): string {
   const collections = {
     aspect: result.aspect,
     codeSpec: result.codeSpec,
@@ -36,10 +37,8 @@ function scanDigest(result: ScanResult): string {
       },
     ])
   );
-  return canonicalSha256({
-    ...normalized,
-    aspectOwnerElementIds: [...result.aspectOwnerElementIds].sort(),
-  });
+  // The candidate harness also runs against older baselines, so digest only the shared result shape.
+  return canonicalSha256(normalized);
 }
 
 function changedIdCount(result: ScanResult): number {

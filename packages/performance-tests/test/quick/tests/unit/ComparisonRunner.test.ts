@@ -446,18 +446,32 @@ describe("A/B comparison orchestration", () => {
     const expectedRoot = temporaryDirectory("quick-ab-transformer-");
     const packageDirectory = path.join(expectedRoot, "packages", "transformer");
     const expectedEntry = path.join(packageDirectory, "lib", "cjs", "index.js");
+    const coreBackendPackageJson = path.join(
+      expectedRoot,
+      "node_modules",
+      "@itwin",
+      "core-backend",
+      "package.json"
+    );
     fs.mkdirSync(path.dirname(expectedEntry), { recursive: true });
+    fs.mkdirSync(path.dirname(coreBackendPackageJson), { recursive: true });
     fs.writeFileSync(
       path.join(packageDirectory, "package.json"),
       JSON.stringify({ main: "lib/cjs/index.js", version: "1.2.3" })
     );
     fs.writeFileSync(expectedEntry, "module.exports = {};\n");
+    fs.writeFileSync(
+      coreBackendPackageJson,
+      JSON.stringify({ version: "5.13.0" })
+    );
+    const resolveTransformer = () => expectedEntry;
 
     const initial = resolveTransformerProvenance(
       expectedRoot,
-      () => expectedEntry
+      resolveTransformer
     );
     expect(initial).to.include({
+      coreBackendVersion: "5.13.0",
       version: "1.2.3",
       entryPoint: fs.realpathSync(expectedEntry),
     });
@@ -470,7 +484,7 @@ describe("A/B comparison orchestration", () => {
     fs.writeFileSync(implementation, "module.exports = 1;\n");
     const changed = resolveTransformerProvenance(
       expectedRoot,
-      () => expectedEntry
+      resolveTransformer
     );
     expect(changed.contentHash).not.to.equal(initial.contentHash);
 

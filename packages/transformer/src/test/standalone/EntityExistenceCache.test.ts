@@ -5,6 +5,7 @@
 
 import {
   EntityReferences,
+  IModelDb,
   IModelJsFs,
   PhysicalModel,
   PhysicalObject,
@@ -82,6 +83,30 @@ describe("EntityExistenceCache", () => {
       return { categoryId, modelId, objIds };
     });
     return { db, ...ids };
+  }
+
+  /** Records the references of `type` that are queried in `db`, whichever query form is used. */
+  function spyOnExistenceQueries(db: IModelDb, type: ConcreteEntityTypes) {
+    const exists = vi.spyOn(EntityUnifier, "exists");
+    const existsAll = vi.spyOn(EntityUnifier, "existsAll");
+    const queriedReferences = (): EntityReference[] =>
+      [
+        ...exists.mock.calls
+          .filter(([queriedDb]) => queriedDb === db)
+          .map(([, arg]) =>
+            "entityReference" in arg
+              ? arg.entityReference
+              : EntityReferences.from(arg.entity)
+          ),
+        ...existsAll.mock.calls
+          .filter(([queriedDb]) => queriedDb === db)
+          .flatMap(([, references]) => [...references]),
+      ].filter((reference) => EntityReferences.split(reference)[0] === type);
+    const restore = () => {
+      exists.mockRestore();
+      existsAll.mockRestore();
+    };
+    return { queriedReferences, restore };
   }
 
   it("caches positive results so repeat checks don't re-query", async () => {
@@ -345,7 +370,7 @@ describe("EntityExistenceCache", () => {
     db.close();
   });
 
-  it("batches repeated source model existence checks", async () => {
+  it("skips source existence queries for previously exported models", async () => {
     const elementCount = 20;
     const { db: sourceDb } = createDbWithPhysicalObjects(
       "ManyElementsSource.bim",
@@ -359,7 +384,10 @@ describe("EntityExistenceCache", () => {
       rootSubject: { name: "ManyElementsTarget" },
     });
 
-    const createQueryReader = vi.spyOn(sourceDb, "createQueryReader");
+    const sourceModelQueries = spyOnExistenceQueries(
+      sourceDb,
+      ConcreteEntityTypes.Model
+    );
     const markExists = vi.spyOn(EntityExistenceCache.prototype, "markExists");
     const targetEditTxn = createStartedEditTxn(targetDb);
     const transformer = new IModelTransformer({
@@ -370,39 +398,135 @@ describe("EntityExistenceCache", () => {
     try {
       await transformer.process();
 
-      const normalizeQuery = (query: string) =>
-        query.replace(/\s+/g, " ").trim().toLowerCase();
-      const modelExistenceQueries = createQueryReader.mock.calls.filter(
-        ([query]) => {
-          const normalizedQuery = normalizeQuery(query);
-          return (
-            normalizedQuery.includes("from biscore:model") &&
-            normalizedQuery.includes("invirtualset(:ids, ecinstanceid)")
-          );
-        }
-      );
-      const individualModelExistenceQueries =
-        createQueryReader.mock.calls.filter(([query]) => {
-          const normalizedQuery = normalizeQuery(query);
-          return (
-            normalizedQuery.includes("from biscore:model") &&
-            /where ecinstanceid\s*=\s*:id\b/.test(normalizedQuery)
-          );
-        });
-
-      // Every one of the 20 physical objects references the same model. The
-      // source batch check should query that model type once, not once per object.
-      expect(modelExistenceQueries).toHaveLength(1);
-      expect(individualModelExistenceQueries).toHaveLength(0);
+      // Every physical object references the same model, which was exported from the
+      // source before them and is therefore already known to exist.
+      expect(sourceModelQueries.queriedReferences()).toHaveLength(0);
       expect(
         markExists.mock.calls.some(
-          ([, reference]) =>
+          ([db, reference]) =>
+            db === targetDb &&
             EntityReferences.split(reference)[0] === ConcreteEntityTypes.Element
         )
       ).to.be.false;
       processSucceeded = true;
     } finally {
-      createQueryReader.mockRestore();
+      sourceModelQueries.restore();
+      markExists.mockRestore();
+      transformer.dispose();
+      targetEditTxn.end(processSucceeded ? "save" : "abandon");
+      sourceDb.close();
+      targetDb.close();
+    }
+  });
+
+  it("skips source existence queries for previously exported parent elements", async () => {
+    const parentCount = 5;
+    const childrenPerParent = 4;
+    const {
+      db: sourceDb,
+      categoryId,
+      modelId,
+      objIds,
+    } = createDbWithPhysicalObjects("ParentChildSource.bim", parentCount);
+    withEditTxn(sourceDb, "insert child elements", (txn) => {
+      for (const parentId of objIds) {
+        for (let index = 0; index < childrenPerParent; index++) {
+          const childProps: PhysicalElementProps = {
+            classFullName: PhysicalObject.classFullName,
+            model: modelId,
+            category: categoryId,
+            code: Code.createEmpty(),
+            parent: {
+              id: parentId,
+              relClassName: "BisCore:ElementOwnsChildElements",
+            },
+          };
+          txn.insertElement(childProps);
+        }
+      }
+    });
+    const targetDbPath = IModelTransformerTestUtils.prepareOutputFile(
+      "EntityExistenceCache",
+      "ParentChildTarget.bim"
+    );
+    const targetDb = SnapshotDb.createEmpty(targetDbPath, {
+      rootSubject: { name: "ParentChildTarget" },
+    });
+
+    const sourceElementQueries = spyOnExistenceQueries(
+      sourceDb,
+      ConcreteEntityTypes.Element
+    );
+    const targetEditTxn = createStartedEditTxn(targetDb);
+    const transformer = new IModelTransformer({
+      source: sourceDb,
+      target: targetEditTxn,
+    });
+    let processSucceeded = false;
+    try {
+      await transformer.process();
+
+      // Each parent is exported before its children, so no child reference
+      // needs a source existence query.
+      expect(sourceElementQueries.queriedReferences()).toHaveLength(0);
+      expect(
+        await targetDb
+          .createQueryReader(
+            "SELECT count(*) FROM Generic.PhysicalObject WHERE Parent.Id IS NOT NULL",
+            undefined,
+            { usePrimaryConn: true }
+          )
+          .toArray()
+      ).toEqual([[parentCount * childrenPerParent]]);
+      processSucceeded = true;
+    } finally {
+      sourceElementQueries.restore();
+      transformer.dispose();
+      targetEditTxn.end(processSucceeded ? "save" : "abandon");
+      sourceDb.close();
+      targetDb.close();
+    }
+  });
+
+  it("does not record exported source entities when dangling references are ignored", async () => {
+    const elementCount = 5;
+    const { db: sourceDb } = createDbWithPhysicalObjects(
+      "IgnoreDanglingSource.bim",
+      elementCount
+    );
+    const targetDbPath = IModelTransformerTestUtils.prepareOutputFile(
+      "EntityExistenceCache",
+      "IgnoreDanglingTarget.bim"
+    );
+    const targetDb = SnapshotDb.createEmpty(targetDbPath, {
+      rootSubject: { name: "IgnoreDanglingTarget" },
+    });
+
+    const markExists = vi.spyOn(EntityExistenceCache.prototype, "markExists");
+    const targetEditTxn = createStartedEditTxn(targetDb);
+    const transformer = new IModelTransformer(
+      { source: sourceDb, target: targetEditTxn },
+      { danglingReferencesBehavior: "ignore" }
+    );
+    let processSucceeded = false;
+    try {
+      await transformer.process();
+
+      // "ignore" never checks the source for references, so recording would only cost memory.
+      expect(markExists.mock.calls.filter(([db]) => db === sourceDb)).toEqual(
+        []
+      );
+      expect(
+        await targetDb
+          .createQueryReader(
+            "SELECT count(*) FROM Generic.PhysicalObject",
+            undefined,
+            { usePrimaryConn: true }
+          )
+          .toArray()
+      ).toEqual([[elementCount]]);
+      processSucceeded = true;
+    } finally {
       markExists.mockRestore();
       transformer.dispose();
       targetEditTxn.end(processSucceeded ? "save" : "abandon");

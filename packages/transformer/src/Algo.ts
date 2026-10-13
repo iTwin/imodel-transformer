@@ -61,13 +61,3 @@ function findRangeContaining(pt: number, inRanges: [number, number][]): number {
   }
   return -1;
 }
-
-/**
- * @internal
- */
-export function renderRanges(ranges: [number, number][]): number[] {
-  const result = [];
-  for (const range of ranges)
-    for (let i = range[0]; i <= range[1]; ++i) result.push(i);
-  return result;
-}

@@ -178,6 +178,7 @@ export abstract class IModelExportHandler {
 
   /** If `true` is returned, then the element will be exported.
    * @note This method can optionally be overridden to exclude an individual Element (and its children and ElementAspects) from the export. The base implementation always returns `true`.
+   * @note During [IModelExporter.exportChanges]($transformer), this method is also called once for each unchanged ancestor of a changed element, so that a rejected ancestor excludes its changed descendants.
    */
   public async shouldExportElement(_element: Element): Promise<boolean> {
     return true;
@@ -185,6 +186,7 @@ export abstract class IModelExportHandler {
 
   /** Called when element is skipped instead of exported.
    * @note When an element is skipped, exporter will not export any of its child elements. Because of this, [[onSkipElement]] will not be invoked for any children of a "skipped" element.
+   * @note During [IModelExporter.exportChanges]($transformer), an unchanged ancestor is filtered only when a changed descendant is reached. An element excluded by ID below it may therefore receive [[onSkipElement]] before the ancestor is rejected.
    */
   public async onSkipElement(_elementId: Id64String): Promise<void> {}
 
@@ -337,6 +339,11 @@ export class IModelExporter {
     forest?: Promise<ChangedElementForest | undefined>;
     useForest: boolean;
   };
+  /** Unchanged elements on the current change-processing path. Each is filtered only when a changed descendant is reached. */
+  private readonly _unchangedAncestors: {
+    elementId: Id64String;
+    accepted?: boolean;
+  }[] = [];
   /** Bounds the additional hierarchy retained by the sparse changed-element path. */
   private readonly _changedElementForestElementLimit = 100_000;
 
@@ -926,20 +933,82 @@ export class IModelExporter {
       }
     }
     Logger.logTrace(loggerCategory, `exportModelContents(${modelId})`);
-    let sql: string;
-    if (skipRootSubject) {
-      sql = `SELECT ECInstanceId FROM ${elementClassFullName} WHERE Parent.Id IS NULL AND Model.Id=:modelId AND ECInstanceId!=:rootSubjectId ORDER BY ECInstanceId`;
-    } else {
-      sql = `SELECT ECInstanceId FROM ${elementClassFullName} WHERE Parent.Id IS NULL AND Model.Id=:modelId ORDER BY ECInstanceId`;
-    }
+    const rootFilter = skipRootSubject
+      ? "e.Parent.Id IS NULL AND e.Model.Id=:modelId AND e.ECInstanceId!=:rootSubjectId"
+      : "e.Parent.Id IS NULL AND e.Model.Id=:modelId";
     const params = new QueryBinder().bindId("modelId", modelId);
     if (skipRootSubject) {
       params.bindId("rootSubjectId", IModel.rootSubjectId);
     }
+    if (this.canUseSetBasedTraversal()) {
+      return this.exportElementTreesStreamed(
+        `SELECT e.ECInstanceId, 0 FROM ${elementClassFullName} e WHERE ${rootFilter}`,
+        params
+      );
+    }
+    const sql = `SELECT e.ECInstanceId FROM ${elementClassFullName} e WHERE ${rootFilter} ORDER BY e.ECInstanceId`;
     for await (const row of this.sourceDb.createQueryReader(sql, params, {
       usePrimaryConn: true,
     })) {
       await this.exportElement(row.id);
+      await this._yieldManager.allowYield();
+    }
+  }
+
+  /** Whether the public element traversal methods still have their base implementations. */
+  private hasDefaultElementTraversal(): boolean {
+    // The optimized helpers bypass these public overridable methods. Compare function
+    // identity so subclass, bound, wrapped, or instrumented methods retain legacy dispatch.
+    return (
+      this.exportElement === IModelExporter.prototype.exportElement &&
+      this.exportChildElements === IModelExporter.prototype.exportChildElements
+    );
+  }
+
+  /** Whether hierarchy traversal can use the streamed query.
+   * Changes mode and overrides of the public traversal methods require legacy dispatch.
+   */
+  private canUseSetBasedTraversal(): boolean {
+    return (
+      this._sourceDbChanges === undefined && this.hasDefaultElementTraversal()
+    );
+  }
+
+  /** Stream element trees in the legacy depth-first order with one recursive ECSQL query.
+   * Rejected subtrees are skipped in the exporter without loading their descendants.
+   * @param anchorSelect a SELECT producing `(ECInstanceId, 0)` rows for the tree roots
+   */
+  private async exportElementTreesStreamed(
+    anchorSelect: string,
+    params: QueryBinder
+  ): Promise<void> {
+    // The anchor seeds roots at depth 0; the recursive term follows parent links.
+    // SQLite's documented recursive-CTE queue behavior makes this ORDER BY a
+    // depth-first priority queue, with ascending IDs breaking ties. Supported
+    // iModel databases use SQLite, so the outer SELECT intentionally consumes
+    // the CTE rows in this queue order.
+    const sql = `
+      WITH RECURSIVE ElementTree (ECInstanceId, Depth) AS (
+        ${anchorSelect}
+        UNION ALL
+        SELECT c.ECInstanceId, t.Depth + 1 FROM ${Element.classFullName} c
+          JOIN ElementTree t ON c.Parent.Id = t.ECInstanceId
+        ORDER BY 2 DESC, 1 ASC
+      )
+      SELECT ECInstanceId, Depth FROM ElementTree`;
+    let pruneDepth: number | undefined;
+    for await (const row of this.sourceDb.createQueryReader(sql, params, {
+      usePrimaryConn: true,
+    })) {
+      const elementId: Id64String = row[0];
+      const depth: number = row[1];
+      const isPruned = pruneDepth !== undefined && depth > pruneDepth;
+      if (!isPruned) {
+        pruneDepth = undefined;
+        if ((await this.exportElementShallow(elementId)) === "skip")
+          pruneDepth = depth;
+      }
+      // Keep the streamed loop responsive, including while consuming a rejected subtree.
       await this._yieldManager.allowYield();
     }
   }
@@ -1043,11 +1112,67 @@ export class IModelExporter {
       return;
     }
 
+    const childVisit = await this.exportElementShallow(elementId);
+    if (childVisit === "visit") return this.exportChildElements(elementId);
+    if (childVisit === "passThrough") {
+      // The element's own filter result is decided later, if a changed descendant is reached.
+      this._unchangedAncestors.push({ elementId });
+      try {
+        await this.exportChildElements(elementId);
+      } finally {
+        this._unchangedAncestors.pop();
+      }
+    }
+  }
+
+  /** Returns the filter result for an unchanged ancestor on the current change-processing path, or `undefined` if it has not been filtered.
+   * @internal
+   */
+  public getUnchangedAncestorFilterResult(
+    elementId: Id64String
+  ): boolean | undefined {
+    return this._unchangedAncestors.find(
+      (ancestor) => ancestor.elementId === elementId
+    )?.accepted;
+  }
+
+  /** Filters the unchanged ancestors of a changed element, top-down, once each.
+   * @returns `false` if an ancestor is rejected.
+   */
+  private async acceptUnchangedAncestors(): Promise<boolean> {
+    for (const ancestor of this._unchangedAncestors) {
+      if (ancestor.accepted === undefined) {
+        const element = this.sourceDb.elements.getElement({
+          id: ancestor.elementId,
+          wantGeometry: this.wantGeometry,
+          wantBRepData: this.wantGeometry,
+        });
+        ancestor.accepted = await this.shouldExportElement(element);
+        if (!ancestor.accepted)
+          await this.handler.onSkipElement(ancestor.elementId);
+      }
+      if (!ancestor.accepted) return false;
+    }
+    return true;
+  }
+
+  /** Runs the export callbacks for a single element without visiting its children.
+   * @returns how to continue with the element's children: skip them, visit them, or pass through an unchanged element to reach changed descendants.
+   */
+  private async exportElementShallow(
+    elementId: Id64String
+  ): Promise<"skip" | "visit" | "passThrough"> {
+    // Descendants of a rejected unchanged ancestor are skipped, as in a full export.
+    if (
+      this._unchangedAncestors.some((ancestor) => ancestor.accepted === false)
+    )
+      return "skip";
+
     // Return early if the elementId is already excluded so it does not need to be loaded.
     if (this._excludedElementIds.has(elementId)) {
       Logger.logInfo(loggerCategory, `Excluded element ${elementId} by Id`);
       await this.handler.onSkipElement(elementId);
-      return;
+      return "skip";
     }
 
     const isUpdate = this._sourceDbChanges?.element.insertIds.has(elementId)
@@ -1057,9 +1182,10 @@ export class IModelExporter {
         : undefined;
 
     // An unchanged element may still connect a changed descendant to its model root.
-    if (this._sourceDbChanges !== undefined && isUpdate === undefined) {
-      return this.exportChildElements(elementId);
-    }
+    if (this._sourceDbChanges !== undefined && isUpdate === undefined)
+      return "passThrough";
+
+    if (!(await this.acceptUnchangedAncestors())) return "skip";
 
     const element = this.sourceDb.elements.getElement({
       id: elementId,
@@ -1078,9 +1204,10 @@ export class IModelExporter {
       await this.handler.onExportElement(element, isUpdate);
       await this.trackProgress();
       await this._elementAspectExportCoordinator.addAcceptedOwner(elementId);
-      return this.exportChildElements(elementId);
+      return "visit";
     }
     await this.handler.onSkipElement(element.id);
+    return "skip";
   }
 
   /** Export the child elements of the specified element from the source iModel.
@@ -1099,6 +1226,14 @@ export class IModelExporter {
         `visitElements=false, skipping exportChildElements(${elementId})`
       );
       return;
+    }
+    if (this.canUseSetBasedTraversal()) {
+      Logger.logTrace(loggerCategory, `exportChildElements(${elementId})`);
+      // Seed the stream with direct children; the helper adds their descendants.
+      return this.exportElementTreesStreamed(
+        `SELECT e.ECInstanceId, 0 FROM ${Element.classFullName} e WHERE e.Parent.Id=:parentId`,
+        new QueryBinder().bindId("parentId", elementId)
+      );
     }
 
     let childElementIds: readonly Id64String[] | undefined;
@@ -1129,8 +1264,7 @@ export class IModelExporter {
     return (
       this._sourceDbChanges !== undefined &&
       this._changedElementTraversal?.useForest === true &&
-      this.exportElement === IModelExporter.prototype.exportElement &&
-      this.exportChildElements === IModelExporter.prototype.exportChildElements
+      this.hasDefaultElementTraversal()
     );
   }
 
@@ -2024,6 +2158,13 @@ export class ChangedInstanceIds {
    * @param change Changed EC instance with the ID, operation, and EC class ID of the changed entity.
    */
   public async addChange(change: ChangeInstance): Promise<void> {
+    return this.recordChange(change, undefined);
+  }
+
+  private async recordChange(
+    change: ChangeInstance,
+    unresolvedAspectIds: Set<Id64String> | undefined
+  ): Promise<void> {
     if (!this._ecClassIdsInitialized) await this.setupECClassIds();
     const ecClassId = change.ECClassId;
     if (ecClassId === undefined)
@@ -2050,9 +2191,13 @@ export class ChangedInstanceIds {
     else if (this.isCodeSpec(ecClassId))
       this.handleChange(this.codeSpec, changeType, change.ECInstanceId);
     else if (this.isAspect(ecClassId)) {
-      const ownerElementId =
-        change.Element?.Id ??
-        this.tryGetAspectOwnerElementId(change.ECInstanceId);
+      let ownerElementId = change.Element?.Id;
+      if (ownerElementId === undefined) {
+        if (unresolvedAspectIds !== undefined)
+          unresolvedAspectIds.add(change.ECInstanceId);
+        else
+          ownerElementId = this.tryGetAspectOwnerElementId(change.ECInstanceId);
+      }
       if (ownerElementId !== undefined) {
         this._aspectOwnerElementIds.add(ownerElementId);
       }
@@ -2374,5 +2519,31 @@ export class ChangedInstanceIds {
     const changedInstanceIds = new ChangedInstanceIds(opts.iModel);
     await ChangesetScanner.scan(opts.iModel, csFileProps, changedInstanceIds);
     return changedInstanceIds;
+  }
+
+  /** Record an ordered batch, then resolve missing aspect owners against current source state.
+   * @internal
+   */
+  public async addChanges(changes: Iterable<ChangeInstance>): Promise<void> {
+    const unresolvedAspectIds = new Set<Id64String>();
+    for (const change of changes)
+      await this.recordChange(change, unresolvedAspectIds);
+    // Only resolve missing owners from current source state. Changeset-provided
+    // owners, including historical owners, were retained while recording changes.
+    if (unresolvedAspectIds.size > 0) {
+      this._db.withQueryReader(
+        `WITH AspectIds AS (SELECT id FROM IdSet(:aspectIds))
+         SELECT Element.Id FROM BisCore.ElementMultiAspect
+         WHERE ECInstanceId IN (SELECT id FROM AspectIds)
+         UNION ALL
+         SELECT Element.Id FROM BisCore.ElementUniqueAspect
+         WHERE ECInstanceId IN (SELECT id FROM AspectIds)`,
+        (reader) => {
+          while (reader.step())
+            this._aspectOwnerElementIds.add(reader.current[0]);
+        },
+        new QueryBinder().bindIdSet("aspectIds", unresolvedAspectIds)
+      );
+    }
   }
 }

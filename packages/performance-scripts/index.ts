@@ -4,7 +4,7 @@
  *--------------------------------------------------------------------------------------------*/
 import * as os from "node:os";
 
-const profileTypes = ["linux-perf", "js-cpu", "sqlite"] as const;
+const profileTypes = ["linux-perf", "js-cpu", "pause", "sqlite"] as const;
 const profileType = process.env.PROFILE_TYPE;
 
 const usageText = `\
@@ -72,6 +72,11 @@ switch (profileType) {
     (
       require("./runWithJsCpuProfile") as typeof import("./runWithJsCpuProfile")
     ).default(funcData);
+    break;
+  case "pause":
+    (require("./runWithPause") as typeof import("./runWithPause")).default(
+      funcData
+    );
     break;
   case "sqlite":
     (
