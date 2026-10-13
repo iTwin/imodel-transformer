@@ -2352,8 +2352,9 @@ export class IModelTransformer extends IModelExportHandler {
     this._deletedSourceRelationshipData = new Map();
 
     for (const batch of deletionBatches) {
-      /** a map of element ids to this transformation scope's ESA data for that element, in case the ESA is deleted in the target */
-      const elemIdToScopeEsa = new Map<
+      // Deletion records can only resolve targets within their own batch, so these lookups are rebuilt for each batch.
+      // They cover elements and scope ESAs deleted in the source, which can no longer be read from it.
+      const deletedScopeEsaByElementId = new Map<
         Id64String,
         ExternalSourceAspectDeletionRecord
       >();
@@ -2362,26 +2363,26 @@ export class IModelTransformer extends IModelExportHandler {
           aspect.scopeId === this.targetScopeElementId &&
           aspect.kind === ExternalSourceAspect.Kind.Element
         )
-          elemIdToScopeEsa.set(aspect.elementId, aspect);
+          deletedScopeEsaByElementId.set(aspect.elementId, aspect);
       }
-      const deletedElemIdToFedGuid = new Map<Id64String, string>();
+      const deletedFederationGuidByElementId = new Map<Id64String, string>();
       for (const element of batch.elements)
         if (element.federationGuid)
-          deletedElemIdToFedGuid.set(
+          deletedFederationGuidByElementId.set(
             element.ecInstanceId,
             element.federationGuid
           );
       for (const relationship of batch.relationships)
         await this.processDeletedRelationship(
           relationship,
-          elemIdToScopeEsa,
-          deletedElemIdToFedGuid
+          deletedScopeEsaByElementId,
+          deletedFederationGuidByElementId
         );
       for (const element of batch.elements)
         await this.processDeletedElement(
           element.ecInstanceId,
           element.federationGuid,
-          elemIdToScopeEsa,
+          deletedScopeEsaByElementId,
           alreadyImportedElementInserts,
           alreadyImportedModelInserts
         );
@@ -2389,7 +2390,7 @@ export class IModelTransformer extends IModelExportHandler {
         await this.processDeletedElement(
           model.ecInstanceId,
           undefined,
-          elemIdToScopeEsa,
+          deletedScopeEsaByElementId,
           alreadyImportedElementInserts,
           alreadyImportedModelInserts
         );
@@ -2414,12 +2415,12 @@ export class IModelTransformer extends IModelExportHandler {
    * deleted itself, or be a surviving endpoint of a deleted relationship.
    * @param sourceId the source element ID.
    * @param federationGuid the source element's federation GUID, if known.
-   * @param mapOfDeletedElemIdToScopeEsas this transformation scope's deleted ESAs in the same batch, keyed by the ID of the element that owned each one.
+   * @param deletedScopeEsaByElementId this transformation scope's deleted ESAs in the same batch, keyed by the ID of the element that owned each one.
    */
   private async findTargetElementIdForDeletion(
     sourceId: Id64String,
     federationGuid: string | undefined,
-    mapOfDeletedElemIdToScopeEsas: Map<
+    deletedScopeEsaByElementId: Map<
       Id64String,
       ExternalSourceAspectDeletionRecord
     >
@@ -2443,8 +2444,7 @@ export class IModelTransformer extends IModelExportHandler {
         identifierValue = row.Identifier;
       }
       identifierValue =
-        identifierValue ??
-        mapOfDeletedElemIdToScopeEsas.get(sourceId)?.identifier;
+        identifierValue ?? deletedScopeEsaByElementId.get(sourceId)?.identifier;
       // Check for targetId by an esa first
       if (identifierValue) return identifierValue;
     }
@@ -2458,16 +2458,16 @@ export class IModelTransformer extends IModelExportHandler {
   /**
    * Helper function for [[prepareSourceChanges]]. Records how to find the target relationship of a deleted source relationship.
    * @param deletion the deleted source relationship.
-   * @param mapOfDeletedElemIdToScopeEsas this transformation scope's deleted ESAs in the same batch, keyed by the ID of the element that owned each one.
-   * @param deletedElemIdToFedGuid federation GUIDs of the elements deleted in the same batch, for endpoints that no longer exist in the source.
+   * @param deletedScopeEsaByElementId this transformation scope's deleted ESAs in the same batch, keyed by the ID of the element that owned each one.
+   * @param deletedFederationGuidByElementId federation GUIDs of the elements deleted in the same batch, for endpoints that no longer exist in the source.
    */
   private async processDeletedRelationship(
     deletion: RelationshipDeletionRecord,
-    mapOfDeletedElemIdToScopeEsas: Map<
+    deletedScopeEsaByElementId: Map<
       Id64String,
       ExternalSourceAspectDeletionRecord
     >,
-    deletedElemIdToFedGuid: ReadonlyMap<Id64String, string>
+    deletedFederationGuidByElementId: ReadonlyMap<Id64String, string>
   ): Promise<void> {
     const { ecInstanceId } = deletion;
     const classFullName = this.sourceDb.getClassNameFromId(deletion.ecClassId);
@@ -2475,8 +2475,8 @@ export class IModelTransformer extends IModelExportHandler {
       this.findTargetElementIdForDeletion(
         sourceId,
         this.sourceDb.elements.tryGetElement(sourceId)?.federationGuid ??
-          deletedElemIdToFedGuid.get(sourceId),
-        mapOfDeletedElemIdToScopeEsas
+          deletedFederationGuidByElementId.get(sourceId),
+        deletedScopeEsaByElementId
       );
     const sourceIdInTarget = await getEndpointInTarget(
       deletion.sourceECInstanceId
@@ -2515,14 +2515,14 @@ export class IModelTransformer extends IModelExportHandler {
    * Helper function for [[prepareSourceChanges]]. Remaps a deleted source element or model to its target.
    * @param sourceId the deleted source element or model.
    * @param federationGuid the deleted source element's federation GUID, if it had one. Undefined for models.
-   * @param mapOfDeletedElemIdToScopeEsas this transformation scope's deleted ESAs in the same batch, keyed by the ID of the element that owned each one.
+   * @param deletedScopeEsaByElementId this transformation scope's deleted ESAs in the same batch, keyed by the ID of the element that owned each one.
    * @param alreadyImportedElementInserts used to handle entity recreation and not delete already handled element inserts.
    * @param alreadyImportedModelInserts used to handle entity recreation and not delete already handled model inserts.
    */
   private async processDeletedElement(
     sourceId: Id64String,
     federationGuid: string | undefined,
-    mapOfDeletedElemIdToScopeEsas: Map<
+    deletedScopeEsaByElementId: Map<
       Id64String,
       ExternalSourceAspectDeletionRecord
     >,
@@ -2532,7 +2532,7 @@ export class IModelTransformer extends IModelExportHandler {
     let targetId = await this.findTargetElementIdForDeletion(
       sourceId,
       federationGuid,
-      mapOfDeletedElemIdToScopeEsas
+      deletedScopeEsaByElementId
     );
     if (
       targetId === undefined &&
