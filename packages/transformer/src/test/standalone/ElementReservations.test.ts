@@ -17,6 +17,7 @@ import {
   PhysicalObject,
   SpatialCategory,
   StandaloneDb,
+  SubCategory,
   Subject,
   withEditTxn,
 } from "@itwin/core-backend";
@@ -38,6 +39,7 @@ import {
   IModelExporter,
   IModelExportHandler,
 } from "../../IModelExporter";
+import { planBulkDelete } from "../../ElementBulkDelete";
 import { IModelTransformer } from "../../IModelTransformer";
 import {
   IModelTransformerError,
@@ -179,6 +181,58 @@ describe("automatic bulk reservations", () => {
     expect(batch).toHaveBeenCalledTimes(1);
     expect(finalize).not.toHaveBeenCalled();
     expect(save).not.toHaveBeenCalled();
+  });
+
+  it("plans bulk deletion of kept and geometry-definition elements with reserved IDs", async () => {
+    using s = createScenario("reserved-delete-plan");
+    const ids = withEditTxn(s.source, "source", (txn) => {
+      const category = SpatialCategory.insert(
+        txn,
+        IModel.dictionaryId,
+        "category",
+        new SubCategoryAppearance()
+      );
+      const subCategory = SubCategory.insert(
+        txn,
+        category,
+        "sub",
+        new SubCategoryAppearance()
+      );
+      const model = PhysicalModel.insert(txn, IModel.rootSubjectId, "model");
+      const object = txn.insertElement({
+        classFullName: PhysicalObject.classFullName,
+        model,
+        category,
+        federationGuid: Guid.createValue(),
+        code: Code.createEmpty().toJSON(),
+      } as PhysicalElementProps);
+      return { category, subCategory, object };
+    });
+    const { transformer } = await s.start();
+    await transformer.process();
+    const targetId = (id: string) => {
+      const mapped = transformer.context.findTargetElementId(id);
+      expect(Id64.getBriefcaseId(mapped)).toBe(
+        BriefcaseIdValue.SchemaSyncElementReserved
+      );
+      return mapped;
+    };
+    const targetCategory = targetId(ids.category);
+    const targetSubCategory = targetId(ids.subCategory);
+    const targetObject = targetId(ids.object);
+
+    // The object outside the deleted tree keeps its category in use.
+    const kept = await planBulkDelete(s.target, new Set([targetCategory]));
+    expect(kept.phases).toEqual([]);
+    expect(kept.keptReferences.get(targetCategory)).toBe(targetObject);
+
+    // A non-default SubCategory is a geometry definition, so its tree is checked for geometric elements.
+    const geometry = await planBulkDelete(
+      s.target,
+      new Set([targetSubCategory])
+    );
+    expect(geometry.phases).toEqual([[targetSubCategory]]);
+    expect(geometry.keptReferences.size).toBe(0);
   });
 
   it("rethrows a real conflicting batch once, without writes, finalization, or losing prior reservations", async () => {
