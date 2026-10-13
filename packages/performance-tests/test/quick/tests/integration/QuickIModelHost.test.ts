@@ -4,8 +4,9 @@
  *--------------------------------------------------------------------------------------------*/
 
 import * as fs from "node:fs";
+import * as os from "node:os";
 import * as path from "node:path";
-import { IModelHost } from "@itwin/core-backend";
+import { IModelHost, SnapshotDb } from "@itwin/core-backend";
 import { afterEach, describe, expect, it } from "vitest";
 import {
   quickIModelHostProfileName,
@@ -31,6 +32,24 @@ describe("quick IModelHost lifecycle", () => {
       )
     ).toBe(true);
     expect(fs.existsSync(profileDirectory)).toBe(true);
+
+    // Opening any iModel loads the default GCS workspaces unless they are disabled.
+    const snapshotPath = path.join(
+      os.tmpdir(),
+      `quick-imodelhost-${process.pid}.bim`
+    );
+    try {
+      SnapshotDb.createEmpty(snapshotPath, {
+        rootSubject: { name: "quick IModelHost lifecycle" },
+      }).close();
+    } finally {
+      fs.rmSync(snapshotPath, { force: true });
+    }
+    expect(
+      fs.existsSync(
+        path.join(profileDirectory, "CloudCaches", "Workspace", "gcs")
+      )
+    ).toBe(false);
 
     await shutdownQuickIModelHost();
 

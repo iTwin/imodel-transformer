@@ -178,8 +178,8 @@ pnpm test:quick
 ```
 
 Each quick-harness process uses and cleans up its own `IModelHost` profile and
-disables base GCS workspaces. Concurrent runs under the same OS user do not
-share the default profile or download GCS workspace data.
+disables GCS workspace loading. Concurrent runs under the same OS user do not
+share the default profile or download geographic coordinate data.
 
 ### Profiling a quick scenario
 

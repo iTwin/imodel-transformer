@@ -214,9 +214,10 @@ and cleanup errors when more than one operation fails.
 Every quick-harness process starts `IModelHost` with a profile name derived from
 its process ID. Baseline, candidate, fixture, benchmark, and integration-test
 processes therefore never contend for the default profile. The harness disables
-base GCS workspaces before opening any iModel, then shuts down the host and
-removes the resolved private profile directory. It does not redirect
-OS-specific home-directory environment variables.
+GCS workspace loading before opening any iModel, so a fresh profile never
+downloads geographic coordinate data. On shutdown it removes the private profile
+directory. The shared `IModelHost.cacheDir` is unchanged; only the profile is
+private.
 
 ### Profiling flow
 
