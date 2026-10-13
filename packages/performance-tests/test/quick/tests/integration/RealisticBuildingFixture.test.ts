@@ -23,9 +23,9 @@ import { standaloneFixtureProvider } from "../../src/fixtures/providers/standalo
 import { standaloneDriveRelationshipProcessing } from "../../src/scenarios/standaloneDriveRelationshipProcessing.js";
 import { standaloneFullTransformation } from "../../src/scenarios/standaloneFullTransformation.js";
 import {
-  shutdownIsolatedHost,
-  startIsolatedHost,
-} from "../support/isolatedHost.js";
+  shutdownQuickIModelHost as shutdownIsolatedHost,
+  startQuickIModelHost as startIsolatedHost,
+} from "../../src/framework/QuickIModelHost.js";
 
 const expectedFullTransformSemanticDigest =
   "0014ec00cca96224da1b17eb36789b8a12b68ee614ba6611defd410bde8c4f22";
