@@ -10,6 +10,7 @@ import {
   BriefcaseManager,
   ChangeInstance,
   ChangesetReader,
+  ExternalSourceAspect,
   IModelDb,
   PartialChangeUnifier,
   PropertyFilter,
@@ -62,7 +63,7 @@ export interface RelationshipDeletionRecord extends DeletionRecordBase {
 
 /**
  * A deleted source ExternalSourceAspect, used to find the target of an element deleted in the same batch.
- * Only aspects with a scope, kind, and identifier are recorded.
+ * Only aspects of kind `Element` with a scope and identifier are recorded, because only those identify a target element.
  * @beta
  */
 export interface ExternalSourceAspectDeletionRecord extends DeletionRecordBase {
@@ -78,7 +79,7 @@ export interface ExternalSourceAspectDeletionRecord extends DeletionRecordBase {
 
 /**
  * Deleted source instances from one batch of changes.
- * @note Batches are processed in order. An ExternalSourceAspect deletion is used to identify element deletions in the same batch. An empty array means nothing of that kind was deleted.
+ * @note Batches are processed in order. An `Element`-kind ExternalSourceAspect deletion is used to identify element deletions in the same batch. An empty array means nothing of that kind was deleted.
  * @beta
  */
 export interface DeletionBatch {
@@ -88,7 +89,7 @@ export interface DeletionBatch {
   models: ModelDeletionRecord[];
   /** Deleted relationships derived from `BisCore:ElementRefersToElements`, excluding `BisCore:ElementDrivesElement`. */
   relationships: RelationshipDeletionRecord[];
-  /** Deleted ExternalSourceAspects with a scope, kind, and identifier. */
+  /** Deleted `Element`-kind ExternalSourceAspects with a scope and identifier. Aspects of other kinds can be omitted. */
   externalSourceAspects: ExternalSourceAspectDeletionRecord[];
 }
 
@@ -176,11 +177,11 @@ export function addDeletionRecord(
     }
     case "externalSourceAspect": {
       const { elementId, scopeId, kind, identifier } = deleted;
-      // An aspect without these can't identify a target element.
+      // Only an Element-kind aspect with these set can identify a target element.
       if (
         elementId !== undefined &&
         scopeId !== undefined &&
-        kind !== undefined &&
+        kind === ExternalSourceAspect.Kind.Element &&
         identifier !== undefined
       )
         batch.externalSourceAspects.push({

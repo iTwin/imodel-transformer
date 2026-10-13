@@ -383,6 +383,19 @@ describe("ChangesetScanner owner resolution", () => {
       }
     );
 
+    it("omits an ExternalSourceAspect deletion of a kind other than Element", async () => {
+      expect(
+        await classify({
+          ecInstanceId: "0x123",
+          ecClassId: classIdOf("BisCore.ExternalSourceAspect"),
+          elementId: "0x1",
+          scopeId: IModel.rootSubjectId,
+          kind: "Relationship",
+          identifier: "aspect",
+        })
+      ).toEqual(noDeletions);
+    });
+
     it("skips ElementDrivesElement deletions without reading their endpoints", async () => {
       expect(
         await classify({

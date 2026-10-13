@@ -635,8 +635,9 @@ describe("IModelTransformerHub change scanning", () => {
           const insertedAspectId = txn.insertAspect({
             classFullName: ExternalSourceAspect.classFullName,
             element: new ElementOwnsExternalSourceAspects(insertedSubjectId),
-            scope: { id: IModel.rootSubjectId },
-            kind: "Document",
+            // Not the transformation's scope, so the transformer doesn't treat it as provenance.
+            scope: { id: insertedSubjectId },
+            kind: ExternalSourceAspect.Kind.Element,
             identifier: "classified-aspect",
           } as ExternalSourceAspectProps);
           return { subjectId: insertedSubjectId, aspectId: insertedAspectId };
