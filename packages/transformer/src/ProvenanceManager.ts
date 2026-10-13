@@ -275,9 +275,11 @@ export class ProvenanceManager {
     let hasTargetRow = await targetReader.step();
     while (hasSourceRow && hasTargetRow) {
       const sourceFedGuid = sourceReader.current.federationGuid as
-        GuidString | undefined;
+        | GuidString
+        | undefined;
       const targetFedGuid = targetReader.current.federationGuid as
-        GuidString | undefined;
+        | GuidString
+        | undefined;
       if (
         sourceFedGuid !== undefined &&
         targetFedGuid !== undefined &&
@@ -717,7 +719,10 @@ export class ProvenanceManager {
   }: {
     initializeReverseSyncVersion?: boolean;
     sourceChangeDataState:
-      "uninited" | "has-changes" | "no-changes" | "unconnected";
+      | "uninited"
+      | "has-changes"
+      | "no-changes"
+      | "unconnected";
   }) {
     const shouldSkipSyncVersionUpdate =
       !initializeReverseSyncVersion && sourceChangeDataState !== "has-changes";

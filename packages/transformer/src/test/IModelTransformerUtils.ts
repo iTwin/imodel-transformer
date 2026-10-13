@@ -728,7 +728,8 @@ export async function assertIdentityTransformation(
       }
       if (sourceElem instanceof DisplayStyle3d) {
         const styles = expectedSourceElemJsonProps.styles as
-          DisplayStyle3dSettingsProps | undefined;
+          | DisplayStyle3dSettingsProps
+          | undefined;
         if (styles?.environment?.sky) {
           const sky = styles.environment.sky;
           if (!sky.image) sky.image = { type: SkyBoxImageType.None };
@@ -762,7 +763,8 @@ export async function assertIdentityTransformation(
 
       if (sourceElem instanceof SpatialViewDefinition) {
         const viewProps = expectedSourceElemJsonProps.viewDetails as
-          ViewDetails3dProps | undefined;
+          | ViewDetails3dProps
+          | undefined;
         if (viewProps && viewProps.acs)
           viewProps.acs = remapElem(viewProps.acs);
       }
@@ -997,9 +999,7 @@ export async function assertIdentityTransformation(
   expect(targetRelationshipsToFind.size).to.equal(0);
 }
 
-export class TransformerExtensiveTestScenario
-  extends TestUtils.ExtensiveTestScenario
-{
+export class TransformerExtensiveTestScenario extends TestUtils.ExtensiveTestScenario {
   public static async prepareTargetDb(targetDb: IModelDb): Promise<void> {
     // Import desired target schemas
     const targetSchemaFileName: string = path.join(
