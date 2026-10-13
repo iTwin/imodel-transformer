@@ -15,6 +15,7 @@ import {
   withEditTxn,
 } from "@itwin/core-backend";
 import { Id64String, Logger } from "@itwin/core-bentley";
+import { Point3d, YawPitchRollAngles } from "@itwin/core-geometry";
 import { Code, IModel, PhysicalElementProps } from "@itwin/core-common";
 import { expect, vi } from "vitest";
 import {
@@ -94,6 +95,16 @@ describe("IModelExporter changed-element traversal", () => {
     { name: "B", children: [{ name: "B1" }] },
   ];
 
+  /** Forces the legacy per-element `queryChildren` traversal by overriding
+   * `exportElement` with a trivial pass-through, which disables the direct
+   * changed-element fast path.
+   */
+  class LegacyTraversalExporter extends IModelExporter {
+    public override async exportElement(elementId: Id64String) {
+      return super.exportElement(elementId);
+    }
+  }
+
   interface ChangesModeSetup {
     sourceDb: SnapshotDb;
     ids: Map<string, Id64String>;
@@ -106,11 +117,14 @@ describe("IModelExporter changed-element traversal", () => {
    * (the RepositoryModel is pre-marked as updated, matching the LastMod behavior of
    * real changesets whenever a contained element changes).
    */
-  function setupChangesMode(testName: string): ChangesModeSetup {
+  function setupChangesMode(
+    testName: string,
+    exporterClass: typeof IModelExporter = IModelExporter
+  ): ChangesModeSetup {
     const sourceDb = createSourceDb(testName);
     const ids = insertSubjectTree(sourceDb, mixedSpec);
     const handler = new RecordingHandler();
-    const exporter = new IModelExporter(sourceDb);
+    const exporter = new exporterClass(sourceDb);
     exporter.registerHandler(handler);
     const changes = new ChangedInstanceIds(sourceDb);
     changes.model.updateIds.add(IModel.repositoryModelId);
@@ -118,7 +132,7 @@ describe("IModelExporter changed-element traversal", () => {
     return { sourceDb, ids, handler, exporter, changes };
   }
 
-  it("exports only changed elements with no callbacks for unchanged ancestors", async () => {
+  it("exports only changed elements and filters each unchanged ancestor once", async () => {
     const { sourceDb, ids, handler, exporter, changes } = setupChangesMode(
       "OnlyChangedExported"
     );
@@ -129,7 +143,11 @@ describe("IModelExporter changed-element traversal", () => {
 
       await exporter.exportModelContents(IModel.repositoryModelId);
 
+      // unchanged ancestors are filtered top-down when A1a is reached, but not exported
       expect(handler.events).to.deep.equal([
+        ["should", IModel.rootSubjectId],
+        ["should", ids.get("A")!],
+        ["should", ids.get("A1")!],
         ["should", ids.get("A1a")!],
         ["pre", ids.get("A1a")!],
         ["export", ids.get("A1a")!, false],
@@ -167,25 +185,61 @@ describe("IModelExporter changed-element traversal", () => {
     }
   });
 
-  it("suppresses changed descendants of a rejected changed ancestor", async () => {
-    const { sourceDb, ids, handler, exporter, changes } =
-      setupChangesMode("RejectedAncestor");
+  it.each([
+    ["changed", "legacy", LegacyTraversalExporter],
+    ["changed", "direct", IModelExporter],
+    ["unchanged", "legacy", LegacyTraversalExporter],
+    ["unchanged", "direct", IModelExporter],
+  ] as const)(
+    "suppresses changed descendants of a rejected %s ancestor on the %s path",
+    async (ancestorState, path, exporterClass) => {
+      const { sourceDb, ids, handler, exporter, changes } = setupChangesMode(
+        `RejectedAncestor-${ancestorState}-${path}`,
+        exporterClass
+      );
+      try {
+        if (ancestorState === "changed")
+          changes.element.updateIds.add(ids.get("A")!);
+        changes.element.insertIds.add(ids.get("A1a")!);
+        changes.element.insertIds.add(ids.get("A2")!);
+        changes.element.updateIds.add(ids.get("B")!);
+        handler.rejectedIds.add(ids.get("A")!);
+
+        await exporter.exportModelContents(IModel.repositoryModelId);
+
+        // A is rejected via shouldExportElement: onSkipElement fires and the whole
+        // subtree is pruned, dropping the changed descendants A1a and A2 silently
+        expect(handler.events).to.deep.equal([
+          ["should", IModel.rootSubjectId],
+          ["should", ids.get("A")!],
+          ["skip", ids.get("A")!],
+          ["should", ids.get("B")!],
+          ["pre", ids.get("B")!],
+          ["export", ids.get("B")!, true],
+        ]);
+      } finally {
+        sourceDb.close();
+      }
+    }
+  );
+
+  it("skips an excluded element before filtering its rejected unchanged ancestor", async () => {
+    const { sourceDb, ids, handler, exporter, changes } = setupChangesMode(
+      "ExcludedUnderRejectedAncestor"
+    );
     try {
-      changes.element.updateIds.add(ids.get("A")!);
-      changes.element.insertIds.add(ids.get("A1a")!);
-      changes.element.updateIds.add(ids.get("B")!);
+      exporter.excludeElement(ids.get("A1")!);
+      changes.element.insertIds.add(ids.get("A2")!);
       handler.rejectedIds.add(ids.get("A")!);
 
       await exporter.exportModelContents(IModel.repositoryModelId);
 
-      // A is rejected via shouldExportElement: onSkipElement fires and the whole
-      // subtree is pruned, dropping the changed descendant A1a silently
+      // A is filtered only when A2 is reached, after A1 was skipped; a full export would skip only A.
       expect(handler.events).to.deep.equal([
+        ["skip", ids.get("A1")!],
+        ["should", IModel.rootSubjectId],
         ["should", ids.get("A")!],
         ["skip", ids.get("A")!],
-        ["should", ids.get("B")!],
-        ["pre", ids.get("B")!],
-        ["export", ids.get("B")!, true],
       ]);
     } finally {
       sourceDb.close();
@@ -207,6 +261,7 @@ describe("IModelExporter changed-element traversal", () => {
 
       expect(handler.events).to.deep.equal([
         ["skip", ids.get("A1")!],
+        ["should", IModel.rootSubjectId],
         ["should", ids.get("B")!],
         ["pre", ids.get("B")!],
         ["export", ids.get("B")!, true],
@@ -299,6 +354,11 @@ describe("IModelExporter changed-element traversal", () => {
             classFullName: PhysicalObject.classFullName,
             code: Code.createEmpty(),
             model: physModelId,
+            geom: IModelTransformerTestUtils.createBox(Point3d.create(1, 1, 1)),
+            placement: {
+              origin: Point3d.createZero(),
+              angles: YawPitchRollAngles.createDegrees(0, 0, 0),
+            },
             parent: parentId
               ? new ElementOwnsChildElements(parentId)
               : undefined,
@@ -317,14 +377,21 @@ describe("IModelExporter changed-element traversal", () => {
       changes.element.insertIds.add(inserted.leafId);
       changes.element.updateIds.add(inserted.topId);
       exporter["_sourceDbChanges"] = changes;
+      const shouldExport = vi.spyOn(handler, "shouldExportElement");
 
       await exporter.exportModelContents(inserted.physModelId);
 
-      // top (changed) exported before leaf (changed); mid (unchanged) is silent
+      // the unchanged ancestor is loaded with geometry, as in a full export
+      const [mid] = shouldExport.mock.calls.find(
+        ([element]) => element.id === inserted.midId
+      )!;
+      expect((mid as PhysicalObject).geom).to.not.equal(undefined);
+      // top (changed) exported before leaf (changed); mid (unchanged) is only filtered
       expect(handler.events).to.deep.equal([
         ["should", inserted.topId],
         ["pre", inserted.topId],
         ["export", inserted.topId, true],
+        ["should", inserted.midId],
         ["should", inserted.leafId],
         ["pre", inserted.leafId],
         ["export", inserted.leafId, false],
@@ -345,6 +412,7 @@ describe("IModelExporter changed-element traversal", () => {
 
       // B1 is outside A's subtree and must not be exported by this call
       expect(handler.events).to.deep.equal([
+        ["should", ids.get("A1")!],
         ["should", ids.get("A1a")!],
         ["pre", ids.get("A1a")!],
         ["export", ids.get("A1a")!, false],
@@ -408,16 +476,6 @@ describe("IModelExporter changed-element traversal", () => {
     }
   });
 
-  /** Forces the legacy per-element `queryChildren` traversal by overriding
-   * `exportElement` with a trivial pass-through, which disables the direct
-   * changed-element fast path.
-   */
-  class LegacyTraversalExporter extends IModelExporter {
-    public override async exportElement(elementId: Id64String) {
-      return super.exportElement(elementId);
-    }
-  }
-
   it("matches an explicit callback oracle on the legacy and direct paths", async () => {
     const runPath = async (useLegacy: boolean) => {
       const sourceDb = createSourceDb(
@@ -457,9 +515,11 @@ describe("IModelExporter changed-element traversal", () => {
     };
 
     const expectedEvents = [
+      ["should", IModel.rootSubjectId],
       ["should", "A"],
       ["pre", "A"],
       ["export", "A", true],
+      ["should", "A1"],
       ["should", "A1a"],
       ["pre", "A1a"],
       ["export", "A1a", false],

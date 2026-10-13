@@ -20,7 +20,6 @@ import {
   ITwinError,
   Logger,
   MarkRequired,
-  YieldManager,
 } from "@itwin/core-bentley";
 import * as ECSchemaMetaData from "@itwin/ecschema-metadata";
 import {
@@ -34,7 +33,6 @@ import {
 import {
   BriefcaseManager,
   Category,
-  // eslint-disable-next-line @typescript-eslint/no-deprecated
   ChangeSummaryManager,
   ChannelRootAspect,
   ConcreteEntity,
@@ -821,10 +819,12 @@ export class IModelTransformer extends IModelExportHandler {
     } else if (!this.context.isBetweenIModels) {
       // Existing in-place matches need no shared allocation or identity-only clone.
       const targetProps = await this.onTransformElement(sourceElement);
-      targetElementId = await this.findTargetElementMatch(
-        sourceElement,
-        targetProps
-      );
+      targetElementId = this.context.findTargetElementId(sourceElement.id);
+      if (!Id64.isValid(targetElementId))
+        targetElementId = await this.findExistingTargetElement(
+          sourceElement,
+          targetProps
+        );
       identity = {
         classFullName: targetProps.classFullName,
         federationGuid: targetProps.federationGuid,
@@ -859,11 +859,9 @@ export class IModelTransformer extends IModelExportHandler {
       targetElementId =
         autoInsertedForCategory !== undefined
           ? Id64.invalid
-          : await this.findTargetElementMatch(
-              sourceElement,
-              targetProps,
-              oldTargetId
-            );
+          : Id64.isValid(oldTargetId)
+            ? oldTargetId
+            : await this.findExistingTargetElement(sourceElement, targetProps);
       if (
         targetProps.code.spec !== preparedIdentity.identity.code.spec ||
         targetProps.code.scope !== preparedIdentity.identity.code.scope ||
@@ -1406,6 +1404,17 @@ export class IModelTransformer extends IModelExportHandler {
     }
   }
 
+  /** An exported source element or model exists, so later references to it need no source query.
+   * Aspects are not recorded: they are rarely referenced, and they are usually the largest group.
+   */
+  private markSourceEntityExists(entity: Element | Model): void {
+    if (this._options.danglingReferencesBehavior !== "reject") return;
+    this._cloneContext.existenceCache.markExists(
+      this.sourceDb,
+      EntityReferences.from(entity)
+    );
+  }
+
   private async doAllReferencesExistInTarget(entity: ConcreteEntity) {
     let allReferencesExist = true;
     const checkedReferences: EntityReference[] = [];
@@ -1605,12 +1614,11 @@ export class IModelTransformer extends IModelExportHandler {
     if (unresolvedReferences.length > 0) {
       for (const reference of unresolvedReferences) {
         const processState = await this.getElemTransformState(reference);
-        // must export element first
         if (
           processState.needsElemImport &&
           !this._elementReservationOperation?.isVisiting(reference)
         )
-          await this.exporter.exportElement(reference);
+          await this.resolveRequiredElement(sourceElement.id, reference);
         if (
           processState.needsModelImport &&
           (this._elementReservationOperation?.markModelScheduled(reference) ??
@@ -1619,6 +1627,106 @@ export class IModelTransformer extends IModelExportHandler {
           await this.exporter.exportModel(reference);
       }
     }
+  }
+
+  /** Makes sure an element that a changed element requires is mapped in the target before the changed element is imported.
+   * A changed required element is exported. An unchanged one is only looked up in the target: change processing does not insert it, and exporting it would visit its children, which can include the element that requires it.
+   * @throws [[IModelTransformerError.DependencyMappingMissing]] if the required element is still not mapped.
+   */
+  private async resolveRequiredElement(
+    elementId: Id64String,
+    referenceId: Id64String
+  ): Promise<void> {
+    const changes = this.exporter.sourceDbChanges;
+    const referenceChanged =
+      changes === undefined ||
+      changes.element.insertIds.has(referenceId) ||
+      changes.element.updateIds.has(referenceId);
+    let accepted = true;
+    if (referenceChanged) {
+      await this.exporter.exportElement(referenceId);
+    } else {
+      const reference = this.sourceDb.elements.getElement({
+        id: referenceId,
+        wantGeometry: this.exporter.wantGeometry,
+        wantBRepData: this.exporter.wantGeometry,
+      });
+      // A required parent reached by the traversal has already been filtered.
+      accepted =
+        this.exporter.getUnchangedAncestorFilterResult(referenceId) ??
+        (await this.exporter.shouldExportElement(reference));
+      if (accepted)
+        await this.findExistingTargetElement(
+          reference,
+          await this.onTransformElement(reference)
+        );
+    }
+    // During reservation preparation, an exported reference is a pending insert rather than a target mapping.
+    if (
+      this._elementReservationOperation?.hasElementIdentity(referenceId) ??
+      Id64.isValid(this.context.findTargetElementId(referenceId))
+    )
+      return;
+
+    let message: string;
+    if (referenceChanged)
+      message = `Element ${elementId} requires element ${referenceId}, which was not exported because the export filter rejects it or one of its ancestors. Accept element ${referenceId} and its ancestors, or reject element ${elementId}.`;
+    else if (accepted)
+      message = `Element ${elementId} requires unchanged element ${referenceId}, which is not in the target iModel. Change processing does not insert unchanged elements; to insert element ${referenceId}, add it in addCustomChanges.`;
+    else
+      message = `Element ${elementId} requires element ${referenceId}, which the export filter rejects. Accept element ${referenceId}, or reject element ${elementId} and every element that requires it.`;
+    ITwinError.throwError({
+      iTwinErrorId: {
+        scope: IModelTransformerErrorScope,
+        key: IModelTransformerError.DependencyMappingMissing,
+      },
+      message,
+    });
+  }
+
+  /** Finds the existing target element for a source element by FederationGuid, then by Code, and records the mapping.
+   * @note Updates `targetElementProps.code` as the Code lookup requires.
+   * @returns the target element's id, or `Id64.invalid` if none is found.
+   */
+  private async findExistingTargetElement(
+    sourceElement: Element,
+    targetElementProps: Pick<ElementProps, "classFullName" | "code">
+  ): Promise<Id64String> {
+    if (
+      this.context.isBetweenIModels &&
+      sourceElement.federationGuid !== undefined
+    ) {
+      const targetElementId = this.targetDb.elements.getIdFromFederationGuid(
+        sourceElement.federationGuid
+      );
+      if (targetElementId !== undefined && Id64.isValid(targetElementId)) {
+        this.context.remapElement(sourceElement.id, targetElementId); // record that the targetElement was found
+        return targetElementId;
+      }
+    }
+
+    // check by Code as long as the CodeScope is valid (invalid means a missing reference so not worth checking)
+    if (!Id64.isValidId64(targetElementProps.code.scope)) return Id64.invalid;
+    // respond the same way to undefined code value as the @see Code class, but don't use that class because it trims
+    // whitespace from the value, and there are iModels out there with untrimmed whitespace that we ought not to trim
+    targetElementProps.code.value = targetElementProps.code.value ?? "";
+    // empty code values are stored as NULL and are never unique, so they cannot identify an existing target element
+    if (Code.isEmpty(targetElementProps.code)) return Id64.invalid;
+    const maybeTargetElementId = this.queryElementIdByCode(
+      this.targetDb,
+      targetElementProps.code as Required<CodeProps>
+    );
+    if (maybeTargetElementId === undefined) return Id64.invalid;
+    const maybeTargetElem =
+      this.targetDb.elements.getElement(maybeTargetElementId);
+    if (maybeTargetElem.classFullName !== targetElementProps.classFullName) {
+      targetElementProps.code = Code.createEmpty(); // clear out invalid code
+      return Id64.invalid;
+    }
+    // ensure code remapping doesn't change the target class
+    this.context.remapElement(sourceElement.id, maybeTargetElementId); // record that the targetElement was found by Code
+    this._targetElementIdsRemappedByCode.add(maybeTargetElementId);
+    return maybeTargetElementId;
   }
 
   private async getElemTransformState(elementId: Id64String) {
@@ -1649,11 +1757,13 @@ export class IModelTransformer extends IModelExportHandler {
   // https://github.com/iTwin/itwinjs-core/blob/master/core/backend/src/IModelDb.ts#L2779
   // Code class constructor trims white spaces from code value.
   // Custom implementation of queryElementIdByCode() was added to support querying elements with code values that have trailing whitespaces.
-  // It mimicks 4.x implementation: https://github.com/iTwin/itwinjs-core/blob/9c8b394ec3878a39764be81f928fd8b0b9115d31/core/backend/src/IModelDb.ts#L1882
-  private async queryElementIdByCode(
+  // It queries bis_Element through a cached SQLite statement, because creating an ECSQL reader per element is slow
+  // and the cached ECSQL API (withPreparedStatement) is deprecated. Results match the ECSQL query because CodeValue
+  // is COLLATE NOCASE, ix_bis_Element_Code is unique, and the primary connection sees uncommitted target inserts.
+  private queryElementIdByCode(
     iModel: IModelDb,
     code: Required<CodeProps>
-  ): Promise<Id64String | undefined> {
+  ): Id64String | undefined {
     if (Id64.isInvalid(code.spec))
       ITwinError.throwError({
         iTwinErrorId: {
@@ -1672,72 +1782,22 @@ export class IModelTransformer extends IModelExportHandler {
         message: "Invalid Code",
       });
 
-    const query =
-      "SELECT ECInstanceId FROM BisCore:Element WHERE CodeSpec.Id=? AND CodeScope.Id=? AND CodeValue=?";
-    const queryBinder = new QueryBinder()
-      .bindId(1, code.spec)
-      .bindId(2, Id64.fromString(code.scope))
-      .bindString(3, code.value);
-    const queryReader = iModel.createQueryReader(query, queryBinder, {
-      usePrimaryConn: true,
-    });
-    return (await queryReader.step()) ? queryReader.current[0] : undefined;
-  }
-
-  /** Shared matching for ordinary execution and reservation preparation. No target data writes. */
-  private async findTargetElementMatch(
-    sourceElement: Element,
-    targetElementProps: Pick<ElementProps, "classFullName" | "code">,
-    targetElementId = this.context.findTargetElementId(sourceElement.id)
-  ): Promise<Id64String> {
-    // if an existing remapping was not yet found, check by FederationGuid
-    if (
-      this.context.isBetweenIModels &&
-      !Id64.isValid(targetElementId) &&
-      sourceElement.federationGuid !== undefined
-    ) {
-      targetElementId =
-        this.targetDb.elements.getIdFromFederationGuid(
-          sourceElement.federationGuid
-        ) ?? Id64.invalid;
-      if (Id64.isValid(targetElementId))
-        this.context.remapElement(sourceElement.id, targetElementId); // record that the targetElement was found
-    }
-
-    // if an existing remapping was not yet found, check by Code as long as the CodeScope is valid (invalid means a missing reference so not worth checking)
-    if (
-      !Id64.isValidId64(targetElementId) &&
-      Id64.isValidId64(targetElementProps.code.scope)
-    ) {
-      // respond the same way to undefined code value as the @see Code class, but don't use that class because it trims
-      // whitespace from the value, and there are iModels out there with untrimmed whitespace that we ought not to trim
-      targetElementProps.code.value = targetElementProps.code.value ?? "";
-      const maybeTargetElementId = await this.queryElementIdByCode(
-        this.targetDb,
-        targetElementProps.code as Required<CodeProps>
-      );
-      if (undefined !== maybeTargetElementId) {
-        const maybeTargetElem =
-          this.targetDb.elements.getElement(maybeTargetElementId);
-        if (
-          maybeTargetElem.classFullName === targetElementProps.classFullName
-        ) {
-          // ensure code remapping doesn't change the target class
-          targetElementId = maybeTargetElementId;
-          this.context.remapElement(sourceElement.id, targetElementId); // record that the targetElement was found by Code
-          this._targetElementIdsRemappedByCode.add(targetElementId);
-        } else {
-          targetElementProps.code = Code.createEmpty(); // clear out invalid code
-        }
+    return iModel.withPreparedSqliteStatement(
+      "SELECT Id FROM bis_Element WHERE CodeSpecId=? AND CodeScopeId=? AND CodeValue=?",
+      (stmt) => {
+        stmt.bindId(1, code.spec);
+        stmt.bindId(2, Id64.fromString(code.scope));
+        stmt.bindString(3, code.value);
+        return stmt.nextRow() ? stmt.getValueId(0) : undefined;
       }
-    }
-    return targetElementId;
+    );
   }
 
   /** Override of [IModelExportHandler.onExportElement]($transformer) that imports an element into the target iModel when it is exported from the source iModel.
    * This override calls [[onTransformElement]] and then [IModelImporter.importElement]($transformer) to update the target iModel.
    */
   public override async onExportElement(sourceElement: Element): Promise<void> {
+    this.markSourceEntityExists(sourceElement);
     let targetElementId: Id64String = Id64.invalid;
     let targetElementProps: ElementProps;
     const operation = this._elementReservationOperation;
@@ -1776,11 +1836,12 @@ export class IModelTransformer extends IModelExportHandler {
     } else {
       targetElementId = this.context.findTargetElementId(sourceElement.id);
       targetElementProps = await this.onTransformElement(sourceElement);
-      targetElementId = await this.findTargetElementMatch(
-        sourceElement,
-        targetElementProps,
-        targetElementId
-      );
+      // if an existing remapping was not yet found, check by FederationGuid and then by Code
+      if (!Id64.isValid(targetElementId))
+        targetElementId = await this.findExistingTargetElement(
+          sourceElement,
+          targetElementProps
+        );
     }
 
     if (!this.hasElementChanged(sourceElement)) {
@@ -1938,6 +1999,7 @@ export class IModelTransformer extends IModelExportHandler {
    * This override calls [[onTransformModel]] and then [IModelImporter.importModel]($transformer) to update the target iModel.
    */
   public override async onExportModel(sourceModel: Model): Promise<void> {
+    this.markSourceEntityExists(sourceModel);
     if (
       this._options.skipPropagateChangesToRootElements &&
       IModel.repositoryModelId === sourceModel.id
@@ -2300,8 +2362,6 @@ export class IModelTransformer extends IModelExportHandler {
     }
   }
 
-  private _yieldManager = new YieldManager();
-
   /** Transform the specified sourceRelationship into RelationshipProps for the target iModel.
    * @param sourceRelationship The Relationship from the source iModel to be transformed.
    * @returns RelationshipProps for the target iModel.
@@ -2418,7 +2478,6 @@ export class IModelTransformer extends IModelExportHandler {
         this._partiallyCommittedAspectIds.add(a.id);
       }
     }
-    // const targetAspectsToImport = targetAspectPropsArray.filter((targetAspect, i) => hasEntityChanged(sourceAspects[i], targetAspect));
     const targetIds = await this.importer.importElementMultiAspects(
       await Promise.all(targetAspectPropsArray),
       (a) => {
@@ -2677,6 +2736,14 @@ export class IModelTransformer extends IModelExportHandler {
     )) {
       relationshipECClassIds.add(row.ECInstanceId);
     }
+    const elementAspectECClassIds = new Set<string>();
+    for await (const row of this.sourceDb.createQueryReader(
+      "SELECT ECInstanceId FROM ECDbMeta.ECClassDef where ECInstanceId IS (BisCore.ElementAspect)",
+      undefined,
+      { usePrimaryConn: true }
+    )) {
+      elementAspectECClassIds.add(row.ECInstanceId);
+    }
 
     // For later use when processing deletes.
     const alreadyImportedElementInserts = new Set<Id64String>();
@@ -2701,6 +2768,8 @@ export class IModelTransformer extends IModelExportHandler {
     );
 
     this._deletedSourceRelationshipData = new Map();
+    const isElementAspectDeletion = (change: ChangesetDeletionRecord) =>
+      elementAspectECClassIds.has(change.ecClassId);
 
     for (const changes of deletionRecordsByChangeset) {
       /** a map of element ids to this transformation scope's ESA data for that element, in case the ESA is deleted in the target */
@@ -2719,6 +2788,7 @@ export class IModelTransformer extends IModelExportHandler {
       // Loop to process deletes.
       for (const change of changes) {
         if (relationshipECClassIdsToSkip.has(change.ecClassId)) continue;
+        if (isElementAspectDeletion(change)) continue;
         await this.processDeletedOp(
           change,
           elemIdToScopeEsa,
@@ -2874,10 +2944,9 @@ export class IModelTransformer extends IModelExportHandler {
         this.sourceDb ===
           (await this._provenanceManager.getProvenanceSourceDb())
       ) {
-        targetId =
-          await this._provenanceManager.queryProvenanceForElement(
-            changedInstanceId
-          );
+        const contextTargetId =
+          this.context.findTargetElementId(changedInstanceId);
+        if (Id64.isValidId64(contextTargetId)) targetId = contextTargetId;
       }
       // since we are processing one changeset at a time, we can see local source deletes
       // of entities that were never synced and can be safely ignored
@@ -2886,7 +2955,7 @@ export class IModelTransformer extends IModelExportHandler {
 
       if (targetId === undefined) {
         throw new Error(
-          "targetId should be acquired from source id or element provenance"
+          "targetId should be acquired from source id or transformation context"
         );
       }
 

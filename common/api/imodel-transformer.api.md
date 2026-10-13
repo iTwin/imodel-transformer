@@ -50,6 +50,8 @@ import { Transform } from '@itwin/core-geometry';
 export class ChangedInstanceIds {
     constructor(db: IModelDb);
     addChange(change: ChangeInstance): Promise<void>;
+    // @internal
+    addChanges(changes: Iterable<ChangeInstance>): Promise<void>;
     // @beta
     addCustomAspectChange(changeType: SqliteChangeOp, ids: Id64Arg, elementIds?: Id64Arg): void;
     // @beta
@@ -178,6 +180,8 @@ export class IModelExporter {
     exportRelationships(baseRelClassFullName: string): Promise<void>;
     exportSchemas(): Promise<void>;
     exportSubModels(parentModelId: Id64String): Promise<void>;
+    // @internal
+    getUnchangedAncestorFilterResult(elementId: Id64String): boolean | undefined;
     protected get handler(): IModelExportHandler;
     initialize(options: ExporterInitOptions): Promise<void>;
     progressInterval: number;

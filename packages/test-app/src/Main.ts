@@ -8,7 +8,6 @@ import * as fs from "node:fs";
 import { loadEnvFile } from "node:process";
 import Yargs from "yargs";
 import { assert, Guid, Logger, LogLevel } from "@itwin/core-bentley";
-import { ProjectsAccessClient } from "@itwin/projects-client";
 import {
   BriefcaseDb,
   IModelDb,
@@ -27,9 +26,11 @@ import { TransformerLoggerCategory } from "@itwin/imodel-transformer";
 import { NamedVersion } from "@itwin/imodels-client-management";
 import { ElementUtils } from "./ElementUtils";
 import { IModelHubUtils, IModelTransformerTestAppHost } from "./IModelHubUtils";
-// eslint-disable-next-line @typescript-eslint/no-redeclare
-import { loggerCategory, Transformer, TransformerOptions } from "./Transformer";
-import "source-map-support/register";
+import {
+  loggerCategory,
+  Transformer as TestAppTransformer,
+  TransformerOptions,
+} from "./Transformer";
 
 const acquireAccessToken = async () =>
   IModelTransformerTestAppHost.acquireAccessToken();
@@ -253,20 +254,11 @@ void (async () => {
       );
     }
 
-    let iTwinAccessClient: ProjectsAccessClient | undefined;
     const processChanges =
       args.sourceStartChangesetIndex || args.sourceStartChangesetId;
 
-    if (args.sourceITwinId || args.targetITwinId) {
-      iTwinAccessClient = new ProjectsAccessClient();
-    }
-
     if (args.sourceITwinId) {
       // source is from iModelHub
-      assert(
-        undefined !== iTwinAccessClient,
-        "iTwinAccessClient must have been defined if sourceITwinId is allowed, if you are seeing this, it is a bug"
-      );
       assert(
         undefined !== args.sourceIModelId,
         "if you provide a sourceITwinId, you must provide a sourceIModelId"
@@ -566,10 +558,9 @@ void (async () => {
       excludeSubCategories: args.excludeSubCategories?.split(","),
       excludeCategories: args.excludeCategories?.split(","),
     };
-
     if (processChanges) {
       assert(undefined !== args.sourceStartChangesetId);
-      await Transformer.transformChanges(
+      await TestAppTransformer.transformChanges(
         sourceDb,
         targetDb,
         args.sourceStartChangesetId,
@@ -583,7 +574,7 @@ void (async () => {
       const isolateArg = args.isolateElements ?? args.isolateTrees;
       assert(isolateArg !== undefined);
       const isolateList = isolateArg.split(",");
-      const transformer = await Transformer.transformIsolated(
+      const transformer = await TestAppTransformer.transformIsolated(
         sourceDb,
         targetDb,
         isolateList,
@@ -603,7 +594,11 @@ void (async () => {
       );
       transformer.dispose();
     } else {
-      await Transformer.transformAll(sourceDb, targetDb, transformerOptions);
+      await TestAppTransformer.transformAll(
+        sourceDb,
+        targetDb,
+        transformerOptions
+      );
     }
 
     if (args.exportViewDefinition) {
