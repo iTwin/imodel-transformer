@@ -23,6 +23,7 @@ import {
 } from "@itwin/object-storage-azure";
 import { Reporter } from "@itwin/perf-tools";
 import { TestBrowserAuthorizationClient } from "@itwin/oidc-signin-tool";
+import { disableGcsWorkspacesForTests } from "@itwin/imodel-transformer-test-utils";
 import {
   CleanupTask,
   runCleanupTasks,
@@ -186,6 +187,7 @@ async function setupTestData(
   });
   hostConfig.hubAccess = new BackendIModelsAccess(hubClient);
   await IModelHost.startup(hostConfig);
+  disableGcsWorkspacesForTests();
 
   return preFetchAsyncIterator(getTestIModels(hubClient, filterIModels));
 }
