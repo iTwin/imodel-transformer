@@ -622,6 +622,56 @@ describe("IModelTransformerHub change scanning", () => {
       );
     });
 
+    it("deletes an aspect from a collectChanges override through its owner", async () => {
+      const { noteId } = await setUpNavigationChange();
+      const ownerId = sourceDb.elements.getAspect(noteId).element.id;
+      const ecClassId = sourceDb.withQueryReader(
+        "SELECT ECClassId FROM TestNavChange.Note WHERE ECInstanceId=:id",
+        (reader) => (reader.step() ? (reader.current[0] as Id64String) : ""),
+        new QueryBinder().bindId("id", noteId)
+      );
+      const targetOwnerId = targetIdOf("NavigationParentA");
+      const targetNotes = () =>
+        targetDb.elements.getAspects(targetOwnerId, "TestNavChange:Note")
+          .length;
+      expect(targetNotes()).to.equal(1);
+
+      await editSourceAndPush("delete note", (txn) => txn.deleteAspect(noteId));
+      const cache: ChangeCache = {
+        tryGetChanges: async () =>
+          Promise.resolve({
+            changes: [
+              {
+                id: noteId,
+                ecClassId,
+                op: "Deleted",
+                aspectOwnerElementId: ownerId,
+              },
+            ],
+            // A deleted aspect needs no deletion record: its owner is re-synchronized instead.
+            deletions: {
+              elements: [],
+              models: [],
+              relationships: [],
+              externalSourceAspects: [],
+            },
+          }),
+      };
+      const downloadSpy = vi.spyOn(BriefcaseManager, "downloadChangesets");
+      try {
+        await processChangesWith(
+          (...args) => new CachedChangesTransformer(cache, ...args)
+        );
+        expect(downloadSpy).not.toHaveBeenCalled();
+      } finally {
+        downloadSpy.mockRestore();
+      }
+
+      expect(targetNotes()).to.equal(0);
+      expect(targetDb.elements.tryGetElementProps(targetOwnerId)).to.not.be
+        .undefined;
+    });
+
     it("classifies aspect deletions by class", async () => {
       const { subjectId, aspectId } = withEditTxn(
         sourceDb,
