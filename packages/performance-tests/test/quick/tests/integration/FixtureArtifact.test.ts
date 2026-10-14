@@ -35,8 +35,8 @@ import {
 import { detachedBriefcaseFixtureProvider } from "../../src/fixtures/providers/detachedBriefcaseProvider.js";
 import { quickTestHub } from "../../src/fixtures/QuickTestHub.js";
 import {
-  shutdownQuickIModelHost as shutdownIsolatedHost,
-  startQuickIModelHost as startIsolatedHost,
+  shutdownQuickIModelHost,
+  startQuickIModelHost,
 } from "../../src/framework/QuickIModelHost.js";
 
 describe("detached fixture artifact", () => {
@@ -47,7 +47,7 @@ describe("detached fixture artifact", () => {
 
   beforeAll(async () => {
     root = fs.mkdtempSync(path.join(os.tmpdir(), "quick-artifact-"));
-    await startIsolatedHost();
+    await startQuickIModelHost();
     built = await detachedBriefcaseFixtureProvider.build(
       fixture,
       path.join(root, "fixture-artifact")
@@ -56,7 +56,7 @@ describe("detached fixture artifact", () => {
 
   afterAll(async () => {
     await detachedBriefcaseFixtureProvider.disposeBuild(built);
-    await shutdownIsolatedHost();
+    await shutdownQuickIModelHost();
     fs.rmSync(root, { recursive: true, force: true });
   });
 
@@ -376,7 +376,7 @@ describe("recipe data across the stage boundary", () => {
 
   beforeAll(async () => {
     root = fs.mkdtempSync(path.join(os.tmpdir(), "quick-recipe-data-"));
-    await startIsolatedHost();
+    await startQuickIModelHost();
     built = await detachedBriefcaseFixtureProvider.build(
       fixture,
       path.join(root, "fixture-artifact")
@@ -385,7 +385,7 @@ describe("recipe data across the stage boundary", () => {
 
   afterAll(async () => {
     await detachedBriefcaseFixtureProvider.disposeBuild(built);
-    await shutdownIsolatedHost();
+    await shutdownQuickIModelHost();
     fs.rmSync(root, { recursive: true, force: true });
   });
 
@@ -459,11 +459,11 @@ describe("recipe data that cannot survive JSON", () => {
 
   beforeAll(async () => {
     root = fs.mkdtempSync(path.join(os.tmpdir(), "quick-bad-recipe-"));
-    await startIsolatedHost();
+    await startQuickIModelHost();
   });
 
   afterAll(async () => {
-    await shutdownIsolatedHost();
+    await shutdownQuickIModelHost();
     fs.rmSync(root, { recursive: true, force: true });
   });
 

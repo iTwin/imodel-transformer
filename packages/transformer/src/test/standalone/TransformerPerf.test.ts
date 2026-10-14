@@ -41,7 +41,6 @@ import {
   withEditTxn,
 } from "@itwin/core-backend";
 import * as coreBackendPkgJson from "@itwin/core-backend/package.json";
-import { disableGcsWorkspacesForTests } from "@itwin/imodel-transformer-test-utils";
 import { IModelTransformer } from "../../IModelTransformer";
 import {
   createStartedEditTxn,
@@ -288,7 +287,6 @@ describe.skip("IModelTransformer Performance Tests", () => {
       hostOptions = { disableThinnedNativeInstanceWorkflow: true };
 
     await IModelHost.startup(hostOptions);
-    disableGcsWorkspacesForTests();
 
     try {
       // Create source iModel with elements

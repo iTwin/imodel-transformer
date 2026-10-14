@@ -5,17 +5,16 @@
 
 import { IModelHost, SettingsPriority } from "@itwin/core-backend";
 
-const testGcsSettings = {
-  name: "imodel-transformer-tests-disable-gcs-workspaces",
-};
-
+/**
+ * Stop the running `IModelHost` from loading GCS workspaces, which opening any iModel
+ * otherwise downloads from the public GCS container into the host's profile.
+ */
 export function disableGcsWorkspacesForTests(): void {
   IModelHost.appWorkspace.settings.addDictionary(
-    { ...testGcsSettings, priority: SettingsPriority.application },
+    {
+      name: "imodel-transformer-tests-disable-gcs-workspaces",
+      priority: SettingsPriority.application,
+    },
     { "itwin/core/gcs/disableWorkspaces": true }
   );
-}
-
-export function allowGcsWorkspacesForTests(): void {
-  IModelHost.appWorkspace.settings.dropDictionary(testGcsSettings);
 }

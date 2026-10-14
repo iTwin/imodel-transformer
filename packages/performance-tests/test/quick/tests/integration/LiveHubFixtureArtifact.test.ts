@@ -24,8 +24,8 @@ import { liveHubFixtureProvider } from "../../src/fixtures/providers/liveHubProv
 import { quickTestHub } from "../../src/fixtures/QuickTestHub.js";
 import { incrementalSynchronization } from "../../src/scenarios/incrementalSynchronization.js";
 import {
-  shutdownQuickIModelHost as shutdownIsolatedHost,
-  startQuickIModelHost as startIsolatedHost,
+  shutdownQuickIModelHost,
+  startQuickIModelHost,
 } from "../../src/framework/QuickIModelHost.js";
 
 describe("live hub fixture artifact", () => {
@@ -52,7 +52,7 @@ describe("live hub fixture artifact", () => {
         return configured.createSeed(fileName);
       },
     };
-    await startIsolatedHost();
+    await startQuickIModelHost();
     built = await liveHubFixtureProvider.build(
       fixture,
       path.join(root, "fixture-artifact")
@@ -61,7 +61,7 @@ describe("live hub fixture artifact", () => {
 
   afterAll(async () => {
     if (built) await liveHubFixtureProvider.disposeBuild(built);
-    await shutdownIsolatedHost();
+    await shutdownQuickIModelHost();
     if (root) fs.rmSync(root, { recursive: true, force: true });
   });
 

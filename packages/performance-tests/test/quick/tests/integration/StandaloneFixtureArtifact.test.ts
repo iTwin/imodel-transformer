@@ -30,8 +30,8 @@ import {
 import { standaloneFixtureProvider } from "../../src/fixtures/providers/standaloneProvider.js";
 import { standaloneFullTransformation } from "../../src/scenarios/standaloneFullTransformation.js";
 import {
-  shutdownQuickIModelHost as shutdownIsolatedHost,
-  startQuickIModelHost as startIsolatedHost,
+  shutdownQuickIModelHost,
+  startQuickIModelHost,
 } from "../../src/framework/QuickIModelHost.js";
 
 function sha256(fileName: string): string {
@@ -54,7 +54,7 @@ describe("standalone fixture artifact", () => {
 
   beforeAll(async () => {
     root = fs.mkdtempSync(path.join(os.tmpdir(), "quick-standalone-artifact-"));
-    await startIsolatedHost();
+    await startQuickIModelHost();
     built = await standaloneFixtureProvider.build(
       standaloneFullTransformFixture,
       path.join(root, "generated-artifact")
@@ -63,7 +63,7 @@ describe("standalone fixture artifact", () => {
 
   afterAll(async () => {
     if (built) await standaloneFixtureProvider.disposeBuild(built);
-    await shutdownIsolatedHost();
+    await shutdownQuickIModelHost();
     if (root !== "") fs.rmSync(root, { recursive: true, force: true });
   });
 

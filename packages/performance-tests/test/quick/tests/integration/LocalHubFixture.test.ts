@@ -21,8 +21,8 @@ import {
   withEditTxn,
 } from "@itwin/core-backend";
 import {
-  shutdownQuickIModelHost as shutdownIsolatedHost,
-  startQuickIModelHost as startIsolatedHost,
+  shutdownQuickIModelHost,
+  startQuickIModelHost,
 } from "../../src/framework/QuickIModelHost.js";
 import { IModelTransformer } from "@itwin/imodel-transformer";
 import { BenchmarkReporter } from "../../src/reporting/BenchmarkReporter.js";
@@ -99,11 +99,11 @@ describe("LocalHubFixture reconstruction", () => {
     outputDir = fs.mkdtempSync(
       path.join(os.tmpdir(), "quick-perf-reconstruct-")
     );
-    await startIsolatedHost();
+    await startQuickIModelHost();
   });
 
   afterAll(async () => {
-    await shutdownIsolatedHost();
+    await shutdownQuickIModelHost();
     fs.rmSync(outputDir, { recursive: true, force: true });
   });
 
