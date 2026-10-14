@@ -8541,6 +8541,19 @@ describe("IModelTransformerHub", () => {
                 from: ElementGroupsMembers.classFullName,
               }),
             ];
+            const usesRelationshipAspects =
+              forceExternalSourceAspectProvenance || !withFederationGuids;
+            const targetRelationshipAspects = () =>
+              targetDb.elements
+                .getAspects(
+                  IModelTestUtils.queryByUserLabel(targetDb, "Group"),
+                  ExternalSourceAspect.classFullName
+                )
+                .filter(
+                  (aspect) =>
+                    (aspect as ExternalSourceAspect).kind ===
+                    ExternalSourceAspect.Kind.Relationship
+                );
 
             const originalRelId = insertMember(0);
             await sourceDb.pushChanges({
@@ -8573,6 +8586,10 @@ describe("IModelTransformerHub", () => {
               expect([
                 ...targetDb.queryEntityIds({ from: otherRelClassFullName }),
               ]).to.have.lengthOf(1);
+              expect(
+                targetRelationshipAspects(),
+                "only the inserted relationship should have provenance"
+              ).to.have.lengthOf(usesRelationshipAspects ? 1 : 0);
               return;
             }
             if (sourceChange === "replaced across changesets")
@@ -8590,6 +8607,7 @@ describe("IModelTransformerHub", () => {
 
             if (replacementRelId === undefined) {
               expect(targetMembers()).to.be.empty;
+              expect(targetRelationshipAspects()).to.be.empty;
               return;
             }
             expect(
@@ -8602,6 +8620,10 @@ describe("IModelTransformerHub", () => {
                 originalTargetRelId
               ).memberPriority
             ).to.equal(1);
+            expect(
+              targetRelationshipAspects(),
+              "the deleted relationship's provenance should be removed, leaving only the replacement's"
+            ).to.have.lengthOf(usesRelationshipAspects ? 1 : 0);
 
             // the replacement relationship's provenance must still let a later delete reach the target
             deleteMember(replacementRelId);
@@ -8614,6 +8636,7 @@ describe("IModelTransformerHub", () => {
               "process replacement delete"
             );
             expect(targetMembers()).to.be.empty;
+            expect(targetRelationshipAspects()).to.be.empty;
           });
         }
       }

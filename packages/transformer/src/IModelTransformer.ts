@@ -2523,10 +2523,27 @@ export class IModelTransformer extends IModelExportHandler {
         targetIdOfRelationshipInSource
       );
       if (sourceIdOfRelationshipInTarget && targetIdOfRelationshipInTarget) {
+        // relationships with ESA provenance must have their aspect deleted too, even when the target relationship is found by endpoints
+        const provenanceAspectId =
+          this._options.forceExternalSourceAspectProvenance &&
+          this.sourceDb ===
+            (await this._provenanceManager.getProvenanceSourceDb())
+            ? (
+                await this._provenanceManager.queryProvenanceForRelationship(
+                  changedInstanceId,
+                  {
+                    classFullName: classFullName ?? "",
+                    sourceId: sourceIdOfRelationshipInSource,
+                    targetId: targetIdOfRelationshipInSource,
+                  }
+                )
+              )?.aspectId
+            : undefined;
         this._deletedSourceRelationshipData?.set(changedInstanceId, {
           classFullName: classFullName ?? "",
           sourceIdInTarget: sourceIdOfRelationshipInTarget,
           targetIdInTarget: targetIdOfRelationshipInTarget,
+          provenanceAspectId,
         });
         this._pendingRelationshipDeleteTargets.add(
           relationshipEndpointsKey(
