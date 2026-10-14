@@ -8441,9 +8441,39 @@ describe("IModelTransformerHub", () => {
         for (const sourceChange of [
           "replaced in one changeset",
           "replaced across changesets",
+          "replaced by a different relationship class",
           "deleted",
         ] as const) {
+          const replacedByOtherClass =
+            sourceChange === "replaced by a different relationship class";
+          // without federation guids, deletes match the target relationship by provenance id rather than by endpoints
+          if (replacedByOtherClass && !withFederationGuids) continue;
           it(`should sync a source relationship that was ${sourceChange} (forceExternalSourceAspectProvenance=${forceExternalSourceAspectProvenance}, federationGuids=${withFederationGuids})`, async () => {
+            const otherRelClassFullName =
+              "TestOtherRelationships:OtherRefersToElements";
+            if (replacedByOtherClass) {
+              // a sibling of ElementGroupsMembers, so looking up ElementGroupsMembers by endpoints never finds it
+              const otherRelSchema = `<?xml version="1.0" encoding="UTF-8"?>
+                <ECSchema schemaName="TestOtherRelationships" alias="tor" version="01.00.00" xmlns="http://www.bentley.com/schemas/Bentley.ECXML.3.2">
+                  <ECSchemaReference name="BisCore" version="01.00.00" alias="bis"/>
+                  <ECRelationshipClass typeName="OtherRefersToElements" strength="referencing" modifier="None">
+                    <BaseClass>bis:ElementRefersToElements</BaseClass>
+                    <Source multiplicity="(0..*)" roleLabel="refers to" polymorphic="true">
+                      <Class class="bis:Element"/>
+                    </Source>
+                    <Target multiplicity="(0..*)" roleLabel="is referenced by" polymorphic="true">
+                      <Class class="bis:Element"/>
+                    </Target>
+                  </ECRelationshipClass>
+                </ECSchema>`;
+              for (const db of [sourceDb, targetDb]) {
+                await db.importSchemaStrings([otherRelSchema]);
+                await db.pushChanges({
+                  description: "import other relationship schema",
+                  retainLocks: true,
+                });
+              }
+            }
             const [groupId, memberId] = withEditTxn(
               sourceDb,
               "insert elements",
@@ -8522,6 +8552,29 @@ describe("IModelTransformerHub", () => {
             assert(originalTargetRelId !== undefined);
 
             deleteMember(originalRelId);
+            if (replacedByOtherClass) {
+              withEditTxn(sourceDb, "insert other relationship", (txn) =>
+                txn.insertRelationship({
+                  classFullName: otherRelClassFullName,
+                  sourceId: groupId,
+                  targetId: memberId,
+                })
+              );
+              await sourceDb.pushChanges({
+                description: `relationship ${sourceChange}`,
+                retainLocks: true,
+              });
+              await transform({ argsForProcessChanges: {} }, "process changes");
+
+              expect(
+                targetMembers(),
+                "the deleted relationship has a different class than the inserted one, so it should still be deleted"
+              ).to.be.empty;
+              expect([
+                ...targetDb.queryEntityIds({ from: otherRelClassFullName }),
+              ]).to.have.lengthOf(1);
+              return;
+            }
             if (sourceChange === "replaced across changesets")
               await sourceDb.pushChanges({
                 description: "delete relationship",
