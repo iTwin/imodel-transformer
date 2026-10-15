@@ -6,7 +6,6 @@
 import { assert, Id64Array, Id64Set, Id64String } from "@itwin/core-bentley";
 import { QueryBinder } from "@itwin/core-common";
 import { IModelDb } from "@itwin/core-backend";
-import { elementIdSetSource } from "./ElementIdSet";
 
 /** Native deletion calls needed to delete a set of element trees without a partial result.
  * @internal
@@ -189,7 +188,6 @@ async function queryDeletionTrees(
   // An element has more than one root only when requested trees overlap. UNION in the query already removes duplicate
   // (element, root) pairs, so an array holds distinct roots without allocating a Set per element.
   const rootsByElement = new Map<Id64String, Id64String[]>();
-  const requestedIds = elementIdSetSource("elementIds", elementIds);
   // CascadeIds pairs each traversed element with a root that the native API must delete. The anchor
   // adds requested elements that still exist, except those whose parent or modeled element is also
   // requested: the recursion reaches them anyway, and anchoring them too would walk a nested tree once
@@ -200,9 +198,9 @@ async function queryDeletionTrees(
     WITH RECURSIVE CascadeIds(Id, DeleteRootId) AS (
       SELECT element.ECInstanceId, element.ECInstanceId
       FROM bis.Element element
-      INNER JOIN ${requestedIds} ids ON ids.id = element.ECInstanceId
-      WHERE (element.Parent.Id IS NULL OR element.Parent.Id NOT IN (SELECT requested.id FROM ${requestedIds} requested))
-        AND element.Model.Id NOT IN (SELECT requested.id FROM ${requestedIds} requested)
+      INNER JOIN IdSet(:elementIds) ids ON ids.id = element.ECInstanceId
+      WHERE (element.Parent.Id IS NULL OR element.Parent.Id NOT IN (SELECT id FROM IdSet(:elementIds)))
+        AND element.Model.Id NOT IN (SELECT id FROM IdSet(:elementIds))
       UNION
       SELECT child.ECInstanceId, deletionParent.DeleteRootId
       FROM bis.Element child
@@ -243,11 +241,10 @@ async function queryKeptElements(
   targetDb: IModelDb,
   blockedIds: ReadonlySet<Id64String>
 ): Promise<Id64Set> {
-  const blockedIdSource = elementIdSetSource("blockedIds", blockedIds);
   const query = `
     WITH RECURSIVE
       Above(Id) AS (
-        SELECT ids.id FROM ${blockedIdSource} ids
+        SELECT ids.id FROM IdSet(:blockedIds) ids
         UNION
         SELECT element.Parent.Id FROM bis.Element element
         INNER JOIN Above ON element.ECInstanceId = Above.Id
@@ -260,7 +257,7 @@ async function queryKeptElements(
         INNER JOIN Above ON element.ECInstanceId = Above.Id
       ),
       Below(Id) AS (
-        SELECT ids.id FROM ${blockedIdSource} ids
+        SELECT ids.id FROM IdSet(:blockedIds) ids
         UNION
         SELECT element.ECInstanceId FROM bis.Element element
         INNER JOIN Below ON element.Parent.Id = Below.Id
@@ -304,23 +301,21 @@ interface TreeReferences {
  */
 async function queryReferences(
   targetDb: IModelDb,
-  elementIdIterable: Iterable<Id64String>
+  elementIds: Iterable<Id64String>
 ): Promise<TreeReferences> {
-  const elementIds = [...elementIdIterable];
   const references: TreeReference[] = [];
   const geometryDefinitionIds: Id64String[] = [];
   // Any element can be a code scope. Every other validated reference targets a definition element, so those are
   // queried only for the definitions among the elements, which are usually few or none.
   const definitionIds: Id64String[] = [];
-  const elementIdSource = elementIdSetSource("elementIds", elementIds);
   const firstQuery = `
     SELECT element.ECInstanceId AS referencingId, element.CodeScope.Id AS referencedId, 0 AS isDefinition
     FROM bis.Element element
-    INNER JOIN ${elementIdSource} ids ON ids.id = element.CodeScope.Id
+    INNER JOIN IdSet(:elementIds) ids ON ids.id = element.CodeScope.Id
     UNION ALL
     SELECT definition.ECInstanceId, definition.ECInstanceId, 1
     FROM bis.DefinitionElement definition
-    INNER JOIN ${elementIdSource} ids ON ids.id = definition.ECInstanceId
+    INNER JOIN IdSet(:elementIds) ids ON ids.id = definition.ECInstanceId
   `;
   for await (const row of targetDb.createQueryReader(
     firstQuery,
@@ -343,49 +338,48 @@ async function queryReferences(
   // Kind 0: deleting both in the same call is enough. Native validation treats a default sub-category, whose ID
   // follows its category's, as used by the category unless both are deleted.
   // Kind 2: a definition that geometry references, so its users can't be queried.
-  const definitionIdSource = elementIdSetSource("elementIds", definitionIds);
   const definitionQuery = `
     SELECT element.ECInstanceId AS referencingId, element.Category.Id AS referencedId, 1 AS kind
     FROM bis.GeometricElement3d element
-    INNER JOIN ${definitionIdSource} ids ON ids.id = element.Category.Id
+    INNER JOIN IdSet(:elementIds) ids ON ids.id = element.Category.Id
     UNION ALL
     SELECT element.ECInstanceId, element.Category.Id, 1
     FROM bis.GeometricElement2d element
-    INNER JOIN ${definitionIdSource} ids ON ids.id = element.Category.Id
+    INNER JOIN IdSet(:elementIds) ids ON ids.id = element.Category.Id
     UNION ALL
     SELECT element.ECInstanceId, element.View.Id, 1
     FROM bis.ViewAttachment element
-    INNER JOIN ${definitionIdSource} ids ON ids.id = element.View.Id
+    INNER JOIN IdSet(:elementIds) ids ON ids.id = element.View.Id
     ${sectionReferences
       .map(
         ({ className, propertyName }) => `
     UNION ALL
     SELECT element.ECInstanceId, element.${propertyName}.Id, 1
     FROM bis.${className} element
-    INNER JOIN ${definitionIdSource} ids ON ids.id = element.${propertyName}.Id`
+    INNER JOIN IdSet(:elementIds) ids ON ids.id = element.${propertyName}.Id`
       )
       .join("")}
     UNION ALL
     SELECT viewDefinition.ECInstanceId, viewDefinition.DisplayStyle.Id, 0
     FROM bis.ViewDefinition viewDefinition
-    INNER JOIN ${definitionIdSource} ids ON ids.id = viewDefinition.DisplayStyle.Id
+    INNER JOIN IdSet(:elementIds) ids ON ids.id = viewDefinition.DisplayStyle.Id
     UNION ALL
     SELECT viewDefinition.ECInstanceId, viewDefinition.CategorySelector.Id, 0
     FROM bis.ViewDefinition viewDefinition
-    INNER JOIN ${definitionIdSource} ids ON ids.id = viewDefinition.CategorySelector.Id
+    INNER JOIN IdSet(:elementIds) ids ON ids.id = viewDefinition.CategorySelector.Id
     UNION ALL
     SELECT viewDefinition.ECInstanceId, viewDefinition.ModelSelector.Id, 0
     FROM bis.SpatialViewDefinition viewDefinition
-    INNER JOIN ${definitionIdSource} ids ON ids.id = viewDefinition.ModelSelector.Id
+    INNER JOIN IdSet(:elementIds) ids ON ids.id = viewDefinition.ModelSelector.Id
     UNION ALL
     SELECT subCategory.Parent.Id, subCategory.ECInstanceId, 0
     FROM bis.SubCategory subCategory
-    INNER JOIN ${definitionIdSource} ids ON ids.id = subCategory.ECInstanceId
+    INNER JOIN IdSet(:elementIds) ids ON ids.id = subCategory.ECInstanceId
     WHERE CAST(subCategory.ECInstanceId AS INTEGER) = CAST(subCategory.Parent.Id AS INTEGER) + 1
     UNION ALL
     SELECT subCategory.ECInstanceId, subCategory.ECInstanceId, 2
     FROM bis.SubCategory subCategory
-    INNER JOIN ${definitionIdSource} ids ON ids.id = subCategory.ECInstanceId
+    INNER JOIN IdSet(:elementIds) ids ON ids.id = subCategory.ECInstanceId
     WHERE CAST(subCategory.ECInstanceId AS INTEGER) <> CAST(subCategory.Parent.Id AS INTEGER) + 1
     ${["GeometryPart", "RenderMaterial", "Texture", "LineStyle"]
       .map(
@@ -393,7 +387,7 @@ async function queryReferences(
     UNION ALL
     SELECT element.ECInstanceId, element.ECInstanceId, 2
     FROM bis.${className} element
-    INNER JOIN ${definitionIdSource} ids ON ids.id = element.ECInstanceId`
+    INNER JOIN IdSet(:elementIds) ids ON ids.id = element.ECInstanceId`
       )
       .join("")}
   `;
@@ -440,19 +434,17 @@ async function querySectionViewReferences(
 /** Finds the 2D and 3D geometric elements among the specified elements. */
 async function queryGeometricElements(
   targetDb: IModelDb,
-  elementIdIterable: Iterable<Id64String>
+  elementIds: Iterable<Id64String>
 ): Promise<Id64String[]> {
-  const elementIds = [...elementIdIterable];
-  const elementIdSource = elementIdSetSource("elementIds", elementIds);
   // Joining the abstract bis.GeometricElement with an IdSet is quadratic, so query its 3D and 2D subclasses.
   const query = `
     SELECT element.ECInstanceId AS id
     FROM bis.GeometricElement3d element
-    INNER JOIN ${elementIdSource} ids ON ids.id = element.ECInstanceId
+    INNER JOIN IdSet(:elementIds) ids ON ids.id = element.ECInstanceId
     UNION ALL
     SELECT element.ECInstanceId
     FROM bis.GeometricElement2d element
-    INNER JOIN ${elementIdSource} ids ON ids.id = element.ECInstanceId
+    INNER JOIN IdSet(:elementIds) ids ON ids.id = element.ECInstanceId
   `;
   const ids: Id64String[] = [];
   const params = new QueryBinder().bindIdSet("elementIds", elementIds);

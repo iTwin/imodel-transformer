@@ -62,7 +62,6 @@ import {
 } from "./IModelTransformerError";
 import { ChangesetScanner } from "./ChangesetScanner";
 import { ChangedElementForest } from "./ChangedElementForest";
-import { elementIdSetSource } from "./ElementIdSet";
 import { getReservationExportContext } from "./ElementReservationState";
 
 const loggerCategory = TransformerLoggerCategory.IModelExporter;
@@ -1610,7 +1609,7 @@ export class IModelExporter {
                 ec_className(e.ECClassId, 's') schemaName,
                 ec_className(e.ECClassId, 'c') className
          FROM bis.Element e
-         INNER JOIN ${elementIdSetSource("elementIds", elementIdBatch)} ids ON ids.id = e.ECInstanceId`,
+         INNER JOIN IdSet(:elementIds) ids ON ids.id = e.ECInstanceId`,
         queryParams,
         { usePrimaryConn: true }
       )) {
@@ -1629,7 +1628,7 @@ export class IModelExporter {
         for await (const row of this.sourceDb.createQueryReader(
           `SELECT g.ECInstanceId id, g.Category.Id categoryId
            FROM bis.GeometricElement g
-           INNER JOIN ${elementIdSetSource("elementIds", elementIdBatch)} ids ON ids.id = g.ECInstanceId`,
+           INNER JOIN IdSet(:elementIds) ids ON ids.id = g.ECInstanceId`,
           categoryQueryParams,
           { usePrimaryConn: true }
         )) {
@@ -1661,7 +1660,7 @@ export class IModelExporter {
         for await (const row of this.sourceDb.createQueryReader(
           `SELECT model.ECInstanceId id, model.ParentModel.Id parentModelId, model.IsTemplate isTemplate
            FROM bis.Model model
-           INNER JOIN ${elementIdSetSource("modelIds", modelIdBatch)} ids ON ids.id = model.ECInstanceId`,
+           INNER JOIN IdSet(:modelIds) ids ON ids.id = model.ECInstanceId`,
           queryParams,
           { usePrimaryConn: true }
         )) {
@@ -2372,7 +2371,7 @@ export class ChangedInstanceIds {
     WITH RECURSIVE hierarchy (parentId) AS (
         SELECT element.Model.Id
         FROM bis.Element element
-        INNER JOIN ${elementIdSetSource("elementIds", elementIds)} ids ON ids.id = element.ECInstanceId
+        INNER JOIN IdSet(:elementIds) ids ON ids.id = element.ECInstanceId
         UNION
         SELECT ParentModel.id
         FROM bis.Model e
@@ -2403,12 +2402,12 @@ export class ChangedInstanceIds {
   ) {
     const ecQuery = `SELECT relationship.ECInstanceId
         FROM ${relationshipClassName} relationship
-        INNER JOIN ${elementIdSetSource("elementIds", elementIds)} ids
+        INNER JOIN IdSet(:elementIds) ids
           ON ids.id = relationship.TargetECInstanceId
         UNION
         SELECT relationship.ECInstanceId
         FROM ${relationshipClassName} relationship
-        INNER JOIN ${elementIdSetSource("elementIds", elementIds)} ids
+        INNER JOIN IdSet(:elementIds) ids
           ON ids.id = relationship.SourceECInstanceId`;
 
     const queryBinder = new QueryBinder().bindIdSet("elementIds", elementIds);
@@ -2428,7 +2427,7 @@ export class ChangedInstanceIds {
     ]) {
       const ecQuery = `SELECT aspect.ECInstanceId, aspect.Element.Id
         FROM ${aspectClassName} aspect
-        INNER JOIN ${elementIdSetSource("elementIds", elementIds)} ids ON ids.id = aspect.Element.Id`;
+        INNER JOIN IdSet(:elementIds) ids ON ids.id = aspect.Element.Id`;
       const queryBinder = new QueryBinder().bindIdSet("elementIds", elementIds);
       const queryReader = this._db.createQueryReader(ecQuery, queryBinder, {
         usePrimaryConn: true,

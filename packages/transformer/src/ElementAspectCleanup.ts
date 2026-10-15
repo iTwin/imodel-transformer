@@ -13,7 +13,6 @@ import {
 } from "@itwin/core-backend";
 import { Id64String } from "@itwin/core-bentley";
 import { QueryBinder } from "@itwin/core-common";
-import { elementIdSetSource } from "./ElementIdSet";
 
 /** Deletes replaceable ElementAspects for target owners while preserving excluded classes and transformer provenance aspects.
  * @internal
@@ -115,7 +114,7 @@ function replaceableAspectQuery(
     conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
   const ecsql = `SELECT aspect.ECInstanceId as id
     FROM ${aspectClassFullName} aspect
-    INNER JOIN ${elementIdSetSource("elementIds", elementIds)} ids ON ids.id = aspect.Element.Id
+    INNER JOIN IdSet(:elementIds) ids ON ids.id = aspect.Element.Id
     ${whereClause}
     LIMIT ${pageSize}`;
   return { ecsql, params };
