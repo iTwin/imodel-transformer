@@ -42,8 +42,8 @@ class ProgressTransformer extends IModelTransformer {
   public override async onExportRelationship(
     sourceRelationship: Relationship,
     isUpdate?: boolean,
-    sourceFedGuid?: GuidString,
-    targetFedGuid?: GuidString
+    sourceFedGuid?: GuidString | null,
+    targetFedGuid?: GuidString | null
   ): Promise<void> {
     this._increment();
     return super.onExportRelationship(

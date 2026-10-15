@@ -27,7 +27,13 @@ import {
   SubjectOwnsPartitionElements,
   withEditTxn,
 } from "@itwin/core-backend";
-import { GuidString, Id64, Id64String, ITwinError } from "@itwin/core-bentley";
+import {
+  Guid,
+  GuidString,
+  Id64,
+  Id64String,
+  ITwinError,
+} from "@itwin/core-bentley";
 import {
   Code,
   ExternalSourceAspectProps,
@@ -1148,6 +1154,88 @@ describe("IModelExporter", () => {
         );
         await hookExporter.exportRelationship(relClassFullName, relId);
         expect(hookExporter.hookCalls).to.equal(2);
+      } finally {
+        sourceDb.close();
+      }
+    });
+
+    it("passes null for endpoints without a FederationGuid", async () => {
+      const sourceDb = SnapshotDb.createEmpty(
+        IModelTransformerTestUtils.prepareOutputFile(
+          "IModelExporter",
+          "RelationshipEndpointWithoutFedGuid.bim"
+        ),
+        { rootSubject: { name: "relationship-endpoint-without-fedguid" } }
+      );
+      try {
+        const { relId, sourceFedGuid } = withEditTxn(
+          sourceDb,
+          "insert elements and relationship",
+          (txn) => {
+            const categoryId = SpatialCategory.insert(
+              txn,
+              IModel.dictionaryId,
+              "SpatialCategory",
+              new SubCategoryAppearance()
+            );
+            const modelId = PhysicalModel.insert(
+              txn,
+              IModel.rootSubjectId,
+              "PhysicalModel"
+            );
+            const physicalObjectProps: PhysicalElementProps = {
+              classFullName: PhysicalObject.classFullName,
+              model: modelId,
+              category: categoryId,
+              code: Code.createEmpty(),
+            };
+            const withGuid = txn.insertElement(physicalObjectProps);
+            const withoutGuid = txn.insertElement({
+              ...physicalObjectProps,
+              federationGuid: Guid.empty,
+            });
+            return {
+              relId: txn.insertRelationship({
+                classFullName:
+                  GraphicalElement3dRepresentsElement.classFullName,
+                sourceId: withGuid,
+                targetId: withoutGuid,
+              }),
+              sourceFedGuid:
+                sourceDb.elements.getFederationGuidFromId(withGuid),
+            };
+          }
+        );
+        assert(sourceFedGuid !== undefined);
+
+        const received: Array<
+          [GuidString | null | undefined, GuidString | null | undefined]
+        > = [];
+        const exporter = new IModelExporter(sourceDb);
+        exporter.registerHandler(
+          new (class extends IModelExportHandler {
+            public override async onExportRelationship(
+              _relationship: Relationship,
+              _isUpdate: boolean | undefined,
+              handlerSourceFedGuid?: GuidString | null,
+              handlerTargetFedGuid?: GuidString | null
+            ): Promise<void> {
+              received.push([handlerSourceFedGuid, handlerTargetFedGuid]);
+            }
+          })()
+        );
+        await exporter.exportRelationships(
+          ElementRefersToElements.classFullName
+        );
+        await exporter.exportRelationship(
+          GraphicalElement3dRepresentsElement.classFullName,
+          relId
+        );
+
+        expect(received).to.deep.equal([
+          [sourceFedGuid, null],
+          [sourceFedGuid, null],
+        ]);
       } finally {
         sourceDb.close();
       }

@@ -33,6 +33,7 @@ import {
   GeometricElement,
   GeometryPart,
   Graphic3d,
+  GraphicalElement3dRepresentsElement,
   IModelDb,
   IModelElementCloneContext,
   IModelJsFs,
@@ -3976,6 +3977,128 @@ describe("IModelTransformer", () => {
     vi.restoreAllMocks();
     sourceDb.close();
     targetDb.close();
+  });
+
+  describe("relationship endpoint FederationGuids", () => {
+    class DroppedArgumentsTransformer extends IModelTransformer {
+      public override async onExportRelationship(
+        sourceRelationship: Relationship
+      ): Promise<void> {
+        return super.onExportRelationship(sourceRelationship);
+      }
+    }
+
+    async function transformRelationships(
+      name: string,
+      transformerClass: typeof IModelTransformer
+    ): Promise<{ aspectIdentifiers: string[]; fedGuidLookups: number }> {
+      const sourceDb = SnapshotDb.createEmpty(
+        IModelTransformerTestUtils.prepareOutputFile(
+          "IModelTransformer",
+          `${name}-Source.bim`
+        ),
+        { rootSubject: { name } }
+      );
+      const targetDb = SnapshotDb.createEmpty(
+        IModelTransformerTestUtils.prepareOutputFile(
+          "IModelTransformer",
+          `${name}-Target.bim`
+        ),
+        { rootSubject: { name } }
+      );
+      try {
+        withEditTxn(sourceDb, "insert elements and relationships", (txn) => {
+          const modelId = PhysicalModel.insert(
+            txn,
+            IModel.rootSubjectId,
+            "PhysicalModel"
+          );
+          const categoryId = SpatialCategory.insert(
+            txn,
+            IModel.dictionaryId,
+            "SpatialCategory",
+            {}
+          );
+          const physicalObjectProps: PhysicalElementProps = {
+            classFullName: PhysicalObject.classFullName,
+            model: modelId,
+            category: categoryId,
+            code: Code.createEmpty(),
+          };
+          const sourceId = txn.insertElement(physicalObjectProps);
+          const targetWithGuid = txn.insertElement(physicalObjectProps);
+          const targetWithoutGuid = txn.insertElement({
+            ...physicalObjectProps,
+            federationGuid: Guid.empty,
+          });
+          for (const targetId of [targetWithGuid, targetWithoutGuid]) {
+            txn.insertRelationship({
+              classFullName: GraphicalElement3dRepresentsElement.classFullName,
+              sourceId,
+              targetId,
+            });
+          }
+        });
+
+        const getFederationGuidFromId = vi.spyOn(
+          sourceDb.elements,
+          "getFederationGuidFromId"
+        );
+        const editTxn = createStartedEditTxn(targetDb);
+        const transformer = new transformerClass({
+          source: sourceDb,
+          target: editTxn,
+        });
+        await transformer.process();
+        transformer.dispose();
+        editTxn.end();
+        const fedGuidLookups = getFederationGuidFromId.mock.calls.length;
+        getFederationGuidFromId.mockRestore();
+
+        expect([
+          ...targetDb.queryEntityIds({
+            from: GraphicalElement3dRepresentsElement.classFullName,
+          }),
+        ]).to.have.lengthOf(2);
+        const aspectIdentifiers: string[] = [];
+        for await (const row of targetDb.createQueryReader(
+          "SELECT Identifier FROM bis.ExternalSourceAspect WHERE Kind = 'Relationship' ORDER BY Identifier"
+        )) {
+          aspectIdentifiers.push(row[0]);
+        }
+        return { aspectIdentifiers, fedGuidLookups };
+      } finally {
+        sourceDb.close();
+        targetDb.close();
+      }
+    }
+
+    it("uses the exporter's FederationGuids without looking them up", async () => {
+      const { aspectIdentifiers, fedGuidLookups } =
+        await transformRelationships(
+          "RelationshipFedGuidsPassed",
+          IModelTransformer
+        );
+      expect(
+        aspectIdentifiers,
+        "only the relationship to the element without a FederationGuid needs provenance"
+      ).to.have.lengthOf(1);
+      expect(fedGuidLookups).to.equal(0);
+    });
+
+    it("looks up FederationGuids that an override does not pass to super", async () => {
+      const passed = await transformRelationships(
+        "RelationshipFedGuidsPassedForComparison",
+        IModelTransformer
+      );
+      const dropped = await transformRelationships(
+        "RelationshipFedGuidsDropped",
+        DroppedArgumentsTransformer
+      );
+      expect(dropped.aspectIdentifiers).to.deep.equal(passed.aspectIdentifiers);
+      // Each relationship looks up its source endpoint, then its target endpoint.
+      expect(dropped.fedGuidLookups).to.equal(4);
+    });
   });
 
   for (const skipPropagateChangesToRootElements of [true, undefined, false]) {

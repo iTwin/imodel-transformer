@@ -386,10 +386,7 @@ export type ProcessChangesOptions = ExportChangesOptions & {
 };
 
 type ChangeDataState =
-  | "uninited"
-  | "has-changes"
-  | "no-changes"
-  | "unconnected";
+  "uninited" | "has-changes" | "no-changes" | "unconnected";
 
 /**
  * @beta
@@ -1570,9 +1567,7 @@ export class IModelTransformer extends IModelExportHandler {
       await this._provenanceManager.getProvenanceEditTxn();
     if (!this._options.noProvenance) {
       const provenance:
-        | string
-        | MarkRequired<ExternalSourceAspectProps, "id">
-        | undefined =
+        string | MarkRequired<ExternalSourceAspectProps, "id"> | undefined =
         this._options.forceExternalSourceAspectProvenance ||
         this._elementsWithExplicitlyTrackedProvenance.has(sourceElement.id)
           ? undefined
@@ -1876,12 +1871,15 @@ export class IModelTransformer extends IModelExportHandler {
 
   /** Override of [IModelExportHandler.onExportRelationship]($transformer) that imports a relationship into the target iModel when it is exported from the source iModel.
    * This override calls [[onTransformRelationship]] and then [IModelImporter.importRelationship]($transformer) to update the target iModel.
+   * @param sourceFedGuid The FederationGuid of the relationship's source endpoint. `null` means the endpoint has no FederationGuid. If `undefined`, it is looked up in the source iModel when provenance needs it.
+   * @param targetFedGuid The FederationGuid of the relationship's target endpoint. `null` means the endpoint has no FederationGuid. If `undefined`, it is looked up in the source iModel when provenance needs it.
+   * @note Overrides should pass all arguments to `super`. Omitted FederationGuids are still looked up, which costs a query per endpoint.
    */
   public override async onExportRelationship(
     sourceRelationship: Relationship,
     _isUpdate?: boolean,
-    sourceFedGuid?: GuidString,
-    targetFedGuid?: GuidString
+    sourceFedGuid?: GuidString | null,
+    targetFedGuid?: GuidString | null
   ): Promise<void> {
     const targetRelationshipProps =
       this.onTransformRelationship(sourceRelationship);
@@ -1911,10 +1909,18 @@ export class IModelTransformer extends IModelExportHandler {
       !this._options.noProvenance &&
       Id64.isValid(targetRelationshipInstanceId)
     ) {
-      const needsEsaProvenance = !this._options
-        .forceExternalSourceAspectProvenance
-        ? !(sourceFedGuid && targetFedGuid)
-        : true;
+      const needsEsaProvenance =
+        this._options.forceExternalSourceAspectProvenance ||
+        !(
+          this.resolveRelationshipEndpointFedGuid(
+            sourceFedGuid,
+            sourceRelationship.sourceId
+          ) &&
+          this.resolveRelationshipEndpointFedGuid(
+            targetFedGuid,
+            sourceRelationship.targetId
+          )
+        );
       if (needsEsaProvenance) {
         const aspectProps =
           await this._provenanceManager.initRelationshipProvenance(
@@ -1937,6 +1943,16 @@ export class IModelTransformer extends IModelExportHandler {
         }
       }
     }
+  }
+
+  /** Returns a relationship endpoint's FederationGuid, looking it up only when the caller did not supply it. */
+  private resolveRelationshipEndpointFedGuid(
+    fedGuid: GuidString | null | undefined,
+    endpointId: Id64String
+  ): GuidString | null | undefined {
+    return fedGuid !== undefined
+      ? fedGuid
+      : this.sourceDb.elements.getFederationGuidFromId(endpointId);
   }
 
   /** Override of [IModelExportHandler.onDeleteRelationship]($transformer) that is called when [IModelExporter]($transformer) detects that a [Relationship]($backend) has been deleted from the source iModel.

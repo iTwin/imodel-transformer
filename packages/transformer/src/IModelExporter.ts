@@ -251,15 +251,15 @@ export abstract class IModelExportHandler {
   /** Called when a Relationship should be exported.
    * @param relationship The Relationship to export
    * @param isUpdate If defined, then `true` indicates an UPDATE operation while `false` indicates an INSERT operation. If not defined, then INSERT vs. UPDATE is not known.
-   * @param sourceFedGuid The FederationGuid of the relationship's source endpoint, if available.
-   * @param targetFedGuid The FederationGuid of the relationship's target endpoint, if available.
+   * @param sourceFedGuid The FederationGuid of the relationship's source endpoint. `null` means the endpoint has no FederationGuid; `undefined` means it was not supplied.
+   * @param targetFedGuid The FederationGuid of the relationship's target endpoint. `null` means the endpoint has no FederationGuid; `undefined` means it was not supplied.
    * @note This should be overridden to actually do the export.
    */
   public async onExportRelationship(
     _relationship: Relationship,
     _isUpdate: boolean | undefined,
-    _sourceFedGuid?: GuidString,
-    _targetFedGuid?: GuidString
+    _sourceFedGuid?: GuidString | null,
+    _targetFedGuid?: GuidString | null
   ): Promise<void> {}
 
   /** Called when a relationship should be deleted. */
@@ -1920,8 +1920,10 @@ export class IModelExporter {
     await this.exportRelationshipInstance(
       relationship,
       changesetFilter.isUpdate,
-      this.sourceDb.elements.getFederationGuidFromId(relationship.sourceId),
-      this.sourceDb.elements.getFederationGuidFromId(relationship.targetId)
+      this.sourceDb.elements.getFederationGuidFromId(relationship.sourceId) ??
+        null,
+      this.sourceDb.elements.getFederationGuidFromId(relationship.targetId) ??
+        null
     );
   }
 
@@ -1935,24 +1937,25 @@ export class IModelExporter {
     const relationship = this.sourceDb.constructEntity<Relationship>(
       this.getRelationshipProps(rawInstance)
     );
+    // The query has already read the endpoints, so a missing FederationGuid is known to be absent.
     await this.exportRelationshipInstance(
       relationship,
       isUpdate,
-      sourceFedGuid ?? undefined,
-      targetFedGuid ?? undefined
+      sourceFedGuid ?? null,
+      targetFedGuid ?? null
     );
   }
 
   /** Applies exclusion rules and handler callbacks to an already-hydrated relationship instance.
-   * @param sourceFedGuid The FederationGuid of the relationship's source endpoint, if available.
-   * @param targetFedGuid The FederationGuid of the relationship's target endpoint, if available.
+   * @param sourceFedGuid The FederationGuid of the relationship's source endpoint. `null` means the endpoint has no FederationGuid; `undefined` means it was not supplied.
+   * @param targetFedGuid The FederationGuid of the relationship's target endpoint. `null` means the endpoint has no FederationGuid; `undefined` means it was not supplied.
    * @note This is the common protected hook used by both [[exportRelationship]] and [[exportRelationships]]. Most consumers should customize [[IModelExportHandler]] instead.
    */
   protected async exportRelationshipInstance(
     relationship: Relationship,
     isUpdate: boolean | undefined,
-    sourceFedGuid?: GuidString,
-    targetFedGuid?: GuidString
+    sourceFedGuid?: GuidString | null,
+    targetFedGuid?: GuidString | null
   ): Promise<void> {
     // passed changeset test, now apply standard exclusion rules
     Logger.logTrace(

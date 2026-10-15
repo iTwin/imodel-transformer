@@ -41,6 +41,29 @@ A changed element can require an unchanged element that has no mapping in the ta
 
 See [Incremental exports](../learning/transformer/index.md#incremental-exports) for callback and customization details.
 
+## Batched relationship export with endpoint FederationGuids
+
+`IModelExporter` now reads relationships in batches. The same query reads the FederationGuids of each relationship's source and target elements. The exporter passes them to `IModelExportHandler.onExportRelationship(relationship, isUpdate, sourceFedGuid, targetFedGuid)` and to the protected `IModelExporter.exportRelationshipInstance`. A value of `null` means the endpoint element has no FederationGuid. `IModelTransformer.onExportRelationship` uses these values to decide whether a relationship needs an `ExternalSourceAspect`, so it no longer looks up both endpoints for every relationship.
+
+When a FederationGuid is `undefined` because the caller didn't pass it, `IModelTransformer` looks it up as before. An override that calls `super.onExportRelationship(sourceRelationship)` keeps its previous behavior and provenance output, but each relationship still costs up to two lookups. To use the batched values, accept all arguments and pass them to `super`:
+
+```ts
+public override async onExportRelationship(
+  sourceRelationship: Relationship,
+  isUpdate?: boolean,
+  sourceFedGuid?: GuidString | null,
+  targetFedGuid?: GuidString | null
+): Promise<void> {
+  // custom logic
+  return super.onExportRelationship(
+    sourceRelationship,
+    isUpdate,
+    sourceFedGuid,
+    targetFedGuid
+  );
+}
+```
+
 ## Breaking change: batched incremental element deletion
 
 Incremental synchronization now deletes elements in one batch. `IModelExporter.exportChanges()` passes all deleted source IDs to `IModelExportHandler.onDeleteElements()`, `IModelTransformer` maps them to target IDs, and `IModelImporter.deleteElements()` deletes the target elements through the native bulk-delete API. Children, sub-model contents, and elements whose code is scoped by a deleted element are still deleted with it.
@@ -327,42 +350,6 @@ The following APIs were removed from `IModelTransformer`:
 - `queryScopeExternalSourceAspect()`
 
 Subclasses that need the extracted provenance functionality can use the protected `_provenanceManager`. To determine synchronization direction, use `getIsForwardSynchronization()` or `getIsReverseSynchronization()`.
-
-## Breaking change: `onExportRelationship` overrides must forward endpoint FederationGuids
-
-`IModelExporter` now reads the FederationGuids of each relationship's source and target elements in the same bulk query that loads the relationships. It passes them to `IModelExportHandler.onExportRelationship(relationship, isUpdate, sourceFedGuid, targetFedGuid)`. `IModelTransformer.onExportRelationship` no longer looks up these FederationGuids itself.
-
-`IModelTransformer.onExportRelationship` writes an `ExternalSourceAspect` for a relationship unless it receives both `sourceFedGuid` and `targetFedGuid`, or unless `forceExternalSourceAspectProvenance` is set. These parameters are optional, so an override that calls `super.onExportRelationship(relationship)` still compiles. However, it writes an `ExternalSourceAspect` for every relationship, even when both endpoints have FederationGuids. Such a transformation is slower and writes different provenance than a transformation without the override.
-
-Add the `isUpdate`, `sourceFedGuid` and `targetFedGuid` parameters to your override and pass them to `super`:
-
-```ts
-// Before
-public override async onExportRelationship(
-  sourceRelationship: Relationship
-): Promise<void> {
-  // custom logic
-  return super.onExportRelationship(sourceRelationship);
-}
-
-// After
-public override async onExportRelationship(
-  sourceRelationship: Relationship,
-  isUpdate?: boolean,
-  sourceFedGuid?: GuidString,
-  targetFedGuid?: GuidString
-): Promise<void> {
-  // custom logic
-  return super.onExportRelationship(
-    sourceRelationship,
-    isUpdate,
-    sourceFedGuid,
-    targetFedGuid
-  );
-}
-```
-
-Code that calls `IModelTransformer.onExportRelationship` directly must also pass the endpoint FederationGuids to avoid the extra `ExternalSourceAspect`s.
 
 ## Breaking changes: Many synchronous methods are now asynchronous
 
