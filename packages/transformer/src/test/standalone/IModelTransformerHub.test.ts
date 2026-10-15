@@ -5961,6 +5961,100 @@ describe("IModelTransformerHub", () => {
     expect(subjectCount).to.equal(3); // RootSubject + 2 created subjects
   });
 
+  for (const forceExternalSourceAspectProvenance of [true, false]) {
+    it(`should keep the master relationship when a branch relationship is replaced over the same endpoints during reverse sync (forceExternalSourceAspectProvenance=${forceExternalSourceAspectProvenance})`, async () => {
+      const masterSeedFileName = path.join(
+        outputDir,
+        `MasterReplacedRelationship${forceExternalSourceAspectProvenance}.bim`
+      );
+      if (IModelJsFs.existsSync(masterSeedFileName))
+        IModelJsFs.removeSync(masterSeedFileName);
+      const masterSeedState = { 1: 1, 2: 1 };
+      const masterSeedDb = SnapshotDb.createEmpty(masterSeedFileName, {
+        rootSubject: { name: "MasterReplacedRelationship" },
+      });
+      populateTimelineSeed(masterSeedDb, masterSeedState);
+      const masterSeed: TimelineIModelState = {
+        // HACK: we know this will only be used for seeding via its path and performCheckpoint
+        db: masterSeedDb as any as BriefcaseDb,
+        id: "master-seed",
+        state: masterSeedState,
+      };
+      const queryMember = (db: IModelDb) => {
+        const sourceId = IModelTestUtils.queryByUserLabel(db, "1");
+        const targetId = IModelTestUtils.queryByUserLabel(db, "2");
+        return {
+          sourceId,
+          targetId,
+          rel: db.relationships.tryGetInstance<ElementGroupsMembers>(
+            ElementGroupsMembers.classFullName,
+            { sourceId, targetId }
+          ),
+        };
+      };
+      let masterRelId: Id64String | undefined;
+
+      const timeline: Timeline = [
+        { master: { seed: masterSeed } },
+        {
+          master: {
+            manualUpdate(db) {
+              const { sourceId, targetId } = queryMember(db);
+              masterRelId = withEditTxn(db, "insert relationship", (txn) =>
+                txn.insertRelationship(
+                  ElementGroupsMembers.create(
+                    db,
+                    sourceId,
+                    targetId,
+                    0
+                  ).toJSON()
+                )
+              );
+            },
+          },
+        },
+        { branch1: { branch: "master" } },
+        {
+          branch1: {
+            manualUpdate(db) {
+              const { sourceId, targetId, rel } = queryMember(db);
+              assert(rel !== undefined);
+              withEditTxn(db, "replace relationship", (txn) => {
+                txn.deleteRelationship(rel.toJSON());
+                txn.insertRelationship(
+                  ElementGroupsMembers.create(
+                    db,
+                    sourceId,
+                    targetId,
+                    1
+                  ).toJSON()
+                );
+              });
+            },
+          },
+        },
+        { master: { sync: ["branch1"] } },
+        {
+          assert({ master }) {
+            expect(
+              count(master.db, ElementGroupsMembers.classFullName)
+            ).to.equal(1);
+            const { rel } = queryMember(master.db);
+            expect(rel?.id).to.equal(masterRelId);
+            expect(rel?.memberPriority).to.equal(1);
+          },
+        },
+      ];
+
+      const { tearDown } = await runTimeline(timeline, {
+        iTwinId,
+        accessToken,
+        transformerOpts: { forceExternalSourceAspectProvenance },
+      });
+      await tearDown();
+    });
+  }
+
   describe("addCustomChanges", () => {
     let sourceDb: BriefcaseDb;
     let targetDb: BriefcaseDb;
@@ -8341,6 +8435,212 @@ describe("IModelTransformerHub", () => {
         )
       ).to.be.equal(Id64.invalid);
     });
+
+    for (const forceExternalSourceAspectProvenance of [true, false]) {
+      for (const withFederationGuids of [true, false]) {
+        for (const sourceChange of [
+          "replaced in one changeset",
+          "replaced across changesets",
+          "replaced by a different relationship class",
+          "deleted",
+        ] as const) {
+          const replacedByOtherClass =
+            sourceChange === "replaced by a different relationship class";
+          // without federation guids, deletes match the target relationship by provenance id rather than by endpoints
+          if (replacedByOtherClass && !withFederationGuids) continue;
+          it(`should sync a source relationship that was ${sourceChange} (forceExternalSourceAspectProvenance=${forceExternalSourceAspectProvenance}, federationGuids=${withFederationGuids})`, async () => {
+            const otherRelClassFullName =
+              "TestOtherRelationships:OtherRefersToElements";
+            if (replacedByOtherClass) {
+              // a sibling of ElementGroupsMembers, so looking up ElementGroupsMembers by endpoints never finds it
+              const otherRelSchema = `<?xml version="1.0" encoding="UTF-8"?>
+                <ECSchema schemaName="TestOtherRelationships" alias="tor" version="01.00.00" xmlns="http://www.bentley.com/schemas/Bentley.ECXML.3.2">
+                  <ECSchemaReference name="BisCore" version="01.00.00" alias="bis"/>
+                  <ECRelationshipClass typeName="OtherRefersToElements" strength="referencing" modifier="None">
+                    <BaseClass>bis:ElementRefersToElements</BaseClass>
+                    <Source multiplicity="(0..*)" roleLabel="refers to" polymorphic="true">
+                      <Class class="bis:Element"/>
+                    </Source>
+                    <Target multiplicity="(0..*)" roleLabel="is referenced by" polymorphic="true">
+                      <Class class="bis:Element"/>
+                    </Target>
+                  </ECRelationshipClass>
+                </ECSchema>`;
+              for (const db of [sourceDb, targetDb]) {
+                await db.importSchemaStrings([otherRelSchema]);
+                await db.pushChanges({
+                  description: "import other relationship schema",
+                  retainLocks: true,
+                });
+              }
+            }
+            const [groupId, memberId] = withEditTxn(
+              sourceDb,
+              "insert elements",
+              (txn) => {
+                const modelId = PhysicalModel.insert(
+                  txn,
+                  IModel.rootSubjectId,
+                  "M"
+                );
+                const categoryId = SpatialCategory.insert(
+                  txn,
+                  IModel.dictionaryId,
+                  "C",
+                  {}
+                );
+                return ["Group", "Member"].map((label) =>
+                  txn.insertElement({
+                    classFullName: PhysicalObject.classFullName,
+                    model: modelId,
+                    category: categoryId,
+                    code: Code.createEmpty(),
+                    userLabel: label,
+                    ...(withFederationGuids
+                      ? {}
+                      : { federationGuid: Guid.empty }),
+                  } as GeometricElementProps)
+                );
+              }
+            );
+            const insertMember = (memberPriority: number) =>
+              withEditTxn(sourceDb, "insert relationship", (txn) =>
+                txn.insertRelationship(
+                  ElementGroupsMembers.create(
+                    sourceDb,
+                    groupId,
+                    memberId,
+                    memberPriority
+                  ).toJSON()
+                )
+              );
+            const deleteMember = (relId: Id64String) =>
+              withEditTxn(sourceDb, "delete relationship", (txn) =>
+                txn.deleteRelationship(
+                  sourceDb.relationships
+                    .getInstance(ElementGroupsMembers.classFullName, relId)
+                    .toJSON()
+                )
+              );
+            const transform = async (
+              options: IModelTransformOptions,
+              description: string
+            ) => {
+              const editTxn = createStartedEditTxn(targetDb);
+              const transformer = new IModelTransformer(
+                { source: sourceDb, target: editTxn },
+                { forceExternalSourceAspectProvenance, ...options }
+              );
+              await transformer.process();
+              transformer.dispose();
+              editTxn.end();
+              await targetDb.pushChanges({ description, retainLocks: true });
+            };
+            const targetMembers = () => [
+              ...targetDb.queryEntityIds({
+                from: ElementGroupsMembers.classFullName,
+              }),
+            ];
+            const usesRelationshipAspects =
+              forceExternalSourceAspectProvenance || !withFederationGuids;
+            const targetRelationshipAspects = () =>
+              targetDb.elements
+                .getAspects(
+                  IModelTestUtils.queryByUserLabel(targetDb, "Group"),
+                  ExternalSourceAspect.classFullName
+                )
+                .filter(
+                  (aspect) =>
+                    (aspect as ExternalSourceAspect).kind ===
+                    ExternalSourceAspect.Kind.Relationship
+                );
+
+            const originalRelId = insertMember(0);
+            await sourceDb.pushChanges({
+              description: "initial source data",
+              retainLocks: true,
+            });
+            await transform({}, "initial transform");
+            const [originalTargetRelId] = targetMembers();
+            assert(originalTargetRelId !== undefined);
+
+            deleteMember(originalRelId);
+            if (replacedByOtherClass) {
+              withEditTxn(sourceDb, "insert other relationship", (txn) =>
+                txn.insertRelationship({
+                  classFullName: otherRelClassFullName,
+                  sourceId: groupId,
+                  targetId: memberId,
+                })
+              );
+              await sourceDb.pushChanges({
+                description: `relationship ${sourceChange}`,
+                retainLocks: true,
+              });
+              await transform({ argsForProcessChanges: {} }, "process changes");
+
+              expect(
+                targetMembers(),
+                "the deleted relationship has a different class than the inserted one, so it should still be deleted"
+              ).to.be.empty;
+              expect([
+                ...targetDb.queryEntityIds({ from: otherRelClassFullName }),
+              ]).to.have.lengthOf(1);
+              expect(
+                targetRelationshipAspects(),
+                "only the inserted relationship should have provenance"
+              ).to.have.lengthOf(usesRelationshipAspects ? 1 : 0);
+              return;
+            }
+            if (sourceChange === "replaced across changesets")
+              await sourceDb.pushChanges({
+                description: "delete relationship",
+                retainLocks: true,
+              });
+            const replacementRelId =
+              sourceChange === "deleted" ? undefined : insertMember(1);
+            await sourceDb.pushChanges({
+              description: `relationship ${sourceChange}`,
+              retainLocks: true,
+            });
+            await transform({ argsForProcessChanges: {} }, "process changes");
+
+            if (replacementRelId === undefined) {
+              expect(targetMembers()).to.be.empty;
+              expect(targetRelationshipAspects()).to.be.empty;
+              return;
+            }
+            expect(
+              targetMembers(),
+              "the relationship still exists in the source, so it should exist in the target"
+            ).to.deep.equal([originalTargetRelId]);
+            expect(
+              targetDb.relationships.getInstance<ElementGroupsMembers>(
+                ElementGroupsMembers.classFullName,
+                originalTargetRelId
+              ).memberPriority
+            ).to.equal(1);
+            expect(
+              targetRelationshipAspects(),
+              "the deleted relationship's provenance should be removed, leaving only the replacement's"
+            ).to.have.lengthOf(usesRelationshipAspects ? 1 : 0);
+
+            // the replacement relationship's provenance must still let a later delete reach the target
+            deleteMember(replacementRelId);
+            await sourceDb.pushChanges({
+              description: "delete replacement relationship",
+              retainLocks: true,
+            });
+            await transform(
+              { argsForProcessChanges: {} },
+              "process replacement delete"
+            );
+            expect(targetMembers()).to.be.empty;
+            expect(targetRelationshipAspects()).to.be.empty;
+          });
+        }
+      }
+    }
 
     function generateSchema(
       schemaVersion: number,
