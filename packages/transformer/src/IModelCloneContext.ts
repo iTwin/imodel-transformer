@@ -6,7 +6,7 @@
  * @module iModels
  */
 import { strict as assert } from "node:assert";
-import { Id64, Id64String, ITwinError, Logger } from "@itwin/core-bentley";
+import { Id64, Id64String, Logger } from "@itwin/core-bentley";
 import {
   Code,
   CodeProps,
@@ -36,15 +36,11 @@ import { TransformerLoggerCategory } from "./TransformerLoggerCategory";
 import { BigMap } from "./BigMap";
 import type { IModelTransformContext } from "./IModelTransformContext";
 import {
-  IModelTransformerError,
-  IModelTransformerErrorScope,
-} from "./IModelTransformerError";
-
-/** Target identity only; model IDs and geometry are resolved during ordinary cloning. @internal */
-export type ElementReservationIdentity = Pick<
-  ElementProps,
-  "classFullName" | "federationGuid" | "code"
->;
+  ElementReservationIdentity,
+  isSameReservationIdentity,
+  throwReservationPlanChanged,
+  throwReservationUnsupported,
+} from "./ElementReservationState";
 
 /** Compact preparation state; codeBeforeHooks is pinned separately to avoid applying customization twice. @internal */
 export interface PreparedElementIdentity {
@@ -113,7 +109,7 @@ export class IModelCloneContext
     transform: () => Promise<ElementProps>
   ): Promise<PreparedElementIdentity> {
     if (!this.isBetweenIModels)
-      this.unsupportedIdentity(sourceElement, "in-place cloning");
+      throwReservationUnsupported(sourceElement.id, "in-place cloning");
     // Element.code constructs a Code, which trims whitespace. Native cloning
     // reads the stored value, so preparation must use raw props for parity.
     const sourceCode = this.sourceDb.elements.getElementProps(
@@ -131,7 +127,7 @@ export class IModelCloneContext
             value: sourceCode.value,
           };
     if (!code.scope || code.scope === Id64.invalid)
-      this.unsupportedIdentity(sourceElement, "an unresolved code scope");
+      throwReservationUnsupported(sourceElement.id, "an unresolved code scope");
     return this.withPreparedCode(sourceElement.id, code, async () => {
       const previous = this._identityPreparation;
       this._identityPreparation = {
@@ -167,37 +163,22 @@ export class IModelCloneContext
       async () => {
         const props = await transform();
         const expected = prepared.identity;
-        const expectedCode = prepared.codeBeforeMatch ?? expected.code;
         if (
-          props.classFullName !== expected.classFullName ||
-          props.federationGuid !== expected.federationGuid ||
-          props.code.spec !== expectedCode.spec ||
-          props.code.scope !== expectedCode.scope ||
-          (props.code.value ?? "") !== (expectedCode.value ?? "")
+          !isSameReservationIdentity(props, {
+            ...expected,
+            code: prepared.codeBeforeMatch ?? expected.code,
+          })
         ) {
-          ITwinError.throwError({
-            iTwinErrorId: {
-              scope: IModelTransformerErrorScope,
-              key: IModelTransformerError.ElementReservationPlanChanged,
-            },
-            message: `Reservation identity changed during execution for ${prepared.sourceId}. Transform callbacks must preserve the prepared GUID, class, and code.`,
-          });
+          throwReservationPlanChanged(
+            prepared.sourceId,
+            "transform callbacks must preserve the prepared GUID, class, and code"
+          );
         }
         if (prepared.codeBeforeMatch !== undefined)
           props.code = { ...expected.code };
         return props;
       }
     );
-  }
-
-  private unsupportedIdentity(sourceElement: Element, reason: string): never {
-    ITwinError.throwError({
-      iTwinErrorId: {
-        scope: IModelTransformerErrorScope,
-        key: IModelTransformerError.ElementReservationUnsupported,
-      },
-      message: `Cannot prepare reservation identity for ${sourceElement.id}: ${reason}. Preparation cannot insert target dependencies first.`,
-    });
   }
 
   private identityProps(sourceElement: Element): ElementProps {
@@ -220,29 +201,29 @@ export class IModelCloneContext
       get: (target, property, receiver) => {
         if (property === "then") return undefined; // Promise resolution inspects thenables.
         if (!Object.prototype.hasOwnProperty.call(target, property))
-          this.unsupportedIdentity(
-            sourceElement,
+          throwReservationUnsupported(
+            sourceElement.id,
             `transform hook reads target property ${String(property)} before its model exists`
           );
         return Reflect.get(target, property, receiver);
       },
       has: (target, property) => {
         if (!Object.prototype.hasOwnProperty.call(target, property))
-          this.unsupportedIdentity(
-            sourceElement,
+          throwReservationUnsupported(
+            sourceElement.id,
             `transform hook inspects target property ${String(property)} before its model exists`
           );
         return true;
       },
       ownKeys: () =>
-        this.unsupportedIdentity(
-          sourceElement,
+        throwReservationUnsupported(
+          sourceElement.id,
           "transform hook enumerates incomplete target props"
         ),
       getOwnPropertyDescriptor: (target, property) => {
         if (!Object.prototype.hasOwnProperty.call(target, property))
-          this.unsupportedIdentity(
-            sourceElement,
+          throwReservationUnsupported(
+            sourceElement.id,
             `transform hook inspects target property ${String(property)} before its model exists`
           );
         return Reflect.getOwnPropertyDescriptor(target, property);

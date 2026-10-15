@@ -68,7 +68,6 @@ import {
   ChangesetIndexAndId,
   Code,
   CodeProps,
-  CodeScopeSpec,
   CodeSpec,
   ConcreteEntityTypes,
   ECJsNames,
@@ -98,10 +97,9 @@ import {
   IModelExportHandler,
 } from "./IModelExporter";
 import { IModelImporter, OptimizeGeometryOptions } from "./IModelImporter";
-import {
-  ElementReservationElementPlan,
-  ElementReservationOperation,
-} from "./ElementReservationOperation";
+import { ElementReservationOperation } from "./ElementReservationOperation";
+import { ElementReservationPlanner } from "./ElementReservationPlanner";
+import { throwReservationPlanChanged } from "./ElementReservationState";
 import { TransformerLoggerCategory } from "./TransformerLoggerCategory";
 import { IModelCloneContext } from "./IModelCloneContext";
 import type { IModelTransformContext } from "./IModelTransformContext";
@@ -648,7 +646,7 @@ export class IModelTransformer extends IModelExportHandler {
       this._cloneContext,
       {
         collectElement: async (sourceElement) =>
-          this.collectReservationElement(sourceElement),
+          planner.collectElement(sourceElement),
         replayAspectCleanup: async (excludedClassFullNames, sourceIds) =>
           this.prepareElementAspects(excludedClassFullNames, sourceIds),
         repairReferences: async (kind) =>
@@ -657,9 +655,28 @@ export class IModelTransformer extends IModelExportHandler {
             : this.completePartiallyCommittedAspects(),
         persistProvenance: async () =>
           this._provenanceManager.persistDeferredScopeInitialization(),
-        rejectUnsupported: (sourceId, reason) =>
-          this.throwReservationUnsupported(sourceId, reason),
       }
+    );
+    // Callbacks run only after install(), so the planner below already exists.
+    const planner = new ElementReservationPlanner(
+      {
+        sourceDb: this.sourceDb,
+        targetDb: this.targetDb,
+        exporter: this.exporter,
+        cloneContext: this._cloneContext,
+        wasSourceIModelCopiedToTarget:
+          this._options.wasSourceIModelCopiedToTarget ?? false,
+        preserveElementIdsForFiltering:
+          this._options.preserveElementIdsForFiltering ?? false,
+        targetElementIdsRemappedByCode: this._targetElementIdsRemappedByCode,
+        hasElementChanged: (sourceElement) =>
+          this.hasElementChanged(sourceElement),
+        transformElement: async (sourceElement) =>
+          this.onTransformElement(sourceElement),
+        findExistingTargetElement: async (sourceElement, targetProps) =>
+          this.findExistingTargetElement(sourceElement, targetProps),
+      },
+      operation
     );
     this._elementReservationOperation = operation;
     try {
@@ -673,240 +690,14 @@ export class IModelTransformer extends IModelExportHandler {
       }
     } catch (error) {
       if (operation.isCollecting) this._initialized = wasInitialized;
-      if (!operation.isDone) this.discardReservationPreparation();
+      if (!operation.isDone) planner.discard();
       throw error;
     } finally {
       operation.release();
-      this._reservationAddedMappings = [];
-      this._reservationAddedCodeRemaps.clear();
       this._elementReservationOperation = undefined;
       this._pendingSubjectRepairs = 0;
       this._provenanceManager.discardDeferredScopeInitialization();
     }
-  }
-
-  private throwReservationPlanChanged(
-    sourceId: Id64String,
-    reason: string
-  ): never {
-    ITwinError.throwError({
-      iTwinErrorId: {
-        scope: IModelTransformerErrorScope,
-        key: IModelTransformerError.ElementReservationPlanChanged,
-      },
-      message: `Reservation plan changed for ${sourceId}: ${reason}.`,
-    });
-  }
-
-  private throwReservationUnsupported(
-    sourceId: Id64String,
-    reason: string
-  ): never {
-    ITwinError.throwError({
-      iTwinErrorId: {
-        scope: IModelTransformerErrorScope,
-        key: IModelTransformerError.ElementReservationUnsupported,
-      },
-      message: `Cannot prepare reservation identity for ${sourceId}: ${reason}. Preparation cannot insert target dependencies first.`,
-    });
-  }
-
-  private discardReservationPreparation(): void {
-    for (const [sourceId, targetId] of this._reservationAddedMappings) {
-      if (this._cloneContext.findTargetElementId(sourceId) === targetId)
-        this._cloneContext.removeElement(sourceId);
-    }
-    for (const targetId of this._reservationAddedCodeRemaps)
-      this._targetElementIdsRemappedByCode.delete(targetId);
-  }
-
-  private _reservationAddedMappings: Array<[Id64String, Id64String]> = [];
-  private _reservationAddedCodeRemaps = new Set<Id64String>();
-
-  private async resolveReservationCodeScope(
-    sourceElement: Element
-  ): Promise<string> {
-    const operation = this._elementReservationOperation;
-    nodeAssert(operation !== undefined);
-    const sourceCode = this.sourceDb.elements.getElementProps(
-      sourceElement.id
-    ).code;
-    const intrinsicEmptyCode = Code.createEmpty().toJSON();
-    if (Code.isEmpty(sourceCode) && sourceCode.spec === intrinsicEmptyCode.spec)
-      return IModel.rootSubjectId;
-
-    if (sourceCode.scope === undefined || Id64.isInvalid(sourceCode.scope)) {
-      this.throwReservationUnsupported(
-        sourceElement.id,
-        "a non-empty code has no usable scope"
-      );
-    }
-    if (sourceCode.scope === IModel.rootSubjectId) {
-      const scopeType = this.sourceDb.codeSpecs.getById(
-        sourceCode.spec
-      ).scopeType;
-      // The repository model is always 0x1, even when the root Subject is remapped.
-      if (
-        scopeType === CodeScopeSpec.Type.Repository ||
-        scopeType === CodeScopeSpec.Type.Model
-      )
-        return IModel.rootSubjectId;
-      return (
-        operation.getLogicalScope(sourceCode.scope) ?? IModel.rootSubjectId
-      );
-    }
-
-    let targetScope = operation.getLogicalScope(sourceCode.scope);
-    if (targetScope !== undefined) return targetScope;
-
-    if (this.sourceDb.models.tryGetModelProps(sourceCode.scope)) {
-      await this.exporter.exportModel(sourceCode.scope);
-    } else {
-      await this.exporter.exportElement(sourceCode.scope);
-    }
-    targetScope = operation.getLogicalScope(sourceCode.scope);
-    if (targetScope === undefined) {
-      this.throwReservationUnsupported(
-        sourceElement.id,
-        `code scope ${sourceCode.scope} is not an existing or prepared target identity`
-      );
-    }
-    return targetScope;
-  }
-
-  private async collectReservationElement(
-    sourceElement: Element
-  ): Promise<ElementReservationElementPlan | undefined> {
-    const operation = this._elementReservationOperation;
-    nodeAssert(operation !== undefined);
-    if (!this.hasElementChanged(sourceElement)) return undefined;
-
-    const parentCategoryPlan =
-      sourceElement instanceof SubCategory && sourceElement.isDefaultSubCategory
-        ? operation.getElementPlan(sourceElement.getCategoryId())
-        : undefined;
-    const autoInsertedForCategory =
-      parentCategoryPlan !== undefined &&
-      !Id64.isValidId64(parentCategoryPlan.targetElementId)
-        ? parentCategoryPlan.sourceId
-        : undefined;
-    if (
-      parentCategoryPlan !== undefined &&
-      autoInsertedForCategory !== undefined &&
-      !(
-        this.targetDb.getJsClass(parentCategoryPlan.identity.classFullName)
-          .prototype instanceof Category
-      )
-    )
-      this.throwReservationUnsupported(
-        sourceElement.id,
-        "the transformed parent does not create a default SubCategory"
-      );
-
-    let targetElementId: Id64String;
-    let prepared: ElementReservationElementPlan["prepared"];
-    let identity: ElementReservationElementPlan["identity"];
-
-    if (this._options.wasSourceIModelCopiedToTarget) {
-      targetElementId = sourceElement.id;
-      const targetProps =
-        this.targetDb.elements.getElementProps(targetElementId);
-      identity = {
-        classFullName: targetProps.classFullName,
-        federationGuid: targetProps.federationGuid,
-        code: { ...targetProps.code },
-      };
-    } else if (!this.context.isBetweenIModels) {
-      // Existing in-place matches need no shared allocation or identity-only clone.
-      const targetProps = await this.onTransformElement(sourceElement);
-      targetElementId = this.context.findTargetElementId(sourceElement.id);
-      if (!Id64.isValid(targetElementId))
-        targetElementId = await this.findExistingTargetElement(
-          sourceElement,
-          targetProps
-        );
-      identity = {
-        classFullName: targetProps.classFullName,
-        federationGuid: targetProps.federationGuid,
-        code: { ...targetProps.code },
-      };
-      if (
-        !Id64.isValidId64(targetElementId) &&
-        identity.federationGuid !== undefined
-      )
-        this.throwReservationUnsupported(
-          sourceElement.id,
-          "in-place cloning requires a new reserved identity"
-        );
-    } else {
-      const targetCodeScope =
-        await this.resolveReservationCodeScope(sourceElement);
-      const preparedIdentity = await this._cloneContext.prepareElementIdentity(
-        sourceElement,
-        targetCodeScope,
-        async () => this.onTransformElement(sourceElement)
-      );
-      prepared = preparedIdentity;
-      const targetProps: Pick<
-        ElementProps,
-        "classFullName" | "federationGuid" | "code"
-      > = {
-        classFullName: preparedIdentity.identity.classFullName,
-        federationGuid: preparedIdentity.identity.federationGuid,
-        code: { ...preparedIdentity.identity.code },
-      };
-      const oldTargetId = this.context.findTargetElementId(sourceElement.id);
-      targetElementId =
-        autoInsertedForCategory !== undefined
-          ? Id64.invalid
-          : Id64.isValid(oldTargetId)
-            ? oldTargetId
-            : await this.findExistingTargetElement(sourceElement, targetProps);
-      if (
-        targetProps.code.spec !== preparedIdentity.identity.code.spec ||
-        targetProps.code.scope !== preparedIdentity.identity.code.scope ||
-        (targetProps.code.value ?? "") !==
-          (preparedIdentity.identity.code.value ?? "")
-      ) {
-        preparedIdentity.codeBeforeMatch = {
-          ...preparedIdentity.identity.code,
-        };
-      }
-      preparedIdentity.identity.code = { ...targetProps.code };
-      identity = preparedIdentity.identity;
-      if (!Id64.isValidId64(oldTargetId) && Id64.isValidId64(targetElementId)) {
-        this._reservationAddedMappings.push([
-          sourceElement.id,
-          targetElementId,
-        ]);
-        if (this._targetElementIdsRemappedByCode.has(targetElementId))
-          this._reservationAddedCodeRemaps.add(targetElementId);
-      }
-    }
-
-    if (
-      !Id64.isValid(targetElementId) &&
-      identity.federationGuid !== undefined &&
-      this._options.preserveElementIdsForFiltering
-    ) {
-      this.throwReservationUnsupported(
-        sourceElement.id,
-        "preserveElementIdsForFiltering requires a real target ID before insertion"
-      );
-    }
-
-    return {
-      sourceId: sourceElement.id,
-      targetElementId,
-      autoInsertedForCategory,
-      insertId:
-        this._options.preserveElementIdsForFiltering &&
-        identity.federationGuid === undefined
-          ? sourceElement.id
-          : undefined,
-      prepared,
-      identity,
-    };
   }
 
   /** validates that the importer set on the transformer has the same values for its shared options as the transformer.
@@ -1902,7 +1693,7 @@ export class IModelTransformer extends IModelExportHandler {
         planned !== undefined &&
         !Id64.isValidId64(targetElementId);
       if (isPlannedInsert && targetElementProps.id !== planned.insertId) {
-        this.throwReservationPlanChanged(
+        throwReservationPlanChanged(
           sourceElement.id,
           "a planned insert supplied an element ID before reaching the importer"
         );
@@ -1915,7 +1706,7 @@ export class IModelTransformer extends IModelExportHandler {
         if (isPlannedInsert) insertionObserved = operation.endElementInsert();
       }
       if (isPlannedInsert && !insertionObserved) {
-        this.throwReservationPlanChanged(
+        throwReservationPlanChanged(
           sourceElement.id,
           "the importer did not reach its ordinary element insertion boundary"
         );

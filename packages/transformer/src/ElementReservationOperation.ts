@@ -5,7 +5,7 @@
 /** @internal */
 
 import { strict as assert } from "node:assert";
-import { Id64, Id64String, ITwinError, Logger } from "@itwin/core-bentley";
+import { Id64, Id64String, Logger } from "@itwin/core-bentley";
 import {
   // eslint-disable-next-line @typescript-eslint/no-redeclare
   Element,
@@ -23,20 +23,19 @@ import {
   IModelExportHandler,
 } from "./IModelExporter";
 import {
-  ElementReservationIdentity,
   IModelCloneContext,
   PreparedElementIdentity,
 } from "./IModelCloneContext";
 import { TransformerLoggerCategory } from "./TransformerLoggerCategory";
 import {
+  ElementReservationIdentity,
+  isSameReservationIdentity,
   ReservationExportContext,
   setElementReservationInsertionGuard,
   setReservationExportContext,
+  throwReservationPlanChanged,
+  throwReservationUnsupported,
 } from "./ElementReservationState";
-import {
-  IModelTransformerError,
-  IModelTransformerErrorScope,
-} from "./IModelTransformerError";
 
 const loggerCategory = TransformerLoggerCategory.IModelTransformer;
 
@@ -124,8 +123,6 @@ export interface ElementReservationOperationCallbacks {
   repairReferences(kind: "repair-elements" | "repair-aspects"): Promise<void>;
   /** Persists deferred scope provenance after reservation succeeds. */
   persistProvenance(): Promise<void>;
-  /** Rejects a known unsupported preparation or identity case. */
-  rejectUnsupported(sourceId: Id64String, reason: string): never;
 }
 
 /** A private exporter adapter and ordered journal for one outer transformer operation. @internal */
@@ -238,7 +235,7 @@ export class ElementReservationOperation extends IModelExportHandler {
       )
         continue;
       if (visiting.has(id))
-        this._callbacks.rejectUnsupported(
+        throwReservationUnsupported(
           id,
           "a required element or code-scope dependency forms a cycle"
         );
@@ -332,49 +329,27 @@ export class ElementReservationOperation extends IModelExportHandler {
   public guardElementInsertion(elementProps: ElementProps): void {
     const plan = this._currentInsertPlan;
     if (plan === undefined || Id64.isValidId64(plan.targetElementId)) {
-      this.throwPlanChanged(
+      throwReservationPlanChanged(
         plan?.sourceId ?? elementProps.id ?? Id64.invalid,
         "an unplanned element insert reached the importer"
       );
     }
     if (this._insertWasObserved)
-      this.throwPlanChanged(
+      throwReservationPlanChanged(
         plan.sourceId,
         "the importer attempted more than one ordinary insert for a planned element"
       );
     this._insertWasObserved = true;
     if (elementProps.id !== plan.insertId)
-      this.throwPlanChanged(
+      throwReservationPlanChanged(
         plan.sourceId,
         "the insert did not preserve its planned ID-allocation policy"
       );
-    const expected = plan.identity;
-    const actualCode = elementProps.code;
-    if (
-      elementProps.classFullName !== expected.classFullName ||
-      elementProps.federationGuid !== expected.federationGuid ||
-      actualCode.spec !== expected.code.spec ||
-      actualCode.scope !== expected.code.scope ||
-      (actualCode.value ?? "") !== (expected.code.value ?? "")
-    ) {
-      ITwinError.throwError({
-        iTwinErrorId: {
-          scope: IModelTransformerErrorScope,
-          key: IModelTransformerError.ElementReservationPlanChanged,
-        },
-        message: `Reservation identity changed at the importer insertion boundary for ${plan.sourceId}.`,
-      });
-    }
-  }
-
-  private throwPlanChanged(sourceId: Id64String, reason: string): never {
-    ITwinError.throwError({
-      iTwinErrorId: {
-        scope: IModelTransformerErrorScope,
-        key: IModelTransformerError.ElementReservationPlanChanged,
-      },
-      message: `Reservation plan changed for ${sourceId}: ${reason}.`,
-    });
+    if (!isSameReservationIdentity(elementProps, plan.identity))
+      throwReservationPlanChanged(
+        plan.sourceId,
+        "its identity changed at the importer insertion boundary"
+      );
   }
 
   /** Reserve and replay the completed journal, at most once per outer operation. */
@@ -445,7 +420,7 @@ export class ElementReservationOperation extends IModelExportHandler {
           previousCodeSourceId !== undefined &&
           previousCodeSourceId !== plan.sourceId
         ) {
-          this._callbacks.rejectUnsupported(
+          throwReservationUnsupported(
             plan.sourceId,
             `its pending code identity duplicates source element ${previousCodeSourceId}`
           );
@@ -461,7 +436,7 @@ export class ElementReservationOperation extends IModelExportHandler {
         previousGuidSourceId !== undefined &&
         previousGuidSourceId !== plan.sourceId
       ) {
-        this._callbacks.rejectUnsupported(
+        throwReservationUnsupported(
           plan.sourceId,
           `its pending federation GUID duplicates source element ${previousGuidSourceId}`
         );
@@ -655,7 +630,7 @@ export class ElementReservationOperation extends IModelExportHandler {
       sourceModel.id !== IModel.repositoryModelId &&
       !this.hasElementIdentity(sourceModel.id)
     ) {
-      this._callbacks.rejectUnsupported(
+      throwReservationUnsupported(
         sourceModel.id,
         "the model's modeled element was not accepted by the exporter"
       );

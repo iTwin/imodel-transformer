@@ -2,7 +2,20 @@
 
 `IModelTransformer` bulk-reserves eligible target element inserts before executing each processing call when the target uses server-based element reservations and does not hold the schema lock. There is no opt-in option or caller preparation step. Local/no-op reservation targets and the schema-lock-held bypass keep their existing processing behavior.
 
+Automatic reservations require iTwin.js 5.15 or later (`@bentley/imodeljs-native` 5.15.14 or later). Reserved element IDs start with `0xfffff6`, and earlier native versions rejected IDs at or above `0x8000000000000000` in the ECSQL `IdSet` function used by aspect cleanup, aspect export, and bulk deletion ([imodel-native#1640](https://github.com/iTwin/imodel-native/issues/1640)).
+
 Element reservations do not enable SchemaSync or import schemas. Configure the target's synchronization and locking policy separately, and call `processSchemas()` when the target needs schema preparation. See [Schema processing](./schema-processing.md).
+
+## Who handles what
+
+| The transformer handles                                                                                    | The caller handles                                                                                                  |
+| ---------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------- |
+| Deciding which target inserts need a reservation, and skipping matches, updates, deletions, and exclusions | Configuring the target's shared reservations, SchemaSync, and lock policy, and running `processSchemas()` if needed |
+| One bulk `reserveElements` request per outermost processing call, before that call's element writes        | Making every briefcase that inserts a shared reserved identity insert identical contents                            |
+| Keeping the reserved class, GUID, and code (including GUID-form code scopes) through ordinary insertion    | Keeping identity-affecting hooks stable between preparation and execution, and free of database writes              |
+| Rejecting unsupported cases with `ElementReservationUnsupported` before element writes                     | Abandoning or saving the target transaction after a failure, and using a fresh transformer after rolling back       |
+| Rejecting execution that drifts from the plan with `ElementReservationPlanChanged`                         | Treating reservations as outliving an abandoned transaction; they are not rolled back                               |
+| Logging a failed reservation request once and rethrowing the backend error                                 | Retrying, if wanted; the transformer does not retry or fall back to single-element requests                         |
 
 ## What is reserved
 
@@ -28,7 +41,7 @@ Each outermost call to `process()`, `processElement()`, `processChildElements()`
 
 Nested dependency processing joins the same operation. Two separate subset calls are two operations, even when they share a transaction. There is no public API to collect arbitrary calls into a larger reservation group. An operation with no eligible inserts makes no reservation request.
 
-The transformer retains source IDs and compact identity/event metadata while preparing the operation, rather than retaining every element's geometry. Preparation adds memory use and delays the first import. Sources containing SchemaSync-reserved element IDs use a compatible query path on the supported backend; aspect hydration on that path can require additional native lookups. Selection callbacks are not rerun in a second export traversal. Keep the source data, caller-owned target data, and export configuration stable throughout the call.
+The transformer retains source IDs and compact identity/event metadata while preparing the operation, rather than retaining every element's geometry. Preparation adds memory use and delays the first import. Selection callbacks are not rerun in a second export traversal. Keep the source data, caller-owned target data, and export configuration stable throughout the call.
 
 `process()` retains its normal finalization behavior. Incremental processing retains its configured `saveTargetChanges` callback. Neither runs a finalization/save tail after an earlier preparation, reservation, or execution failure. Subset calls do not finalize or save automatically.
 

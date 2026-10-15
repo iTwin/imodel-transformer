@@ -8,6 +8,8 @@ Reservation-enabled workflows now run identity-affecting `onCloned` and `onTrans
 
 The caller must ensure that all briefcases sharing a reserved identity insert identical contents. Backend class/code checks do not establish full-content equality. Preparation and reservation failures prevent the operation's element/provenance modifications, but earlier setup writes may remain. Execution failures can leave pending target edits and committed reservations. The transformer neither retries with singleton requests nor abandons caller transactions automatically.
 
+This requires iTwin.js 5.15 or later. Native 5.15.14 fixed the ECSQL `IdSet` function, which rejected reserved element IDs (`0xfffff6…`) and broke aspect cleanup, aspect export, and bulk deletion of reserved elements ([imodel-native#1640](https://github.com/iTwin/imodel-native/issues/1640)).
+
 The new transformer error keys are `ElementReservationUnsupported` for unsupported preparation and `ElementReservationPlanChanged` for execution-time identity drift or detected unplanned inserts. Backend reservation and insertion errors retain their original contract. Subset calls still require caller finalization/saving; schema processing remains a separate prerequisite.
 
 See [Automatic element reservations](../learning/transformer/element-reservations.md) for operation boundaries, supported customization, code scopes, and failure handling.
