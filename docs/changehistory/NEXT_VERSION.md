@@ -328,6 +328,42 @@ The following APIs were removed from `IModelTransformer`:
 
 Subclasses that need the extracted provenance functionality can use the protected `_provenanceManager`. To determine synchronization direction, use `getIsForwardSynchronization()` or `getIsReverseSynchronization()`.
 
+## Breaking change: `onExportRelationship` overrides must forward endpoint FederationGuids
+
+`IModelExporter` now reads the FederationGuids of each relationship's source and target elements in the same bulk query that loads the relationships. It passes them to `IModelExportHandler.onExportRelationship(relationship, isUpdate, sourceFedGuid, targetFedGuid)`. `IModelTransformer.onExportRelationship` no longer looks up these FederationGuids itself.
+
+`IModelTransformer.onExportRelationship` writes an `ExternalSourceAspect` for a relationship unless it receives both `sourceFedGuid` and `targetFedGuid`, or unless `forceExternalSourceAspectProvenance` is set. These parameters are optional, so an override that calls `super.onExportRelationship(relationship)` still compiles. However, it writes an `ExternalSourceAspect` for every relationship, even when both endpoints have FederationGuids. Such a transformation is slower and writes different provenance than a transformation without the override.
+
+Add the `isUpdate`, `sourceFedGuid` and `targetFedGuid` parameters to your override and pass them to `super`:
+
+```ts
+// Before
+public override async onExportRelationship(
+  sourceRelationship: Relationship
+): Promise<void> {
+  // custom logic
+  return super.onExportRelationship(sourceRelationship);
+}
+
+// After
+public override async onExportRelationship(
+  sourceRelationship: Relationship,
+  isUpdate?: boolean,
+  sourceFedGuid?: GuidString,
+  targetFedGuid?: GuidString
+): Promise<void> {
+  // custom logic
+  return super.onExportRelationship(
+    sourceRelationship,
+    isUpdate,
+    sourceFedGuid,
+    targetFedGuid
+  );
+}
+```
+
+Code that calls `IModelTransformer.onExportRelationship` directly must also pass the endpoint FederationGuids to avoid the extra `ExternalSourceAspect`s.
+
 ## Breaking changes: Many synchronous methods are now asynchronous
 
 As part of the upgrade to iTwin.js 5.0, a large number of previously synchronous methods across the public API now return `Promise` and must be `await`ed. If you override any of these methods in a subclass, your override must also be declared `async` (or return a `Promise`).

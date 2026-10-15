@@ -20,7 +20,7 @@ import {
   withEditTxn,
 } from "@itwin/core-backend";
 import { IModelTransformer } from "@itwin/imodel-transformer";
-import { Logger } from "@itwin/core-bentley";
+import { GuidString, Logger } from "@itwin/core-bentley";
 import {
   TestTransformerModule,
   TransformRunner,
@@ -40,10 +40,18 @@ class ProgressTransformer extends IModelTransformer {
     return super.onExportElement(sourceElement);
   }
   public override async onExportRelationship(
-    sourceRelationship: Relationship
+    sourceRelationship: Relationship,
+    isUpdate?: boolean,
+    sourceFedGuid?: GuidString,
+    targetFedGuid?: GuidString
   ): Promise<void> {
     this._increment();
-    return super.onExportRelationship(sourceRelationship);
+    return super.onExportRelationship(
+      sourceRelationship,
+      isUpdate,
+      sourceFedGuid,
+      targetFedGuid
+    );
   }
 }
 
