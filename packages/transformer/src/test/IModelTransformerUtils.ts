@@ -10,7 +10,6 @@ import * as inspector from "node:inspector";
 import {
   CompressedId64Set,
   Guid,
-  GuidString,
   Id64,
   Id64Set,
   Id64String,
@@ -91,7 +90,11 @@ import {
   SubjectProps,
   ViewDetails3dProps,
 } from "@itwin/core-common";
-import { IModelExporter, IModelExportHandler } from "../IModelExporter";
+import {
+  IModelExporter,
+  IModelExportHandler,
+  RelationshipEndpointFederationGuids,
+} from "../IModelExporter";
 import { IModelImporter, IModelImportOptions } from "../IModelImporter";
 import {
   IModelTransformer,
@@ -2419,8 +2422,7 @@ export class IModelToTextFileExporter extends IModelExportHandler {
   public override async onExportRelationship(
     relationship: Relationship,
     isUpdate: boolean | undefined,
-    sourceFedGuid?: GuidString,
-    targetFedGuid?: GuidString
+    endpointFedGuids?: RelationshipEndpointFederationGuids
   ): Promise<void> {
     if (this._firstRelationship) {
       this.writeSeparator();
@@ -2431,12 +2433,7 @@ export class IModelToTextFileExporter extends IModelExportHandler {
         relationship.id
       }${this.formatOperationName(isUpdate)}`
     );
-    await super.onExportRelationship(
-      relationship,
-      isUpdate,
-      sourceFedGuid,
-      targetFedGuid
-    );
+    await super.onExportRelationship(relationship, isUpdate, endpointFedGuids);
   }
   public override async onDeleteRelationship(
     relInstanceId: Id64String
@@ -2556,19 +2553,13 @@ export class ClassCounter extends IModelExportHandler {
   public override async onExportRelationship(
     relationship: Relationship,
     isUpdate: boolean | undefined,
-    sourceFedGuid?: GuidString,
-    targetFedGuid?: GuidString
+    endpointFedGuids?: RelationshipEndpointFederationGuids
   ): Promise<void> {
     this.incrementClassCount(
       this._relationshipClassCounts,
       relationship.classFullName
     );
-    await super.onExportRelationship(
-      relationship,
-      isUpdate,
-      sourceFedGuid,
-      targetFedGuid
-    );
+    await super.onExportRelationship(relationship, isUpdate, endpointFedGuids);
   }
 }
 
