@@ -291,6 +291,14 @@ export interface TargetScopeProvenanceJsonProps {
   reverseSyncVersion: string;
 }
 
+/** Key of a relationship's source and target element ids. */
+function relationshipEndpointsKey(
+  sourceId: Id64String,
+  targetId: Id64String
+): string {
+  return `${sourceId}|${targetId}`;
+}
+
 /**
  * Apply a function to each Id64 in a supported container type of Id64s.
  * Currently only supports raw Id64String or RelatedElement-like objects containing an `id` property that is a Id64String,
@@ -1044,6 +1052,14 @@ export class IModelTransformer extends IModelExportHandler {
       provenanceAspectId?: Id64String;
     }
   > = undefined;
+
+  /** Target relationship ids and target endpoint keys of [[_deletedSourceRelationshipData]] entries, for fast matching in [[onExportRelationship]]. */
+  private _pendingRelationshipDeleteTargets = new Set<string>();
+
+  /** Target relationships that this run imported from a source relationship and that a pending relationship delete also resolves to.
+   * A source relationship deleted and recreated with the same endpoints maps to the same target relationship, which must not be deleted.
+   */
+  private _reimportedTargetRelationshipIds = new Set<Id64String>();
 
   /** Returns true if a change within sourceElement is detected.
    * @param sourceElement The Element from the source iModel
@@ -1873,6 +1889,21 @@ export class IModelTransformer extends IModelExportHandler {
     const targetRelationshipInstanceId = await this.importer.importRelationship(
       targetRelationshipProps
     );
+    if (
+      this._pendingRelationshipDeleteTargets.size > 0 &&
+      Id64.isValid(targetRelationshipInstanceId) &&
+      (this._pendingRelationshipDeleteTargets.has(
+        targetRelationshipInstanceId
+      ) ||
+        this._pendingRelationshipDeleteTargets.has(
+          relationshipEndpointsKey(
+            targetRelationshipProps.sourceId,
+            targetRelationshipProps.targetId
+          )
+        ))
+    ) {
+      this._reimportedTargetRelationshipIds.add(targetRelationshipInstanceId);
+    }
 
     const provenanceDb = await this.getProvenanceDb();
     const provenanceEditTxn =
@@ -1937,7 +1968,13 @@ export class IModelTransformer extends IModelExportHandler {
         sourceId: deletedRelData.sourceIdInTarget,
         targetId: deletedRelData.targetIdInTarget,
       } as SourceAndTarget)?.id;
-    if (id) {
+    if (id && this._reimportedTargetRelationshipIds.has(id)) {
+      // The source relationship was recreated with the same endpoints and already imported into this target relationship.
+      Logger.logTrace(
+        loggerCategory,
+        `Skipping delete of target relationship ${id} because source relationship ${sourceRelInstanceId} was recreated`
+      );
+    } else if (id) {
       await this.importer.deleteRelationship({
         id,
         classFullName: deletedRelData.classFullName,
@@ -2350,6 +2387,8 @@ export class IModelTransformer extends IModelExportHandler {
     );
 
     this._deletedSourceRelationshipData = new Map();
+    this._pendingRelationshipDeleteTargets.clear();
+    this._reimportedTargetRelationshipIds.clear();
 
     for (const batch of deletionBatches) {
       // Deletion records can only resolve targets within their own batch, so these lookups are rebuilt for each batch.
@@ -2484,30 +2523,41 @@ export class IModelTransformer extends IModelExportHandler {
     const targetIdInTarget = await getEndpointInTarget(
       deletion.targetECInstanceId
     );
+    const isProvenanceSource =
+      this.sourceDb === (await this._provenanceManager.getProvenanceSourceDb());
+    const queryRelationshipProvenance = async () =>
+      this._provenanceManager.queryProvenanceForRelationship(ecInstanceId, {
+        classFullName,
+        sourceId: deletion.sourceECInstanceId,
+        targetId: deletion.targetECInstanceId,
+      });
     if (sourceIdInTarget && targetIdInTarget) {
+      // relationships with ESA provenance must have their aspect deleted too, even when the target relationship is found by endpoints
+      const provenanceAspectId =
+        this._options.forceExternalSourceAspectProvenance && isProvenanceSource
+          ? (await queryRelationshipProvenance())?.aspectId
+          : undefined;
       this._deletedSourceRelationshipData?.set(ecInstanceId, {
         classFullName,
         sourceIdInTarget,
         targetIdInTarget,
+        provenanceAspectId,
       });
-    } else if (
-      this.sourceDb === (await this._provenanceManager.getProvenanceSourceDb())
-    ) {
-      const relProvenance =
-        await this._provenanceManager.queryProvenanceForRelationship(
-          ecInstanceId,
-          {
-            classFullName,
-            sourceId: deletion.sourceECInstanceId,
-            targetId: deletion.targetECInstanceId,
-          }
-        );
-      if (relProvenance && relProvenance.relationshipId)
+      this._pendingRelationshipDeleteTargets.add(
+        relationshipEndpointsKey(sourceIdInTarget, targetIdInTarget)
+      );
+    } else if (isProvenanceSource) {
+      const relProvenance = await queryRelationshipProvenance();
+      if (relProvenance && relProvenance.relationshipId) {
         this._deletedSourceRelationshipData?.set(ecInstanceId, {
           classFullName,
           relId: relProvenance.relationshipId,
           provenanceAspectId: relProvenance.aspectId,
         });
+        this._pendingRelationshipDeleteTargets.add(
+          relProvenance.relationshipId
+        );
+      }
     }
   }
 

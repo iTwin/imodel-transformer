@@ -7,6 +7,7 @@ import * as path from "node:path";
 import { afterAll, afterEach, beforeAll, vi } from "vitest";
 import { IModelHost, IModelHostOptions } from "@itwin/core-backend";
 import { Logger, LogLevel, ProcessDetector } from "@itwin/core-bentley";
+import { disableGcsWorkspacesForTests } from "@itwin/imodel-transformer-test-utils";
 import { KnownTestLocations } from "./TestUtils/KnownTestLocations";
 import { transformerTestHub } from "./TestUtils/TransformerTestHub";
 // Register custom matchers before each test file loads.
@@ -22,6 +23,7 @@ export async function startTransformerTestHost(): Promise<void> {
     cfg.cacheDir = path.join(KnownTestLocations.outputDir, ".cache");
   }
   await IModelHost.startup(cfg);
+  disableGcsWorkspacesForTests();
 }
 
 beforeAll(async () => {
