@@ -1,6 +1,6 @@
 {
   "type": "patch",
-  "comment": "Restore the endpoint FederationGuid lookup in IModelTransformer.onExportRelationship when a caller does not pass the FederationGuids, so overrides that call super with only the relationship keep their previous provenance output. The exporter now passes null for endpoints without a FederationGuid, so they are not looked up again.",
+  "comment": "Pass relationship endpoint FederationGuids to onExportRelationship as one optional RelationshipEndpointFederationGuids object. When the object is not passed, IModelTransformer looks up both FederationGuids, so overrides that call super with only the relationship keep their previous provenance output.",
   "packageName": "@itwin/imodel-transformer",
   "email": "DanRod1999@users.noreply.github.com",
   "dependentChangeType": "patch"

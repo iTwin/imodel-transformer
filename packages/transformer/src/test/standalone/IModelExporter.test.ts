@@ -27,13 +27,7 @@ import {
   SubjectOwnsPartitionElements,
   withEditTxn,
 } from "@itwin/core-backend";
-import {
-  Guid,
-  GuidString,
-  Id64,
-  Id64String,
-  ITwinError,
-} from "@itwin/core-bentley";
+import { Guid, Id64, Id64String, ITwinError } from "@itwin/core-bentley";
 import {
   Code,
   ExternalSourceAspectProps,
@@ -53,6 +47,7 @@ import {
   ExporterInitOptions,
   IModelExporter,
   IModelExportHandler,
+  RelationshipEndpointFederationGuids,
 } from "../../IModelExporter";
 import { ElementAspectExportCoordinator } from "../../ElementAspectExportCoordinator";
 import {
@@ -1018,21 +1013,18 @@ describe("IModelExporter", () => {
         const exported: Array<{
           relationship: Relationship;
           isUpdate: boolean | undefined;
-          sourceFedGuid?: GuidString;
-          targetFedGuid?: GuidString;
+          endpointFedGuids?: RelationshipEndpointFederationGuids;
         }> = [];
         class CaptureHandler extends IModelExportHandler {
           public override async onExportRelationship(
             exportedRelationship: Relationship,
             exportedIsUpdate: boolean | undefined,
-            handlerSourceFedGuid?: GuidString,
-            handlerTargetFedGuid?: GuidString
+            handlerEndpointFedGuids?: RelationshipEndpointFederationGuids
           ): Promise<void> {
             exported.push({
               relationship: exportedRelationship,
               isUpdate: exportedIsUpdate,
-              sourceFedGuid: handlerSourceFedGuid,
-              targetFedGuid: handlerTargetFedGuid,
+              endpointFedGuids: handlerEndpointFedGuids,
             });
           }
         }
@@ -1042,8 +1034,7 @@ describe("IModelExporter", () => {
         );
 
         expect(exported.length).to.equal(1);
-        const { relationship, isUpdate, sourceFedGuid, targetFedGuid } =
-          exported[0];
+        const { relationship, isUpdate, endpointFedGuids } = exported[0];
         expect(isUpdate).to.equal(undefined);
 
         // the bulk-hydrated instance must match what relationships.getInstance would produce
@@ -1057,12 +1048,12 @@ describe("IModelExporter", () => {
         expect((relationship as any).myDouble).to.equal(3.14);
 
         // endpoint fedguids captured by the bulk query and passed to the handler must match per-element lookups
-        assert(sourceFedGuid !== undefined);
-        assert(targetFedGuid !== undefined);
-        expect(sourceFedGuid).to.equal(
+        assert(endpointFedGuids?.source !== undefined);
+        assert(endpointFedGuids.target !== undefined);
+        expect(endpointFedGuids.source).to.equal(
           sourceDb.elements.getFederationGuidFromId(sourceElemId)
         );
-        expect(targetFedGuid).to.equal(
+        expect(endpointFedGuids.target).to.equal(
           sourceDb.elements.getFederationGuidFromId(targetElemId)
         );
       } finally {
@@ -1080,19 +1071,17 @@ describe("IModelExporter", () => {
         );
         const directExporter = new IModelExporter(sourceDb);
         let directRelationship: Relationship | undefined;
-        let directSourceFedGuid: GuidString | undefined;
-        let directTargetFedGuid: GuidString | undefined;
+        let directEndpointFedGuids:
+          RelationshipEndpointFederationGuids | undefined;
         directExporter.registerHandler(
           new (class extends IModelExportHandler {
             public override async onExportRelationship(
               exportedRelationship: Relationship,
               _isUpdate: boolean | undefined,
-              sourceFedGuid?: GuidString,
-              targetFedGuid?: GuidString
+              endpointFedGuids?: RelationshipEndpointFederationGuids
             ): Promise<void> {
               directRelationship = exportedRelationship;
-              directSourceFedGuid = sourceFedGuid;
-              directTargetFedGuid = targetFedGuid;
+              directEndpointFedGuids = endpointFedGuids;
             }
           })()
         );
@@ -1104,10 +1093,10 @@ describe("IModelExporter", () => {
         expect(directRelationship?.toJSON()).to.deep.equal(
           viaGetInstance.toJSON()
         );
-        expect(directSourceFedGuid).to.equal(
+        expect(directEndpointFedGuids?.source).to.equal(
           sourceDb.elements.getFederationGuidFromId(sourceElemId)
         );
-        expect(directTargetFedGuid).to.equal(
+        expect(directEndpointFedGuids?.target).to.equal(
           sourceDb.elements.getFederationGuidFromId(targetElemId)
         );
 
@@ -1133,15 +1122,13 @@ describe("IModelExporter", () => {
           protected override async exportRelationshipInstance(
             exportedRelationship: Relationship,
             exportedIsUpdate: boolean | undefined,
-            sourceFedGuid?: GuidString,
-            targetFedGuid?: GuidString
+            endpointFedGuids?: RelationshipEndpointFederationGuids
           ): Promise<void> {
             this.hookCalls++;
             await super.exportRelationshipInstance(
               exportedRelationship,
               exportedIsUpdate,
-              sourceFedGuid,
-              targetFedGuid
+              endpointFedGuids
             );
           }
         }
@@ -1159,7 +1146,7 @@ describe("IModelExporter", () => {
       }
     });
 
-    it("passes null for endpoints without a FederationGuid", async () => {
+    it("passes endpoint FederationGuids without a value for endpoints that have none", async () => {
       const sourceDb = SnapshotDb.createEmpty(
         IModelTransformerTestUtils.prepareOutputFile(
           "IModelExporter",
@@ -1208,19 +1195,17 @@ describe("IModelExporter", () => {
         );
         assert(sourceFedGuid !== undefined);
 
-        const received: Array<
-          [GuidString | null | undefined, GuidString | null | undefined]
-        > = [];
+        const received: Array<RelationshipEndpointFederationGuids | undefined> =
+          [];
         const exporter = new IModelExporter(sourceDb);
         exporter.registerHandler(
           new (class extends IModelExportHandler {
             public override async onExportRelationship(
               _relationship: Relationship,
               _isUpdate: boolean | undefined,
-              handlerSourceFedGuid?: GuidString | null,
-              handlerTargetFedGuid?: GuidString | null
+              endpointFedGuids?: RelationshipEndpointFederationGuids
             ): Promise<void> {
-              received.push([handlerSourceFedGuid, handlerTargetFedGuid]);
+              received.push(endpointFedGuids);
             }
           })()
         );
@@ -1232,10 +1217,13 @@ describe("IModelExporter", () => {
           relId
         );
 
-        expect(received).to.deep.equal([
-          [sourceFedGuid, null],
-          [sourceFedGuid, null],
-        ]);
+        // Both the bulk and targeted paths supply the object, so the transformer doesn't look up the missing endpoint.
+        expect(received).to.have.length(2);
+        for (const endpointFedGuids of received) {
+          assert(endpointFedGuids !== undefined);
+          expect(endpointFedGuids.source).to.equal(sourceFedGuid);
+          expect(endpointFedGuids.target).to.be.undefined;
+        }
       } finally {
         sourceDb.close();
       }

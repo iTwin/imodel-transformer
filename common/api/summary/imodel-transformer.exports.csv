@@ -27,6 +27,7 @@ beta;interface;ProcessSchemasOptions
 alpha;interface;ProvenanceInitArgs
 alpha;interface;ProvenanceInitResult
 beta;interface;ReadonlySchemaAccessor
+beta;interface;RelationshipEndpointFederationGuids
 beta;interface;RelationshipPropsForDelete
 beta;interface;SchemaProcessingContext
 beta;type;SchemaProcessingResult

@@ -43,26 +43,30 @@ See [Incremental exports](../learning/transformer/index.md#incremental-exports) 
 
 ## Batched relationship export with endpoint FederationGuids
 
-`IModelExporter` now reads relationships in batches. The same query reads the FederationGuids of each relationship's source and target elements. The exporter passes them to `IModelExportHandler.onExportRelationship(relationship, isUpdate, sourceFedGuid, targetFedGuid)` and to the protected `IModelExporter.exportRelationshipInstance`. A value of `null` means the endpoint element has no FederationGuid. `IModelTransformer.onExportRelationship` uses these values to decide whether a relationship needs an `ExternalSourceAspect`, so it no longer looks up both endpoints for every relationship.
+`IModelExporter` now reads relationships in batches. The same query reads the FederationGuids of each relationship's source and target elements. The exporter passes them as a `RelationshipEndpointFederationGuids` object, `{ source?, target? }`, to `IModelExportHandler.onExportRelationship(relationship, isUpdate, endpointFedGuids)` and to the protected `IModelExporter.exportRelationshipInstance`. The exporter always supplies this object. A missing `source` or `target` property means that endpoint element has no FederationGuid. `IModelTransformer.onExportRelationship` uses the object to decide whether a relationship needs an `ExternalSourceAspect`, so it no longer looks up both endpoints for every relationship.
 
-When a FederationGuid is `undefined` because the caller didn't pass it, `IModelTransformer` looks it up as before. An override that calls `super.onExportRelationship(sourceRelationship)` keeps its previous behavior and provenance output, but each relationship still costs up to two lookups. To use the batched values, accept all arguments and pass them to `super`:
+If `endpointFedGuids` is not passed, `IModelTransformer` looks up both FederationGuids as before. Overrides that call `super.onExportRelationship(sourceRelationship)` keep their previous provenance output and performance, but don't get the speedup.
+
+### Getting the best relationship export performance
+
+For the speedup, an `onExportRelationship` override must accept `endpointFedGuids` and pass it to `super`:
 
 ```ts
 public override async onExportRelationship(
   sourceRelationship: Relationship,
   isUpdate?: boolean,
-  sourceFedGuid?: GuidString | null,
-  targetFedGuid?: GuidString | null
+  endpointFedGuids?: RelationshipEndpointFederationGuids
 ): Promise<void> {
   // custom logic
   return super.onExportRelationship(
     sourceRelationship,
     isUpdate,
-    sourceFedGuid,
-    targetFedGuid
+    endpointFedGuids
   );
 }
 ```
+
+Overrides of `IModelExporter.exportRelationshipInstance` should also pass `endpointFedGuids` to `super`. Code that calls `IModelTransformer.onExportRelationship` directly can pass the FederationGuids it already has. A missing property means that endpoint has none. For example, `{ source: sourceDb.elements.getFederationGuidFromId(rel.sourceId), target: sourceDb.elements.getFederationGuidFromId(rel.targetId) }`.
 
 ## Breaking change: batched incremental element deletion
 

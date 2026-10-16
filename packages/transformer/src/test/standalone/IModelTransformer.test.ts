@@ -3991,7 +3991,11 @@ describe("IModelTransformer", () => {
     async function transformRelationships(
       name: string,
       transformerClass: typeof IModelTransformer
-    ): Promise<{ aspectIdentifiers: string[]; fedGuidLookups: number }> {
+    ): Promise<{
+      aspectIdentifiers: string[];
+      endpointIds: Set<Id64String>;
+      endpointLookups: Set<Id64String>;
+    }> {
       const sourceDb = SnapshotDb.createEmpty(
         IModelTransformerTestUtils.prepareOutputFile(
           "IModelTransformer",
@@ -4007,6 +4011,7 @@ describe("IModelTransformer", () => {
         { rootSubject: { name } }
       );
       try {
+        const endpointIds = new Set<Id64String>();
         withEditTxn(sourceDb, "insert elements and relationships", (txn) => {
           const modelId = PhysicalModel.insert(
             txn,
@@ -4031,6 +4036,9 @@ describe("IModelTransformer", () => {
             ...physicalObjectProps,
             federationGuid: Guid.empty,
           });
+          endpointIds.add(sourceId);
+          endpointIds.add(targetWithGuid);
+          endpointIds.add(targetWithoutGuid);
           for (const targetId of [targetWithGuid, targetWithoutGuid]) {
             txn.insertRelationship({
               classFullName: GraphicalElement3dRepresentsElement.classFullName,
@@ -4052,7 +4060,12 @@ describe("IModelTransformer", () => {
         await transformer.process();
         transformer.dispose();
         editTxn.end();
-        const fedGuidLookups = getFederationGuidFromId.mock.calls.length;
+        // Other transformer code may also look up FederationGuids, so only count lookups of these relationships' endpoints.
+        const endpointLookups = new Set(
+          getFederationGuidFromId.mock.calls
+            .map(([id]) => id)
+            .filter((id) => endpointIds.has(id))
+        );
         getFederationGuidFromId.mockRestore();
 
         expect([
@@ -4066,7 +4079,7 @@ describe("IModelTransformer", () => {
         )) {
           aspectIdentifiers.push(row[0]);
         }
-        return { aspectIdentifiers, fedGuidLookups };
+        return { aspectIdentifiers, endpointIds, endpointLookups };
       } finally {
         sourceDb.close();
         targetDb.close();
@@ -4074,7 +4087,7 @@ describe("IModelTransformer", () => {
     }
 
     it("uses the exporter's FederationGuids without looking them up", async () => {
-      const { aspectIdentifiers, fedGuidLookups } =
+      const { aspectIdentifiers, endpointLookups } =
         await transformRelationships(
           "RelationshipFedGuidsPassed",
           IModelTransformer
@@ -4083,7 +4096,7 @@ describe("IModelTransformer", () => {
         aspectIdentifiers,
         "only the relationship to the element without a FederationGuid needs provenance"
       ).to.have.lengthOf(1);
-      expect(fedGuidLookups).to.equal(0);
+      expect([...endpointLookups]).to.be.empty;
     });
 
     it("looks up FederationGuids that an override does not pass to super", async () => {
@@ -4096,8 +4109,7 @@ describe("IModelTransformer", () => {
         DroppedArgumentsTransformer
       );
       expect(dropped.aspectIdentifiers).to.deep.equal(passed.aspectIdentifiers);
-      // Each relationship looks up its source endpoint, then its target endpoint.
-      expect(dropped.fedGuidLookups).to.equal(4);
+      expect(dropped.endpointLookups).to.deep.equal(dropped.endpointIds);
     });
   });
 
