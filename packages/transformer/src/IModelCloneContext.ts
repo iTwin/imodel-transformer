@@ -236,11 +236,9 @@ export class IModelCloneContext
               const sourceId = reader.current[0];
               const targetId = reader.current[1];
               const sourceType = reader.current[2] as
-                | ConcreteEntityTypes
-                | "error";
+                ConcreteEntityTypes | "error";
               const targetType = reader.current[3] as
-                | ConcreteEntityTypes
-                | "error";
+                ConcreteEntityTypes | "error";
               if (sourceType === "error" || targetType === "error")
                 throw Error("relationship end had unknown root class");
               return {
