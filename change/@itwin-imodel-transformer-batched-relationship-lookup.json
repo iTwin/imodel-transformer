@@ -1,0 +1,7 @@
+{
+  "type": "patch",
+  "comment": "Speed up IModelImporter.importRelationship by reading existing ElementRefersToElements relationships once per class instead of querying for each relationship",
+  "packageName": "@itwin/imodel-transformer",
+  "email": "DanRod1999@users.noreply.github.com",
+  "dependentChangeType": "patch"
+}

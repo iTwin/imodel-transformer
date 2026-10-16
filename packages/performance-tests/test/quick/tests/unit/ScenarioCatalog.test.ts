@@ -45,7 +45,7 @@ describe("quick performance scenario catalog", () => {
 
   it("rejects unknown scenarios", () => {
     expect(() => getScenarioDefinition("not-a-scenario")).to.throw(
-      'Unknown quick performance scenario "not-a-scenario". Available scenarios: incremental-synchronization, large-base-incremental-synchronization, changeset-scanning, schema-processing, standalone-full-transformation, standalone-drive-relationship-processing'
+      'Unknown quick performance scenario "not-a-scenario". Available scenarios: incremental-synchronization, large-base-incremental-synchronization, changeset-scanning, schema-processing, standalone-full-transformation, standalone-drive-relationship-processing, standalone-full-retransformation'
     );
   });
 
@@ -206,6 +206,20 @@ describe("quick performance scenario catalog", () => {
         "drive relationship processing"
       );
     }
+  });
+
+  it("registers the relationship-heavy fixture for full retransformation", () => {
+    const resolved = resolveBenchmarkRun("standalone-full-retransformation");
+    expect(resolved.scenario.defaultFixtureId).to.equal(
+      "relationship-heavy-transform"
+    );
+    expect(resolved.descriptor.layout.topology).to.equal(
+      "standalone-source-and-empty-target"
+    );
+    // every relationship must exist in the populated target before the timed re-run
+    expect(resolved.descriptor.distribution.base.relationships).to.equal(
+      30_000
+    );
   });
 
   it("keeps large realistic-building geometry, aspects, and relationships independently configurable", () => {
