@@ -32,6 +32,7 @@ import {
 } from "@itwin/core-geometry";
 import {
   BriefcaseManager,
+  Category,
   ChangeSummaryManager,
   ChannelRootAspect,
   ConcreteEntity,
@@ -59,6 +60,7 @@ import {
   Relationship,
   RelationshipProps,
   Schema,
+  SubCategory,
   Subject,
 } from "@itwin/core-backend";
 import {
@@ -94,6 +96,9 @@ import {
   IModelExportHandler,
 } from "./IModelExporter";
 import { IModelImporter, OptimizeGeometryOptions } from "./IModelImporter";
+import { ElementReservationOperation } from "./ElementReservationOperation";
+import { ElementReservationPlanner } from "./ElementReservationPlanner";
+import { throwReservationPlanChanged } from "./ElementReservationState";
 import { TransformerLoggerCategory } from "./TransformerLoggerCategory";
 import { IModelCloneContext } from "./IModelCloneContext";
 import type { IModelTransformContext } from "./IModelTransformContext";
@@ -443,6 +448,8 @@ export class IModelTransformer extends IModelExportHandler {
   protected readonly _sourceEditTxn?: EditTxn;
   private _syncTypeResolver!: SyncTypeResolver;
   protected _provenanceManager!: ProvenanceManager;
+  private _elementReservationOperation?: ElementReservationOperation;
+  private _pendingSubjectRepairs = 0;
 
   /** The Id of the Element in the **target** iModel that represents the **source** repository as a whole and scopes its [ExternalSourceAspect]($backend) instances. */
   public get targetScopeElementId(): Id64String {
@@ -622,6 +629,83 @@ export class IModelTransformer extends IModelExportHandler {
           loggerCategory,
           "No Geolcation data to align, both GCS and ECEF are undefined"
         );
+    }
+  }
+
+  private shouldUseAutomaticElementReservations(): boolean {
+    return (
+      this.targetDb.reservations.isServerBased && !this.targetDb.holdsSchemaLock
+    );
+  }
+
+  private async runWithElementReservationOperation(
+    action: () => Promise<void>
+  ): Promise<void> {
+    const activeOperation = this._elementReservationOperation;
+    if (activeOperation !== undefined) return action();
+    if (!this.shouldUseAutomaticElementReservations()) return action();
+
+    const wasInitialized = this._initialized;
+    const operation = new ElementReservationOperation(
+      this.sourceDb,
+      this.targetDb,
+      this.exporter,
+      this.importer,
+      this,
+      this._cloneContext,
+      {
+        collectElement: async (sourceElement) =>
+          planner.collectElement(sourceElement),
+        replayAspectCleanup: async (excludedClassFullNames, sourceIds) =>
+          this.prepareElementAspects(excludedClassFullNames, sourceIds),
+        repairReferences: async (kind) =>
+          kind === "repair-elements"
+            ? this.completePartiallyCommittedElements()
+            : this.completePartiallyCommittedAspects(),
+        persistProvenance: async () =>
+          this._provenanceManager.persistDeferredScopeInitialization(),
+      }
+    );
+    // Callbacks run only after install(), so the planner below already exists.
+    const planner = new ElementReservationPlanner(
+      {
+        sourceDb: this.sourceDb,
+        targetDb: this.targetDb,
+        exporter: this.exporter,
+        cloneContext: this._cloneContext,
+        wasSourceIModelCopiedToTarget:
+          this._options.wasSourceIModelCopiedToTarget ?? false,
+        preserveElementIdsForFiltering:
+          this._options.preserveElementIdsForFiltering ?? false,
+        targetElementIdsRemappedByCode: this._targetElementIdsRemappedByCode,
+        hasElementChanged: (sourceElement) =>
+          this.hasElementChanged(sourceElement),
+        transformElement: async (sourceElement) =>
+          this.onTransformElement(sourceElement),
+        findExistingTargetElement: async (sourceElement, targetProps) =>
+          this.findExistingTargetElement(sourceElement, targetProps),
+      },
+      operation
+    );
+    this._elementReservationOperation = operation;
+    try {
+      this._provenanceManager.beginDeferredScopeInitialization();
+      operation.install();
+      await action();
+      await operation.flush();
+      for (let i = 0; i < this._pendingSubjectRepairs; i++) {
+        await this.completePartiallyCommittedElements();
+        await this.completePartiallyCommittedAspects();
+      }
+    } catch (error) {
+      if (operation.isCollecting) this._initialized = wasInitialized;
+      if (!operation.isDone) planner.discard();
+      throw error;
+    } finally {
+      operation.release();
+      this._elementReservationOperation = undefined;
+      this._pendingSubjectRepairs = 0;
+      this._provenanceManager.discardDeferredScopeInitialization();
     }
   }
 
@@ -832,6 +916,10 @@ export class IModelTransformer extends IModelExportHandler {
       await this._cloneContext.cloneElement(sourceElement, {
         binaryGeometry: this._options.cloneUsingBinaryGeometry,
       });
+    // The TS preparation view contains identity fields only. Non-identity
+    // adjustments below run on complete native-cloned props during execution.
+    if (this._cloneContext.isPreparingIdentityOnly(sourceElement.id))
+      return targetElementProps;
     // Special case: source element is the root subject
     if (sourceElement.id === IModel.rootSubjectId) {
       const targetElementId: string = this.context.findTargetElementId(
@@ -1091,7 +1179,17 @@ export class IModelTransformer extends IModelExportHandler {
         );
       }
 
-      const targetProps = await this.onTransformElement(sourceElement);
+      const prepared =
+        this._elementReservationOperation?.getElementPlan(
+          sourceElementId
+        )?.prepared;
+      const targetProps =
+        prepared === undefined
+          ? await this.onTransformElement(sourceElement)
+          : await this._cloneContext.transformPreparedElement(
+              prepared,
+              async () => this.onTransformElement(sourceElement)
+            );
       this._targetEditTxn.updateElement({ ...targetProps, id: targetId });
     }
   }
@@ -1196,19 +1294,21 @@ export class IModelTransformer extends IModelExportHandler {
    * @note After composing subset processing calls, call [[IModelImporter.finalize]] before saving target changes.
    */
   public async processElement(sourceElementId: Id64String): Promise<void> {
-    await this.initialize();
-    if (sourceElementId === IModel.rootSubjectId) {
-      ITwinError.throwError({
-        iTwinErrorId: {
-          scope: IModelTransformerErrorScope,
-          key: IModelTransformerError.RootSubjectNotProcessable,
-        },
-        message: "The root Subject should not be directly imported",
-      });
-    }
-    return this.processScopedElementExport(async () =>
-      this.exporter.exportElement(sourceElementId)
-    );
+    return this.runWithElementReservationOperation(async () => {
+      await this.initialize();
+      if (sourceElementId === IModel.rootSubjectId) {
+        ITwinError.throwError({
+          iTwinErrorId: {
+            scope: IModelTransformerErrorScope,
+            key: IModelTransformerError.RootSubjectNotProcessable,
+          },
+          message: "The root Subject should not be directly imported",
+        });
+      }
+      return this.processScopedElementExport(async () =>
+        this.exporter.exportElement(sourceElementId)
+      );
+    });
   }
 
   /** Import child elements into the target IModelDb
@@ -1219,10 +1319,12 @@ export class IModelTransformer extends IModelExportHandler {
   public async processChildElements(
     sourceElementId: Id64String
   ): Promise<void> {
-    await this.initialize();
-    return this.processScopedElementExport(async () =>
-      this.exporter.exportChildElements(sourceElementId)
-    );
+    return this.runWithElementReservationOperation(async () => {
+      await this.initialize();
+      return this.processScopedElementExport(async () =>
+        this.exporter.exportChildElements(sourceElementId)
+      );
+    });
   }
 
   private async processScopedElementExport(
@@ -1255,6 +1357,20 @@ export class IModelTransformer extends IModelExportHandler {
       return;
     }
 
+    if (
+      this._elementReservationOperation?.isCollecting &&
+      this.context.isBetweenIModels
+    ) {
+      this._elementReservationOperation.assertNoRequiredDependencyCycle(
+        sourceElement,
+        (element) => {
+          const elementClass = element.constructor as typeof Element;
+          return elementClass.requiredReferenceKeys.flatMap((key) =>
+            mapId64(element.asAny[key], (id) => id)
+          );
+        }
+      );
+    }
     const elemClass = sourceElement.constructor as typeof Element;
 
     const unresolvedReferences = elemClass.requiredReferenceKeys
@@ -1292,9 +1408,11 @@ export class IModelTransformer extends IModelExportHandler {
             sourceReferenceId: Id64String | undefined
           ): sourceReferenceId is Id64String => {
             if (sourceReferenceId === undefined) return false;
-            const referenceInTargetId =
-              this.context.findTargetElementId(sourceReferenceId);
-            const isInTarget = Id64.isValid(referenceInTargetId);
+            const isInTarget =
+              this._elementReservationOperation?.hasElementIdentity(
+                sourceReferenceId
+              ) ??
+              Id64.isValid(this.context.findTargetElementId(sourceReferenceId));
             return !isInTarget;
           }
         );
@@ -1304,9 +1422,16 @@ export class IModelTransformer extends IModelExportHandler {
     if (unresolvedReferences.length > 0) {
       for (const reference of unresolvedReferences) {
         const processState = await this.getElemTransformState(reference);
-        if (processState.needsElemImport)
+        if (
+          processState.needsElemImport &&
+          !this._elementReservationOperation?.isVisiting(reference)
+        )
           await this.resolveRequiredElement(sourceElement.id, reference);
-        if (processState.needsModelImport)
+        if (
+          processState.needsModelImport &&
+          (this._elementReservationOperation?.markModelScheduled(reference) ??
+            true)
+        )
           await this.exporter.exportModel(reference);
       }
     }
@@ -1344,7 +1469,12 @@ export class IModelTransformer extends IModelExportHandler {
           await this.onTransformElement(reference)
         );
     }
-    if (Id64.isValid(this.context.findTargetElementId(referenceId))) return;
+    // During reservation preparation, an exported reference is a pending insert rather than a target mapping.
+    if (
+      this._elementReservationOperation?.hasElementIdentity(referenceId) ??
+      Id64.isValid(this.context.findTargetElementId(referenceId))
+    )
+      return;
 
     let message: string;
     if (referenceChanged)
@@ -1368,7 +1498,7 @@ export class IModelTransformer extends IModelExportHandler {
    */
   private async findExistingTargetElement(
     sourceElement: Element,
-    targetElementProps: ElementProps
+    targetElementProps: Pick<ElementProps, "classFullName" | "code">
   ): Promise<Id64String> {
     if (
       this.context.isBetweenIModels &&
@@ -1416,11 +1546,18 @@ export class IModelTransformer extends IModelExportHandler {
       return this._cloneContext.existenceCache.exists(db, maybeModelId);
     };
     const isSubModeled = await dbHasModel(this.sourceDb, elementId);
+    const operation = this._elementReservationOperation;
     const idOfElemInTarget = this.context.findTargetElementId(elementId);
-    const isElemInTarget = Id64.invalid !== idOfElemInTarget;
-    const needsModelImport =
-      isSubModeled &&
-      (!isElemInTarget || !(await dbHasModel(this.targetDb, idOfElemInTarget)));
+    const isElemInTarget =
+      operation?.hasElementIdentity(elementId) ??
+      Id64.invalid !== idOfElemInTarget;
+    const needsModelImport = operation
+      ? isSubModeled &&
+        !operation.hasTargetModel(elementId) &&
+        !operation.isModelScheduled(elementId)
+      : isSubModeled &&
+        (!isElemInTarget ||
+          !(await dbHasModel(this.targetDb, idOfElemInTarget)));
     return { needsElemImport: !isElemInTarget, needsModelImport };
   }
 
@@ -1471,21 +1608,49 @@ export class IModelTransformer extends IModelExportHandler {
     this.markSourceEntityExists(sourceElement);
     let targetElementId: Id64String = Id64.invalid;
     let targetElementProps: ElementProps;
-    if (this._options.wasSourceIModelCopiedToTarget) {
+    const operation = this._elementReservationOperation;
+    const planned = operation?.isReplaying
+      ? operation.getElementPlan(sourceElement.id)
+      : undefined;
+    if (planned !== undefined) {
+      targetElementId = planned.targetElementId;
+      if (planned.autoInsertedForCategory !== undefined) {
+        const categoryId = this.context.findTargetElementId(
+          planned.autoInsertedForCategory
+        );
+        const category = this.targetDb.elements.getElement<Category>(
+          categoryId,
+          Category
+        );
+        targetElementId = category.myDefaultSubCategoryId();
+        this.targetDb.elements.getElement(targetElementId, SubCategory);
+        this.context.remapElement(sourceElement.id, targetElementId);
+      }
+      if (this._options.wasSourceIModelCopiedToTarget) {
+        targetElementProps =
+          this.targetDb.elements.getElementProps(targetElementId);
+      } else if (planned.prepared !== undefined) {
+        targetElementProps = await this._cloneContext.transformPreparedElement(
+          planned.prepared,
+          async () => this.onTransformElement(sourceElement)
+        );
+      } else {
+        targetElementProps = await this.onTransformElement(sourceElement);
+      }
+    } else if (this._options.wasSourceIModelCopiedToTarget) {
       targetElementId = sourceElement.id;
       targetElementProps =
         this.targetDb.elements.getElementProps(targetElementId);
     } else {
       targetElementId = this.context.findTargetElementId(sourceElement.id);
       targetElementProps = await this.onTransformElement(sourceElement);
+      // if an existing remapping was not yet found, check by FederationGuid and then by Code
+      if (!Id64.isValid(targetElementId))
+        targetElementId = await this.findExistingTargetElement(
+          sourceElement,
+          targetElementProps
+        );
     }
-
-    // if an existing remapping was not yet found, check by FederationGuid and then by Code
-    if (!Id64.isValid(targetElementId))
-      targetElementId = await this.findExistingTargetElement(
-        sourceElement,
-        targetElementProps
-      );
 
     if (!this.hasElementChanged(sourceElement)) {
       Logger.logTrace(
@@ -1540,7 +1705,29 @@ export class IModelTransformer extends IModelExportHandler {
     }
 
     if (!this._options.wasSourceIModelCopiedToTarget) {
-      await this.importer.importElement(targetElementProps); // don't need to import if iModel was copied
+      const isPlannedInsert =
+        operation?.isReplaying === true &&
+        planned !== undefined &&
+        !Id64.isValidId64(targetElementId);
+      if (isPlannedInsert && targetElementProps.id !== planned.insertId) {
+        throwReservationPlanChanged(
+          sourceElement.id,
+          "a planned insert supplied an element ID before reaching the importer"
+        );
+      }
+      if (isPlannedInsert) operation.beginElementInsert(planned);
+      let insertionObserved = !isPlannedInsert;
+      try {
+        await this.importer.importElement(targetElementProps); // don't need to import if iModel was copied
+      } finally {
+        if (isPlannedInsert) insertionObserved = operation.endElementInsert();
+      }
+      if (isPlannedInsert && !insertionObserved) {
+        throwReservationPlanChanged(
+          sourceElement.id,
+          "the importer did not reach its ordinary element insertion boundary"
+        );
+      }
     }
 
     if (targetElementProps.id === undefined) {
@@ -1720,6 +1907,10 @@ export class IModelTransformer extends IModelExportHandler {
 
   /** Schedule modeled partition deletion */
   private scheduleModeledPartitionDeletion(sourceModelId: Id64String): void {
+    if (this._elementReservationOperation?.isReplaying)
+      this._elementReservationOperation.scheduleModeledPartitionDeletion(
+        sourceModelId
+      );
     const deletedElements = this.exporter.sourceDbChanges?.element
       .deleteIds as Set<Id64String>;
     if (!deletedElements.has(sourceModelId)) {
@@ -1733,10 +1924,12 @@ export class IModelTransformer extends IModelExportHandler {
    * @note After composing subset processing calls, call [[IModelImporter.finalize]] before saving target changes.
    */
   public async processModel(sourceModeledElementId: Id64String): Promise<void> {
-    await this.initialize();
-    return this.processScopedElementExport(async () =>
-      this.exporter.exportModel(sourceModeledElementId)
-    );
+    return this.runWithElementReservationOperation(async () => {
+      await this.initialize();
+      return this.processScopedElementExport(async () =>
+        this.exporter.exportModel(sourceModeledElementId)
+      );
+    });
   }
 
   /** Cause the model contents to be exported from the source iModel and imported into the target iModel.
@@ -1751,12 +1944,14 @@ export class IModelTransformer extends IModelExportHandler {
     targetModelId: Id64String,
     elementClassFullName: string = Element.classFullName
   ): Promise<void> {
-    await this.initialize();
-    this.targetDb.models.getModel(targetModelId); // throws if Model does not exist
-    this.context.remapElement(sourceModelId, targetModelId); // set remapping in case importModelContents is called directly
-    return this.processScopedElementExport(async () =>
-      this.exporter.exportModelContents(sourceModelId, elementClassFullName)
-    );
+    return this.runWithElementReservationOperation(async () => {
+      await this.initialize();
+      this.targetDb.models.getModel(targetModelId); // throws if Model does not exist
+      this.context.remapElement(sourceModelId, targetModelId); // set remapping in case importModelContents is called directly
+      return this.processScopedElementExport(async () =>
+        this.exporter.exportModelContents(sourceModelId, elementClassFullName)
+      );
+    });
   }
 
   /** Cause all sub-models that recursively descend from the specified Subject to be exported from the source iModel and imported into the target iModel. */
@@ -1862,8 +2057,10 @@ export class IModelTransformer extends IModelExportHandler {
   public async processRelationships(
     baseRelClassFullName: string
   ): Promise<void> {
-    await this.initialize();
-    return this.exporter.exportRelationships(baseRelClassFullName);
+    return this.runWithElementReservationOperation(async () => {
+      await this.initialize();
+      return this.exporter.exportRelationships(baseRelClassFullName);
+    });
   }
 
   /** Override of [IModelExportHandler.shouldExportRelationship]($transformer) that is called to determine if a [Relationship]($backend) should be exported.
@@ -2036,8 +2233,13 @@ export class IModelTransformer extends IModelExportHandler {
     aspect: ElementAspect
   ): Promise<boolean> {
     // An aspect cannot be exported when its owner has no source-to-target
-    // mapping.
-    return this.context.findTargetElementId(aspect.element.id) !== Id64.invalid;
+    // mapping. During reservation preparation, a logical prepared identity is
+    // sufficient; its real target ID is assigned during replay.
+    return (
+      this._elementReservationOperation?.hasElementIdentity(
+        aspect.element.id
+      ) ?? this.context.findTargetElementId(aspect.element.id) !== Id64.invalid
+    );
   }
 
   private async prepareElementAspects(
@@ -2048,12 +2250,23 @@ export class IModelTransformer extends IModelExportHandler {
 
     if (elementIds === undefined) return;
 
+    if (this._elementReservationOperation?.isCollecting) {
+      this._elementReservationOperation.recordAspectCleanup(
+        excludedElementAspectClassFullNames,
+        elementIds
+      );
+      return;
+    }
+
     const targetElementIds = new Set<Id64String>();
     for (const sourceElementId of elementIds) {
+      const planned =
+        this._elementReservationOperation?.getElementPlan(sourceElementId);
+      // A newly inserted owner cannot have replaceable target aspects yet.
+      if (planned !== undefined && !Id64.isValidId64(planned.targetElementId))
+        continue;
       const targetElementId = this.context.findTargetElementId(sourceElementId);
-      if (Id64.isValid(targetElementId)) {
-        targetElementIds.add(targetElementId);
-      }
+      if (Id64.isValid(targetElementId)) targetElementIds.add(targetElementId);
     }
 
     await this.importer.elementAspectCleanup.delete(
@@ -2222,16 +2435,22 @@ export class IModelTransformer extends IModelExportHandler {
     sourceSubjectId: Id64String,
     targetSubjectId: Id64String
   ): Promise<void> {
-    await this.initialize();
-    this.sourceDb.elements.getElement(sourceSubjectId, Subject); // throws if sourceSubjectId is not a Subject
-    this.targetDb.elements.getElement(targetSubjectId, Subject); // throws if targetSubjectId is not a Subject
-    this.context.remapElement(sourceSubjectId, targetSubjectId);
-    await this.processScopedElementExport(async () => {
-      await this.processChildElements(sourceSubjectId);
-      await this.processSubjectSubModels(sourceSubjectId);
+    return this.runWithElementReservationOperation(async () => {
+      await this.initialize();
+      this.sourceDb.elements.getElement(sourceSubjectId, Subject); // throws if sourceSubjectId is not a Subject
+      this.targetDb.elements.getElement(targetSubjectId, Subject); // throws if targetSubjectId is not a Subject
+      this.context.remapElement(sourceSubjectId, targetSubjectId);
+      await this.processScopedElementExport(async () => {
+        await this.processChildElements(sourceSubjectId);
+        await this.processSubjectSubModels(sourceSubjectId);
+      });
+      if (this._elementReservationOperation?.isCollecting) {
+        this._pendingSubjectRepairs++;
+      } else {
+        await this.completePartiallyCommittedElements();
+        await this.completePartiallyCommittedAspects();
+      }
     });
-    await this.completePartiallyCommittedElements();
-    await this.completePartiallyCommittedAspects();
   }
 
   /** state to prevent reinitialization, @see [[initialize]] */
@@ -2729,13 +2948,15 @@ export class IModelTransformer extends IModelExportHandler {
    *
    */
   public async process(): Promise<void> {
-    await this.initialize();
+    return this.runWithElementReservationOperation(async () => {
+      await this.initialize();
 
-    this.logSettings();
+      this.logSettings();
 
-    return this._options.argsForProcessChanges !== undefined
-      ? this.processChanges(this._options.argsForProcessChanges)
-      : this.processAll();
+      return this._options.argsForProcessChanges !== undefined
+        ? this.processChanges(this._options.argsForProcessChanges)
+        : this.processAll();
+    });
   }
 
   /** Export everything from the source iModel and import the transformed entities into the target iModel.
@@ -2763,9 +2984,17 @@ export class IModelTransformer extends IModelExportHandler {
       } else {
         await this.exporter.exportModel(IModel.repositoryModelId);
       }
-      await this.completePartiallyCommittedElements();
+      if (this._elementReservationOperation === undefined)
+        await this.completePartiallyCommittedElements();
+      else
+        this._elementReservationOperation.recordReferenceRepair(
+          "repair-elements"
+        );
     });
-    await this.completePartiallyCommittedAspects();
+    if (this._elementReservationOperation === undefined)
+      await this.completePartiallyCommittedAspects();
+    else
+      this._elementReservationOperation.recordReferenceRepair("repair-aspects");
     await this.exporter.exportRelationships(
       ElementRefersToElements.classFullName
     );
@@ -2778,6 +3007,7 @@ export class IModelTransformer extends IModelExportHandler {
         "This workflows was deprecated in v1 and is no longer supported"
       );
     }
+    await this._elementReservationOperation?.flush();
 
     if (this._options.optimizeGeometry)
       this.importer.optimizeGeometry(this._options.optimizeGeometry);
@@ -2800,6 +3030,8 @@ export class IModelTransformer extends IModelExportHandler {
     this._targetModelsImportedInCurrentTransform.clear();
     // must wait for initialization of synchronization provenance data
     await this.exporter.exportChanges(await this.getExportInitOpts(options));
+    await this._elementReservationOperation?.flush();
+
     await this.completePartiallyCommittedElements();
     await this.completePartiallyCommittedAspects();
 

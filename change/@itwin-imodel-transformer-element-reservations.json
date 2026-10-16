@@ -1,0 +1,7 @@
+{
+  "type": "major",
+  "comment": "Automatically bulk-reserve eligible target inserts before each transformer processing operation; reservation-enabled workflows prepare identities before writes and require stable transformation hooks",
+  "packageName": "@itwin/imodel-transformer",
+  "email": "50554904+hl662@users.noreply.github.com",
+  "dependentChangeType": "patch"
+}

@@ -70,6 +70,12 @@ export class ProvenanceManager {
   private _cachedSynchronizationVersion: ChangesetIndexAndId | undefined =
     undefined;
 
+  private _deferScopePersistence = false;
+  private _deferredScopePersistence: { kind: "insert" | "update" } | undefined;
+  private _scopePropsBeforeDeferred:
+    typeof this._targetScopeProvenanceProps | undefined;
+  private _cachedVersionBeforeDeferred: ChangesetIndexAndId | undefined;
+
   private _targetClassNameToClassIdCache = new Map<string, string>();
 
   private readonly _targetEditTxn: EditTxn;
@@ -275,11 +281,9 @@ export class ProvenanceManager {
     let hasTargetRow = await targetReader.step();
     while (hasSourceRow && hasTargetRow) {
       const sourceFedGuid = sourceReader.current.federationGuid as
-        | GuidString
-        | undefined;
+        GuidString | undefined;
       const targetFedGuid = targetReader.current.federationGuid as
-        | GuidString
-        | undefined;
+        GuidString | undefined;
       if (
         sourceFedGuid !== undefined &&
         targetFedGuid !== undefined &&
@@ -461,6 +465,66 @@ export class ProvenanceManager {
       : undefined;
   }
 
+  /** Defer the scope aspect insert/update until the reservation gate has succeeded. @internal */
+  public beginDeferredScopeInitialization(): void {
+    if (this._deferScopePersistence) return;
+    this._deferScopePersistence = true;
+    this._scopePropsBeforeDeferred = this.cloneScopeProps(
+      this._targetScopeProvenanceProps
+    );
+    this._cachedVersionBeforeDeferred = this._cachedSynchronizationVersion;
+    this._deferredScopePersistence = undefined;
+  }
+
+  /** Persist the scope aspect prepared by a deferred initialization. @internal */
+  public async persistDeferredScopeInitialization(): Promise<void> {
+    if (!this._deferScopePersistence) return;
+    const pending = this._deferredScopePersistence;
+    this._deferScopePersistence = false;
+    this._deferredScopePersistence = undefined;
+    this._scopePropsBeforeDeferred = undefined;
+    this._cachedVersionBeforeDeferred = undefined;
+    if (pending === undefined || this._transformerOptions.noProvenance) return;
+
+    const scopeProps = this._targetScopeProvenanceProps;
+    if (scopeProps === undefined)
+      throw new Error("Deferred scope provenance was not prepared");
+    const provenanceEditTxn = await this.getProvenanceEditTxn();
+    if (pending.kind === "insert") {
+      scopeProps.id = provenanceEditTxn.insertAspect({
+        ...scopeProps,
+        jsonProperties: JSON.stringify(scopeProps.jsonProperties) as any,
+      });
+    } else {
+      provenanceEditTxn.updateAspect({
+        ...scopeProps,
+        jsonProperties: JSON.stringify(scopeProps.jsonProperties) as any,
+      });
+    }
+    this.clearCachedSynchronizationVersion();
+  }
+
+  /** Restore the in-memory state that preceded a deferred initialization. @internal */
+  public discardDeferredScopeInitialization(): void {
+    if (!this._deferScopePersistence) return;
+    this._targetScopeProvenanceProps = this.cloneScopeProps(
+      this._scopePropsBeforeDeferred
+    );
+    this._cachedSynchronizationVersion = this._cachedVersionBeforeDeferred;
+    this._deferScopePersistence = false;
+    this._deferredScopePersistence = undefined;
+    this._scopePropsBeforeDeferred = undefined;
+    this._cachedVersionBeforeDeferred = undefined;
+  }
+
+  private cloneScopeProps(
+    props: typeof this._targetScopeProvenanceProps
+  ): typeof this._targetScopeProvenanceProps {
+    return props === undefined
+      ? undefined
+      : (JSON.parse(JSON.stringify(props)) as typeof props);
+  }
+
   /**
    * Make sure there are no conflicting other scope-type external source aspects on the target scope element.
    * If there are none at all, insert one (this must be a first synchronization).
@@ -526,12 +590,17 @@ export class ProvenanceManager {
         });
       }
       if (!this._transformerOptions.noProvenance) {
-        const id = provenanceEditTxn.insertAspect({
-          ...aspectProps,
-          jsonProperties: JSON.stringify(aspectProps.jsonProperties) as any,
-        });
-        aspectProps.id = id;
-        this.clearCachedSynchronizationVersion();
+        if (this._deferScopePersistence) {
+          this._deferredScopePersistence = { kind: "insert" };
+          this.clearCachedSynchronizationVersion();
+        } else {
+          const id = provenanceEditTxn.insertAspect({
+            ...aspectProps,
+            jsonProperties: JSON.stringify(aspectProps.jsonProperties) as any,
+          });
+          aspectProps.id = id;
+          this.clearCachedSynchronizationVersion();
+        }
       }
     } else {
       aspectProps.id = foundEsaProps.aspectId;
@@ -546,11 +615,16 @@ export class ProvenanceManager {
           "Unsafe migrate made a change to the target scope's external source aspect. Updating aspect in database.",
           { oldProps, newProps: aspectProps }
         );
-        provenanceEditTxn.updateAspect({
-          ...aspectProps,
-          jsonProperties: JSON.stringify(aspectProps.jsonProperties) as any,
-        });
-        this.clearCachedSynchronizationVersion();
+        if (this._deferScopePersistence) {
+          this._deferredScopePersistence = { kind: "update" };
+          this.clearCachedSynchronizationVersion();
+        } else {
+          provenanceEditTxn.updateAspect({
+            ...aspectProps,
+            jsonProperties: JSON.stringify(aspectProps.jsonProperties) as any,
+          });
+          this.clearCachedSynchronizationVersion();
+        }
       }
     }
 
@@ -641,18 +715,28 @@ export class ProvenanceManager {
    */
   public async getSynchronizationVersion(): Promise<ChangesetIndexAndId> {
     if (this._cachedSynchronizationVersion === undefined) {
-      const provenanceScopeAspect = await this.tryGetProvenanceScopeAspect();
-      if (!provenanceScopeAspect) {
+      const preparedScopeProps = this._deferScopePersistence
+        ? this._targetScopeProvenanceProps
+        : undefined;
+      const provenanceScopeAspect =
+        preparedScopeProps === undefined
+          ? await this.tryGetProvenanceScopeAspect()
+          : undefined;
+      if (preparedScopeProps === undefined && !provenanceScopeAspect) {
         return { index: -1, id: "" };
       }
 
       const version = (await this._isReverseSynchronization())
-        ? (
-            JSON.parse(
-              provenanceScopeAspect.jsonProperties ?? "{}"
-            ) as TargetScopeProvenanceJsonProps
-          ).reverseSyncVersion
-        : provenanceScopeAspect.version;
+        ? preparedScopeProps !== undefined
+          ? preparedScopeProps.jsonProperties?.reverseSyncVersion
+          : (
+              JSON.parse(
+                provenanceScopeAspect?.jsonProperties ?? "{}"
+              ) as TargetScopeProvenanceJsonProps
+            ).reverseSyncVersion
+        : preparedScopeProps !== undefined
+          ? preparedScopeProps.version
+          : provenanceScopeAspect?.version;
       if (
         !version &&
         this._transformerOptions.branchRelationshipDataBehavior ===
@@ -719,10 +803,7 @@ export class ProvenanceManager {
   }: {
     initializeReverseSyncVersion?: boolean;
     sourceChangeDataState:
-      | "uninited"
-      | "has-changes"
-      | "no-changes"
-      | "unconnected";
+      "uninited" | "has-changes" | "no-changes" | "unconnected";
   }) {
     const shouldSkipSyncVersionUpdate =
       !initializeReverseSyncVersion && sourceChangeDataState !== "has-changes";

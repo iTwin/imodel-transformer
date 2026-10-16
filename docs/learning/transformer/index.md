@@ -51,6 +51,8 @@ While it is possible to import data into an iModel using the standard [IModelDb]
 - The ability to optionally simplify element geometry to optimize visualization workflows via the [IModelImportOptions.simplifyElementGeometry]($transformer) setting.
 - Integration with [IModelTransformer]($transformer)
 
+When used through `IModelTransformer`, eligible inserts into reservation-enabled targets are [reserved in bulk before the processing call's imports](./element-reservations.md). Direct `IModelImporter` users remain responsible for backend reservations.
+
 ### Incremental element deletion callbacks
 
 [IModelExporter.exportChanges]($transformer) passes all deleted source element IDs to one [IModelExportHandler.onDeleteElements]($transformer) callback. Custom export handlers and [IModelTransformer]($transformer) subclasses must use this callback because there is no singular deletion callback.
@@ -142,6 +144,8 @@ try {
   transformer.dispose();
 }
 ```
+
+Each subset call is a separate [automatic element-reservation operation](./element-reservations.md) when the target uses server-based reservations without a held schema lock. Nested dependency processing joins that call; separate calls do not share a reservation batch. The guide covers shared-content requirements, customization, and failure handling.
 
 See [schema processing](./schema-processing.md) for schema selection, dynamic schema unions, conflict handling, and the schema-processing workflow.
 

@@ -33,6 +33,10 @@ export enum IModelTransformerError {
   ElementIdNotPreservable = "element-id-not-preservable",
   /** A required element identifier was not provided. */
   ElementIdRequired = "element-id-required",
+  /** A target identity differs from its prepared reservation identity during execution. */
+  ElementReservationPlanChanged = "element-reservation-plan-changed",
+  /** A target reservation identity cannot be prepared before element modifications. */
+  ElementReservationUnsupported = "element-reservation-unsupported",
   /** Exporting changes requires a briefcase iModel. */
   ExportChangesRequiresBriefcase = "export-changes-requires-briefcase",
   /** No export handler has been registered. */

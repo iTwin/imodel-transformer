@@ -63,6 +63,7 @@ import {
 import { ChangesetScanner } from "./ChangesetScanner";
 import { SourceClassKinds } from "./SourceClassKinds";
 import { ChangedElementForest } from "./ChangedElementForest";
+import { getReservationExportContext } from "./ElementReservationState";
 
 const loggerCategory = TransformerLoggerCategory.IModelExporter;
 
@@ -353,7 +354,8 @@ export class IModelExporter {
    * @note This will only be initialized after [IModelExporter.exportChanges] is invoked or [IModelExporter.initialize] is called.
    */
   public get sourceDbChanges(): ChangedInstanceIds | undefined {
-    return this._sourceDbChanges;
+    const context = getReservationExportContext(this);
+    return context?.replaying ? context.changes : this._sourceDbChanges;
   }
   /** The handler called by this IModelExporter. */
   private _handler: IModelExportHandler | undefined;
@@ -628,6 +630,9 @@ export class IModelExporter {
     // You can counteract the obvious impact of losing this expensive data by always calling
     // exportChanges with the [[ExportChangesOptions.changedInstanceIds]] option set to
     // whatever you want
+    const reservationContext = getReservationExportContext(this);
+    if (reservationContext !== undefined)
+      reservationContext.changes = this._sourceDbChanges;
     if (this._resetChangeDataOnExport) {
       this._sourceDbChanges = undefined;
       this._elementAspectExportProcessor.setAspectChanges(undefined);
