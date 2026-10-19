@@ -92,7 +92,7 @@ importers:
         specifier: ^16.2.7
         version: 16.4.0
       prettier:
-        specifier: ^3.6.2
+        specifier: 3.9.9
         version: 3.9.9
       typescript:
         specifier: 'catalog:'
