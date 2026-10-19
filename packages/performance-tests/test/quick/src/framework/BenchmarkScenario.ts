@@ -12,9 +12,15 @@ export interface BenchmarkScenario {
   measure(): Promise<void>;
   /** Untimed asynchronous setup that must complete before measurement starts. */
   prepare?(): Promise<void>;
+  /** Optional per-sample values written to `samples.jsonl` and `summary.json`. */
+  getMetrics?(): BenchmarkScenarioMetrics;
 }
 
 export type ScenarioConfiguration = Readonly<Record<string, string>>;
+
+export type BenchmarkScenarioMetrics = Readonly<
+  Record<string, number | string | boolean>
+>;
 
 export type BenchmarkScenarioFactory = (
   dataset: PreparedDataset

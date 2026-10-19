@@ -10,6 +10,10 @@ import { changesetScanningBenchmark } from "../scenarios/changesetScanning.js";
 import { incrementalSynchronizationBenchmark } from "../scenarios/incrementalSynchronization.js";
 import { largeBaseIncrementalSynchronizationBenchmark } from "../scenarios/largeBaseIncrementalSynchronization.js";
 import { schemaProcessingBenchmark } from "../scenarios/schemaProcessing.js";
+import {
+  aspectHeavyNoopBenchmark,
+  aspectHeavyProcessChangesBenchmark,
+} from "../scenarios/aspectHeavyNoop.js";
 import { standaloneDriveRelationshipProcessingBenchmark } from "../scenarios/standaloneDriveRelationshipProcessing.js";
 import { standaloneFullTransformationBenchmark } from "../scenarios/standaloneFullTransformation.js";
 
@@ -21,6 +25,8 @@ const registrations: readonly BenchmarkRegistration[] = Object.freeze([
   schemaProcessingBenchmark,
   standaloneFullTransformationBenchmark,
   standaloneDriveRelationshipProcessingBenchmark,
+  aspectHeavyNoopBenchmark,
+  aspectHeavyProcessChangesBenchmark,
 ]);
 
 const scenarios = new Map<string, BenchmarkScenarioDefinition>();
