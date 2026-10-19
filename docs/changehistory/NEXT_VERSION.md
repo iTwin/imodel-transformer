@@ -41,6 +41,33 @@ A changed element can require an unchanged element that has no mapping in the ta
 
 See [Incremental exports](../learning/transformer/index.md#incremental-exports) for callback and customization details.
 
+## Batched relationship export with endpoint FederationGuids
+
+`IModelExporter` now reads relationships in batches. The same query reads the FederationGuids of each relationship's source and target elements. The exporter passes them as a `RelationshipEndpointFederationGuids` object, `{ source?, target? }`, to `IModelExportHandler.onExportRelationship(relationship, isUpdate, endpointFedGuids)` and to the protected `IModelExporter.exportRelationshipInstance`. The exporter always supplies this object. A missing `source` or `target` property means that endpoint element has no FederationGuid. `IModelTransformer.onExportRelationship` uses the object to decide whether a relationship needs an `ExternalSourceAspect`, so it no longer looks up both endpoints for every relationship.
+
+If `endpointFedGuids` is not passed, `IModelTransformer` looks up both FederationGuids as before. Overrides that call `super.onExportRelationship(sourceRelationship)` keep their previous provenance output and performance, but don't get the speedup.
+
+### Getting the best relationship export performance
+
+For the speedup, an `onExportRelationship` override must accept `endpointFedGuids` and pass it to `super`:
+
+```ts
+public override async onExportRelationship(
+  sourceRelationship: Relationship,
+  isUpdate?: boolean,
+  endpointFedGuids?: RelationshipEndpointFederationGuids
+): Promise<void> {
+  // custom logic
+  return super.onExportRelationship(
+    sourceRelationship,
+    isUpdate,
+    endpointFedGuids
+  );
+}
+```
+
+Overrides of `IModelExporter.exportRelationshipInstance` should also pass `endpointFedGuids` to `super`. Code that calls `IModelTransformer.onExportRelationship` directly can pass the FederationGuids it already has. A missing property means that endpoint has none. For example, `{ source: sourceDb.elements.getFederationGuidFromId(rel.sourceId), target: sourceDb.elements.getFederationGuidFromId(rel.targetId) }`.
+
 ## Overridable change collection
 
 `IModelTransformer` now reads source changes through the protected, beta `collectChanges(ranges, changedInstanceIds)` method. Override it to supply changed instance IDs and deletion records from another source, such as a precomputed cache, instead of downloading and reading changesets. An override can pass the ranges it can't cover to `super.collectChanges()`. `ChangedInstanceIds.addChangeRecord()` adds a change from its instance ID, class ID, operation, and, for an aspect, owning element ID. See [Supplying source changes](../learning/transformer/change-scanning.md) for the contract and an example.

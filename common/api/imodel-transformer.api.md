@@ -219,7 +219,7 @@ export class IModelExporter {
     exportModel(modeledElementId: Id64String): Promise<void>;
     exportModelContents(modelId: Id64String, elementClassFullName?: string, skipRootSubject?: boolean): Promise<void>;
     exportRelationship(relClassFullName: string, relInstanceId: Id64String): Promise<void>;
-    protected exportRelationshipInstance(relationship: Relationship, isUpdate: boolean | undefined, sourceFedGuid?: GuidString, targetFedGuid?: GuidString): Promise<void>;
+    protected exportRelationshipInstance(relationship: Relationship, isUpdate: boolean | undefined, endpointFedGuids?: RelationshipEndpointFederationGuids): Promise<void>;
     exportRelationships(baseRelClassFullName: string): Promise<void>;
     exportSchemas(): Promise<void>;
     exportSubModels(parentModelId: Id64String): Promise<void>;
@@ -250,7 +250,7 @@ export abstract class IModelExportHandler {
     onExportElementUniqueAspect(_aspect: ElementUniqueAspect, _isUpdate: boolean | undefined): Promise<void>;
     onExportFont(_font: FontProps, _isUpdate: boolean | undefined): Promise<void>;
     onExportModel(_model: Model, _isUpdate: boolean | undefined): Promise<void>;
-    onExportRelationship(_relationship: Relationship, _isUpdate: boolean | undefined, _sourceFedGuid?: GuidString, _targetFedGuid?: GuidString): Promise<void>;
+    onExportRelationship(_relationship: Relationship, _isUpdate: boolean | undefined, _endpointFedGuids?: RelationshipEndpointFederationGuids): Promise<void>;
     onExportSchema(_schema: Schema): Promise<void | ExportSchemaResult>;
     onProgress(): Promise<void>;
     onSkipElement(_elementId: Id64String): Promise<void>;
@@ -378,7 +378,7 @@ export class IModelTransformer extends IModelExportHandler {
     onExportElementUniqueAspect(sourceAspect: ElementUniqueAspect): Promise<void>;
     onExportFont(font: FontProps, _isUpdate: boolean | undefined): Promise<void>;
     onExportModel(sourceModel: Model): Promise<void>;
-    onExportRelationship(sourceRelationship: Relationship, _isUpdate?: boolean, sourceFedGuid?: GuidString, targetFedGuid?: GuidString): Promise<void>;
+    onExportRelationship(sourceRelationship: Relationship, _isUpdate?: boolean, endpointFedGuids?: RelationshipEndpointFederationGuids): Promise<void>;
     onExportSchema(schema: ECSchemaMetaData.Schema): Promise<void | ExportSchemaResult>;
     onTransformElement(sourceElement: Element_2): Promise<ElementProps>;
     protected onTransformElementAspect(sourceElementAspect: ElementAspect): Promise<ElementAspectProps>;
@@ -555,6 +555,12 @@ export interface ReadonlySchemaAccessor {
 export interface RelationshipDeletionRecord extends DeletionRecordBase {
     sourceECInstanceId: Id64String;
     targetECInstanceId: Id64String;
+}
+
+// @beta
+export interface RelationshipEndpointFederationGuids {
+    source?: GuidString;
+    target?: GuidString;
 }
 
 // @beta (undocumented)

@@ -11,7 +11,6 @@ import { strict as nodeAssert } from "node:assert";
 import {
   assert,
   Guid,
-  GuidString,
   Id64,
   Id64Array,
   Id64Set,
@@ -92,6 +91,7 @@ import {
   ExportSchemaResult,
   IModelExporter,
   IModelExportHandler,
+  RelationshipEndpointFederationGuids,
 } from "./IModelExporter";
 import { IModelImporter, OptimizeGeometryOptions } from "./IModelImporter";
 import { TransformerLoggerCategory } from "./TransformerLoggerCategory";
@@ -1872,12 +1872,13 @@ export class IModelTransformer extends IModelExportHandler {
 
   /** Override of [IModelExportHandler.onExportRelationship]($transformer) that imports a relationship into the target iModel when it is exported from the source iModel.
    * This override calls [[onTransformRelationship]] and then [IModelImporter.importRelationship]($transformer) to update the target iModel.
+   * @param endpointFedGuids The FederationGuids of the relationship's source and target elements, as supplied by [[IModelExporter]]. If `undefined`, both are looked up in the source iModel when provenance needs them.
+   * @note Overrides should pass `endpointFedGuids` to `super`. If it is omitted, the transformer looks up both endpoint FederationGuids for every relationship, which is slower.
    */
   public override async onExportRelationship(
     sourceRelationship: Relationship,
     _isUpdate?: boolean,
-    sourceFedGuid?: GuidString,
-    targetFedGuid?: GuidString
+    endpointFedGuids?: RelationshipEndpointFederationGuids
   ): Promise<void> {
     const targetRelationshipProps =
       this.onTransformRelationship(sourceRelationship);
@@ -1907,10 +1908,12 @@ export class IModelTransformer extends IModelExportHandler {
       !this._options.noProvenance &&
       Id64.isValid(targetRelationshipInstanceId)
     ) {
-      const needsEsaProvenance = !this._options
-        .forceExternalSourceAspectProvenance
-        ? !(sourceFedGuid && targetFedGuid)
-        : true;
+      const needsEsaProvenance =
+        this._options.forceExternalSourceAspectProvenance ||
+        !this.relationshipEndpointsHaveFedGuids(
+          sourceRelationship,
+          endpointFedGuids
+        );
       if (needsEsaProvenance) {
         const aspectProps =
           await this._provenanceManager.initRelationshipProvenance(
@@ -1933,6 +1936,20 @@ export class IModelTransformer extends IModelExportHandler {
         }
       }
     }
+  }
+
+  /** Returns whether both relationship endpoints have a FederationGuid, looking them up only when the caller did not supply them. */
+  private relationshipEndpointsHaveFedGuids(
+    relationship: Relationship,
+    endpointFedGuids: RelationshipEndpointFederationGuids | undefined
+  ): boolean {
+    if (endpointFedGuids !== undefined)
+      return !!endpointFedGuids.source && !!endpointFedGuids.target;
+    const elements = this.sourceDb.elements;
+    return (
+      !!elements.getFederationGuidFromId(relationship.sourceId) &&
+      !!elements.getFederationGuidFromId(relationship.targetId)
+    );
   }
 
   /** Override of [IModelExportHandler.onDeleteRelationship]($transformer) that is called when [IModelExporter]($transformer) detects that a [Relationship]($backend) has been deleted from the source iModel.
