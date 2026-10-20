@@ -9,6 +9,7 @@ import { strict as assert } from "node:assert";
 import { Id64, Id64String, Logger } from "@itwin/core-bentley";
 import {
   Code,
+  CodeProps,
   CodeScopeSpec,
   ConcreteEntityTypes,
   ECJsNames,
@@ -34,6 +35,21 @@ import { EntityExistenceCache } from "./EntityExistenceCache";
 import { TransformerLoggerCategory } from "./TransformerLoggerCategory";
 import { BigMap } from "./BigMap";
 import type { IModelTransformContext } from "./IModelTransformContext";
+import {
+  ElementReservationIdentity,
+  isSameReservationIdentity,
+  throwReservationPlanChanged,
+  throwReservationUnsupported,
+} from "./ElementReservationState";
+
+/** Compact preparation state; codeBeforeHooks is pinned separately to avoid applying customization twice. @internal */
+export interface PreparedElementIdentity {
+  sourceId: Id64String;
+  identity: ElementReservationIdentity;
+  codeBeforeHooks: CodeProps;
+  /** Preserve hook output separately when target matching rewrites its code. */
+  codeBeforeMatch?: CodeProps;
+}
 
 const loggerCategory: string = TransformerLoggerCategory.IModelCloneContext;
 
@@ -46,6 +62,174 @@ export class IModelCloneContext
 {
   private _refTypesCache = new ECReferenceTypesCache();
   private _aspectRemapTable = new BigMap<Id64String>();
+  private readonly _elementClassRemaps = new Map<string, string>();
+  private _preparedCode: { sourceId: Id64String; code: CodeProps } | undefined;
+  private _identityPreparation:
+    | { sourceId: Id64String; identityOnly: boolean }
+    | undefined;
+
+  public override remapElementClass(
+    sourceClassFullName: string,
+    targetClassFullName: string
+  ): void {
+    super.remapElementClass(sourceClassFullName, targetClassFullName);
+    this._elementClassRemaps.set(
+      sourceClassFullName.replace(".", ":").toLowerCase(),
+      targetClassFullName
+    );
+  }
+
+  /** Whether the current transform has only an identity, not fully cloned target props. @internal */
+  public isPreparingIdentityOnly(sourceId: Id64String): boolean {
+    return (
+      this._identityPreparation?.sourceId === sourceId &&
+      this._identityPreparation.identityOnly
+    );
+  }
+
+  /** Pin standard code mapping before customization, for preparation or replay. @internal */
+  private async withPreparedCode<T>(
+    sourceId: Id64String,
+    code: CodeProps,
+    action: () => Promise<T>
+  ): Promise<T> {
+    const previous = this._preparedCode;
+    this._preparedCode = { sourceId, code: { ...code } };
+    try {
+      return await action();
+    } finally {
+      this._preparedCode = previous;
+    }
+  }
+
+  /** Prepare the target identity through the existing transform callbacks, without target writes. @internal */
+  public async prepareElementIdentity(
+    sourceElement: Element,
+    targetCodeScope: string,
+    transform: () => Promise<ElementProps>
+  ): Promise<PreparedElementIdentity> {
+    if (!this.isBetweenIModels)
+      throwReservationUnsupported(sourceElement.id, "in-place cloning");
+    // Element.code constructs a Code, which trims whitespace. Native cloning
+    // reads the stored value, so preparation must use raw props for parity.
+    const sourceCode = this.sourceDb.elements.getElementProps(
+      sourceElement.id
+    ).code;
+    const emptyCode = Code.createEmpty().toJSON();
+    // The intrinsic null code spec is not necessarily in the native remap table.
+    // Do not erase an empty-valued domain code, which can still be customized.
+    const code =
+      Code.isEmpty(sourceCode) && sourceCode.spec === emptyCode.spec
+        ? emptyCode
+        : {
+            spec: this.findTargetCodeSpecId(sourceCode.spec),
+            scope: targetCodeScope,
+            value: sourceCode.value,
+          };
+    if (!code.scope || code.scope === Id64.invalid)
+      throwReservationUnsupported(sourceElement.id, "an unresolved code scope");
+    return this.withPreparedCode(sourceElement.id, code, async () => {
+      const previous = this._identityPreparation;
+      this._identityPreparation = {
+        sourceId: sourceElement.id,
+        identityOnly: false,
+      };
+      try {
+        const props = await transform();
+        assert(this._preparedCode?.sourceId === sourceElement.id);
+        return {
+          sourceId: sourceElement.id,
+          identity: {
+            classFullName: props.classFullName,
+            federationGuid: props.federationGuid,
+            code: { ...props.code },
+          },
+          codeBeforeHooks: { ...this._preparedCode.code },
+        };
+      } finally {
+        this._identityPreparation = previous;
+      }
+    });
+  }
+
+  /** Re-run ordinary transformation with the same code input and check the reserved identity. @internal */
+  public async transformPreparedElement(
+    prepared: PreparedElementIdentity,
+    transform: () => Promise<ElementProps>
+  ): Promise<ElementProps> {
+    return this.withPreparedCode(
+      prepared.sourceId,
+      prepared.codeBeforeHooks,
+      async () => {
+        const props = await transform();
+        const expected = prepared.identity;
+        if (
+          !isSameReservationIdentity(props, {
+            ...expected,
+            code: prepared.codeBeforeMatch ?? expected.code,
+          })
+        ) {
+          throwReservationPlanChanged(
+            prepared.sourceId,
+            "transform callbacks must preserve the prepared GUID, class, and code"
+          );
+        }
+        if (prepared.codeBeforeMatch !== undefined)
+          props.code = { ...expected.code };
+        return props;
+      }
+    );
+  }
+
+  private identityProps(sourceElement: Element): ElementProps {
+    assert(
+      this._preparedCode?.sourceId === sourceElement.id,
+      "Identity preparation requires pinned code."
+    );
+    const identity: ElementReservationIdentity = {
+      classFullName: this.targetDb.getJsClass<typeof Element>(
+        this._elementClassRemaps.get(
+          sourceElement.classFullName.toLowerCase()
+        ) ?? sourceElement.classFullName
+      ).classFullName,
+      federationGuid: sourceElement.federationGuid,
+      code: { ...this._preparedCode.code },
+    };
+    // This is not a substitute for native cloning. A hook may use source data or
+    // identity fields, but must not mistake missing target props for undefined.
+    return new Proxy(identity as ElementProps, {
+      get: (target, property, receiver) => {
+        if (property === "then") return undefined; // Promise resolution inspects thenables.
+        if (!Object.prototype.hasOwnProperty.call(target, property))
+          throwReservationUnsupported(
+            sourceElement.id,
+            `transform hook reads target property ${String(property)} before its model exists`
+          );
+        return Reflect.get(target, property, receiver);
+      },
+      has: (target, property) => {
+        if (!Object.prototype.hasOwnProperty.call(target, property))
+          throwReservationUnsupported(
+            sourceElement.id,
+            `transform hook inspects target property ${String(property)} before its model exists`
+          );
+        return true;
+      },
+      ownKeys: () =>
+        throwReservationUnsupported(
+          sourceElement.id,
+          "transform hook enumerates incomplete target props"
+        ),
+      getOwnPropertyDescriptor: (target, property) => {
+        if (!Object.prototype.hasOwnProperty.call(target, property))
+          throwReservationUnsupported(
+            sourceElement.id,
+            `transform hook inspects target property ${String(property)} before its model exists`
+          );
+        return Reflect.getOwnPropertyDescriptor(target, property);
+      },
+    });
+  }
 
   /** A positive-only cache of entity existence checks, scoped to the current transformation run.
    * @internal
@@ -64,9 +248,33 @@ export class IModelCloneContext
     sourceElement: Element,
     cloneOptions?: IModelJsNative.CloneElementOptions
   ): Promise<ElementProps> {
-    const targetElementProps: ElementProps = this[
-      "_nativeContext"
-    ].cloneElement(sourceElement.id, cloneOptions);
+    const preparation =
+      this._identityPreparation?.sourceId === sourceElement.id
+        ? this._identityPreparation
+        : undefined;
+    if (preparation) {
+      const scopedCode = this._preparedCode;
+      assert(scopedCode?.sourceId === sourceElement.id);
+      if (!Id64.isValidId64(scopedCode.code.spec)) {
+        // Native cloning imports CodeSpecs lazily. Incremental exports need not
+        // include an unchanged CodeSpec, so mirror that setup before identity-only cloning.
+        const sourceSpec = this.sourceDb.elements.getElementProps(
+          sourceElement.id
+        ).code.spec;
+        this.importCodeSpec(sourceSpec);
+        scopedCode.code.spec = this.findTargetCodeSpecId(sourceSpec);
+      }
+      const targetModelId =
+        sourceElement.model === IModel.repositoryModelId
+          ? IModel.repositoryModelId
+          : this.findTargetElementId(sourceElement.model);
+      preparation.identityOnly =
+        !Id64.isValidId64(targetModelId) ||
+        !this.targetDb.models.tryGetModelProps(targetModelId);
+    }
+    const targetElementProps: ElementProps = preparation?.identityOnly
+      ? this.identityProps(sourceElement)
+      : this["_nativeContext"].cloneElement(sourceElement.id, cloneOptions);
     // Native same-iModel cloning clears codes for inserts, but identity mappings are updates.
     if (
       !this.isBetweenIModels &&
@@ -100,7 +308,9 @@ export class IModelCloneContext
       sourceElementClass !== undefined,
       `Cannot get metadata for ${sourceElement.classFullName}.`
     );
-    for (const property of sourceElementClass.getPropertiesSync()) {
+    for (const property of preparation?.identityOnly
+      ? []
+      : sourceElementClass.getPropertiesSync()) {
       // Exclude custom properties because C++ has already handled them.
       if (property.customAttributes?.has("BisCore.CustomHandledProperty"))
         continue;
@@ -114,6 +324,15 @@ export class IModelCloneContext
           RelatedElement.none;
       }
     }
+    const preparedCode =
+      this._preparedCode?.sourceId === sourceElement.id
+        ? this._preparedCode.code
+        : undefined;
+    if (preparedCode !== undefined) {
+      // Pending scopes have GUID identities, not native target mappings. Keep
+      // this representation before customization runs, including during replay.
+      targetElementProps.code = { ...preparedCode };
+    }
     if (this.isBetweenIModels) {
       // The native C++ cloneElement strips off federationGuid, want to put it back if transformation is between iModels
       targetElementProps.federationGuid = sourceElement.federationGuid;
@@ -126,7 +345,7 @@ export class IModelCloneContext
       ) {
         Logger.logWarning(
           loggerCategory,
-          `Incorrect CodeScope '${targetElementCodeScopeType}' is set for target element ${targetElementProps.id}`
+          `Incorrect CodeScope '${targetElementCodeScopeType}' is set for target element ${preparation?.identityOnly ? sourceElement.id : targetElementProps.id}`
         );
       }
     }
