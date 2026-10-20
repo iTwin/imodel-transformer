@@ -12,13 +12,7 @@ import {
   IModelDb,
   SubCategory,
 } from "@itwin/core-backend";
-import {
-  Code,
-  CodeProps,
-  CodeScopeSpec,
-  ElementProps,
-  IModel,
-} from "@itwin/core-common";
+import { Code, CodeScopeSpec, ElementProps, IModel } from "@itwin/core-common";
 import type { IModelExporter } from "./IModelExporter";
 import type { IModelCloneContext } from "./IModelCloneContext";
 import type {
@@ -117,39 +111,16 @@ export class ElementReservationPlanner {
           "in-place cloning requires a new reserved identity"
         );
     } else {
-      const sourceCode = host.cloneContext.readSourceCode(sourceElement.id);
-      // Resolving the scope first keeps scope-before-element ordering.
-      const targetCodeScope = await this.resolveCodeScope(
+      prepared = await host.cloneContext.prepareElementIdentity(
         sourceElement,
-        sourceCode
+        await this.resolveCodeScope(sourceElement),
+        async () => host.transformElement(sourceElement)
       );
-      const mappedId = host.cloneContext.findTargetElementId(sourceElement.id);
-      if (Id64.isValidId64(mappedId) && autoInsertedForCategory === undefined) {
-        // Updates reserve nothing, so they replay the ordinary transform and
-        // this identity is informational only.
-        targetElementId = mappedId;
-        identity = {
-          classFullName: sourceElement.classFullName,
-          federationGuid: sourceElement.federationGuid,
-          code: {
-            spec: host.cloneContext.findTargetCodeSpecId(sourceCode.spec),
-            scope: targetCodeScope,
-            value: sourceCode.value,
-          },
-        };
-      } else {
-        prepared = await host.cloneContext.prepareElementIdentity(
-          sourceElement,
-          sourceCode,
-          targetCodeScope,
-          async () => host.transformElement(sourceElement)
-        );
-        identity = prepared.identity;
-        targetElementId =
-          autoInsertedForCategory !== undefined
-            ? Id64.invalid
-            : await this.matchTargetElement(sourceElement, prepared);
-      }
+      identity = prepared.identity;
+      targetElementId =
+        autoInsertedForCategory !== undefined
+          ? Id64.invalid
+          : await this.matchTargetElement(sourceElement, prepared);
     }
 
     if (
@@ -234,12 +205,10 @@ export class ElementReservationPlanner {
   }
 
   /** Resolve the target code scope to a real ID or the GUID of a scope prepared in this operation. */
-  private async resolveCodeScope(
-    sourceElement: Element,
-    sourceCode: CodeProps
-  ): Promise<string> {
+  private async resolveCodeScope(sourceElement: Element): Promise<string> {
     const { sourceDb, exporter } = this._host;
     const operation = this._operation;
+    const sourceCode = sourceDb.elements.getElementProps(sourceElement.id).code;
     if (Code.isEmpty(sourceCode) && sourceCode.spec === Code.createEmpty().spec)
       return IModel.rootSubjectId;
 

@@ -51,17 +51,6 @@ export interface PreparedElementIdentity {
   codeBeforeMatch?: CodeProps;
 }
 
-interface IdentityPreparationState {
-  sourceId: Id64String;
-  identityOnly: boolean;
-  /** Skip the identity-only view; set when retrying after that view was insufficient. */
-  requireFullClone: boolean;
-  /** A full native clone is possible because the target model exists. */
-  canFullClone: boolean;
-  /** A transform hook read beyond identity fields, even if it caught the error. */
-  identityViewExceeded: boolean;
-}
-
 const loggerCategory: string = TransformerLoggerCategory.IModelCloneContext;
 
 /** The context for transforming a *source* Element to a *target* Element and remapping internal identifiers to the target iModel.
@@ -75,7 +64,9 @@ export class IModelCloneContext
   private _aspectRemapTable = new BigMap<Id64String>();
   private readonly _elementClassRemaps = new Map<string, string>();
   private _preparedCode: { sourceId: Id64String; code: CodeProps } | undefined;
-  private _identityPreparation: IdentityPreparationState | undefined;
+  private _identityPreparation:
+    | { sourceId: Id64String; identityOnly: boolean }
+    | undefined;
 
   public override remapElementClass(
     sourceClassFullName: string,
@@ -111,41 +102,19 @@ export class IModelCloneContext
     }
   }
 
-  /** Read a source element's stored code without loading its props.
-   * Element.code trims whitespace, but native cloning reads the stored value, so
-   * preparation needs the raw value. A cached statement avoids a full props load
-   * whose cache entry would also evict the exporter's.
-   * @internal
-   */
-  public readSourceCode(sourceId: Id64String): CodeProps {
-    return this.sourceDb.withPreparedSqliteStatement(
-      "SELECT CodeSpecId, CodeScopeId, CodeValue FROM bis_Element WHERE Id=?",
-      (stmt) => {
-        stmt.bindId(1, sourceId);
-        if (!stmt.nextRow())
-          throw new Error(`Source element ${sourceId} was not found.`);
-        return {
-          spec: stmt.getValueId(0),
-          scope: stmt.getValueId(1),
-          value: stmt.isValueNull(2) ? "" : stmt.getValueString(2),
-        };
-      }
-    );
-  }
-
-  /** Prepare the target identity through the existing transform callbacks, without target writes.
-   * Hooks first see an identity-only view. If one reads beyond it and the target
-   * model exists, preparation retries with a full native clone.
-   * @internal
-   */
+  /** Prepare the target identity through the existing transform callbacks, without target writes. @internal */
   public async prepareElementIdentity(
     sourceElement: Element,
-    sourceCode: CodeProps,
     targetCodeScope: string,
     transform: () => Promise<ElementProps>
   ): Promise<PreparedElementIdentity> {
     if (!this.isBetweenIModels)
       throwReservationUnsupported(sourceElement.id, "in-place cloning");
+    // Element.code constructs a Code, which trims whitespace. Native cloning
+    // reads the stored value, so preparation must use raw props for parity.
+    const sourceCode = this.sourceDb.elements.getElementProps(
+      sourceElement.id
+    ).code;
     const emptyCode = Code.createEmpty().toJSON();
     // The intrinsic null code spec is not necessarily in the native remap table.
     // Do not erase an empty-valued domain code, which can still be customized.
@@ -159,51 +128,28 @@ export class IModelCloneContext
           };
     if (!code.scope || code.scope === Id64.invalid)
       throwReservationUnsupported(sourceElement.id, "an unresolved code scope");
-
-    const attempt = async (requireFullClone: boolean) =>
-      this.withPreparedCode(sourceElement.id, code, async () => {
-        const previous = this._identityPreparation;
-        const preparation: IdentityPreparationState = {
+    return this.withPreparedCode(sourceElement.id, code, async () => {
+      const previous = this._identityPreparation;
+      this._identityPreparation = {
+        sourceId: sourceElement.id,
+        identityOnly: false,
+      };
+      try {
+        const props = await transform();
+        assert(this._preparedCode?.sourceId === sourceElement.id);
+        return {
           sourceId: sourceElement.id,
-          identityOnly: false,
-          requireFullClone,
-          canFullClone: false,
-          identityViewExceeded: false,
+          identity: {
+            classFullName: props.classFullName,
+            federationGuid: props.federationGuid,
+            code: { ...props.code },
+          },
+          codeBeforeHooks: { ...this._preparedCode.code },
         };
-        this._identityPreparation = preparation;
-        try {
-          const props = await transform();
-          assert(this._preparedCode?.sourceId === sourceElement.id);
-          return {
-            preparation,
-            prepared: {
-              sourceId: sourceElement.id,
-              identity: {
-                classFullName: props.classFullName,
-                federationGuid: props.federationGuid,
-                code: { ...props.code },
-              },
-              codeBeforeHooks: { ...this._preparedCode.code },
-            } satisfies PreparedElementIdentity,
-          };
-        } catch (error) {
-          if (preparation.identityViewExceeded && preparation.canFullClone)
-            return { preparation, prepared: undefined };
-          throw error;
-        } finally {
-          this._identityPreparation = previous;
-        }
-      });
-
-    const first = await attempt(false);
-    const { identityViewExceeded, canFullClone } = first.preparation;
-    if (!(identityViewExceeded && canFullClone)) {
-      assert(first.prepared !== undefined);
-      return first.prepared;
-    }
-    const retry = await attempt(true);
-    assert(retry.prepared !== undefined);
-    return retry.prepared;
+      } finally {
+        this._identityPreparation = previous;
+      }
+    });
   }
 
   /** Re-run ordinary transformation with the same code input and check the reserved identity. @internal */
@@ -235,10 +181,7 @@ export class IModelCloneContext
     );
   }
 
-  private identityProps(
-    sourceElement: Element,
-    preparation: IdentityPreparationState
-  ): ElementProps {
+  private identityProps(sourceElement: Element): ElementProps {
     assert(
       this._preparedCode?.sourceId === sourceElement.id,
       "Identity preparation requires pinned code."
@@ -252,33 +195,35 @@ export class IModelCloneContext
       federationGuid: sourceElement.federationGuid,
       code: { ...this._preparedCode.code },
     };
-    const exceeded = (reason: string): never => {
-      preparation.identityViewExceeded = true;
-      return throwReservationUnsupported(sourceElement.id, reason);
-    };
     // This is not a substitute for native cloning. A hook may use source data or
     // identity fields, but must not mistake missing target props for undefined.
     return new Proxy(identity as ElementProps, {
       get: (target, property, receiver) => {
         if (property === "then") return undefined; // Promise resolution inspects thenables.
         if (!Object.prototype.hasOwnProperty.call(target, property))
-          exceeded(
+          throwReservationUnsupported(
+            sourceElement.id,
             `transform hook reads target property ${String(property)} before its model exists`
           );
         return Reflect.get(target, property, receiver);
       },
       has: (target, property) => {
         if (!Object.prototype.hasOwnProperty.call(target, property))
-          exceeded(
+          throwReservationUnsupported(
+            sourceElement.id,
             `transform hook inspects target property ${String(property)} before its model exists`
           );
         return true;
       },
       ownKeys: () =>
-        exceeded("transform hook enumerates incomplete target props"),
+        throwReservationUnsupported(
+          sourceElement.id,
+          "transform hook enumerates incomplete target props"
+        ),
       getOwnPropertyDescriptor: (target, property) => {
         if (!Object.prototype.hasOwnProperty.call(target, property))
-          exceeded(
+          throwReservationUnsupported(
+            sourceElement.id,
             `transform hook inspects target property ${String(property)} before its model exists`
           );
         return Reflect.getOwnPropertyDescriptor(target, property);
@@ -313,7 +258,9 @@ export class IModelCloneContext
       if (!Id64.isValidId64(scopedCode.code.spec)) {
         // Native cloning imports CodeSpecs lazily. Incremental exports need not
         // include an unchanged CodeSpec, so mirror that setup before identity-only cloning.
-        const sourceSpec = this.readSourceCode(sourceElement.id).spec;
+        const sourceSpec = this.sourceDb.elements.getElementProps(
+          sourceElement.id
+        ).code.spec;
         this.importCodeSpec(sourceSpec);
         scopedCode.code.spec = this.findTargetCodeSpecId(sourceSpec);
       }
@@ -321,17 +268,12 @@ export class IModelCloneContext
         sourceElement.model === IModel.repositoryModelId
           ? IModel.repositoryModelId
           : this.findTargetElementId(sourceElement.model);
-      preparation.canFullClone =
-        Id64.isValidId64(targetModelId) &&
-        this.targetDb.models.tryGetModelProps(targetModelId) !== undefined;
-      // The root Subject's code scope is adjusted after cloning, which needs full props.
       preparation.identityOnly =
-        !preparation.canFullClone ||
-        (!preparation.requireFullClone &&
-          sourceElement.id !== IModel.rootSubjectId);
+        !Id64.isValidId64(targetModelId) ||
+        !this.targetDb.models.tryGetModelProps(targetModelId);
     }
     const targetElementProps: ElementProps = preparation?.identityOnly
-      ? this.identityProps(sourceElement, preparation)
+      ? this.identityProps(sourceElement)
       : this["_nativeContext"].cloneElement(sourceElement.id, cloneOptions);
     // Native same-iModel cloning clears codes for inserts, but identity mappings are updates.
     if (
@@ -513,9 +455,11 @@ export class IModelCloneContext
               const sourceId = reader.current[0];
               const targetId = reader.current[1];
               const sourceType = reader.current[2] as
-                ConcreteEntityTypes | "error";
+                | ConcreteEntityTypes
+                | "error";
               const targetType = reader.current[3] as
-                ConcreteEntityTypes | "error";
+                | ConcreteEntityTypes
+                | "error";
               if (sourceType === "error" || targetType === "error")
                 throw Error("relationship end had unknown root class");
               return {
