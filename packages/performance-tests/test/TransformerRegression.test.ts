@@ -50,8 +50,7 @@ import nativeTransformerTestModule from "./transformers/NativeTransformer";
 import rawForkOperationsTestModule from "./transformers/RawForkOperations";
 
 type AuthorizationClient =
-  | NodeCliAuthorizationClient
-  | TestBrowserAuthorizationClient;
+  NodeCliAuthorizationClient | TestBrowserAuthorizationClient;
 type PerformanceTestCase = typeof identityTransformer;
 
 const testCasesMap = new Map<string, RegressionTestCase<PerformanceTestCase>>([

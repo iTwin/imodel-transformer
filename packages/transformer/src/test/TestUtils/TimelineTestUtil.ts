@@ -226,9 +226,7 @@ function maintainObjects(
 }
 
 export type TimelineElemState =
-  | number
-  | Omit<ElementProps, "userLabel">
-  | RelationshipProps;
+  number | Omit<ElementProps, "userLabel"> | RelationshipProps;
 export type TimelineElemDelta = TimelineElemState | typeof deleted;
 
 export interface TimelineIModelElemStateDelta {
