@@ -646,6 +646,57 @@ export class IModelExporter {
 
   private _resetChangeDataOnExport = true;
 
+  /** Set while [[scanElements]] runs, so accepted elements do not start aspect export. */
+  private _isElementScan = false;
+
+  /** Runs the element traversal of [[exportAll]] or, after [[initialize]] with change data, of [[exportChanges]],
+   * calling `handler` instead of the registered handler.
+   * The traversal applies the same exclusions and change filtering, but exports no CodeSpecs, fonts, aspects,
+   * relationships, or deletes, and does not reset the change data.
+   * @internal
+   */
+  public async scanElements(
+    handler: IModelExportHandler,
+    options: {
+      skipPropagateChangesToRootElements: boolean;
+      wantGeometry: boolean;
+    }
+  ): Promise<void> {
+    const registeredHandler = this._handler;
+    const wantGeometry = this.wantGeometry;
+    const skipPropagateChangesToRootElements =
+      this._skipPropagateChangesToRootElements;
+    this._handler = handler;
+    this.wantGeometry = options.wantGeometry;
+    this._skipPropagateChangesToRootElements =
+      options.skipPropagateChangesToRootElements;
+    this._isElementScan = true;
+    const ownsChangedElementTraversal =
+      this.beginChangedElementTraversalScope();
+    try {
+      await this._elementAspectExportCoordinator.run(async () => {
+        if (options.skipPropagateChangesToRootElements) {
+          await this.exportChildElements(IModel.rootSubjectId);
+          await this.exportModelContents(
+            IModel.repositoryModelId,
+            Element.classFullName,
+            true
+          );
+          await this.exportSubModels(IModel.repositoryModelId);
+        } else {
+          await this.exportModel(IModel.repositoryModelId);
+        }
+      });
+    } finally {
+      if (ownsChangedElementTraversal) this.endChangedElementTraversalScope();
+      this._isElementScan = false;
+      this._skipPropagateChangesToRootElements =
+        skipPropagateChangesToRootElements;
+      this.wantGeometry = wantGeometry;
+      this._handler = registeredHandler;
+    }
+  }
+
   /** Enumerate schemas from the source iModel in database order.
    * @note Override this method to customize schema discovery for both direct exports and transformer schema processing.
    * @beta
@@ -1214,7 +1265,8 @@ export class IModelExporter {
       await this.handler.preExportElement(element);
       await this.handler.onExportElement(element, isUpdate);
       await this.trackProgress();
-      await this._elementAspectExportCoordinator.addAcceptedOwner(elementId);
+      if (!this._isElementScan)
+        await this._elementAspectExportCoordinator.addAcceptedOwner(elementId);
       return "visit";
     }
     await this.handler.onSkipElement(element.id);
