@@ -223,10 +223,11 @@ describe("reservation identities", () => {
       expect(objectId).toBe(
         s.reservations.sync.findReservedElement(guid)?.elementId
       );
-      expect(classes).toEqual([
-        "ReservationIdentity:Remapped",
-        "ReservationIdentity:Remapped",
-      ]);
+      // Reading props.model exceeds the identity-only view, so planning retries
+      // with a full clone when the target model exists.
+      expect(classes).toEqual(
+        Array(existingModel ? 3 : 2).fill("ReservationIdentity:Remapped")
+      );
       expect(
         s.target.elements.getElement<PhysicalObject>({
           id: objectId,
