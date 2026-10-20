@@ -113,6 +113,10 @@ Potential transformations include:
 
 When processing changes, `IModelTransformer` downloads and reads the source changesets. To supply the changes from another source, such as a cache, instead, see [Supplying source changes](./change-scanning.md).
 
+### Element reservations
+
+A target that uses server-based element reservations requires new elements with a federation GUID to be reserved before they are inserted. See [Element reservation pre-scan](./element-reservation-prescan.md) for the alpha `elementReservationPreScan` option, which reserves them in one batch.
+
 ### Filtering and required elements
 
 The export filter is [IModelExporter.shouldExportElement]($transformer). It applies the exporter's exclusions, such as `excludeElement`, `excludeElementClass`, and `excludeElementsInCategory`, then calls the handler's `shouldExportElement`, which `IModelTransformer` subclasses override. When the filter rejects an element, its descendants are skipped too.
