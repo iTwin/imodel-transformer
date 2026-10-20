@@ -55,6 +55,10 @@ import {
 } from "./IModelTransformerError";
 import { planBulkDelete } from "./ElementBulkDelete";
 import { EntityExistenceCache } from "./EntityExistenceCache";
+import {
+  batchedRelationshipLookups,
+  relationshipEndpointsKey,
+} from "./RelationshipBatchLookup";
 
 const loggerCategory: string = TransformerLoggerCategory.IModelImporter;
 
@@ -775,12 +779,71 @@ export class IModelImporter {
     return `${elementAspectProps.classFullName} elementId=[${elementAspectProps.element.id}]`;
   }
 
-  /** Import the specified RelationshipProps (either as an insert or an update) into the target iModel.
-   * @returns The instance Id of the inserted or updated Relationship.
+  /** Import the specified RelationshipProps (each either as an insert or an update) into the target iModel.
+   * Existing target relationships are looked up with one batched query per relationship class instead of one query per relationship.
+   * Relationships are written one at a time, in input order, through [[onInsertRelationship]] and [[onUpdateRelationship]].
+   * @param relationshipProps The relationships to import. The `id` of each relationship that already exists in the target is set to the existing relationship's id.
+   * @returns The instance Id of each inserted or updated Relationship, in input order. [Id64.invalid]($bentley) for a relationship with an invalid source or target id, which is ignored.
    */
-  public async importRelationship(
+  public async importRelationships(
+    relationshipProps: ReadonlyArray<RelationshipProps>
+  ): Promise<Id64String[]> {
+    const relationshipIds: Id64String[] = relationshipProps.map(
+      () => Id64.invalid
+    );
+    const validIndices: number[] = [];
+    const indicesByClass = new Map<string, number[]>();
+    relationshipProps.forEach((props, index) => {
+      if (!this.hasValidRelationshipEndpoints(props)) return;
+      validIndices.push(index);
+      const indices = indicesByClass.get(props.classFullName);
+      if (indices) indices.push(index);
+      else indicesByClass.set(props.classFullName, [index]);
+    });
+
+    // check for existing relationships
+    const existing: Array<Relationship | undefined> = [];
+    for (const [classFullName, indices] of indicesByClass) {
+      const found = await batchedRelationshipLookups(
+        this.targetDb
+      ).queryInstances(
+        classFullName,
+        indices.map((index): SourceAndTarget => ({
+          sourceId: relationshipProps[index].sourceId,
+          targetId: relationshipProps[index].targetId,
+        })),
+        { usePrimaryConn: true }
+      );
+      indices.forEach((index, i) => (existing[index] = found[i]));
+    }
+
+    const writtenEndpoints = new Set<string>();
+    for (const index of validIndices) {
+      const props = relationshipProps[index];
+      const endpointsKey = relationshipEndpointsKey(
+        props.sourceId,
+        props.targetId
+      );
+      // The batched lookup can't see a relationship that an earlier entry in this batch inserted with the same endpoints.
+      const relationship = writtenEndpoints.has(endpointsKey)
+        ? this.targetDb.relationships.tryGetInstance(props.classFullName, {
+            sourceId: props.sourceId,
+            targetId: props.targetId,
+          })
+        : existing[index];
+      writtenEndpoints.add(endpointsKey);
+      relationshipIds[index] = await this.importRelationshipProps(
+        props,
+        relationship
+      );
+    }
+    return relationshipIds;
+  }
+
+  /** Returns whether a relationship has valid source and target ids, logging why it is ignored if not. */
+  private hasValidRelationshipEndpoints(
     relationshipProps: RelationshipProps
-  ): Promise<Id64String> {
+  ): boolean {
     if (
       undefined === relationshipProps.sourceId ||
       !Id64.isValidId64(relationshipProps.sourceId)
@@ -789,7 +852,7 @@ export class IModelImporter {
         loggerCategory,
         `Ignoring ${relationshipProps.classFullName} instance because of invalid RelationshipProps.sourceId`
       );
-      return Id64.invalid;
+      return false;
     }
     if (
       undefined === relationshipProps.targetId ||
@@ -799,28 +862,23 @@ export class IModelImporter {
         loggerCategory,
         `Ignoring ${relationshipProps.classFullName} instance because of invalid RelationshipProps.targetId`
       );
-      return Id64.invalid;
+      return false;
     }
-    // check for an existing relationship
-    const relSourceAndTarget: SourceAndTarget = {
-      sourceId: relationshipProps.sourceId,
-      targetId: relationshipProps.targetId,
-    };
-    const relationship: Relationship | undefined =
-      this.targetDb.relationships.tryGetInstance(
-        relationshipProps.classFullName,
-        relSourceAndTarget
-      );
-    if (undefined !== relationship) {
-      // if relationship found, update it
-      relationshipProps.id = relationship.id;
-      if (hasEntityChanged(relationship, relationshipProps)) {
-        await this.onUpdateRelationship(relationshipProps);
-      }
-      return relationshipProps.id;
-    } else {
+    return true;
+  }
+
+  /** Inserts a relationship, or updates the existing target relationship if it changed. */
+  private async importRelationshipProps(
+    relationshipProps: RelationshipProps,
+    existingRelationship: Relationship | undefined
+  ): Promise<Id64String> {
+    if (undefined === existingRelationship)
       return this.onInsertRelationship(relationshipProps);
+    relationshipProps.id = existingRelationship.id;
+    if (hasEntityChanged(existingRelationship, relationshipProps)) {
+      await this.onUpdateRelationship(relationshipProps);
     }
+    return relationshipProps.id;
   }
 
   /** Create a new Relationship from the specified RelationshipProps and insert it into the target iModel.
@@ -877,27 +935,41 @@ export class IModelImporter {
     await this.trackProgress();
   }
 
-  /** Delete the specified Relationship from the target iModel. */
-  protected async onDeleteRelationship(
-    relationshipProps: RelationshipPropsForDelete
+  /** Delete the specified Relationships from the target iModel with one native operation per relationship class.
+   * @note A subclass may override this method to customize delete behavior but should call `super.onDeleteRelationships`, which does the deletion.
+   */
+  protected async onDeleteRelationships(
+    relationshipProps: ReadonlyArray<RelationshipPropsForDelete>
   ): Promise<void> {
-    // Only passing in what deleteInstance actually uses, full relationshipProps is not necessary.
-    this._editTxn.deleteRelationship({
-      id: relationshipProps.id,
-      classFullName: relationshipProps.classFullName,
-    } as RelationshipProps);
+    // Only passing in what the native delete actually uses, full relationshipProps is not necessary.
+    this._editTxn.deleteRelationships(
+      relationshipProps.map(
+        ({ id, classFullName }) => ({ id, classFullName }) as RelationshipProps
+      )
+    );
+    for (const { id, classFullName } of relationshipProps)
+      Logger.logTrace(
+        loggerCategory,
+        `Deleted relationship ${classFullName} id=${id}`
+      );
     Logger.logInfo(
       loggerCategory,
-      `Deleted relationship ${relationshipProps.classFullName} id=${relationshipProps.id}`
+      `Deleted ${relationshipProps.length} relationships`
     );
-    await this.trackProgress();
+    await this.trackProgress(relationshipProps.length);
   }
 
-  /** Delete the specified Relationship from the target iModel. */
-  public async deleteRelationship(
-    relationshipProps: RelationshipPropsForDelete
+  /** Delete the specified Relationships from the target iModel.
+   * Each relationship is deleted at most once, even if it is listed more than once. Relationships that don't exist are skipped.
+   */
+  public async deleteRelationships(
+    relationshipProps: ReadonlyArray<RelationshipPropsForDelete>
   ): Promise<void> {
-    await this.onDeleteRelationship(relationshipProps);
+    const uniqueProps = new Map<Id64String, RelationshipPropsForDelete>();
+    for (const props of relationshipProps)
+      if (!uniqueProps.has(props.id)) uniqueProps.set(props.id, props);
+    if (uniqueProps.size === 0) return;
+    await this.onDeleteRelationships([...uniqueProps.values()]);
   }
 
   /** Format a Relationship for the Logger. */

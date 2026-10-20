@@ -43,30 +43,24 @@ See [Incremental exports](../learning/transformer/index.md#incremental-exports) 
 
 ## Batched relationship export with endpoint FederationGuids
 
-`IModelExporter` now reads relationships in batches. The same query reads the FederationGuids of each relationship's source and target elements. The exporter passes them as a `RelationshipEndpointFederationGuids` object, `{ source?, target? }`, to `IModelExportHandler.onExportRelationship(relationship, isUpdate, endpointFedGuids)` and to the protected `IModelExporter.exportRelationshipInstance`. The exporter always supplies this object. A missing `source` or `target` property means that endpoint element has no FederationGuid. `IModelTransformer.onExportRelationship` uses the object to decide whether a relationship needs an `ExternalSourceAspect`, so it no longer looks up both endpoints for every relationship.
+`IModelExporter` now reads relationships in batches. The same query reads the FederationGuids of each relationship's source and target elements. The exporter passes each relationship to `IModelExportHandler.onExportRelationships(relationships)` as an `ExportedRelationship`, `{ relationship, isUpdate, endpointFedGuids? }`. `endpointFedGuids` is a `RelationshipEndpointFederationGuids` object, `{ source?, target? }`. The exporter always supplies this object. A missing `source` or `target` property means that endpoint element has no FederationGuid. `IModelTransformer.onExportRelationships` uses the object to decide whether a relationship needs an `ExternalSourceAspect`, so it no longer looks up both endpoints for every relationship.
 
-If `endpointFedGuids` is not passed, `IModelTransformer` looks up both FederationGuids as before. Overrides that call `super.onExportRelationship(sourceRelationship)` keep their previous provenance output and performance, but don't get the speedup.
+If an item has no `endpointFedGuids`, `IModelTransformer` looks up both FederationGuids as before. Overrides that build new items without `endpointFedGuids` keep their previous provenance output and performance, but don't get the speedup.
 
 ### Getting the best relationship export performance
 
-For the speedup, an `onExportRelationship` override must accept `endpointFedGuids` and pass it to `super`:
+For the speedup, an `onExportRelationships` override must pass each item's `endpointFedGuids` to `super`. Passing the received array unchanged does this:
 
 ```ts
-public override async onExportRelationship(
-  sourceRelationship: Relationship,
-  isUpdate?: boolean,
-  endpointFedGuids?: RelationshipEndpointFederationGuids
+public override async onExportRelationships(
+  relationships: ReadonlyArray<ExportedRelationship>
 ): Promise<void> {
   // custom logic
-  return super.onExportRelationship(
-    sourceRelationship,
-    isUpdate,
-    endpointFedGuids
-  );
+  return super.onExportRelationships(relationships);
 }
 ```
 
-Overrides of `IModelExporter.exportRelationshipInstance` should also pass `endpointFedGuids` to `super`. Code that calls `IModelTransformer.onExportRelationship` directly can pass the FederationGuids it already has. A missing property means that endpoint has none. For example, `{ source: sourceDb.elements.getFederationGuidFromId(rel.sourceId), target: sourceDb.elements.getFederationGuidFromId(rel.targetId) }`.
+Overrides of `IModelExporter.exportRelationshipInstances` should also keep `endpointFedGuids` on the items they pass to `super`. Code that calls `IModelTransformer.onExportRelationships` directly can pass the FederationGuids it already has. A missing property means that endpoint has none. For example, `{ source: sourceDb.elements.getFederationGuidFromId(rel.sourceId), target: sourceDb.elements.getFederationGuidFromId(rel.targetId) }`.
 
 ## Overridable change collection
 
@@ -123,6 +117,53 @@ Batched deletion is 8 to 10 times faster than per-element deletion. A batch that
 | Elements, then their categories | 19.4 s                                    | 1.96 s, throws, and the 100 categories remain | 2.35 s                                 |
 | Categories, then their elements | 19.3 s, silently keeps all 100 categories | 1.91 s, throws, and the 100 categories remain | 2.18 s                                 |
 | Elements only                   | 21.0 s                                    | 1.97 s                                        | 2.03 s                                 |
+
+## Breaking change: batched relationship import and deletion
+
+Relationships are now imported and deleted in batches. `IModelExporter` passes each page of up to 1,000 relationships to `IModelExportHandler.onExportRelationships()` and passes every deleted relationship ID to `IModelExportHandler.onDeleteRelationships()` in one call. `IModelImporter.importRelationships()` finds the existing target relationships for each class with one `Relationships.queryInstances` call instead of one `tryGetInstance` call per relationship. `IModelImporter.deleteRelationships()` deletes the target relationships with one `EditTxn.deleteRelationships` call.
+
+This requires an `@itwin/core-backend` version that provides `Relationships.queryInstances` and `Relationships.queryInstancesProps`.
+
+`IModelExportHandler.shouldExportRelationship()` and relationship class exclusions are still checked for each relationship, before the batch is passed on.
+
+These APIs have been removed:
+
+| Removed                                                                        | Replacement                                                                 |
+| ------------------------------------------------------------------------------ | --------------------------------------------------------------------------- |
+| `IModelExportHandler.onExportRelationship(relationship, isUpdate, fgs?)`       | `onExportRelationships(relationships: ReadonlyArray<ExportedRelationship>)` |
+| `IModelExportHandler.onDeleteRelationship(relInstanceId)`                      | `onDeleteRelationships(relInstanceIds: ReadonlySet<Id64String>)`            |
+| `IModelTransformer.onExportRelationship(...)`                                  | `IModelTransformer.onExportRelationships(...)`                              |
+| `IModelTransformer.onDeleteRelationship(...)`                                  | `IModelTransformer.onDeleteRelationships(...)`                              |
+| `IModelImporter.importRelationship(props)`                                     | `importRelationships(props: ReadonlyArray<RelationshipProps>)`              |
+| `IModelImporter.deleteRelationship(props)`                                     | `deleteRelationships(props: ReadonlyArray<RelationshipPropsForDelete>)`     |
+| the protected `IModelImporter.onDeleteRelationship(props)` hook                | the protected `onDeleteRelationships(props)` hook                           |
+| the protected `IModelExporter.exportRelationshipInstance(rel, isUpdate, fgs?)` | the protected `exportRelationshipInstances(relationships)`                  |
+
+`importRelationships()` returns the target IDs in input order. An item with an invalid source or target ID gets `Id64.invalid`, as `importRelationship()` returned before.
+
+Move per-relationship logic into a loop and pass the batch to `super`:
+
+```ts
+public override async onExportRelationships(
+  relationships: ReadonlyArray<ExportedRelationship>
+): Promise<void> {
+  for (const { relationship } of relationships)
+    this.recordExport(relationship.id);
+  await super.onExportRelationships(relationships);
+}
+
+public override async onDeleteRelationships(
+  sourceRelInstanceIds: ReadonlySet<Id64String>
+): Promise<void> {
+  for (const sourceRelInstanceId of sourceRelInstanceIds)
+    this.recordDeletion(sourceRelInstanceId);
+  await super.onDeleteRelationships(sourceRelInstanceIds);
+}
+```
+
+A custom importer's `onDeleteRelationships` override receives target relationships. `super.onDeleteRelationships()` does the deletion, so finish any work that reads the relationships before calling it.
+
+Calls to the old single-relationship methods can wrap the argument in an array, for example `await importer.importRelationships([props])` or `await importer.deleteRelationships([props])`.
 
 ## Schema-processing strategies
 

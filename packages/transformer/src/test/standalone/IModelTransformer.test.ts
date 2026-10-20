@@ -113,6 +113,7 @@ import {
 } from "@itwin/core-geometry";
 import {
   ChangedInstanceIds,
+  ExportedRelationship,
   IModelExporter,
   IModelExportHandler,
 } from "../../IModelExporter";
@@ -2084,9 +2085,8 @@ describe("IModelTransformer", () => {
       ): Promise<void> {
         assert.fail("Should not visit element when visitElements=false");
       }
-      public override async onExportRelationship(
-        _relationship: Relationship,
-        _isUpdate: boolean | undefined
+      public override async onExportRelationships(
+        _relationships: ReadonlyArray<ExportedRelationship>
       ): Promise<void> {
         assert.fail(
           "Should not visit relationship when visitRelationship=false"
@@ -3981,10 +3981,15 @@ describe("IModelTransformer", () => {
 
   describe("relationship endpoint FederationGuids", () => {
     class DroppedArgumentsTransformer extends IModelTransformer {
-      public override async onExportRelationship(
-        sourceRelationship: Relationship
+      public override async onExportRelationships(
+        relationships: ReadonlyArray<ExportedRelationship>
       ): Promise<void> {
-        return super.onExportRelationship(sourceRelationship);
+        return super.onExportRelationships(
+          relationships.map(({ relationship, isUpdate }) => ({
+            relationship,
+            isUpdate,
+          }))
+        );
       }
     }
 

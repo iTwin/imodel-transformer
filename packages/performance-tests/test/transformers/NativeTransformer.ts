@@ -15,13 +15,12 @@ import {
   ExternalSource,
   ExternalSourceIsInRepository,
   IModelDb,
-  Relationship,
   RepositoryLink,
   withEditTxn,
 } from "@itwin/core-backend";
 import {
+  ExportedRelationship,
   IModelTransformer,
-  RelationshipEndpointFederationGuids,
 } from "@itwin/imodel-transformer";
 import { Logger } from "@itwin/core-bentley";
 import {
@@ -33,26 +32,22 @@ const loggerCategory = "Transformer Performance Tests Identity";
 
 class ProgressTransformer extends IModelTransformer {
   private _count = 0;
-  private _increment() {
-    this._count++;
-    if (this._count % 1000 === 0)
-      Logger.logInfo(loggerCategory, `exported ${this._count} entities`);
+  private _increment(count = 1) {
+    for (let i = 0; i < count; i++) {
+      this._count++;
+      if (this._count % 1000 === 0)
+        Logger.logInfo(loggerCategory, `exported ${this._count} entities`);
+    }
   }
   public override async onExportElement(sourceElement: Element): Promise<void> {
     this._increment();
     return super.onExportElement(sourceElement);
   }
-  public override async onExportRelationship(
-    sourceRelationship: Relationship,
-    isUpdate?: boolean,
-    endpointFedGuids?: RelationshipEndpointFederationGuids
+  public override async onExportRelationships(
+    relationships: ReadonlyArray<ExportedRelationship>
   ): Promise<void> {
-    this._increment();
-    return super.onExportRelationship(
-      sourceRelationship,
-      isUpdate,
-      endpointFedGuids
-    );
+    this._increment(relationships.length);
+    return super.onExportRelationships(relationships);
   }
 }
 
