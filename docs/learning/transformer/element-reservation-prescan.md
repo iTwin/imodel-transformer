@@ -96,6 +96,7 @@ A code scope that the traversal reaches after the element is unmapped at insert.
 ## Limits
 
 - Every filter runs twice: `shouldExportElement` in the pre-scan and again in the transformation. In `"transform"` mode, `onTransformElement` also runs twice for classified elements.
+- `"transform"` cannot honor hooks for elements whose model or category is new in the same run, because they are not mapped while the scan runs. Those elements use `"identity"`, which covers every element of a full transformation into an empty target.
 - Hooks that change identity must return the same identity in both passes.
 - `"identity"` ignores identity changes made by hooks, except class remaps registered with `remapElementClass`. The source `Code` object trims the code value while the native clone keeps it, so a value with leading or trailing whitespace can conflict.
 - A missing CodeSpec is imported into the target during the scan, as the transformation's clone would import it.
@@ -125,4 +126,20 @@ Each variant branch differs from the prototype only in the option's default. All
 - `identity`: the pin plus the pre-scan in identity mode;
 - `transform`: the pin plus the pre-scan in transform mode.
 
-Results are pending.
+The table shows the change in median wall time, candidate against `main`, within the same workflow run. Absolute times differ between runners, so only deltas within a run are comparable.
+
+| Fixture                                       | `off`  | `identity`                                                                        | `transform`                                                                       |
+| --------------------------------------------- | ------ | --------------------------------------------------------------------------------- | --------------------------------------------------------------------------------- |
+| balanced-incremental                          | +0.02% | [+5.15%](https://github.com/iTwin/imodel-transformer/actions/runs/39488162255)    | [+6.74%](https://github.com/iTwin/imodel-transformer/actions/runs/39488118768)    |
+| hierarchical-incremental                      | +0.32% | [+20.79%](https://github.com/iTwin/imodel-transformer/actions/runs/39488170829)   | [+24.28%](https://github.com/iTwin/imodel-transformer/actions/runs/39488128448)   |
+| large-base-incremental                        | −0.06% | [+2.50%](https://github.com/iTwin/imodel-transformer/actions/runs/39488178756)    | [+2.89%](https://github.com/iTwin/imodel-transformer/actions/runs/39488136774)    |
+| realistic-building-transform (3,440 elements) | +0.41% | [+10.02%](https://github.com/iTwin/imodel-transformer/actions/runs/39488195588)   | [+8.21%](https://github.com/iTwin/imodel-transformer/actions/runs/39488153454)    |
+| standalone-full-transform (10,000 elements)   | +0.86% | [+19.30%](https://github.com/iTwin/imodel-transformer/actions/runs/39488187359)   | [+19.26%](https://github.com/iTwin/imodel-transformer/actions/runs/39488145229)   |
+
+- The version pin alone costs under 1%, so the `identity` and `transform` deltas are the pre-scan's cost.
+- A full transformation costs about 50 µs per element, or about 0.5 s for 10,000 elements.
+- Incremental runs cost 2.5–24%. Hierarchical-incremental is the most expensive relative to its short run, because change processing builds the changed-element traversal twice.
+- In full transformations into an empty target, `transform` costs the same as `identity`. No model is mapped while the scan runs, so every element falls back to `"identity"`. In a local run of the standalone fixture, 10,000 of 10,005 elements fell back.
+- Peak RSS stayed within 5 MB of `main`, except standalone-full-transform, where the workflow reported +78 MB in both modes. A local run of the same shape measured +11 MB (176 MB to 187 MB) with no heap growth. The difference is not explained.
+
+For comparison, #473 estimated 1.2–1.9× before optimizations. The pre-scan measured 1.03–1.24×.
