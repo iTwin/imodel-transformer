@@ -21,6 +21,7 @@ import {
   ExportSchemaResult,
   IModelExporter,
   IModelExportHandler,
+  RelationshipEndpointFederationGuids,
 } from "./IModelExporter";
 import {
   IModelCloneContext,
@@ -91,8 +92,7 @@ export type ElementReservationEvent =
       readonly sourceId: Id64String;
       readonly classFullName: string;
       readonly isUpdate: boolean | undefined;
-      readonly sourceFedGuid?: string;
-      readonly targetFedGuid?: string;
+      readonly endpointFedGuids?: RelationshipEndpointFederationGuids;
     }
   | {
       readonly kind: "delete-relationship";
@@ -451,6 +451,7 @@ export class ElementReservationOperation extends IModelExportHandler {
     }
 
     if (reservationElements.length === 0) return;
+    if (!this._targetDb.reservations.isServerBased) return; // PERF BRANCH ONLY
     try {
       await this._targetDb.reservations.reserveElements({
         elements: reservationElements,
@@ -529,8 +530,7 @@ export class ElementReservationOperation extends IModelExportHandler {
         await this._delegate.onExportRelationship(
           relationship,
           event.isUpdate,
-          event.sourceFedGuid,
-          event.targetFedGuid
+          event.endpointFedGuids
         );
         return;
       }
@@ -695,16 +695,14 @@ export class ElementReservationOperation extends IModelExportHandler {
   public override async onExportRelationship(
     relationship: Relationship,
     isUpdate?: boolean,
-    sourceFedGuid?: string,
-    targetFedGuid?: string
+    endpointFedGuids?: RelationshipEndpointFederationGuids
   ): Promise<void> {
     this._events.push({
       kind: "relationship",
       sourceId: relationship.id,
       classFullName: relationship.classFullName,
       isUpdate,
-      sourceFedGuid,
-      targetFedGuid,
+      endpointFedGuids,
     });
   }
 

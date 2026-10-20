@@ -630,8 +630,12 @@ export class IModelTransformer extends IModelExportHandler {
   }
 
   private shouldUseAutomaticElementReservations(): boolean {
+    // PERF BRANCH ONLY: always plan and replay so local benchmarks measure the
+    // full operation; reserveElements is skipped on non-server-based targets.
     return (
-      this.targetDb.reservations.isServerBased && !this.targetDb.holdsSchemaLock
+      this.context.isBetweenIModels ||
+      (this.targetDb.reservations.isServerBased &&
+        !this.targetDb.holdsSchemaLock)
     );
   }
 
