@@ -540,7 +540,7 @@ export class IModelTransformer extends IModelExportHandler {
         options?.skipPropagateChangesToRootElements ?? true,
       tryAlignGeolocation: options?.tryAlignGeolocation ?? false,
       elementReservationPreScan:
-        options?.elementReservationPreScan ?? "transform",
+        options?.elementReservationPreScan ?? "off",
     };
     // check if authorization client is defined
     if (IModelHost.authorizationClient === undefined) {
