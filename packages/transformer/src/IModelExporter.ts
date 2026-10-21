@@ -213,14 +213,6 @@ export abstract class IModelExportHandler {
     _isUpdate: boolean | undefined
   ): Promise<void> {}
 
-  /**
-   * Do any asynchronous actions before exporting an element
-   * @note Do not implement this handler manually, it is internal, it will be removed.
-   *       This will become a part of onExportElement once that becomes async
-   * @internal
-   */
-  public async preExportElement(_element: Element): Promise<void> {}
-
   /** Called once with the source IDs of all elements deleted by the exported changes. */
   public async onDeleteElements(
     _elementIds: ReadonlySet<Id64String>
@@ -1209,9 +1201,8 @@ export class IModelExporter {
         element.id
       }, "${element.getDisplayLabel()}")${this.getChangeOpSuffix(isUpdate)}`
     );
-    // the order and `await`ing of calls beyond here is depended upon by the IModelTransformer for a current bug workaround
+    // the order and `await`ing of calls beyond here is depended upon by the IModelTransformer, which imports required references inside onExportElement
     if (await this.shouldExportElement(element)) {
-      await this.handler.preExportElement(element);
       await this.handler.onExportElement(element, isUpdate);
       await this.trackProgress();
       await this._elementAspectExportCoordinator.addAcceptedOwner(elementId);

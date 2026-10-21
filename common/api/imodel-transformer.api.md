@@ -254,8 +254,6 @@ export abstract class IModelExportHandler {
     onExportSchema(_schema: Schema): Promise<void | ExportSchemaResult>;
     onProgress(): Promise<void>;
     onSkipElement(_elementId: Id64String): Promise<void>;
-    // @internal
-    preExportElement(_element: Element_2): Promise<void>;
     shouldExportCodeSpec(_codeSpec: CodeSpec): Promise<boolean>;
     shouldExportElement(_element: Element_2): Promise<boolean>;
     shouldExportElementAspect(_aspect: ElementAspect): Promise<boolean>;
@@ -388,8 +386,6 @@ export class IModelTransformer extends IModelExportHandler {
     protected _partiallyCommittedAspectIds: Id64Set;
     // (undocumented)
     protected _partiallyCommittedElementIds: Id64Set;
-    // @internal
-    preExportElement(sourceElement: Element_2): Promise<void>;
     process(): Promise<void>;
     processChildElements(sourceElementId: Id64String): Promise<void>;
     processCodeSpec(codeSpecName: string): Promise<void>;
