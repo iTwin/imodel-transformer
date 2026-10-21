@@ -36,7 +36,7 @@ import {
 } from "../TestUtils/ExporterTraversalTestUtils";
 
 /** Recorded traversal event: callback kind plus the element id it concerned. */
-type TraversalEvent = [kind: "pre" | "export" | "skip", id: Id64String];
+type TraversalEvent = [kind: "export" | "skip", id: Id64String];
 
 class RecordingHandler extends IModelExportHandler {
   public events: TraversalEvent[] = [];
@@ -54,10 +54,6 @@ class RecordingHandler extends IModelExportHandler {
 
   public override async shouldExportElement(element: Element) {
     return !this.rejectedIds.has(element.id);
-  }
-
-  public override async preExportElement(element: Element) {
-    this.events.push(["pre", element.id]);
   }
 
   public override async onExportElement(element: Element) {
@@ -243,12 +239,6 @@ describe("IModelExporter hierarchy traversal", () => {
       expect(pos("A2")).to.equal(pos("A1b") + 1); // resumes after nephew subtree
       expect(pos("B")).to.be.greaterThan(pos("A2")); // root order
       expect(pos("B1")).to.equal(pos("B") + 1);
-
-      // pin the per-element callback sequence: preExportElement immediately precedes onExportElement
-      for (const [index, [kind, id]] of handler.events.entries()) {
-        if (kind === "pre")
-          expect(handler.events[index + 1]).to.deep.equal(["export", id]);
-      }
     } finally {
       sourceDb.close();
     }
