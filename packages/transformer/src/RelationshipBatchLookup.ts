@@ -29,6 +29,8 @@ interface BatchedRelationshipLookups {
 export function batchedRelationshipLookups(
   db: IModelDb
 ): BatchedRelationshipLookups {
+  // The assertion is unnecessary with 5.15 typings but needed with the 5.14 peer range.
+  // eslint-disable-next-line @typescript-eslint/no-unnecessary-type-assertion
   return db.relationships as unknown as BatchedRelationshipLookups;
 }
 
