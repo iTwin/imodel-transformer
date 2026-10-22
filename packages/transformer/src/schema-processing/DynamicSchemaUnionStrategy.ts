@@ -24,13 +24,13 @@ import {
 import {
   IModelTransformerError,
   IModelTransformerErrorScope,
-} from "../IModelTransformerError";
+} from "../IModelTransformerError.js";
 import {
   ReadonlySchemaAccessor,
   SchemaProcessingContext,
   SchemaProcessingResult,
   SchemaProcessingStrategy,
-} from "./SchemaProcessingStrategy";
+} from "./SchemaProcessingStrategy.js";
 
 type SchemaPlan =
   | { kind: "new"; source: Schema }

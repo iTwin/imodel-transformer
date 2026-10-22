@@ -17,12 +17,12 @@ import {
 } from "@itwin/core-backend";
 import { Id64String, ITwinError } from "@itwin/core-bentley";
 import { ChangesetFileProps } from "@itwin/core-common";
-import type { ChangedInstanceIds } from "./IModelExporter";
+import type { ChangedInstanceIds } from "./IModelExporter.js";
 import {
   IModelTransformerError,
   IModelTransformerErrorScope,
-} from "./IModelTransformerError";
-import { SourceClassKinds } from "./SourceClassKinds";
+} from "./IModelTransformerError.js";
+import { SourceClassKinds } from "./SourceClassKinds.js";
 
 /**
  * Identity shared by all deletion records.

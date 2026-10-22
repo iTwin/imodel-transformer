@@ -3,7 +3,7 @@
  * See LICENSE.md in the project root for license terms and full copyright notice.
  *--------------------------------------------------------------------------------------------*/
 import * as path from "node:path";
-import { KnownTestLocations } from "../TestUtils";
+import { KnownTestLocations } from "../TestUtils/index.js";
 import {
   ChangeInstance,
   DocumentListModel,
@@ -21,7 +21,7 @@ import {
 import {
   expectTransformerError,
   IModelTransformerTestUtils,
-} from "../IModelTransformerUtils";
+} from "../IModelTransformerUtils.js";
 import { Id64String, ITwinError } from "@itwin/core-bentley";
 import {
   ElementProps,
@@ -29,11 +29,14 @@ import {
   IModel,
   QueryBinder,
 } from "@itwin/core-common";
-import { ChangedInstanceIds, ChangedInstanceOps } from "../../IModelExporter";
+import {
+  ChangedInstanceIds,
+  ChangedInstanceOps,
+} from "../../IModelExporter.js";
 import {
   IModelTransformerError,
   IModelTransformerErrorScope,
-} from "../../IModelTransformerError";
+} from "../../IModelTransformerError.js";
 import { expect } from "vitest";
 
 describe("ChangedInstanceIds", () => {
