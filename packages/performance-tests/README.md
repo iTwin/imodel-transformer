@@ -177,6 +177,10 @@ The local benchmark default is one warm-up followed by one measured sample:
 pnpm test:quick
 ```
 
+Each quick-harness process uses and cleans up its own `IModelHost` profile and
+disables GCS workspace loading. Concurrent runs under the same OS user do not
+share the default profile or download geographic coordinate data.
+
 ### Profiling a quick scenario
 
 `pnpm quick:profile` builds the selected fixture, materializes one pristine

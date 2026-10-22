@@ -1,0 +1,7 @@
+{
+  "type": "patch",
+  "comment": "Pass relationship endpoint FederationGuids to onExportRelationship as one optional RelationshipEndpointFederationGuids object. When the object is not passed, IModelTransformer looks up both FederationGuids, so overrides that call super with only the relationship keep their previous provenance output.",
+  "packageName": "@itwin/imodel-transformer",
+  "email": "DanRod1999@users.noreply.github.com",
+  "dependentChangeType": "patch"
+}

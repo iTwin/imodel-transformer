@@ -33,6 +33,7 @@ import {
   GeometricElement,
   GeometryPart,
   Graphic3d,
+  GraphicalElement3dRepresentsElement,
   IModelDb,
   IModelElementCloneContext,
   IModelJsFs,
@@ -2150,7 +2151,6 @@ describe("IModelTransformer", () => {
       DisplayStyle3d.insert(txn, IModel.dictionaryId, "DisplayStyle")
     );
     for (let x = 0; x < categoryNames.length; x++) {
-      // eslint-disable-line @typescript-eslint/prefer-for-of
       const categoryId = sourceDb.elements.queryElementIdByCode(
         SpatialCategory.createCode(
           sourceDb,
@@ -2166,7 +2166,6 @@ describe("IModelTransformer", () => {
         )
       )!;
       for (let y = 0; y < modelNames.length; y++) {
-        // eslint-disable-line @typescript-eslint/prefer-for-of
         const modelId = sourceDb.elements.queryElementIdByCode(
           PhysicalPartition.createCode(
             sourceDb,
@@ -3622,7 +3621,6 @@ describe("IModelTransformer", () => {
         id: myDisplayStyleId,
         relClassName: ElementOwnsUniqueAspect.classFullName,
       },
-      // eslint-disable-next-line @typescript-eslint/naming-convention
       myProp1: "prop_value",
     };
     sourceTxn.insertAspect(uniqueAspectProps);
@@ -3979,6 +3977,140 @@ describe("IModelTransformer", () => {
     vi.restoreAllMocks();
     sourceDb.close();
     targetDb.close();
+  });
+
+  describe("relationship endpoint FederationGuids", () => {
+    class DroppedArgumentsTransformer extends IModelTransformer {
+      public override async onExportRelationship(
+        sourceRelationship: Relationship
+      ): Promise<void> {
+        return super.onExportRelationship(sourceRelationship);
+      }
+    }
+
+    async function transformRelationships(
+      name: string,
+      transformerClass: typeof IModelTransformer
+    ): Promise<{
+      aspectIdentifiers: string[];
+      endpointIds: Set<Id64String>;
+      endpointLookups: Set<Id64String>;
+    }> {
+      const sourceDb = SnapshotDb.createEmpty(
+        IModelTransformerTestUtils.prepareOutputFile(
+          "IModelTransformer",
+          `${name}-Source.bim`
+        ),
+        { rootSubject: { name } }
+      );
+      const targetDb = SnapshotDb.createEmpty(
+        IModelTransformerTestUtils.prepareOutputFile(
+          "IModelTransformer",
+          `${name}-Target.bim`
+        ),
+        { rootSubject: { name } }
+      );
+      try {
+        const endpointIds = new Set<Id64String>();
+        withEditTxn(sourceDb, "insert elements and relationships", (txn) => {
+          const modelId = PhysicalModel.insert(
+            txn,
+            IModel.rootSubjectId,
+            "PhysicalModel"
+          );
+          const categoryId = SpatialCategory.insert(
+            txn,
+            IModel.dictionaryId,
+            "SpatialCategory",
+            {}
+          );
+          const physicalObjectProps: PhysicalElementProps = {
+            classFullName: PhysicalObject.classFullName,
+            model: modelId,
+            category: categoryId,
+            code: Code.createEmpty(),
+          };
+          const sourceId = txn.insertElement(physicalObjectProps);
+          const targetWithGuid = txn.insertElement(physicalObjectProps);
+          const targetWithoutGuid = txn.insertElement({
+            ...physicalObjectProps,
+            federationGuid: Guid.empty,
+          });
+          endpointIds.add(sourceId);
+          endpointIds.add(targetWithGuid);
+          endpointIds.add(targetWithoutGuid);
+          for (const targetId of [targetWithGuid, targetWithoutGuid]) {
+            txn.insertRelationship({
+              classFullName: GraphicalElement3dRepresentsElement.classFullName,
+              sourceId,
+              targetId,
+            });
+          }
+        });
+
+        const getFederationGuidFromId = vi.spyOn(
+          sourceDb.elements,
+          "getFederationGuidFromId"
+        );
+        const editTxn = createStartedEditTxn(targetDb);
+        const transformer = new transformerClass({
+          source: sourceDb,
+          target: editTxn,
+        });
+        await transformer.process();
+        transformer.dispose();
+        editTxn.end();
+        // Other transformer code may also look up FederationGuids, so only count lookups of these relationships' endpoints.
+        const endpointLookups = new Set(
+          getFederationGuidFromId.mock.calls
+            .map(([id]) => id)
+            .filter((id) => endpointIds.has(id))
+        );
+        getFederationGuidFromId.mockRestore();
+
+        expect([
+          ...targetDb.queryEntityIds({
+            from: GraphicalElement3dRepresentsElement.classFullName,
+          }),
+        ]).to.have.lengthOf(2);
+        const aspectIdentifiers: string[] = [];
+        for await (const row of targetDb.createQueryReader(
+          "SELECT Identifier FROM bis.ExternalSourceAspect WHERE Kind = 'Relationship' ORDER BY Identifier"
+        )) {
+          aspectIdentifiers.push(row[0]);
+        }
+        return { aspectIdentifiers, endpointIds, endpointLookups };
+      } finally {
+        sourceDb.close();
+        targetDb.close();
+      }
+    }
+
+    it("uses the exporter's FederationGuids without looking them up", async () => {
+      const { aspectIdentifiers, endpointLookups } =
+        await transformRelationships(
+          "RelationshipFedGuidsPassed",
+          IModelTransformer
+        );
+      expect(
+        aspectIdentifiers,
+        "only the relationship to the element without a FederationGuid needs provenance"
+      ).to.have.lengthOf(1);
+      expect([...endpointLookups]).to.be.empty;
+    });
+
+    it("looks up FederationGuids that an override does not pass to super", async () => {
+      const passed = await transformRelationships(
+        "RelationshipFedGuidsPassedForComparison",
+        IModelTransformer
+      );
+      const dropped = await transformRelationships(
+        "RelationshipFedGuidsDropped",
+        DroppedArgumentsTransformer
+      );
+      expect(dropped.aspectIdentifiers).to.deep.equal(passed.aspectIdentifiers);
+      expect(dropped.endpointLookups).to.deep.equal(dropped.endpointIds);
+    });
   });
 
   for (const skipPropagateChangesToRootElements of [true, undefined, false]) {
@@ -4667,7 +4799,6 @@ describe("IModelTransformer", () => {
       expect(rows).to.equal(args.expectedMatchCount);
     };
 
-    // eslint-disable-next-line @typescript-eslint/no-shadow
     for (const [initialVal, expectedMatchCount] of [
       ["SpatialCategory", 2],
       ["PhysicalModel", 1],
@@ -4687,7 +4818,6 @@ describe("IModelTransformer", () => {
     sourceDb.close();
     sourceDb = SnapshotDb.openFile(sourceDbFile);
 
-    // eslint-disable-next-line @typescript-eslint/no-shadow
     for (const [initialVal, expectedMatchCount] of [
       ["SpatialCategory", 2],
       ["PhysicalModel", 1],
@@ -4743,7 +4873,6 @@ describe("IModelTransformer", () => {
       targetDb.elements.getElement(physObjectInTargetId).code.value
     ).to.equal("PhysicalObject");
 
-    // eslint-disable-next-line @typescript-eslint/no-shadow
     for (const [initialVal, expectedMatchCount] of [
       ["SpatialCategory", 2],
       ["PhysicalModel", 1],
@@ -5359,7 +5488,7 @@ describe("IModelTransformer", () => {
           {
             paletteName: "something",
             patternMap: {
-              TextureId: texture1Id, // eslint-disable-line @typescript-eslint/naming-convention
+              TextureId: texture1Id,
             },
           }
         )
@@ -5375,7 +5504,7 @@ describe("IModelTransformer", () => {
           {
             paletteName: "something",
             normalMap: {
-              TextureId: texture2Id, // eslint-disable-line @typescript-eslint/naming-convention
+              TextureId: texture2Id,
             },
           }
         )

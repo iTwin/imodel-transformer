@@ -10,6 +10,15 @@ export * from "./IModelTransformContext.js";
 export * from "./schema-processing/SchemaProcessingStrategy.js";
 export * from "./IModelTransformerError.js";
 export * from "./BranchProvenanceInitializer.js";
+export type {
+  CollectedChanges,
+  DeletionBatch,
+  DeletionRecordBase,
+  ElementDeletionRecord,
+  ExternalSourceAspectDeletionRecord,
+  ModelDeletionRecord,
+  RelationshipDeletionRecord,
+} from "./ChangesetScanner.js";
 
 import * as semver from "semver";
 import { ITwinError } from "@itwin/core-bentley";

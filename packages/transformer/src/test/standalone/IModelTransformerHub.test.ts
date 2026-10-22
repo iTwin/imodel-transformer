@@ -65,6 +65,7 @@ import {
 } from "@itwin/core-bentley";
 import {
   BisCodeSpec,
+  ChangesetFileProps,
   Code,
   ColorDef,
   DefinitionElementProps,
@@ -94,7 +95,6 @@ import {
   TransformerLoggerCategory,
 } from "../../imodel-transformer.js";
 import { ProvenanceManager } from "../../ProvenanceManager.js";
-import { ChangesetScanner } from "../../ChangesetScanner.js";
 import {
   assertTransformerError,
   CountingIModelImporter,
@@ -133,6 +133,20 @@ const countElementExternalSourceAspects = (
         (aspect as ExternalSourceAspect).kind ===
         ExternalSourceAspect.Kind.Element
     ).length;
+
+/** Records the changeset files downloaded until `restore` is called. */
+function recordChangesetDownloads() {
+  const files: ChangesetFileProps[] = [];
+  const download = BriefcaseManager.downloadChangesets.bind(BriefcaseManager);
+  const spy = vi
+    .spyOn(BriefcaseManager, "downloadChangesets")
+    .mockImplementation(async (args) => {
+      const downloaded = await download(args);
+      files.push(...downloaded);
+      return downloaded;
+    });
+  return { files, restore: () => spy.mockRestore() };
+}
 
 describe("IModelTransformerHub", () => {
   const outputDir = path.join(
@@ -1832,10 +1846,12 @@ describe("IModelTransformerHub", () => {
   }
 
   it("should not include 'initialized branch provenance' changeset in a reverse sync", async () => {
-    const validateCsFileProps = (transformer: IModelTransformer) => {
-      const csFileProps = transformer["_csFileProps"];
+    let downloads: ReturnType<typeof recordChangesetDownloads> | undefined;
+    const validateCsFileProps = () => {
+      downloads!.restore();
+      expect(downloads!.files).not.toHaveLength(0);
       expect(
-        csFileProps?.some((csFileProp) =>
+        downloads!.files.some((csFileProp) =>
           csFileProp.description.includes("initialized branch provenance")
         )
       ).to.be.false;
@@ -1848,7 +1864,12 @@ describe("IModelTransformerHub", () => {
         master: {
           sync: [
             "branch",
-            { assert: { afterProcessChanges: validateCsFileProps } },
+            {
+              initTransformer: () => {
+                downloads = recordChangesetDownloads();
+              },
+              assert: { afterProcessChanges: validateCsFileProps },
+            },
           ],
         },
       },
@@ -5432,7 +5453,6 @@ describe("IModelTransformerHub", () => {
       { master: { 3: 1 } },
       { branch: { branch: "master" } },
       { branch: { 1: 2, 4: 1 } },
-      // eslint-disable-next-line @typescript-eslint/no-shadow
       {
         assert({ master, branch }) {
           expect(master.db.changeset.index).to.equal(3);
@@ -5469,7 +5489,6 @@ describe("IModelTransformerHub", () => {
         },
       },
       { master: { sync: ["branch"] } },
-      // eslint-disable-next-line @typescript-eslint/no-shadow
       {
         assert({ master, branch }) {
           expect(master.db.changeset.index).to.equal(4);
@@ -5962,6 +5981,100 @@ describe("IModelTransformerHub", () => {
     const subjectCount = queryReader.current.toArray()[0];
     expect(subjectCount).to.equal(3); // RootSubject + 2 created subjects
   });
+
+  for (const forceExternalSourceAspectProvenance of [true, false]) {
+    it(`should keep the master relationship when a branch relationship is replaced over the same endpoints during reverse sync (forceExternalSourceAspectProvenance=${forceExternalSourceAspectProvenance})`, async () => {
+      const masterSeedFileName = path.join(
+        outputDir,
+        `MasterReplacedRelationship${forceExternalSourceAspectProvenance}.bim`
+      );
+      if (IModelJsFs.existsSync(masterSeedFileName))
+        IModelJsFs.removeSync(masterSeedFileName);
+      const masterSeedState = { 1: 1, 2: 1 };
+      const masterSeedDb = SnapshotDb.createEmpty(masterSeedFileName, {
+        rootSubject: { name: "MasterReplacedRelationship" },
+      });
+      populateTimelineSeed(masterSeedDb, masterSeedState);
+      const masterSeed: TimelineIModelState = {
+        // HACK: we know this will only be used for seeding via its path and performCheckpoint
+        db: masterSeedDb as any as BriefcaseDb,
+        id: "master-seed",
+        state: masterSeedState,
+      };
+      const queryMember = (db: IModelDb) => {
+        const sourceId = IModelTestUtils.queryByUserLabel(db, "1");
+        const targetId = IModelTestUtils.queryByUserLabel(db, "2");
+        return {
+          sourceId,
+          targetId,
+          rel: db.relationships.tryGetInstance<ElementGroupsMembers>(
+            ElementGroupsMembers.classFullName,
+            { sourceId, targetId }
+          ),
+        };
+      };
+      let masterRelId: Id64String | undefined;
+
+      const timeline: Timeline = [
+        { master: { seed: masterSeed } },
+        {
+          master: {
+            manualUpdate(db) {
+              const { sourceId, targetId } = queryMember(db);
+              masterRelId = withEditTxn(db, "insert relationship", (txn) =>
+                txn.insertRelationship(
+                  ElementGroupsMembers.create(
+                    db,
+                    sourceId,
+                    targetId,
+                    0
+                  ).toJSON()
+                )
+              );
+            },
+          },
+        },
+        { branch1: { branch: "master" } },
+        {
+          branch1: {
+            manualUpdate(db) {
+              const { sourceId, targetId, rel } = queryMember(db);
+              assert(rel !== undefined);
+              withEditTxn(db, "replace relationship", (txn) => {
+                txn.deleteRelationship(rel.toJSON());
+                txn.insertRelationship(
+                  ElementGroupsMembers.create(
+                    db,
+                    sourceId,
+                    targetId,
+                    1
+                  ).toJSON()
+                );
+              });
+            },
+          },
+        },
+        { master: { sync: ["branch1"] } },
+        {
+          assert({ master }) {
+            expect(
+              count(master.db, ElementGroupsMembers.classFullName)
+            ).to.equal(1);
+            const { rel } = queryMember(master.db);
+            expect(rel?.id).to.equal(masterRelId);
+            expect(rel?.memberPriority).to.equal(1);
+          },
+        },
+      ];
+
+      const { tearDown } = await runTimeline(timeline, {
+        iTwinId,
+        accessToken,
+        transformerOpts: { forceExternalSourceAspectProvenance },
+      });
+      await tearDown();
+    });
+  }
 
   describe("addCustomChanges", () => {
     let sourceDb: BriefcaseDb;
@@ -7165,33 +7278,6 @@ describe("IModelTransformerHub", () => {
       await closeAndDeleteBriefcase(targetDb);
     });
 
-    it("identifies a relationship deletion missing an endpoint", async () => {
-      const editTxn = createStartedEditTxn(targetDb);
-      const transformer = new IModelTransformer({
-        source: sourceDb,
-        target: editTxn,
-      });
-      try {
-        await expectTransformerError(
-          transformer["processDeletedOp"](
-            {
-              ecInstanceId: "0x123",
-              ecClassId: "0x456",
-            },
-            new Map(),
-            true,
-            new Set<Id64String>(),
-            new Set<Id64String>()
-          ),
-          IModelTransformerError.ChangedInstanceMetadataMissing,
-          "Relationship deletion 0x123 is missing an endpoint."
-        );
-      } finally {
-        transformer.dispose();
-        editTxn.end();
-      }
-    });
-
     it("should skip unchanged parent elements but still export changed child elements during processChanges", async () => {
       // Create a model with a parent element and a child element
       const { parentElementId, childElementId } = withEditTxn(
@@ -7472,6 +7558,41 @@ describe("IModelTransformerHub", () => {
       );
     });
 
+    it("should throw DependencyMappingMissing when a full transform accepts an element whose category shouldExportElement rejects", async () => {
+      const { categoryId, elementId } = await pushSource(
+        "insert model, category, and physical object",
+        (txn) => {
+          const model = PhysicalModel.insert(
+            txn,
+            IModel.rootSubjectId,
+            "PhysicalModel"
+          );
+          const category = SpatialCategory.insert(
+            txn,
+            IModel.dictionaryId,
+            "RejectedCategory",
+            new SubCategoryAppearance()
+          );
+          return {
+            categoryId: category,
+            elementId: txn.insertElement({
+              classFullName: PhysicalObject.classFullName,
+              model,
+              category,
+              code: Code.createEmpty(),
+            } as GeometricElementProps),
+          };
+        }
+      );
+
+      // Without the check, native cloning inserts a copy of the rejected category.
+      await expectTransformerError(
+        transformRejecting([categoryId]),
+        IModelTransformerError.DependencyMappingMissing,
+        `Element ${elementId} requires element ${categoryId}, which was not exported because the export filter rejects it or one of its ancestors. Accept element ${categoryId} and its ancestors, or reject element ${elementId}.`
+      );
+    });
+
     it("should throw DependencyMappingMissing when a changed element requires a changed category whose unchanged parent shouldExportElement rejects", async () => {
       const { modelId, parentCategoryId } = await pushSource(
         "insert model and parent category",
@@ -7744,12 +7865,13 @@ describe("IModelTransformerHub", () => {
       );
       await transformer.processSchemas();
       const openFileSpy = vi.spyOn(ChangesetReader, "openFile");
+      const downloads = recordChangesetDownloads();
       const processedDeletionIds: Id64String[] = [];
-      const processDeletedOp =
-        transformer["processDeletedOp"].bind(transformer);
-      transformer["processDeletedOp"] = async (...args) => {
-        processedDeletionIds.push(args[0].ecInstanceId);
-        return processDeletedOp(...args);
+      const processDeletedElement =
+        transformer["processDeletedElement"].bind(transformer);
+      transformer["processDeletedElement"] = async (...args) => {
+        processedDeletionIds.push(args[0]);
+        return processDeletedElement(...args);
       };
       const findTargetElementIdSpy = vi.spyOn(
         transformer.context,
@@ -7757,13 +7879,14 @@ describe("IModelTransformerHub", () => {
       );
       try {
         await transformer.process();
+        downloads.restore();
         secondTransformEditTxn.end();
         await targetDb.pushChanges({
           description: "Transformation 2: Process Changes with deletion",
           retainLocks: true,
         });
 
-        const selectedChangesetPaths = transformer["_csFileProps"]!.map(
+        const selectedChangesetPaths = downloads.files.map(
           (csFile) => csFile.pathname
         );
         expect(openFileSpy).toHaveBeenCalledTimes(
@@ -7775,12 +7898,15 @@ describe("IModelTransformerHub", () => {
         expect(
           openFileSpy.mock.calls.map(([args]) => args.propFilter)
         ).to.deep.equal(
-          selectedChangesetPaths.map(() => PropertyFilter.BisCoreElement)
+          selectedChangesetPaths.map(
+            () => PropertyFilter.InstanceKeyAndIdentifiers
+          )
         );
         expect(findTargetElementIdSpy).toHaveBeenCalledWith(elementId);
         expect(processedDeletionIds).toContain(elementId);
         expect(processedDeletionIds).not.toContain(aspectId);
       } finally {
+        downloads.restore();
         openFileSpy.mockRestore();
       }
 
@@ -7793,109 +7919,6 @@ describe("IModelTransformerHub", () => {
         targetElement2,
         "Element should be deleted in target iModel"
       ).to.equal(Id64.invalid);
-    });
-
-    it("classifies aspect deletions by class rather than owner metadata", async () => {
-      const { subjectId, aspectId } = withEditTxn(
-        sourceDb,
-        "insert subject with aspect",
-        (txn) => {
-          const insertedSubjectId = Subject.insert(
-            txn,
-            IModel.rootSubjectId,
-            "Aspect classification"
-          );
-          const insertedAspectId = txn.insertAspect({
-            classFullName: ExternalSourceAspect.classFullName,
-            element: new ElementOwnsExternalSourceAspects(insertedSubjectId),
-            scope: { id: IModel.rootSubjectId },
-            kind: "Document",
-            identifier: "classified-aspect",
-          } as ExternalSourceAspectProps);
-          return { subjectId: insertedSubjectId, aspectId: insertedAspectId };
-        }
-      );
-      await sourceDb.pushChanges({
-        description: "Insert subject with aspect",
-        retainLocks: true,
-      });
-
-      const initialEditTxn = createStartedEditTxn(targetDb);
-      let transformer = new IModelTransformer({
-        source: sourceDb,
-        target: initialEditTxn,
-      });
-      await transformer.process();
-      const targetSubjectId =
-        transformer.context.findTargetElementId(subjectId);
-      transformer.dispose();
-      initialEditTxn.end();
-      await targetDb.pushChanges({
-        description: "Initial aspect classification transformation",
-        retainLocks: true,
-      });
-      expect(Id64.isValid(targetSubjectId)).to.be.true;
-
-      withEditTxn(sourceDb, "delete subject with aspect", (txn) => {
-        txn.deleteElement(subjectId);
-      });
-      await sourceDb.pushChanges({
-        description: "Delete subject with aspect",
-        retainLocks: true,
-      });
-
-      // Swap the owner metadata so only the ECClass can distinguish the records.
-      const scan = ChangesetScanner.scan.bind(ChangesetScanner);
-      let scanCalls = 0;
-      const scanSpy = vi
-        .spyOn(ChangesetScanner, "scan")
-        .mockImplementation(async (...args) => {
-          scanCalls++;
-          const recordsByChangeset = await scan(...args);
-          for (const record of recordsByChangeset.flat()) {
-            if (
-              record.classFullName === ExternalSourceAspect.classFullName &&
-              record.ecInstanceId === aspectId
-            )
-              record.elementId = undefined;
-            else if (
-              record.classFullName === Subject.classFullName &&
-              record.ecInstanceId === subjectId
-            )
-              record.elementId = subjectId;
-          }
-          return recordsByChangeset;
-        });
-      const changesEditTxn = createStartedEditTxn(targetDb);
-      transformer = new IModelTransformer(
-        { source: sourceDb, target: changesEditTxn },
-        { argsForProcessChanges: {} }
-      );
-      const processedDeletions: string[] = [];
-      const processDeletedOp =
-        transformer["processDeletedOp"].bind(transformer);
-      transformer["processDeletedOp"] = async (...args) => {
-        processedDeletions.push(
-          `${args[0].classFullName}:${args[0].ecInstanceId}`
-        );
-        return processDeletedOp(...args);
-      };
-      try {
-        await transformer.process();
-      } finally {
-        scanSpy.mockRestore();
-        transformer.dispose();
-        changesEditTxn.end();
-      }
-
-      expect(processedDeletions).toContain(
-        `${Subject.classFullName}:${subjectId}`
-      );
-      expect(processedDeletions).not.toContain(
-        `${ExternalSourceAspect.classFullName}:${aspectId}`
-      );
-      expect(targetDb.elements.tryGetElement(targetSubjectId)).toBeUndefined();
-      expect(scanCalls).to.equal(1);
     });
 
     it("honors a guidless deletion remap and ignores a missing mapping", async () => {
@@ -8309,6 +8332,212 @@ describe("IModelTransformerHub", () => {
       ).to.be.equal(Id64.invalid);
     });
 
+    for (const forceExternalSourceAspectProvenance of [true, false]) {
+      for (const withFederationGuids of [true, false]) {
+        for (const sourceChange of [
+          "replaced in one changeset",
+          "replaced across changesets",
+          "replaced by a different relationship class",
+          "deleted",
+        ] as const) {
+          const replacedByOtherClass =
+            sourceChange === "replaced by a different relationship class";
+          // without federation guids, deletes match the target relationship by provenance id rather than by endpoints
+          if (replacedByOtherClass && !withFederationGuids) continue;
+          it(`should sync a source relationship that was ${sourceChange} (forceExternalSourceAspectProvenance=${forceExternalSourceAspectProvenance}, federationGuids=${withFederationGuids})`, async () => {
+            const otherRelClassFullName =
+              "TestOtherRelationships:OtherRefersToElements";
+            if (replacedByOtherClass) {
+              // a sibling of ElementGroupsMembers, so looking up ElementGroupsMembers by endpoints never finds it
+              const otherRelSchema = `<?xml version="1.0" encoding="UTF-8"?>
+                <ECSchema schemaName="TestOtherRelationships" alias="tor" version="01.00.00" xmlns="http://www.bentley.com/schemas/Bentley.ECXML.3.2">
+                  <ECSchemaReference name="BisCore" version="01.00.00" alias="bis"/>
+                  <ECRelationshipClass typeName="OtherRefersToElements" strength="referencing" modifier="None">
+                    <BaseClass>bis:ElementRefersToElements</BaseClass>
+                    <Source multiplicity="(0..*)" roleLabel="refers to" polymorphic="true">
+                      <Class class="bis:Element"/>
+                    </Source>
+                    <Target multiplicity="(0..*)" roleLabel="is referenced by" polymorphic="true">
+                      <Class class="bis:Element"/>
+                    </Target>
+                  </ECRelationshipClass>
+                </ECSchema>`;
+              for (const db of [sourceDb, targetDb]) {
+                await db.importSchemaStrings([otherRelSchema]);
+                await db.pushChanges({
+                  description: "import other relationship schema",
+                  retainLocks: true,
+                });
+              }
+            }
+            const [groupId, memberId] = withEditTxn(
+              sourceDb,
+              "insert elements",
+              (txn) => {
+                const modelId = PhysicalModel.insert(
+                  txn,
+                  IModel.rootSubjectId,
+                  "M"
+                );
+                const categoryId = SpatialCategory.insert(
+                  txn,
+                  IModel.dictionaryId,
+                  "C",
+                  {}
+                );
+                return ["Group", "Member"].map((label) =>
+                  txn.insertElement({
+                    classFullName: PhysicalObject.classFullName,
+                    model: modelId,
+                    category: categoryId,
+                    code: Code.createEmpty(),
+                    userLabel: label,
+                    ...(withFederationGuids
+                      ? {}
+                      : { federationGuid: Guid.empty }),
+                  } as GeometricElementProps)
+                );
+              }
+            );
+            const insertMember = (memberPriority: number) =>
+              withEditTxn(sourceDb, "insert relationship", (txn) =>
+                txn.insertRelationship(
+                  ElementGroupsMembers.create(
+                    sourceDb,
+                    groupId,
+                    memberId,
+                    memberPriority
+                  ).toJSON()
+                )
+              );
+            const deleteMember = (relId: Id64String) =>
+              withEditTxn(sourceDb, "delete relationship", (txn) =>
+                txn.deleteRelationship(
+                  sourceDb.relationships
+                    .getInstance(ElementGroupsMembers.classFullName, relId)
+                    .toJSON()
+                )
+              );
+            const transform = async (
+              options: IModelTransformOptions,
+              description: string
+            ) => {
+              const editTxn = createStartedEditTxn(targetDb);
+              const transformer = new IModelTransformer(
+                { source: sourceDb, target: editTxn },
+                { forceExternalSourceAspectProvenance, ...options }
+              );
+              await transformer.process();
+              transformer.dispose();
+              editTxn.end();
+              await targetDb.pushChanges({ description, retainLocks: true });
+            };
+            const targetMembers = () => [
+              ...targetDb.queryEntityIds({
+                from: ElementGroupsMembers.classFullName,
+              }),
+            ];
+            const usesRelationshipAspects =
+              forceExternalSourceAspectProvenance || !withFederationGuids;
+            const targetRelationshipAspects = () =>
+              targetDb.elements
+                .getAspects(
+                  IModelTestUtils.queryByUserLabel(targetDb, "Group"),
+                  ExternalSourceAspect.classFullName
+                )
+                .filter(
+                  (aspect) =>
+                    (aspect as ExternalSourceAspect).kind ===
+                    ExternalSourceAspect.Kind.Relationship
+                );
+
+            const originalRelId = insertMember(0);
+            await sourceDb.pushChanges({
+              description: "initial source data",
+              retainLocks: true,
+            });
+            await transform({}, "initial transform");
+            const [originalTargetRelId] = targetMembers();
+            assert(originalTargetRelId !== undefined);
+
+            deleteMember(originalRelId);
+            if (replacedByOtherClass) {
+              withEditTxn(sourceDb, "insert other relationship", (txn) =>
+                txn.insertRelationship({
+                  classFullName: otherRelClassFullName,
+                  sourceId: groupId,
+                  targetId: memberId,
+                })
+              );
+              await sourceDb.pushChanges({
+                description: `relationship ${sourceChange}`,
+                retainLocks: true,
+              });
+              await transform({ argsForProcessChanges: {} }, "process changes");
+
+              expect(
+                targetMembers(),
+                "the deleted relationship has a different class than the inserted one, so it should still be deleted"
+              ).to.be.empty;
+              expect([
+                ...targetDb.queryEntityIds({ from: otherRelClassFullName }),
+              ]).to.have.lengthOf(1);
+              expect(
+                targetRelationshipAspects(),
+                "only the inserted relationship should have provenance"
+              ).to.have.lengthOf(usesRelationshipAspects ? 1 : 0);
+              return;
+            }
+            if (sourceChange === "replaced across changesets")
+              await sourceDb.pushChanges({
+                description: "delete relationship",
+                retainLocks: true,
+              });
+            const replacementRelId =
+              sourceChange === "deleted" ? undefined : insertMember(1);
+            await sourceDb.pushChanges({
+              description: `relationship ${sourceChange}`,
+              retainLocks: true,
+            });
+            await transform({ argsForProcessChanges: {} }, "process changes");
+
+            if (replacementRelId === undefined) {
+              expect(targetMembers()).to.be.empty;
+              expect(targetRelationshipAspects()).to.be.empty;
+              return;
+            }
+            expect(
+              targetMembers(),
+              "the relationship still exists in the source, so it should exist in the target"
+            ).to.deep.equal([originalTargetRelId]);
+            expect(
+              targetDb.relationships.getInstance<ElementGroupsMembers>(
+                ElementGroupsMembers.classFullName,
+                originalTargetRelId
+              ).memberPriority
+            ).to.equal(1);
+            expect(
+              targetRelationshipAspects(),
+              "the deleted relationship's provenance should be removed, leaving only the replacement's"
+            ).to.have.lengthOf(usesRelationshipAspects ? 1 : 0);
+
+            // the replacement relationship's provenance must still let a later delete reach the target
+            deleteMember(replacementRelId);
+            await sourceDb.pushChanges({
+              description: "delete replacement relationship",
+              retainLocks: true,
+            });
+            await transform(
+              { argsForProcessChanges: {} },
+              "process replacement delete"
+            );
+            expect(targetMembers()).to.be.empty;
+            expect(targetRelationshipAspects()).to.be.empty;
+          });
+        }
+      }
+    }
+
     function generateSchema(
       schemaVersion: number,
       propertySuffix: string,
@@ -8386,7 +8615,6 @@ describe("IModelTransformerHub", () => {
 
   async function closeAndDeleteBriefcase(iModel: BriefcaseDb) {
     await HubWrappers.closeAndDeleteBriefcaseDb(accessToken, iModel);
-    // eslint-disable-next-line @itwin/no-internal
     await transformerTestHub.deleteIModel({
       iTwinId,
       iModelId: iModel.iModelId,

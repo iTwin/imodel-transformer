@@ -10,7 +10,6 @@ import * as inspector from "node:inspector";
 import {
   CompressedId64Set,
   Guid,
-  GuidString,
   Id64,
   Id64Set,
   Id64String,
@@ -91,7 +90,11 @@ import {
   SubjectProps,
   ViewDetails3dProps,
 } from "@itwin/core-common";
-import { IModelExporter, IModelExportHandler } from "../IModelExporter.js";
+import {
+  IModelExporter,
+  IModelExportHandler,
+  RelationshipEndpointFederationGuids,
+} from "../IModelExporter.js";
 import { IModelImporter, IModelImportOptions } from "../IModelImporter.js";
 import {
   IModelTransformer,
@@ -728,8 +731,7 @@ export async function assertIdentityTransformation(
       }
       if (sourceElem instanceof DisplayStyle3d) {
         const styles = expectedSourceElemJsonProps.styles as
-          | DisplayStyle3dSettingsProps
-          | undefined;
+          DisplayStyle3dSettingsProps | undefined;
         if (styles?.environment?.sky) {
           const sky = styles.environment.sky;
           if (!sky.image) sky.image = { type: SkyBoxImageType.None };
@@ -763,8 +765,7 @@ export async function assertIdentityTransformation(
 
       if (sourceElem instanceof SpatialViewDefinition) {
         const viewProps = expectedSourceElemJsonProps.viewDetails as
-          | ViewDetails3dProps
-          | undefined;
+          ViewDetails3dProps | undefined;
         if (viewProps && viewProps.acs)
           viewProps.acs = remapElem(viewProps.acs);
       }
@@ -995,12 +996,13 @@ export async function assertIdentityTransformation(
     );
     targetRelationshipsToFind.delete(relInTargetKey);
   }
-  /* eslint-enable @typescript-eslint/naming-convention */
 
   expect(targetRelationshipsToFind.size).to.equal(0);
 }
 
-export class TransformerExtensiveTestScenario extends TestUtils.ExtensiveTestScenario {
+export class TransformerExtensiveTestScenario
+  extends TestUtils.ExtensiveTestScenario
+{
   public static async prepareTargetDb(targetDb: IModelDb): Promise<void> {
     // Import desired target schemas
     const targetSchemaFileName: string = path.join(
@@ -2420,8 +2422,7 @@ export class IModelToTextFileExporter extends IModelExportHandler {
   public override async onExportRelationship(
     relationship: Relationship,
     isUpdate: boolean | undefined,
-    sourceFedGuid?: GuidString,
-    targetFedGuid?: GuidString
+    endpointFedGuids?: RelationshipEndpointFederationGuids
   ): Promise<void> {
     if (this._firstRelationship) {
       this.writeSeparator();
@@ -2432,12 +2433,7 @@ export class IModelToTextFileExporter extends IModelExportHandler {
         relationship.id
       }${this.formatOperationName(isUpdate)}`
     );
-    await super.onExportRelationship(
-      relationship,
-      isUpdate,
-      sourceFedGuid,
-      targetFedGuid
-    );
+    await super.onExportRelationship(relationship, isUpdate, endpointFedGuids);
   }
   public override async onDeleteRelationship(
     relInstanceId: Id64String
@@ -2557,29 +2553,14 @@ export class ClassCounter extends IModelExportHandler {
   public override async onExportRelationship(
     relationship: Relationship,
     isUpdate: boolean | undefined,
-    sourceFedGuid?: GuidString,
-    targetFedGuid?: GuidString
+    endpointFedGuids?: RelationshipEndpointFederationGuids
   ): Promise<void> {
     this.incrementClassCount(
       this._relationshipClassCounts,
       relationship.classFullName
     );
-    await super.onExportRelationship(
-      relationship,
-      isUpdate,
-      sourceFedGuid,
-      targetFedGuid
-    );
+    await super.onExportRelationship(relationship, isUpdate, endpointFedGuids);
   }
-}
-
-/** In some cases during tests, you want to modify an existing immutable database, so you need to copy it which will change the id.
- * Forcing the same id will prevent the transformer from detecting invalid provenance/provenance conflicts
- */
-export function copyDbPreserveId(sourceDb: IModelDb, pathForCopy: string) {
-  const copy = SnapshotDb.createFrom(sourceDb, pathForCopy);
-  copy["_iModelId"] = sourceDb.iModelId;
-  return copy;
 }
 
 /**
@@ -2608,7 +2589,6 @@ export async function runWithCpuProfiler<F extends () => any>(
     profileDir,
     `${profileName}${maybeNameTimePortion}${profileExtension}`
   );
-  // eslint-disable-next-line @typescript-eslint/no-var-requires
   // implementation influenced by https://github.com/wallet77/v8-inspector-api/blob/master/src/utils.js
   const invokeFunc = async (
     thisSession: inspector.Session,
