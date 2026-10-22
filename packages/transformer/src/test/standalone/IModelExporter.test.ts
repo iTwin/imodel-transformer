@@ -44,6 +44,7 @@ import * as path from "node:path";
 import {
   ChangedInstanceIds,
   ExportChangesOptions,
+  ExportedRelationship,
   ExporterInitOptions,
   IModelExporter,
   IModelExportHandler,
@@ -1010,22 +1011,12 @@ describe("IModelExporter", () => {
         await createBulkRelationshipTestData("BulkRelationshipHydration.bim");
       try {
         const exporter = new IModelExporter(sourceDb);
-        const exported: Array<{
-          relationship: Relationship;
-          isUpdate: boolean | undefined;
-          endpointFedGuids?: RelationshipEndpointFederationGuids;
-        }> = [];
+        const exported: ExportedRelationship[] = [];
         class CaptureHandler extends IModelExportHandler {
-          public override async onExportRelationship(
-            exportedRelationship: Relationship,
-            exportedIsUpdate: boolean | undefined,
-            handlerEndpointFedGuids?: RelationshipEndpointFederationGuids
+          public override async onExportRelationships(
+            relationships: ReadonlyArray<ExportedRelationship>
           ): Promise<void> {
-            exported.push({
-              relationship: exportedRelationship,
-              isUpdate: exportedIsUpdate,
-              endpointFedGuids: handlerEndpointFedGuids,
-            });
+            exported.push(...relationships);
           }
         }
         exporter.registerHandler(new CaptureHandler());
@@ -1075,13 +1066,11 @@ describe("IModelExporter", () => {
           RelationshipEndpointFederationGuids | undefined;
         directExporter.registerHandler(
           new (class extends IModelExportHandler {
-            public override async onExportRelationship(
-              exportedRelationship: Relationship,
-              _isUpdate: boolean | undefined,
-              endpointFedGuids?: RelationshipEndpointFederationGuids
+            public override async onExportRelationships(
+              relationships: ReadonlyArray<ExportedRelationship>
             ): Promise<void> {
-              directRelationship = exportedRelationship;
-              directEndpointFedGuids = endpointFedGuids;
+              directRelationship = relationships[0].relationship;
+              directEndpointFedGuids = relationships[0].endpointFedGuids;
             }
           })()
         );
@@ -1119,17 +1108,11 @@ describe("IModelExporter", () => {
         class HookExporter extends IModelExporter {
           public hookCalls = 0;
 
-          protected override async exportRelationshipInstance(
-            exportedRelationship: Relationship,
-            exportedIsUpdate: boolean | undefined,
-            endpointFedGuids?: RelationshipEndpointFederationGuids
+          protected override async exportRelationshipInstances(
+            relationships: ReadonlyArray<ExportedRelationship>
           ): Promise<void> {
             this.hookCalls++;
-            await super.exportRelationshipInstance(
-              exportedRelationship,
-              exportedIsUpdate,
-              endpointFedGuids
-            );
+            await super.exportRelationshipInstances(relationships);
           }
         }
         const hookExporter = new HookExporter(sourceDb);
@@ -1200,12 +1183,11 @@ describe("IModelExporter", () => {
         const exporter = new IModelExporter(sourceDb);
         exporter.registerHandler(
           new (class extends IModelExportHandler {
-            public override async onExportRelationship(
-              _relationship: Relationship,
-              _isUpdate: boolean | undefined,
-              endpointFedGuids?: RelationshipEndpointFederationGuids
+            public override async onExportRelationships(
+              relationships: ReadonlyArray<ExportedRelationship>
             ): Promise<void> {
-              received.push(endpointFedGuids);
+              for (const { endpointFedGuids } of relationships)
+                received.push(endpointFedGuids);
             }
           })()
         );
@@ -1277,13 +1259,16 @@ describe("IModelExporter", () => {
 
         const createQueryReader = vi.spyOn(sourceDb, "createQueryReader");
         const exportedRelationshipIds = new Set<Id64String>();
+        const batchSizes: number[] = [];
         const exporter = new IModelExporter(sourceDb);
         exporter.registerHandler(
           new (class extends IModelExportHandler {
-            public override async onExportRelationship(
-              relationship: Relationship
+            public override async onExportRelationships(
+              relationships: ReadonlyArray<ExportedRelationship>
             ): Promise<void> {
-              exportedRelationshipIds.add(relationship.id);
+              batchSizes.push(relationships.length);
+              for (const { relationship } of relationships)
+                exportedRelationshipIds.add(relationship.id);
             }
           })()
         );
@@ -1293,6 +1278,7 @@ describe("IModelExporter", () => {
         );
 
         expect(exportedRelationshipIds).to.have.lengthOf(2001);
+        expect(batchSizes).to.deep.equal([1000, 1000, 1]);
         expect(createQueryReader).toHaveBeenCalledTimes(3);
         expect(createQueryReader.mock.calls[0][0]).not.toContain(
           ":lastRelationshipId"
@@ -1381,10 +1367,11 @@ describe("IModelExporter", () => {
       const exporter = new IModelExporter(sourceDb);
       const exportedClassNames: string[] = [];
       class CaptureHandler extends IModelExportHandler {
-        public override async onExportRelationship(
-          relationship: Relationship
+        public override async onExportRelationships(
+          relationships: ReadonlyArray<ExportedRelationship>
         ): Promise<void> {
-          exportedClassNames.push(relationship.classFullName);
+          for (const { relationship } of relationships)
+            exportedClassNames.push(relationship.classFullName);
         }
       }
       exporter.registerHandler(new CaptureHandler());

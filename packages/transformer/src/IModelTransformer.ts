@@ -87,12 +87,17 @@ import {
 import {
   ChangedInstanceIds,
   ExportChangesOptions,
+  ExportedRelationship,
   ExporterInitOptions,
   ExportSchemaResult,
   IModelExporter,
   IModelExportHandler,
   RelationshipEndpointFederationGuids,
 } from "./IModelExporter";
+import {
+  batchedRelationshipLookups,
+  relationshipEndpointsKey,
+} from "./RelationshipBatchLookup";
 import { IModelImporter, OptimizeGeometryOptions } from "./IModelImporter";
 import { TransformerLoggerCategory } from "./TransformerLoggerCategory";
 import { IModelCloneContext } from "./IModelCloneContext";
@@ -289,14 +294,6 @@ export interface TargetScopeProvenanceJsonProps {
   pendingSyncChangesetIndices: number[];
   /** the latest changesetid/index reverse synced into master */
   reverseSyncVersion: string;
-}
-
-/** Key of a relationship's source and target element ids. */
-function relationshipEndpointsKey(
-  sourceId: Id64String,
-  targetId: Id64String
-): string {
-  return `${sourceId}|${targetId}`;
 }
 
 /**
@@ -1050,7 +1047,7 @@ export class IModelTransformer extends IModelExportHandler {
     }
   > = undefined;
 
-  /** Target relationship ids and target endpoint keys of [[_deletedSourceRelationshipData]] entries, for fast matching in [[onExportRelationship]]. */
+  /** Target relationship ids and target endpoint keys of [[_deletedSourceRelationshipData]] entries, for fast matching in [[onExportRelationships]]. */
   private _pendingRelationshipDeleteTargets = new Set<string>();
 
   /** Target relationships that this run imported from a source relationship and that a pending relationship delete also resolves to.
@@ -1870,70 +1867,68 @@ export class IModelTransformer extends IModelExportHandler {
     return true;
   }
 
-  /** Override of [IModelExportHandler.onExportRelationship]($transformer) that imports a relationship into the target iModel when it is exported from the source iModel.
-   * This override calls [[onTransformRelationship]] and then [IModelImporter.importRelationship]($transformer) to update the target iModel.
-   * @param endpointFedGuids The FederationGuids of the relationship's source and target elements, as supplied by [[IModelExporter]]. If `undefined`, both are looked up in the source iModel when provenance needs them.
-   * @note Overrides should pass `endpointFedGuids` to `super`. If it is omitted, the transformer looks up both endpoint FederationGuids for every relationship, which is slower.
+  /** Override of [IModelExportHandler.onExportRelationships]($transformer) that imports relationships into the target iModel when they are exported from the source iModel.
+   * This override calls [[onTransformRelationship]] for each relationship, then [IModelImporter.importRelationships]($transformer) once to update the target iModel, then records provenance for each imported relationship.
+   * @note Overrides should pass each relationship's `endpointFedGuids` to `super`. If it is omitted, the transformer looks up both endpoint FederationGuids for that relationship when provenance needs them, which is slower.
    */
-  public override async onExportRelationship(
-    sourceRelationship: Relationship,
-    _isUpdate?: boolean,
-    endpointFedGuids?: RelationshipEndpointFederationGuids
+  public override async onExportRelationships(
+    relationships: ReadonlyArray<ExportedRelationship>
   ): Promise<void> {
-    const targetRelationshipProps =
-      this.onTransformRelationship(sourceRelationship);
-    const targetRelationshipInstanceId = await this.importer.importRelationship(
+    const targetRelationshipProps = relationships.map(({ relationship }) =>
+      this.onTransformRelationship(relationship)
+    );
+    const targetRelationshipIds = await this.importer.importRelationships(
       targetRelationshipProps
     );
-    if (
-      this._pendingRelationshipDeleteTargets.size > 0 &&
-      Id64.isValid(targetRelationshipInstanceId) &&
-      (this._pendingRelationshipDeleteTargets.has(
-        targetRelationshipInstanceId
-      ) ||
-        this._pendingRelationshipDeleteTargets.has(
-          relationshipEndpointsKey(
-            targetRelationshipProps.sourceId,
-            targetRelationshipProps.targetId
-          )
-        ))
-    ) {
-      this._reimportedTargetRelationshipIds.add(targetRelationshipInstanceId);
-    }
 
     const provenanceDb = await this.getProvenanceDb();
     const provenanceEditTxn =
       await this._provenanceManager.getProvenanceEditTxn();
-    if (
-      !this._options.noProvenance &&
-      Id64.isValid(targetRelationshipInstanceId)
-    ) {
+    for (let index = 0; index < relationships.length; index++) {
+      const { relationship: sourceRelationship, endpointFedGuids } =
+        relationships[index];
+      const targetProps = targetRelationshipProps[index];
+      const targetRelationshipInstanceId = targetRelationshipIds[index];
+      if (!Id64.isValid(targetRelationshipInstanceId)) continue;
+
+      if (
+        this._pendingRelationshipDeleteTargets.size > 0 &&
+        (this._pendingRelationshipDeleteTargets.has(
+          targetRelationshipInstanceId
+        ) ||
+          this._pendingRelationshipDeleteTargets.has(
+            relationshipEndpointsKey(targetProps.sourceId, targetProps.targetId)
+          ))
+      ) {
+        this._reimportedTargetRelationshipIds.add(targetRelationshipInstanceId);
+      }
+
+      if (this._options.noProvenance) continue;
       const needsEsaProvenance =
         this._options.forceExternalSourceAspectProvenance ||
         !this.relationshipEndpointsHaveFedGuids(
           sourceRelationship,
           endpointFedGuids
         );
-      if (needsEsaProvenance) {
-        const aspectProps =
-          await this._provenanceManager.initRelationshipProvenance(
-            sourceRelationship.id,
-            targetRelationshipInstanceId,
-            this._forceOldRelationshipProvenanceMethod,
-            {
-              sourceRelSourceElementId: sourceRelationship.sourceId,
-              targetRelSourceElementId: targetRelationshipProps.sourceId,
-            }
-          );
-        const foundEsaProps =
-          await ProvenanceManager.queryScopeExternalSourceAspect(
-            provenanceDb,
-            aspectProps
-          );
-        // onExportRelationship doesn't need to call updateAspect if esaProps were found, because relationship provenance doesn't have the same concept of a version as element provenance (which uses last mod time on the elements).
-        if (undefined === foundEsaProps) {
-          aspectProps.id = provenanceEditTxn.insertAspect(aspectProps);
-        }
+      if (!needsEsaProvenance) continue;
+      const aspectProps =
+        await this._provenanceManager.initRelationshipProvenance(
+          sourceRelationship.id,
+          targetRelationshipInstanceId,
+          this._forceOldRelationshipProvenanceMethod,
+          {
+            sourceRelSourceElementId: sourceRelationship.sourceId,
+            targetRelSourceElementId: targetProps.sourceId,
+          }
+        );
+      const foundEsaProps =
+        await ProvenanceManager.queryScopeExternalSourceAspect(
+          provenanceDb,
+          aspectProps
+        );
+      // onExportRelationships doesn't need to call updateAspect if esaProps were found, because relationship provenance doesn't have the same concept of a version as element provenance (which uses last mod time on the elements).
+      if (undefined === foundEsaProps) {
+        aspectProps.id = provenanceEditTxn.insertAspect(aspectProps);
       }
     }
   }
@@ -1952,56 +1947,101 @@ export class IModelTransformer extends IModelExportHandler {
     );
   }
 
-  /** Override of [IModelExportHandler.onDeleteRelationship]($transformer) that is called when [IModelExporter]($transformer) detects that a [Relationship]($backend) has been deleted from the source iModel.
-   * This override propagates the delete to the target iModel via [IModelImporter.deleteRelationship]($transformer).
+  /** Override of [IModelExportHandler.onDeleteRelationships]($transformer) that is called when [IModelExporter]($transformer) detects that relationships have been deleted from the source iModel.
+   * This override finds the target relationships, looking up those recorded by endpoints with one batched query per relationship class,
+   * deletes them via [IModelImporter.deleteRelationships]($transformer), and then deletes their provenance aspects.
    */
-  public override async onDeleteRelationship(
-    sourceRelInstanceId: Id64String
+  public override async onDeleteRelationships(
+    sourceRelInstanceIds: ReadonlySet<Id64String>
   ): Promise<void> {
     nodeAssert(
       this._deletedSourceRelationshipData,
       "should be defined at initialization by now"
     );
 
-    const deletedRelData =
-      this._deletedSourceRelationshipData.get(sourceRelInstanceId);
-    if (!deletedRelData) {
-      // this can occur if both the source and target deleted it
-      Logger.logWarning(
-        loggerCategory,
-        "tried to delete a relationship that wasn't in change data"
-      );
-      return;
+    const targetRelationships: RelationshipPropsForDelete[] = [];
+    const addTargetRelationship = (
+      sourceRelInstanceId: Id64String,
+      id: Id64String,
+      classFullName: string
+    ) => {
+      if (this._reimportedTargetRelationshipIds.has(id)) {
+        // The source relationship was recreated with the same endpoints and already imported into this target relationship.
+        Logger.logTrace(
+          loggerCategory,
+          `Skipping delete of target relationship ${id} because source relationship ${sourceRelInstanceId} was recreated`
+        );
+        return;
+      }
+      targetRelationships.push({ id, classFullName });
+    };
+    const provenanceAspectIds: Id64String[] = [];
+    const endpointLookups = new Map<
+      string,
+      Array<{ sourceRelInstanceId: Id64String; endpoints: SourceAndTarget }>
+    >();
+    for (const sourceRelInstanceId of sourceRelInstanceIds) {
+      const deletedRelData =
+        this._deletedSourceRelationshipData.get(sourceRelInstanceId);
+      if (!deletedRelData) {
+        // this can occur if both the source and target deleted it
+        Logger.logWarning(
+          loggerCategory,
+          "tried to delete a relationship that wasn't in change data"
+        );
+        continue;
+      }
+      // Old provenance aspects are deleted even for recreated relationships; the reimport recorded new provenance.
+      if (deletedRelData.provenanceAspectId)
+        provenanceAspectIds.push(deletedRelData.provenanceAspectId);
+      if (deletedRelData.relId) {
+        addTargetRelationship(
+          sourceRelInstanceId,
+          deletedRelData.relId,
+          deletedRelData.classFullName
+        );
+      } else if (
+        deletedRelData.sourceIdInTarget &&
+        deletedRelData.targetIdInTarget
+      ) {
+        const lookup = {
+          sourceRelInstanceId,
+          endpoints: {
+            sourceId: deletedRelData.sourceIdInTarget,
+            targetId: deletedRelData.targetIdInTarget,
+          },
+        };
+        const lookups = endpointLookups.get(deletedRelData.classFullName);
+        if (lookups) lookups.push(lookup);
+        else endpointLookups.set(deletedRelData.classFullName, [lookup]);
+      }
     }
 
-    const id =
-      deletedRelData.relId ??
-      this.targetDb.relationships.tryGetInstance(deletedRelData.classFullName, {
-        sourceId: deletedRelData.sourceIdInTarget,
-        targetId: deletedRelData.targetIdInTarget,
-      } as SourceAndTarget)?.id;
-    if (id && this._reimportedTargetRelationshipIds.has(id)) {
-      // The source relationship was recreated with the same endpoints and already imported into this target relationship.
-      Logger.logTrace(
-        loggerCategory,
-        `Skipping delete of target relationship ${id} because source relationship ${sourceRelInstanceId} was recreated`
+    for (const [classFullName, lookups] of endpointLookups) {
+      const found = await batchedRelationshipLookups(
+        this.targetDb
+      ).queryInstancesProps(
+        classFullName,
+        lookups.map(({ endpoints }) => endpoints),
+        { usePrimaryConn: true }
       );
-    } else if (id) {
-      await this.importer.deleteRelationship({
-        id,
-        classFullName: deletedRelData.classFullName,
+      lookups.forEach(({ sourceRelInstanceId }, index) => {
+        const id = found[index]?.id;
+        if (id) addTargetRelationship(sourceRelInstanceId, id, classFullName);
       });
     }
 
-    if (deletedRelData.provenanceAspectId) {
+    await this.importer.deleteRelationships(targetRelationships);
+
+    if (provenanceAspectIds.length === 0) return;
+    const provenanceEditTxn =
+      await this._provenanceManager.getProvenanceEditTxn();
+    for (const aspectId of provenanceAspectIds) {
       try {
-        (await this._provenanceManager.getProvenanceEditTxn()).deleteAspect(
-          deletedRelData.provenanceAspectId
-        );
+        provenanceEditTxn.deleteAspect(aspectId);
       } catch (error: any) {
         // This aspect may no longer exist if it was deleted at some other point during the transformation. This is fine.
-        if (error.errorNumber === IModelStatus.NotFound) return;
-        throw error;
+        if (error.errorNumber !== IModelStatus.NotFound) throw error;
       }
     }
   }

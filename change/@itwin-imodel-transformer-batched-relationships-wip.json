@@ -1,0 +1,7 @@
+{
+  "type": "major",
+  "comment": "Import and delete relationships in batches. IModelExportHandler.onExportRelationships and onDeleteRelationships replace onExportRelationship and onDeleteRelationship, and IModelImporter.importRelationships and deleteRelationships use Relationships.queryInstances and EditTxn.deleteRelationships",
+  "packageName": "@itwin/imodel-transformer",
+  "email": "DanRod1999@users.noreply.github.com",
+  "dependentChangeType": "patch"
+}
