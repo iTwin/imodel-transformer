@@ -15,7 +15,7 @@ import { IModelTransformer } from "@itwin/imodel-transformer";
 import { DynamicSchemaUnionStrategy } from "@itwin/imodel-transformer/schema-processing";
 ```
 
-CommonJS applications can `require()` the same entry points on the supported Node.js versions. TypeScript projects that compile to CommonJS must use `module` set to `commonjs`, `node20`, or `nodenext`; `node16` and `node18` reject `require()` of ES modules. Paths below `lib/`, including the former `lib/cjs/*` output, are not supported entry points.
+CommonJS applications can `require()` the same entry points on the supported Node.js versions. TypeScript projects that compile to CommonJS must use `module` set to `commonjs`, `node20` (TypeScript 5.9 or later), or `nodenext` (TypeScript 5.8 or later); `node16` and `node18` reject `require()` of ES modules. Paths below `lib/`, including the former `lib/cjs/*` output, are not supported entry points.
 
 ## Documentation
 
