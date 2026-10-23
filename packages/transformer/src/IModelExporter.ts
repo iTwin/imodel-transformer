@@ -648,11 +648,14 @@ export class IModelExporter {
 
   /** Set while [[scanElements]] runs, so accepted elements do not start aspect export. */
   private _isElementScan = false;
+  /** Replaces full element loads while [[scanElements]] runs, if the scan provides it. */
+  private _scanElementLoader?: (elementId: Id64String) => Element;
 
   /** Runs the element traversal of [[exportAll]] or, after [[initialize]] with change data, of [[exportChanges]],
    * calling `handler` instead of the registered handler.
    * The traversal applies the same exclusions and change filtering, but exports no CodeSpecs, fonts, aspects,
    * relationships, or deletes, and does not reset the change data.
+   * @param options.loadElement Loads the elements the traversal visits, instead of a full load.
    * @internal
    */
   public async scanElements(
@@ -660,6 +663,7 @@ export class IModelExporter {
     options: {
       skipPropagateChangesToRootElements: boolean;
       wantGeometry: boolean;
+      loadElement?: (elementId: Id64String) => Element;
     }
   ): Promise<void> {
     const registeredHandler = this._handler;
@@ -671,6 +675,7 @@ export class IModelExporter {
     this._skipPropagateChangesToRootElements =
       options.skipPropagateChangesToRootElements;
     this._isElementScan = true;
+    this._scanElementLoader = options.loadElement;
     const ownsChangedElementTraversal =
       this.beginChangedElementTraversalScope();
     try {
@@ -690,6 +695,7 @@ export class IModelExporter {
     } finally {
       if (ownsChangedElementTraversal) this.endChangedElementTraversalScope();
       this._isElementScan = false;
+      this._scanElementLoader = undefined;
       this._skipPropagateChangesToRootElements =
         skipPropagateChangesToRootElements;
       this.wantGeometry = wantGeometry;
@@ -1204,11 +1210,7 @@ export class IModelExporter {
   private async acceptUnchangedAncestors(): Promise<boolean> {
     for (const ancestor of this._unchangedAncestors) {
       if (ancestor.accepted === undefined) {
-        const element = this.sourceDb.elements.getElement({
-          id: ancestor.elementId,
-          wantGeometry: this.wantGeometry,
-          wantBRepData: this.wantGeometry,
-        });
+        const element = this.loadTraversedElement(ancestor.elementId);
         ancestor.accepted = await this.shouldExportElement(element);
         if (!ancestor.accepted)
           await this.handler.onSkipElement(ancestor.elementId);
@@ -1216,6 +1218,17 @@ export class IModelExporter {
       if (!ancestor.accepted) return false;
     }
     return true;
+  }
+
+  private loadTraversedElement(elementId: Id64String): Element {
+    return (
+      this._scanElementLoader?.(elementId) ??
+      this.sourceDb.elements.getElement({
+        id: elementId,
+        wantGeometry: this.wantGeometry,
+        wantBRepData: this.wantGeometry,
+      })
+    );
   }
 
   /** Runs the export callbacks for a single element without visiting its children.
@@ -1249,11 +1262,7 @@ export class IModelExporter {
 
     if (!(await this.acceptUnchangedAncestors())) return "skip";
 
-    const element = this.sourceDb.elements.getElement({
-      id: elementId,
-      wantGeometry: this.wantGeometry,
-      wantBRepData: this.wantGeometry,
-    });
+    const element = this.loadTraversedElement(elementId);
     Logger.logTrace(
       loggerCategory,
       `exportElement(${

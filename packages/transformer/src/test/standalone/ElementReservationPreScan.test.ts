@@ -130,6 +130,7 @@ describe("element reservation pre-scan", () => {
       });
 
       expect(reserve).toHaveBeenCalledTimes(1);
+      expect(stats.identityLoads).toBe(mode === "identity");
       expect(stats.submitted).toBe(true);
       expect(stats.unreservableScopes).toBe(0);
       expect(stats.insertsWithFederationGuid).toBeGreaterThan(0);
@@ -237,6 +238,21 @@ describe("element reservation pre-scan", () => {
     );
     const plain = await transform(sourceDb, plainTarget, {});
     expect(plain.mode).toBe("identity");
+    expect(plain.identityLoads).toBe(true);
+
+    const filteredTarget = adopt(createDb("auto-filtered-target"), (db) =>
+      db.close()
+    );
+    const filtered = await transform(
+      sourceDb,
+      filteredTarget,
+      {},
+      (transformer) => {
+        transformer.shouldExportElement = async () => true;
+      }
+    );
+    expect(filtered.mode).toBe("identity");
+    expect(filtered.identityLoads).toBe(false);
 
     class CustomTransformer extends IModelTransformer {
       public override async onTransformElement(sourceElement: Element) {

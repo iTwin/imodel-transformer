@@ -541,8 +541,7 @@ export class IModelTransformer extends IModelExportHandler {
       skipPropagateChangesToRootElements:
         options?.skipPropagateChangesToRootElements ?? true,
       tryAlignGeolocation: options?.tryAlignGeolocation ?? false,
-      elementReservationPreScan:
-        options?.elementReservationPreScan ?? "auto",
+      elementReservationPreScan: options?.elementReservationPreScan ?? "auto",
     };
     // check if authorization client is defined
     if (IModelHost.authorizationClient === undefined) {
@@ -2820,6 +2819,13 @@ export class IModelTransformer extends IModelExportHandler {
         onTransformElement: async (element) => this.onTransformElement(element),
         queryElementIdByCode: (code) =>
           this.queryElementIdByCode(this.targetDb, code),
+        canLoadIdentityOnly:
+          this.shouldExportElement ===
+            IModelTransformer.prototype.shouldExportElement &&
+          this.hasElementChanged ===
+            IModelTransformer.prototype.hasElementChanged &&
+          this.exporter.shouldExportElement ===
+            IModelExporter.prototype.shouldExportElement,
       },
       mode
     );
@@ -2853,7 +2859,8 @@ export class IModelTransformer extends IModelExportHandler {
    */
   private resolveAutoPreScanMode(): ElementReservationPreScanMode {
     const transformOverridden =
-      this.onTransformElement !== IModelTransformer.prototype.onTransformElement;
+      this.onTransformElement !==
+      IModelTransformer.prototype.onTransformElement;
     const cloneOverridden =
       this._cloneContext.cloneElement !==
       IModelCloneContext.prototype.cloneElement;
