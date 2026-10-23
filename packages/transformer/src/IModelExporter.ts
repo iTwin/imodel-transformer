@@ -350,6 +350,11 @@ export class IModelExporter {
     forest?: Promise<ChangedElementForest | undefined>;
     useForest: boolean;
   };
+  /** The traversal state of the last [[scanElements]], which the next traversal of the same changes reuses. */
+  private _scannedChangedElementTraversal?: {
+    changes: ChangedInstanceIds;
+    traversal: NonNullable<IModelExporter["_changedElementTraversal"]>;
+  };
   /** Unchanged elements on the current change-processing path. Each is filtered only when a changed descendant is reached. */
   private readonly _unchangedAncestors: {
     elementId: Id64String;
@@ -640,6 +645,7 @@ export class IModelExporter {
     // whatever you want
     if (this._resetChangeDataOnExport) {
       this._sourceDbChanges = undefined;
+      this._scannedChangedElementTraversal = undefined;
       this._elementAspectExportProcessor.setAspectChanges(undefined);
     }
   }
@@ -693,7 +699,18 @@ export class IModelExporter {
         }
       });
     } finally {
-      if (ownsChangedElementTraversal) this.endChangedElementTraversalScope();
+      if (ownsChangedElementTraversal) {
+        if (
+          this._sourceDbChanges !== undefined &&
+          this._changedElementTraversal !== undefined
+        ) {
+          this._scannedChangedElementTraversal = {
+            changes: this._sourceDbChanges,
+            traversal: this._changedElementTraversal,
+          };
+        }
+        this.endChangedElementTraversalScope();
+      }
       this._isElementScan = false;
       this._scanElementLoader = undefined;
       this._skipPropagateChangesToRootElements =
@@ -1526,6 +1543,14 @@ export class IModelExporter {
       this._changedElementTraversal !== undefined
     ) {
       return false;
+    }
+
+    const scanned = this._scannedChangedElementTraversal;
+    this._scannedChangedElementTraversal = undefined;
+    // The forest depends only on the changes and the excluded elements, which do not change during an export.
+    if (scanned?.changes === this._sourceDbChanges) {
+      this._changedElementTraversal = scanned.traversal;
+      return true;
     }
 
     this._changedElementTraversal = { useForest: true };

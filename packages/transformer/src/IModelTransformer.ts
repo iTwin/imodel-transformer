@@ -499,6 +499,8 @@ export class IModelTransformer extends IModelExportHandler {
   public elementReservationPreScanStats?: ElementReservationPreScanStats;
   /** Codes to insert for reserved elements whose code scope is a new element of this run, keyed by federation GUID. */
   private _reservedNewScopeCodes?: Map<string, CodeProps>;
+  /** Source elements the pre-scan found no target element for, when no hook can change the result. */
+  private _scannedNewElementIds?: Set<Id64String>;
 
   /**
    * Set if the transformer is being used to perform the provenance initialization step of a fork initialization.
@@ -1395,7 +1397,9 @@ export class IModelTransformer extends IModelExportHandler {
   ): Promise<Id64String> {
     if (
       this.context.isBetweenIModels &&
-      sourceElement.federationGuid !== undefined
+      sourceElement.federationGuid !== undefined &&
+      // The pre-scan found no target element with this federation GUID, and only this element can insert it.
+      !this._scannedNewElementIds?.has(sourceElement.id)
     ) {
       const targetElementId = this.targetDb.elements.getIdFromFederationGuid(
         sourceElement.federationGuid
@@ -2784,9 +2788,13 @@ export class IModelTransformer extends IModelExportHandler {
 
     await this.reserveNewElements();
 
-    return this._options.argsForProcessChanges !== undefined
-      ? this.processChanges(this._options.argsForProcessChanges)
-      : this.processAll();
+    try {
+      return this._options.argsForProcessChanges !== undefined
+        ? await this.processChanges(this._options.argsForProcessChanges)
+        : await this.processAll();
+    } finally {
+      this._scannedNewElementIds = undefined;
+    }
   }
 
   /** Runs the element reservation pre-scan and reserves the new elements it finds in one batch.
@@ -2795,6 +2803,7 @@ export class IModelTransformer extends IModelExportHandler {
   private async reserveNewElements(): Promise<void> {
     this.elementReservationPreScanStats = undefined;
     this._reservedNewScopeCodes = undefined;
+    this._scannedNewElementIds = undefined;
     const option = this._options.elementReservationPreScan;
     if (
       option === undefined ||
@@ -2846,6 +2855,11 @@ export class IModelTransformer extends IModelExportHandler {
       scan.stats.submitted = true;
       this._reservedNewScopeCodes = scan.newScopeCodes;
     }
+    if (
+      scan.stats.identityLoads &&
+      this.resolveAutoPreScanMode() === "identity"
+    )
+      this._scannedNewElementIds = scan.getNewElementIds();
     this.elementReservationPreScanStats = scan.stats;
     Logger.logInfo(
       loggerCategory,

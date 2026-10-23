@@ -154,6 +154,14 @@ export class ElementReservationPreScan extends IModelExportHandler {
     };
   }
 
+  /** Source elements the scan classified as new, whose federation GUIDs had no target element. */
+  public getNewElementIds(): Set<Id64String> {
+    const ids = new Set<Id64String>();
+    for (const [sourceId, planned] of this._planned)
+      if (planned.targetId === undefined) ids.add(sourceId);
+    return ids;
+  }
+
   /** Runs the scan over the selection that the transformation will export. */
   public async run(options: {
     skipPropagateChangesToRootElements: boolean;

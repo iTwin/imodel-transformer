@@ -728,6 +728,34 @@ describe("IModelExporter changed-element traversal", () => {
     }
   });
 
+  it("reuses the changed-element index of a preceding element scan", async () => {
+    const { sourceDb, ids, handler, exporter, changes } =
+      setupChangesMode("ScanReusesForest");
+    const createForest = vi.spyOn(ChangedElementForest, "create");
+    try {
+      changes.element.insertIds.add(ids.get("A1a")!);
+      const scanHandler = new RecordingHandler();
+
+      await exporter.scanElements(scanHandler, {
+        skipPropagateChangesToRootElements: true,
+        wantGeometry: false,
+      });
+      await exporter.exportModelContents(IModel.repositoryModelId);
+      await exporter.exportModelContents(IModel.repositoryModelId);
+
+      expect(scanHandler.exportedIds).to.deep.equal([ids.get("A1a")!]);
+      expect(handler.exportedIds).to.deep.equal([
+        ids.get("A1a")!,
+        ids.get("A1a")!,
+      ]);
+      // Only the traversal right after the scan reuses its index.
+      expect(createForest).toHaveBeenCalledTimes(2);
+    } finally {
+      createForest.mockRestore();
+      sourceDb.close();
+    }
+  });
+
   it("keeps the legacy path for exporter subclasses overriding element dispatch", async () => {
     const sourceDb = createSourceDb("SubclassLegacyPath");
     try {
