@@ -282,11 +282,7 @@ describe.skip("IModelTransformer Performance Tests", () => {
     console.log(`  Elements: ${NUM_ELEMENTS}`);
     console.log("===========================================\n");
 
-    let hostOptions = {};
-    if (coreBackendVersion === "5.6.1")
-      hostOptions = { disableThinnedNativeInstanceWorkflow: true };
-
-    await IModelHost.startup(hostOptions);
+    await IModelHost.startup({ disableThinnedNativeInstanceWorkflow: true });
 
     try {
       // Create source iModel with elements

@@ -1,5 +1,18 @@
 # Next release notes
 
+## Recommended `IModelHost` configuration
+
+With the supported `@itwin/core-backend` versions, transformations currently run faster when the thinned native instance workflow is disabled. The transformer cannot configure `IModelHost` for you, so set `disableThinnedNativeInstanceWorkflow` when your application starts the host:
+
+```ts
+await IModelHost.startup({
+  // ...other options
+  disableThinnedNativeInstanceWorkflow: true,
+});
+```
+
+The option only changes how `getElement()`, `getModel()`, and `getAspect()` read entities. It does not change transformer behavior. The repository's performance suites and test app now use this setting. The transformer's unit tests still use the default so the default read path stays covered.
+
 ## Context-based provenance resolution for incremental deletions
 
 `IModelTransformer.process()` now resolves guidless incremental element
