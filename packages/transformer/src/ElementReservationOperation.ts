@@ -143,6 +143,13 @@ export class ElementReservationOperation extends IModelExportHandler {
   private readonly _modeledPartitionDeletes = new Set<Id64String>();
   private _phase: "collecting" | "replaying" | "done" = "collecting";
   private _installed = false;
+  /** Replay reloads source elements; bounded batches keep them in the backend element cache (2000 entries). */
+  public static batchSize = 500;
+  private _pendingElementEvents = 0;
+  private _preExportDepth = 0;
+  private _provenancePersisted = false;
+  private readonly _pendingFederationGuids = new Map<string, Id64String>();
+  private readonly _pendingCodes = new Map<string, Id64String>();
   private _currentInsertPlan: ElementReservationElementPlan | undefined;
   private _insertWasObserved = false;
 
@@ -196,6 +203,10 @@ export class ElementReservationOperation extends IModelExportHandler {
     this._scheduledModels.clear();
     this._journaledModels.clear();
     this._checkedRequiredDependencies.clear();
+    this._pendingFederationGuids.clear();
+    this._pendingCodes.clear();
+    this._pendingElementEvents = 0;
+    this._preExportDepth = 0;
   }
 
   /** True if the source element is already a real target mapping or a prepared logical identity. */
@@ -376,16 +387,7 @@ export class ElementReservationOperation extends IModelExportHandler {
           kind: "delete-elements",
           sourceIds: [],
         });
-      await this.reservePreparedElements();
-      this._phase = "replaying";
-      this._exportContext.replaying = true;
-      await this._callbacks.persistProvenance();
-
-      this.restoreDelegate();
-      setElementReservationInsertionGuard(this._importer, (elementProps) =>
-        this.guardElementInsertion(elementProps)
-      );
-      for (const event of this._events) await this.replayEvent(event);
+      await this.reserveAndReplayPending();
       this._phase = "done";
     } finally {
       setReservationExportContext(this._exporter, undefined);
@@ -394,14 +396,54 @@ export class ElementReservationOperation extends IModelExportHandler {
     }
   }
 
+  /** Reserve and replay the journal so far, then resume collecting. Only safe between top-level element exports. */
+  private async flushBatch(): Promise<void> {
+    if (
+      this._phase !== "collecting" ||
+      this._pendingElementEvents < ElementReservationOperation.batchSize ||
+      this._visitingElements.size > 0 ||
+      this._preExportDepth > 0 ||
+      // Partition deletes scheduled by model-delete replay must stay in one replay pass.
+      this._events.some((event) => event.kind === "delete-model")
+    )
+      return;
+
+    this._exportContext.changes =
+      this._exporter.sourceDbChanges ?? this._exportContext.changes;
+    await this.reserveAndReplayPending();
+    setElementReservationInsertionGuard(this._importer, undefined);
+    this._exportContext.replaying = false;
+    this._phase = "collecting";
+    this.install();
+  }
+
+  private async reserveAndReplayPending(): Promise<void> {
+    await this.reservePreparedElements();
+    this._phase = "replaying";
+    this._exportContext.replaying = true;
+    if (!this._provenancePersisted) {
+      await this._callbacks.persistProvenance();
+      this._provenancePersisted = true;
+    }
+
+    this.restoreDelegate();
+    setElementReservationInsertionGuard(this._importer, (elementProps) =>
+      this.guardElementInsertion(elementProps)
+    );
+    const events = this._events.splice(0);
+    this._pendingElementEvents = 0;
+    for (const event of events) await this.replayEvent(event);
+  }
+
   private async reservePreparedElements(): Promise<void> {
     const reservationElements: Array<{
       federationGuid: string;
       classFullName: string;
       code: CodeProps;
     }> = [];
-    const federationGuids = new Map<string, Id64String>();
-    const codes = new Map<string, Id64String>();
+    // Duplicate detection spans all batches of the operation.
+    const federationGuids = this._pendingFederationGuids;
+    const codes = this._pendingCodes;
 
     for (const event of this._events) {
       if (event.kind !== "element") continue;
@@ -585,7 +627,13 @@ export class ElementReservationOperation extends IModelExportHandler {
   public override async preExportElement(
     sourceElement: Element
   ): Promise<void> {
-    return this._delegate.preExportElement(sourceElement);
+    // Dependency exports nest here; a batch must not split a dependency chain.
+    this._preExportDepth++;
+    try {
+      return await this._delegate.preExportElement(sourceElement);
+    } finally {
+      this._preExportDepth--;
+    }
   }
 
   /** Classify each source element once, even when dependency traversal revisits it. */
@@ -608,9 +656,11 @@ export class ElementReservationOperation extends IModelExportHandler {
         isUpdate,
         plan,
       });
+      this._pendingElementEvents++;
     } finally {
       this._visitingElements.delete(sourceElement.id);
     }
+    await this.flushBatch();
   }
 
   /** Journal a model after ensuring its modeled element has a logical identity. */
