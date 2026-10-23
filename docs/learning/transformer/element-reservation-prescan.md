@@ -1,6 +1,6 @@
 # Element reservation pre-scan (prototype)
 
-> Status: alpha prototype for [#418](https://github.com/iTwin/imodel-transformer/issues/418). It is an alternative to the plan, reserve, and replay design in [#473](https://github.com/iTwin/imodel-transformer/pull/473). The option and its behavior can change. The option is intended to be opt-in; the prototype branch defaults it to `"transform"` so the test suite and performance runs exercise it.
+> Status: alpha prototype for [#418](https://github.com/iTwin/imodel-transformer/issues/418). It is an alternative to the plan, reserve, and replay design in [#473](https://github.com/iTwin/imodel-transformer/pull/473). The option and its behavior can change. The option is intended to be opt-in; the prototype branch defaults it to `"auto"` so the test suite and performance runs exercise it.
 
 A target iModel that uses server-based element reservations (SchemaSync without the schema lock) rejects an insert of an element with a federation GUID unless that element was reserved first. Reserving one element at a time takes the shared write lock for every request, so the transformer needs to reserve all new elements of a run in one batch, before it inserts any of them.
 
@@ -18,7 +18,7 @@ await transformer.process();
 
 `IModelTransformer.process()` runs the pre-scan after `initialize()` and before it exports anything, when all of the following are true:
 
-- `elementReservationPreScan` is `"transform"` or `"identity"`;
+- `elementReservationPreScan` is `"auto"`, `"transform"`, or `"identity"`;
 - the source and target are different iModels;
 - `wasSourceIModelCopiedToTarget` and `preserveElementIdsForFiltering` are not set.
 
@@ -80,6 +80,10 @@ The reservation must name the class and code the transformation inserts. The bac
 | `"transform"` | Calls `onTransformElement` without geometry, when the element's model and category are already mapped. Otherwise it falls back to `"identity"`. The code comes from the hook only when the scope is mapped. |
 
 `"identity"` is correct when hooks do not change an element's class, federation GUID, or code. `"transform"` honors hooks that change them, at the cost of a second clone of each classified element.
+
+`"auto"` picks `"transform"` when a subclass overrides `onTransformElement` or the clone context overrides `cloneElement`, and `"identity"` otherwise. The base transform and clone change identity only in ways that `"identity"` derives itself.
+
+In `"identity"` mode, the scan loads only the identity columns of each element when `shouldExportElement`, `hasElementChanged`, and the exporter's `shouldExportElement` are not overridden. One cached SQLite statement reads the class, model, parent, federation GUID, code, and category. A class whose constructor validates other properties, such as a ViewDefinition, falls back to a full load. An overridden filter may read any property, so it always gets a full element.
 
 `"transform"` only clones an element whose category is mapped, because the native clone imports an unmapped category into the target. That import would bypass the export filter before the transformation runs. Geometry is not loaded for the same reason: cloning a geometry stream imports unmapped GeometryParts and SubCategories.
 
@@ -143,3 +147,15 @@ The table shows the change in median wall time, candidate against `main`, within
 - Peak RSS stayed within 5 MB of `main`, except standalone-full-transform, where the workflow reported +78 MB in both modes. A local run of the same shape measured +11 MB (176 MB to 187 MB) with no heap growth. The difference is not explained.
 
 For comparison, #473 estimated 1.2–1.9× before optimizations. The pre-scan measured 1.03–1.24×.
+
+### After `"auto"` and identity-only loads
+
+With `"auto"` as the default and identity-only loads, the CI quick-performance overhead against `main` dropped as follows:
+
+| Fixture                      | Before (`identity`) | After |
+| ---------------------------- | ------------------- | ----- |
+| balanced-incremental         | +5.2%               | +2.0% |
+| hierarchical-incremental     | +20.8%              | +8.7% |
+| large-base-incremental       | +2.5%               | +1.5% |
+| realistic-building-transform | +10.0%              | +2.9% |
+| standalone-full-transform    | +19.3%              | +7.4% |

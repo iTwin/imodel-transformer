@@ -236,6 +236,7 @@ export class IModelExporter {
     scanElements(handler: IModelExportHandler, options: {
         skipPropagateChangesToRootElements: boolean;
         wantGeometry: boolean;
+        loadElement?: (elementId: Id64String) => Element_2;
     }): Promise<void>;
     shouldExportElement(element: Element_2): Promise<boolean>;
     readonly sourceDb: IModelDb;
@@ -486,7 +487,7 @@ export interface IModelTransformOptions {
     cloneUsingBinaryGeometry?: boolean;
     danglingReferencesBehavior?: "reject" | "ignore";
     // @alpha
-    elementReservationPreScan?: ElementReservationPreScanMode | "off";
+    elementReservationPreScan?: ElementReservationPreScanMode | "auto" | "off";
     forceExternalSourceAspectProvenance?: boolean;
     includeSourceProvenance?: boolean;
     loadSourceGeometry?: boolean;
