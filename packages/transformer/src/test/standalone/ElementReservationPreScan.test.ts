@@ -230,6 +230,33 @@ describe("element reservation pre-scan", () => {
     }
   );
 
+  it("auto mode clones only when the transform is customized", async () => {
+    const sourceDb = adopt(createDb("auto-source"), (db) => db.close());
+    const plainTarget = adopt(createDb("auto-plain-target"), (db) =>
+      db.close()
+    );
+    const plain = await transform(sourceDb, plainTarget, {});
+    expect(plain.mode).toBe("identity");
+
+    class CustomTransformer extends IModelTransformer {
+      public override async onTransformElement(sourceElement: Element) {
+        return super.onTransformElement(sourceElement);
+      }
+    }
+    const customTarget = adopt(createDb("auto-custom-target"), (db) =>
+      db.close()
+    );
+    const txn = createStartedEditTxn(customTarget);
+    const custom = new CustomTransformer({ source: sourceDb, target: txn });
+    try {
+      await custom.process();
+      expect(custom.elementReservationPreScanStats?.mode).toBe("transform");
+    } finally {
+      custom.dispose();
+      txn.end();
+    }
+  });
+
   it("does not run when disabled", async () => {
     const sourceDb = adopt(createDb("off-source"), (db) => db.close());
     const targetDb = adopt(createDb("off-target"), (db) => db.close());
