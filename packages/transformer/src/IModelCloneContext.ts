@@ -37,6 +37,11 @@ import type { IModelTransformContext } from "./IModelTransformContext";
 
 const loggerCategory: string = TransformerLoggerCategory.IModelCloneContext;
 
+/** Class names may use `.` or `:` as the schema separator and are case-insensitive. */
+function normalizeClassFullName(classFullName: string): string {
+  return classFullName.replace(".", ":").toLowerCase();
+}
+
 /** The context for transforming a *source* Element to a *target* Element and remapping internal identifiers to the target iModel.
  * @internal
  */
@@ -46,6 +51,29 @@ export class IModelCloneContext
 {
   private _refTypesCache = new ECReferenceTypesCache();
   private _aspectRemapTable = new BigMap<Id64String>();
+  private readonly _elementClassRemaps = new Map<string, string>();
+
+  public override remapElementClass(
+    sourceClassFullName: string,
+    targetClassFullName: string
+  ): void {
+    super.remapElementClass(sourceClassFullName, targetClassFullName);
+    this._elementClassRemaps.set(
+      normalizeClassFullName(sourceClassFullName),
+      targetClassFullName
+    );
+  }
+
+  /** Returns the target class of a source element class, applying [[remapElementClass]] rules.
+   * @internal
+   */
+  public findTargetElementClass(sourceClassFullName: string): string {
+    return (
+      this._elementClassRemaps.get(
+        normalizeClassFullName(sourceClassFullName)
+      ) ?? sourceClassFullName
+    );
+  }
 
   /** A positive-only cache of entity existence checks, scoped to the current transformation run.
    * @internal

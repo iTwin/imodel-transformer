@@ -135,6 +135,9 @@ export interface ElementDeletionRecord extends DeletionRecordBase {
     federationGuid?: string;
 }
 
+// @alpha
+export type ElementReservationPreScanMode = "transform" | "identity";
+
 // @public
 export type ExportChangesOptions = {
     skipPropagateChangesToRootElements?: boolean;
@@ -229,6 +232,12 @@ export class IModelExporter {
     initialize(options: ExporterInitOptions): Promise<void>;
     progressInterval: number;
     registerHandler(handler: IModelExportHandler): void;
+    // @internal
+    scanElements(handler: IModelExportHandler, options: {
+        skipPropagateChangesToRootElements: boolean;
+        wantGeometry: boolean;
+        loadElement?: (elementId: Id64String) => Element_2;
+    }): Promise<void>;
     shouldExportElement(element: Element_2): Promise<boolean>;
     readonly sourceDb: IModelDb;
     get sourceDbChanges(): ChangedInstanceIds | undefined;
@@ -358,6 +367,8 @@ export class IModelTransformer extends IModelExportHandler {
     // (undocumented)
     static convertHelmertToTransform(helmert: Helmert2DWithZOffset | undefined): Transform;
     dispose(): void;
+    // @internal
+    elementReservationPreScanStats?: ElementReservationPreScanStats;
     protected _elementsWithExplicitlyTrackedProvenance: Set<string>;
     readonly exporter: IModelExporter;
     getIsForwardSynchronization(): Promise<boolean>;
@@ -475,6 +486,8 @@ export interface IModelTransformOptions {
     branchRelationshipDataBehavior?: "unsafe-migrate" | "reject";
     cloneUsingBinaryGeometry?: boolean;
     danglingReferencesBehavior?: "reject" | "ignore";
+    // @alpha
+    elementReservationPreScan?: ElementReservationPreScanMode | "auto" | "off";
     forceExternalSourceAspectProvenance?: boolean;
     includeSourceProvenance?: boolean;
     loadSourceGeometry?: boolean;

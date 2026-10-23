@@ -9,6 +9,7 @@ beta;interface;DeletionBatch
 beta;interface;DeletionRecordBase
 beta;interface;ElementBulkDeleteError
 beta;interface;ElementDeletionRecord
+alpha;type;ElementReservationPreScanMode
 public;type;ExportChangesOptions
 beta;type;ExporterInitOptions
 beta;interface;ExportSchemaResult
