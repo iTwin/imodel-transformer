@@ -1,0 +1,7 @@
+{
+  "type": "patch",
+  "comment": "Require iTwin.js 5.15 and unify changesets with core's native ChangeUnifier so changeset scanning memory is bounded (#434)",
+  "packageName": "@itwin/imodel-transformer",
+  "email": "DanRod1999@users.noreply.github.com",
+  "dependentChangeType": "patch"
+}

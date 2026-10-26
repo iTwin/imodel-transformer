@@ -5,9 +5,12 @@
 import * as path from "node:path";
 import {
   ChangesetReader,
+  ChangeUnifier,
+  ChangeUnifierArgs,
   EditTxn,
   ElementGroupsMembers,
   ExternalSourceAspect,
+  PartialChangeUnifier,
   StandaloneDb,
   Subject,
   withEditTxn,
@@ -28,7 +31,7 @@ import {
 import { SourceClassKinds } from "../../SourceClassKinds";
 import { IModelTransformerError } from "../../IModelTransformerError";
 import { expectTransformerError } from "../IModelTransformerUtils";
-import { ChangedInstanceIds } from "../../IModelExporter";
+import { ChangedInstanceIds, ChangedInstanceOps } from "../../IModelExporter";
 import { KnownTestLocations } from "../TestUtils";
 import { importElementAspectTestSchema } from "../TestUtils/ElementAspectTestUtils";
 
@@ -286,6 +289,152 @@ describe("ChangesetScanner owner resolution", () => {
         changedInstanceIds: new ChangedInstanceIds(db),
       })
     ).rejects.toBe(readerError);
+  });
+
+  describe("bounded unification (#434)", () => {
+    function snapshot(ids: ChangedInstanceIds) {
+      const ops = (o: ChangedInstanceOps) => ({
+        insert: [...o.insertIds].sort(),
+        update: [...o.updateIds].sort(),
+        delete: [...o.deleteIds].sort(),
+      });
+      return {
+        codeSpec: ops(ids.codeSpec),
+        model: ops(ids.model),
+        element: ops(ids.element),
+        aspect: ops(ids.aspect),
+        relationship: ops(ids.relationship),
+        aspectOwnerElementIds: [...ids.aspectOwnerElementIds].sort(),
+      };
+    }
+
+    async function scanSnapshot(csFiles: ChangesetFileProps[]) {
+      const ids = new ChangedInstanceIds(db);
+      const deletionBatches = await ChangesetScanner.scan(db, [csFiles], {
+        changedInstanceIds: ids,
+      });
+      return { changes: snapshot(ids), deletionBatches };
+    }
+
+    it("unifies each changeset natively with a spilling memory budget instead of PartialChangeUnifier", async () => {
+      const seed = withEditTxn(db, "create element", (txn) =>
+        Subject.insert(txn, IModel.rootSubjectId, "deleted")
+      );
+      await withEditTxn(db, "change elements", async (txn) => {
+        const inserted = Subject.insert(txn, IModel.rootSubjectId, "inserted");
+        txn.deleteElement(seed);
+        const fromReader = vi.spyOn(ChangeUnifier, "fromReader");
+        const dispose = vi.spyOn(ChangeUnifier.prototype, Symbol.dispose);
+        const appendFrom = vi.spyOn(
+          PartialChangeUnifier.prototype,
+          "appendFrom"
+        );
+        const { changes } = await scanSnapshot([...files, ...files]);
+        expect(fromReader).toHaveBeenCalledTimes(2);
+        for (const [, args] of fromReader.mock.calls) {
+          // A budget of 0 never spills, leaving memory bound only by changeset size.
+          const budget = args?.memoryBudgetBytes;
+          expect(
+            budget === undefined || (Number.isSafeInteger(budget) && budget > 0)
+          ).toBe(true);
+        }
+        expect(dispose).toHaveBeenCalledTimes(2);
+        expect(appendFrom).not.toHaveBeenCalled();
+        expect(changes.element.insert).toEqual([inserted]);
+        expect(changes.element.delete).toEqual([seed]);
+      });
+    });
+
+    it("returns the same changes and deletion records when the unifier spills to temporary files", async () => {
+      const count = 20;
+      const seed = withEditTxn(db, "create seed instances", (txn) => {
+        const subjects = Array.from({ length: count }, (_, i) =>
+          Subject.insert(txn, IModel.rootSubjectId, `seed ${i}`)
+        );
+        return {
+          subjects,
+          aspects: subjects.map((owner) => insertAspect(txn, owner)),
+          relationships: subjects
+            .slice(1)
+            .map((member) =>
+              ElementGroupsMembers.insert(txn, subjects[0], member)
+            ),
+        };
+      });
+      await withEditTxn(db, "change instances", async (txn) => {
+        const inserted = Array.from({ length: count }, (_, i) => {
+          const id = Subject.insert(txn, IModel.rootSubjectId, `new ${i}`);
+          insertAspect(txn, id);
+          return id;
+        });
+        for (const id of seed.subjects.slice(0, 5))
+          txn.updateElement({
+            ...db.elements.getElementProps(id),
+            userLabel: "updated",
+          });
+        for (const id of seed.aspects.slice(5, 10)) {
+          const aspectProps = {
+            ...db.elements.getAspect(id).toJSON(),
+            identifier: "updated",
+          };
+          txn.updateAspect(aspectProps);
+        }
+        // Move an aspect between owners so both the old and new owners must be retained.
+        db.withPreparedSqliteStatement(
+          "UPDATE bis_ElementMultiAspect SET ElementId=? WHERE Id=?",
+          (stmt) => {
+            stmt.bindId(1, seed.subjects[11]);
+            stmt.bindId(2, seed.aspects[10]);
+            stmt.step();
+          }
+        );
+        txn.deleteRelationship({
+          classFullName: ElementGroupsMembers.classFullName,
+          id: seed.relationships[11],
+          sourceId: seed.subjects[0],
+          targetId: seed.subjects[12],
+        });
+        // Deleting elements also deletes their aspects and relationships.
+        const deleted = seed.subjects.slice(15);
+        txn.deleteElement(deleted);
+
+        const inMemory = await scanSnapshot(files);
+        expect(inMemory.changes.element.insert).toEqual([...inserted].sort());
+        expect(inMemory.changes.element.delete).toEqual([...deleted].sort());
+        expect(inMemory.changes.aspect.delete).toHaveLength(deleted.length);
+        expect(inMemory.changes.relationship.delete).toHaveLength(
+          deleted.length + 1
+        );
+        expect(inMemory.changes.aspectOwnerElementIds).toEqual(
+          expect.arrayContaining([seed.subjects[10], seed.subjects[11]])
+        );
+        expect(inMemory.deletionBatches[0].elements).toHaveLength(
+          deleted.length
+        );
+
+        const fromReader = ChangeUnifier.fromReader.bind(ChangeUnifier);
+        const spilling = vi
+          .spyOn(ChangeUnifier, "fromReader")
+          .mockImplementation((reader, args?: ChangeUnifierArgs) =>
+            fromReader(reader, { ...args, memoryBudgetBytes: 1, batchSize: 3 })
+          );
+        expect(await scanSnapshot(files)).toEqual(inMemory);
+        expect(spilling).toHaveBeenCalledTimes(1);
+      });
+    });
+
+    it("disposes the reader and preserves the error when unification fails", async () => {
+      const unifierError = new Error("unifier failed");
+      vi.spyOn(ChangeUnifier, "fromReader").mockImplementation(() => {
+        throw unifierError;
+      });
+      const readerDispose = vi.spyOn(ChangesetReader.prototype, Symbol.dispose);
+      await withEditTxn(db, "change element", async (txn) => {
+        Subject.insert(txn, IModel.rootSubjectId, "inserted");
+        await expect(scanSnapshot(files)).rejects.toBe(unifierError);
+      });
+      expect(readerDispose).toHaveBeenCalledTimes(1);
+    });
   });
 
   describe("deletion classification", () => {
