@@ -11,6 +11,7 @@ import {
   IModelDb,
   PhysicalModel,
   PhysicalObject,
+  RecipeDefinitionElement,
   SnapshotDb,
   SpatialCategory,
   SubCategory,
@@ -291,7 +292,7 @@ describe("In-place IModelTransformer", () => {
     }
   });
 
-  it("should classify each required reference as a reusable definition only once", async () => {
+  it("should classify required references as reusable definitions once per class without loading them", async () => {
     const iModelFile = IModelTransformerTestUtils.prepareOutputFile(
       "InPlaceIModelTransformer",
       "DefinitionReuseClassification.bim"
@@ -299,17 +300,14 @@ describe("In-place IModelTransformer", () => {
     const iModel = SnapshotDb.createEmpty(iModelFile, {
       rootSubject: { name: "DefinitionReuseClassification" },
     });
-    const elementCount = 5;
-    const { categoryId, sourceModelId, targetModelId } = withEditTxn(
+    const elementCount = 6;
+    const { categoryIds, sourceModelId, targetModelId } = withEditTxn(
       iModel,
       "insert test data",
       (txn) => {
         const ids = {
-          categoryId: SpatialCategory.insert(
-            txn,
-            IModel.dictionaryId,
-            "SharedCategory",
-            {}
+          categoryIds: ["CategoryA", "CategoryB"].map((name) =>
+            SpatialCategory.insert(txn, IModel.dictionaryId, name, {})
           ),
           sourceModelId: PhysicalModel.insert(
             txn,
@@ -324,7 +322,7 @@ describe("In-place IModelTransformer", () => {
         };
         for (let i = 0; i < elementCount; ++i)
           txn.insertElement({
-            category: ids.categoryId,
+            category: ids.categoryIds[i % ids.categoryIds.length],
             classFullName: PhysicalObject.classFullName,
             model: ids.sourceModelId,
             code: Code.createEmpty(),
@@ -340,28 +338,35 @@ describe("In-place IModelTransformer", () => {
       { noProvenance: true }
     );
     const tryGetElement = vi.spyOn(iModel.elements, "tryGetElement");
+    const withQueryReader = vi.spyOn(iModel, "withQueryReader");
     try {
       await transformer.processModelContents(sourceModelId, targetModelId);
       editTxn.saveChanges();
 
-      const definitionChecks = tryGetElement.mock.calls
-        .filter(([, elementClass]) => elementClass === DefinitionElement)
-        .map(([id]) => id);
-      expect(definitionChecks).toContain(categoryId);
-      expect(definitionChecks).toHaveLength(new Set(definitionChecks).size);
+      // Referenced elements are not loaded to classify them.
+      expect(
+        tryGetElement.mock.calls.filter(
+          ([, elementClass]) => elementClass === DefinitionElement
+        )
+      ).toHaveLength(0);
+      // One classification per referenced class: SpatialCategory and the source model's PhysicalPartition.
+      const classifications = withQueryReader.mock.calls.filter(([ecsql]) =>
+        ecsql.includes(RecipeDefinitionElement.classFullName)
+      );
+      expect(classifications).toHaveLength(2);
 
-      // The shared category is still reused in place rather than copied.
+      // Both categories are still reused in place rather than copied.
       const copiedCategoryIds: string[] = [];
       for await (const row of iModel.createQueryReader(
         `SELECT Category.Id categoryId FROM ${PhysicalObject.classFullName} WHERE Model.Id=?`,
         QueryBinder.from([targetModelId])
       ))
         copiedCategoryIds.push(row.categoryId);
-      expect(copiedCategoryIds).toEqual(
-        Array<string>(elementCount).fill(categoryId)
-      );
+      expect(copiedCategoryIds).toHaveLength(elementCount);
+      expect(new Set(copiedCategoryIds)).toEqual(new Set(categoryIds));
     } finally {
       tryGetElement.mockRestore();
+      withQueryReader.mockRestore();
       transformer.dispose();
       editTxn.end();
       iModel.close();

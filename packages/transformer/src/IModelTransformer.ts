@@ -1044,23 +1044,33 @@ export class IModelTransformer extends IModelExportHandler {
    */
   private _reimportedTargetRelationshipIds = new Set<Id64String>();
 
-  /** Same-iModel only: whether a required reference is a non-recipe DefinitionElement that is reused in place. Element classes never change, so each id is classified once. */
-  private readonly _sameIModelReusableDefinitions = new Map<
+  /** Same-iModel only: whether elements of an ECClassId are non-recipe DefinitionElements that are reused in place. */
+  private readonly _sameIModelReusableDefinitionClasses = new Map<
     Id64String,
     boolean
   >();
 
   private isSameIModelReusableDefinition(elementId: Id64String): boolean {
-    let isReusable = this._sameIModelReusableDefinitions.get(elementId);
+    // Reading ECClassId through a cached SQLite statement avoids loading the whole referenced element.
+    // bis_Element holds every element, and the primary connection sees uncommitted inserts.
+    const classId = this.sourceDb.withPreparedSqliteStatement(
+      "SELECT ECClassId FROM bis_Element WHERE Id=?",
+      (stmt) => {
+        stmt.bindId(1, elementId);
+        return stmt.nextRow() ? stmt.getValueId(0) : undefined;
+      }
+    );
+    if (classId === undefined) return false;
+    let isReusable = this._sameIModelReusableDefinitionClasses.get(classId);
     if (isReusable === undefined) {
-      const definition = this.sourceDb.elements.tryGetElement(
-        elementId,
-        DefinitionElement
+      // Class inheritance needs EC metadata, so classify each class once in ECSQL.
+      isReusable = this.sourceDb.withQueryReader(
+        `SELECT 1 FROM ${DefinitionElement.classFullName}
+         WHERE ECInstanceId=? AND ECClassId IS NOT (${RecipeDefinitionElement.classFullName})`,
+        (reader) => reader.step(),
+        QueryBinder.from([elementId])
       );
-      isReusable =
-        definition !== undefined &&
-        !(definition instanceof RecipeDefinitionElement);
-      this._sameIModelReusableDefinitions.set(elementId, isReusable);
+      this._sameIModelReusableDefinitionClasses.set(classId, isReusable);
     }
     return isReusable;
   }
