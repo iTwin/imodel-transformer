@@ -1,0 +1,7 @@
+{
+  "type": "patch",
+  "comment": "Fix \"RangeError: Set maximum size exceeded\" when transforming iModels with more than about 16.7 million elements by bounding the entity existence cache and aspect owner tracking",
+  "packageName": "@itwin/imodel-transformer",
+  "email": "DanRod1999@users.noreply.github.com",
+  "dependentChangeType": "patch"
+}
