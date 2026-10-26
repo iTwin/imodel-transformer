@@ -91,9 +91,9 @@ import {
   ViewDetails3dProps,
 } from "@itwin/core-common";
 import {
+  ExportedRelationship,
   IModelExporter,
   IModelExportHandler,
-  RelationshipEndpointFederationGuids,
 } from "../IModelExporter";
 import { IModelImporter, IModelImportOptions } from "../IModelImporter";
 import {
@@ -2127,11 +2127,11 @@ export class CountingIModelImporter extends IModelImporter {
     this.numRelationshipsUpdated++;
     await super.onUpdateRelationship(relationshipProps);
   }
-  protected override async onDeleteRelationship(
-    relationshipProps: RelationshipPropsForDelete
+  protected override async onDeleteRelationships(
+    relationshipProps: ReadonlyArray<RelationshipPropsForDelete>
   ): Promise<void> {
-    this.numRelationshipsDeleted++;
-    await super.onDeleteRelationship(relationshipProps);
+    this.numRelationshipsDeleted += relationshipProps.length;
+    await super.onDeleteRelationships(relationshipProps);
   }
 }
 
@@ -2419,27 +2419,28 @@ export class IModelToTextFileExporter extends IModelExportHandler {
     }
     await super.onExportElementMultiAspects(aspects);
   }
-  public override async onExportRelationship(
-    relationship: Relationship,
-    isUpdate: boolean | undefined,
-    endpointFedGuids?: RelationshipEndpointFederationGuids
+  public override async onExportRelationships(
+    relationships: ReadonlyArray<ExportedRelationship>
   ): Promise<void> {
     if (this._firstRelationship) {
       this.writeSeparator();
       this._firstRelationship = false;
     }
-    this.writeLine(
-      `[Relationship] ${relationship.classFullName}, ${
-        relationship.id
-      }${this.formatOperationName(isUpdate)}`
-    );
-    await super.onExportRelationship(relationship, isUpdate, endpointFedGuids);
+    for (const { relationship, isUpdate } of relationships) {
+      this.writeLine(
+        `[Relationship] ${relationship.classFullName}, ${
+          relationship.id
+        }${this.formatOperationName(isUpdate)}`
+      );
+    }
+    await super.onExportRelationships(relationships);
   }
-  public override async onDeleteRelationship(
-    relInstanceId: Id64String
+  public override async onDeleteRelationships(
+    relInstanceIds: ReadonlySet<Id64String>
   ): Promise<void> {
-    this.writeLine(`[Relationship] ${relInstanceId}, DELETE`);
-    await super.onDeleteRelationship(relInstanceId);
+    for (const relInstanceId of relInstanceIds)
+      this.writeLine(`[Relationship] ${relInstanceId}, DELETE`);
+    await super.onDeleteRelationships(relInstanceIds);
   }
 }
 
@@ -2550,16 +2551,16 @@ export class ClassCounter extends IModelExportHandler {
     }
     await super.onExportElementMultiAspects(aspects);
   }
-  public override async onExportRelationship(
-    relationship: Relationship,
-    isUpdate: boolean | undefined,
-    endpointFedGuids?: RelationshipEndpointFederationGuids
+  public override async onExportRelationships(
+    relationships: ReadonlyArray<ExportedRelationship>
   ): Promise<void> {
-    this.incrementClassCount(
-      this._relationshipClassCounts,
-      relationship.classFullName
-    );
-    await super.onExportRelationship(relationship, isUpdate, endpointFedGuids);
+    for (const { relationship } of relationships) {
+      this.incrementClassCount(
+        this._relationshipClassCounts,
+        relationship.classFullName
+      );
+    }
+    await super.onExportRelationships(relationships);
   }
 }
 
