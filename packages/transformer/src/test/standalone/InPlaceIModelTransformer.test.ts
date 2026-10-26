@@ -28,8 +28,8 @@ import {
   QueryBinder,
 } from "@itwin/core-common";
 import { expect, vi } from "vitest";
-import { IModelTransformer } from "../../IModelTransformer";
-import { IModelTransformerTestUtils } from "../IModelTransformerUtils";
+import { IModelTransformer } from "../../IModelTransformer.js";
+import { IModelTransformerTestUtils } from "../IModelTransformerUtils.js";
 
 describe("In-place IModelTransformer", () => {
   it("should update Category elements", async () => {

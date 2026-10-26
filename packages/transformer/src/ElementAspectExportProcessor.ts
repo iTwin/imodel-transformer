@@ -10,7 +10,7 @@ import {
   IModelDb,
 } from "@itwin/core-backend";
 import { Id64String } from "@itwin/core-bentley";
-import { ensureECSqlReaderIsAsyncIterableIterator } from "./ECSqlReaderAsyncIterableIteratorAdapter";
+import { ensureECSqlReaderIsAsyncIterableIterator } from "./ECSqlReaderAsyncIterableIteratorAdapter.js";
 import { QueryBinder } from "@itwin/core-common";
 
 interface AspectChanges {

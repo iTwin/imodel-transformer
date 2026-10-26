@@ -87,13 +87,20 @@ jobs:
 
       - name: Build candidate transformer and comparison harness
         run: |
-          pnpm --dir candidate/packages/transformer build:cjs
+          pnpm --dir candidate/packages/transformer build:esm
           pnpm --dir candidate/packages/performance-tests build
           pnpm --dir candidate/packages/performance-tests test:quick-comparison
           pnpm --dir candidate/packages/performance-tests build:quick-cli
 
+      # Baselines from before the ESM-only package still build with build:cjs.
       - name: Build baseline transformer
-        run: pnpm --dir baseline/packages/transformer build:cjs
+        shell: bash
+        run: |
+          build_script=build:cjs
+          if node -e 'process.exit(require("./baseline/packages/transformer/package.json").scripts["build:esm"] ? 0 : 1)'; then
+            build_script=build:esm
+          fi
+          pnpm --dir baseline/packages/transformer "${build_script}"
 
       - name: Install identical harness in baseline checkout
         shell: bash

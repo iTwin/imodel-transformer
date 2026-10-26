@@ -4,9 +4,9 @@
  *--------------------------------------------------------------------------------------------*/
 
 import { IModelDb } from "@itwin/core-backend";
-import { CollectedChanges, DeletionBatch } from "../../ChangesetScanner";
-import { ChangedInstanceIds, ChangeRecord } from "../../IModelExporter";
-import { IModelTransformer } from "../../IModelTransformer";
+import { CollectedChanges, DeletionBatch } from "../../ChangesetScanner.js";
+import { ChangedInstanceIds, ChangeRecord } from "../../IModelExporter.js";
+import { IModelTransformer } from "../../IModelTransformer.js";
 
 // __PUBLISH_EXTRACT_START__ ChangeScanning.cached-changes-transformer
 /** Changes read ahead of time from one range of changesets. */

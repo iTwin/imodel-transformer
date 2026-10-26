@@ -38,16 +38,16 @@ import { assert } from "node:console";
 import {
   IModelTransformer,
   IModelTransformOptions,
-} from "../../IModelTransformer";
+} from "../../IModelTransformer.js";
 import { expect } from "vitest";
 import { Logger } from "@itwin/core-bentley";
-import { TransformerLoggerCategory } from "../../TransformerLoggerCategory";
+import { TransformerLoggerCategory } from "../../TransformerLoggerCategory.js";
 import {
   createStartedEditTxn,
   expectTransformerError,
-} from "../IModelTransformerUtils";
-import { IModelTransformerError } from "../../IModelTransformerError";
-import { KnownTestLocations } from "../TestUtils/KnownTestLocations";
+} from "../IModelTransformerUtils.js";
+import { IModelTransformerError } from "../../IModelTransformerError.js";
+import { KnownTestLocations } from "../TestUtils/KnownTestLocations.js";
 
 interface GeolocationData {
   ecefLocation: EcefLocation | undefined;
