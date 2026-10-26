@@ -53,7 +53,10 @@ export class IModelTransformerTestAppHost {
     this._backend = new BackendIModelsAccess(
       IModelTransformerTestAppHost.iModelClient
     );
-    await IModelHost.startup({ hubAccess: this._backend });
+    await IModelHost.startup({
+      hubAccess: this._backend,
+      disableThinnedNativeInstanceWorkflow: true,
+    });
   }
 
   private static _authClient: NodeCliAuthorizationClient | undefined;

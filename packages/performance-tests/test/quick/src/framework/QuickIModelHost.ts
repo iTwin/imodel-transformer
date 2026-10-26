@@ -18,6 +18,7 @@ export async function startQuickIModelHost(): Promise<void> {
   await IModelHost.startup({
     hubAccess: quickTestHub,
     profileName: quickIModelHostProfileName,
+    disableThinnedNativeInstanceWorkflow: true,
   });
   disableGcsWorkspacesForTests();
 }
