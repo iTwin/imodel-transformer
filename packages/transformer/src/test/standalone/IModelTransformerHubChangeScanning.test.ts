@@ -29,7 +29,7 @@ import {
   Subject,
   withEditTxn,
 } from "@itwin/core-backend";
-import * as TestUtils from "../TestUtils";
+import * as TestUtils from "../TestUtils/index.js";
 import {
   AccessToken,
   DbResult,
@@ -52,17 +52,20 @@ import {
   CollectedChanges,
   IModelTransformer,
   IModelTransformOptions,
-} from "../../imodel-transformer";
-import { ChangesetScanner, DeletionBatch } from "../../ChangesetScanner";
+} from "../../imodel-transformer.js";
+import { ChangesetScanner, DeletionBatch } from "../../ChangesetScanner.js";
 import {
   CachedChangesTransformer,
   ChangeCache,
-} from "./ChangeScanningExamples";
-import { createStartedEditTxn, HubWrappers } from "../IModelTransformerUtils";
-import { KnownTestLocations } from "../TestUtils/KnownTestLocations";
-import { IModelTestUtils } from "../TestUtils/IModelTestUtils";
-import { transformerTestHub } from "../TestUtils/TransformerTestHub";
-import { populateTimelineSeed } from "../TestUtils/TimelineTestUtil";
+} from "./ChangeScanningExamples.js";
+import {
+  createStartedEditTxn,
+  HubWrappers,
+} from "../IModelTransformerUtils.js";
+import { KnownTestLocations } from "../TestUtils/KnownTestLocations.js";
+import { IModelTestUtils } from "../TestUtils/IModelTestUtils.js";
+import { transformerTestHub } from "../TestUtils/TransformerTestHub.js";
+import { populateTimelineSeed } from "../TestUtils/TimelineTestUtil.js";
 
 /** Hub tests for reading source changes: deletion batches, the collectChanges hook, and changeset reader filtering. */
 describe("IModelTransformerHub change scanning", () => {

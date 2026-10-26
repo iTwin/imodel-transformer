@@ -24,13 +24,13 @@ import {
   ChangesetScanner,
   DeletedInstance,
   DeletionBatch,
-} from "../../ChangesetScanner";
-import { SourceClassKinds } from "../../SourceClassKinds";
-import { IModelTransformerError } from "../../IModelTransformerError";
-import { expectTransformerError } from "../IModelTransformerUtils";
-import { ChangedInstanceIds } from "../../IModelExporter";
-import { KnownTestLocations } from "../TestUtils";
-import { importElementAspectTestSchema } from "../TestUtils/ElementAspectTestUtils";
+} from "../../ChangesetScanner.js";
+import { SourceClassKinds } from "../../SourceClassKinds.js";
+import { IModelTransformerError } from "../../IModelTransformerError.js";
+import { expectTransformerError } from "../IModelTransformerUtils.js";
+import { ChangedInstanceIds } from "../../IModelExporter.js";
+import { KnownTestLocations } from "../TestUtils/index.js";
+import { importElementAspectTestSchema } from "../TestUtils/ElementAspectTestUtils.js";
 
 describe("ChangesetScanner owner resolution", () => {
   let db: StandaloneDb;

@@ -136,11 +136,11 @@ import {
   Texture,
   ViewDefinition,
 } from "@itwin/core-backend";
-import { samplePngTexture } from "./imageData";
-import { KnownTestLocations } from "./KnownTestLocations";
-import { transformerTestHub } from "./TransformerTestHub";
-import { TargetScopeProvenanceJsonProps } from "../../IModelTransformer";
-import { TimelineIModelState } from "./TimelineTestUtil";
+import { samplePngTexture } from "./imageData.js";
+import { KnownTestLocations } from "./KnownTestLocations.js";
+import { transformerTestHub } from "./TransformerTestHub.js";
+import { TargetScopeProvenanceJsonProps } from "../../IModelTransformer.js";
+import { TimelineIModelState } from "./TimelineTestUtil.js";
 
 /* eslint-disable @typescript-eslint/explicit-member-accessibility */
 
