@@ -24,6 +24,9 @@ describe("quick IModelHost lifecycle", () => {
     const profileDirectory = IModelHost.profileDir;
 
     expect(IModelHost.profileName).toBe(quickIModelHostProfileName);
+    expect(IModelHost.configuration?.disableThinnedNativeInstanceWorkflow).toBe(
+      true
+    );
     expect(path.basename(profileDirectory)).toBe(quickIModelHostProfileName);
     expect(
       IModelHost.appWorkspace.settings.getBoolean(
