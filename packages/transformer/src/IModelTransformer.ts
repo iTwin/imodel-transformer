@@ -92,30 +92,30 @@ import {
   IModelExporter,
   IModelExportHandler,
   RelationshipEndpointFederationGuids,
-} from "./IModelExporter";
-import { IModelImporter, OptimizeGeometryOptions } from "./IModelImporter";
-import { TransformerLoggerCategory } from "./TransformerLoggerCategory";
-import { IModelCloneContext } from "./IModelCloneContext";
-import type { IModelTransformContext } from "./IModelTransformContext";
-import { rangesFromRangeAndSkipped } from "./Algo";
-import { SyncTypeResolver } from "./SyncTypeResolver";
-import { ProvenanceManager } from "./ProvenanceManager";
+} from "./IModelExporter.js";
+import { IModelImporter, OptimizeGeometryOptions } from "./IModelImporter.js";
+import { TransformerLoggerCategory } from "./TransformerLoggerCategory.js";
+import { IModelCloneContext } from "./IModelCloneContext.js";
+import type { IModelTransformContext } from "./IModelTransformContext.js";
+import { rangesFromRangeAndSkipped } from "./Algo.js";
+import { SyncTypeResolver } from "./SyncTypeResolver.js";
+import { ProvenanceManager } from "./ProvenanceManager.js";
 import {
   NewerVersionSchemaImportStrategy,
   ProcessSchemasOptions,
-} from "./schema-processing/SchemaProcessingStrategy";
-import { SchemaProcessingCoordinator } from "./schema-processing/SchemaProcessingCoordinator";
+} from "./schema-processing/SchemaProcessingStrategy.js";
+import { SchemaProcessingCoordinator } from "./schema-processing/SchemaProcessingCoordinator.js";
 import {
   ChangesetScanner,
   CollectedChanges,
   DeletionBatch,
   ExternalSourceAspectDeletionRecord,
   RelationshipDeletionRecord,
-} from "./ChangesetScanner";
+} from "./ChangesetScanner.js";
 import {
   IModelTransformerError,
   IModelTransformerErrorScope,
-} from "./IModelTransformerError";
+} from "./IModelTransformerError.js";
 
 const loggerCategory: string = TransformerLoggerCategory.IModelTransformer;
 

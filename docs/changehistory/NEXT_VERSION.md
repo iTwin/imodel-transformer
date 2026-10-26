@@ -1,5 +1,18 @@
 # Next release notes
 
+## Breaking change: ESM-only package
+
+`@itwin/imodel-transformer` now publishes only ES modules. The `lib/cjs` output has been removed, and `lib/` contains the ESM JavaScript and declarations. The package root and `@itwin/imodel-transformer/schema-processing` remain the supported entry points.
+
+CommonJS applications do not need to convert to ESM. The supported Node.js versions (`^22.12.0 || ^24.18.0`) load ES modules synchronously through `require()`, so `require("@itwin/imodel-transformer")` and CommonJS output compiled by TypeScript continue to work.
+
+To migrate:
+
+- Replace imports from `@itwin/imodel-transformer/lib/cjs/*` with imports from the package root or `@itwin/imodel-transformer/schema-processing`.
+- If a TypeScript project compiles to CommonJS with `module` set to `node16` or `node18`, change it to `node20` or `nodenext`. Those older settings reject `require()` of ES modules with TS1479. `nodenext` allows it starting with TypeScript 5.8, and `node20` requires TypeScript 5.9 or later. Projects using `module: commonjs` are unaffected.
+- Node.js 22.12.x prints a one-time `ExperimentalWarning` when a CommonJS module calls `require()` on an ES module. Node.js 22.13 and later do not print it.
+- Test runners and bundlers that implement their own module loader instead of Node's may not support `require()` of ES modules. Configure them to load ESM.
+
 ## Recommended `IModelHost` configuration
 
 With the supported `@itwin/core-backend` versions, transformations currently run faster when the thinned native instance workflow is disabled. The transformer cannot configure `IModelHost` for you, so set `disableThinnedNativeInstanceWorkflow` when your application starts the host:

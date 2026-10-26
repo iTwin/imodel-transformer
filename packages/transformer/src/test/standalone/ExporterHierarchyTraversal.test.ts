@@ -28,12 +28,12 @@ import {
   ChangedInstanceIds,
   IModelExporter,
   IModelExportHandler,
-} from "../../IModelExporter";
-import { IModelTransformerTestUtils } from "../IModelTransformerUtils";
+} from "../../IModelExporter.js";
+import { IModelTransformerTestUtils } from "../IModelTransformerUtils.js";
 import {
   insertSubjectTree,
   TreeSpec,
-} from "../TestUtils/ExporterTraversalTestUtils";
+} from "../TestUtils/ExporterTraversalTestUtils.js";
 
 /** Recorded traversal event: callback kind plus the element id it concerned. */
 type TraversalEvent = [kind: "pre" | "export" | "skip", id: Id64String];
