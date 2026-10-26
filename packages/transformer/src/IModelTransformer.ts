@@ -1044,6 +1044,27 @@ export class IModelTransformer extends IModelExportHandler {
    */
   private _reimportedTargetRelationshipIds = new Set<Id64String>();
 
+  /** Same-iModel only: whether a required reference is a non-recipe DefinitionElement that is reused in place. Element classes never change, so each id is classified once. */
+  private readonly _sameIModelReusableDefinitions = new Map<
+    Id64String,
+    boolean
+  >();
+
+  private isSameIModelReusableDefinition(elementId: Id64String): boolean {
+    let isReusable = this._sameIModelReusableDefinitions.get(elementId);
+    if (isReusable === undefined) {
+      const definition = this.sourceDb.elements.tryGetElement(
+        elementId,
+        DefinitionElement
+      );
+      isReusable =
+        definition !== undefined &&
+        !(definition instanceof RecipeDefinitionElement);
+      this._sameIModelReusableDefinitions.set(elementId, isReusable);
+    }
+    return isReusable;
+  }
+
   /** Returns true if a change within sourceElement is detected.
    * @param sourceElement The Element from the source iModel
    * @note A subclass can override this method to provide custom change detection behavior.
@@ -1257,20 +1278,14 @@ export class IModelTransformer extends IModelExportHandler {
         referenceId === IModel.rootSubjectId // not allowed to directly export the root subject
       )
         continue;
-      if (!this.context.isBetweenIModels) {
-        // Within the same iModel, reuse existing DefinitionElements instead of copying them.
-        // Same-iModel transformations, including TemplateModelCloner, rely on this.
-        const asDefinitionElem = this.sourceDb.elements.tryGetElement(
-          referenceId,
-          DefinitionElement
-        );
-        if (
-          asDefinitionElem &&
-          !(asDefinitionElem instanceof RecipeDefinitionElement)
-        ) {
-          this.context.remapElement(referenceId, referenceId);
-        }
-      }
+      // Within the same iModel, reuse existing DefinitionElements instead of copying them.
+      // Same-iModel transformations, including TemplateModelCloner, rely on this.
+      // This also replaces any existing mapping for the definition with an identity mapping.
+      if (
+        !this.context.isBetweenIModels &&
+        this.isSameIModelReusableDefinition(referenceId)
+      )
+        this.context.remapElement(referenceId, referenceId);
       if (!Id64.isValid(this.context.findTargetElementId(referenceId)))
         unresolvedReferences.push(referenceId);
     }

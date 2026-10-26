@@ -4,6 +4,7 @@
  *--------------------------------------------------------------------------------------------*/
 
 import {
+  DefinitionElement,
   EditTxn,
   // eslint-disable-next-line @typescript-eslint/no-redeclare
   Element,
@@ -24,8 +25,9 @@ import {
   ElementProps,
   IModel,
   PhysicalElementProps,
+  QueryBinder,
 } from "@itwin/core-common";
-import { expect } from "vitest";
+import { expect, vi } from "vitest";
 import { IModelTransformer } from "../../IModelTransformer";
 import { IModelTransformerTestUtils } from "../IModelTransformerUtils";
 
@@ -283,6 +285,83 @@ describe("In-place IModelTransformer", () => {
       expect(transformed.code.scope).not.toBe(testData.sourceScopeId);
       expect(transformed.code.value).toBe("TestElement");
     } finally {
+      transformer.dispose();
+      editTxn.end();
+      iModel.close();
+    }
+  });
+
+  it("should classify each required reference as a reusable definition only once", async () => {
+    const iModelFile = IModelTransformerTestUtils.prepareOutputFile(
+      "InPlaceIModelTransformer",
+      "DefinitionReuseClassification.bim"
+    );
+    const iModel = SnapshotDb.createEmpty(iModelFile, {
+      rootSubject: { name: "DefinitionReuseClassification" },
+    });
+    const elementCount = 5;
+    const { categoryId, sourceModelId, targetModelId } = withEditTxn(
+      iModel,
+      "insert test data",
+      (txn) => {
+        const ids = {
+          categoryId: SpatialCategory.insert(
+            txn,
+            IModel.dictionaryId,
+            "SharedCategory",
+            {}
+          ),
+          sourceModelId: PhysicalModel.insert(
+            txn,
+            IModel.rootSubjectId,
+            "SourceModel"
+          ),
+          targetModelId: PhysicalModel.insert(
+            txn,
+            IModel.rootSubjectId,
+            "TargetModel"
+          ),
+        };
+        for (let i = 0; i < elementCount; ++i)
+          txn.insertElement({
+            category: ids.categoryId,
+            classFullName: PhysicalObject.classFullName,
+            model: ids.sourceModelId,
+            code: Code.createEmpty(),
+          } as PhysicalElementProps);
+        return ids;
+      }
+    );
+
+    const editTxn = new EditTxn(iModel, "copy model contents in place");
+    editTxn.start();
+    const transformer = new IModelTransformer(
+      { source: iModel, target: editTxn },
+      { noProvenance: true }
+    );
+    const tryGetElement = vi.spyOn(iModel.elements, "tryGetElement");
+    try {
+      await transformer.processModelContents(sourceModelId, targetModelId);
+      editTxn.saveChanges();
+
+      const definitionChecks = tryGetElement.mock.calls
+        .filter(([, elementClass]) => elementClass === DefinitionElement)
+        .map(([id]) => id);
+      expect(definitionChecks).toContain(categoryId);
+      expect(definitionChecks).toHaveLength(new Set(definitionChecks).size);
+
+      // The shared category is still reused in place rather than copied.
+      const copiedCategoryIds: string[] = [];
+      for await (const row of iModel.createQueryReader(
+        `SELECT Category.Id categoryId FROM ${PhysicalObject.classFullName} WHERE Model.Id=?`,
+        QueryBinder.from([targetModelId])
+      ))
+        copiedCategoryIds.push(row.categoryId);
+      expect(copiedCategoryIds).toEqual(
+        Array<string>(elementCount).fill(categoryId)
+      );
+    } finally {
+      tryGetElement.mockRestore();
       transformer.dispose();
       editTxn.end();
       iModel.close();
