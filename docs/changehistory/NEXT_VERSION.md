@@ -1,5 +1,18 @@
 # Next release notes
 
+## Recommended `IModelHost` configuration
+
+With the supported `@itwin/core-backend` versions, transformations currently run faster when the thinned native instance workflow is disabled. The transformer cannot configure `IModelHost` for you, so set `disableThinnedNativeInstanceWorkflow` when your application starts the host:
+
+```ts
+await IModelHost.startup({
+  // ...other options
+  disableThinnedNativeInstanceWorkflow: true,
+});
+```
+
+The option only changes how `getElement()`, `getModel()`, and `getAspect()` read entities. It does not change transformer behavior. The repository's performance suites and test app now use this setting. The transformer's unit tests still use the default so the default read path stays covered.
+
 ## Context-based provenance resolution for incremental deletions
 
 `IModelTransformer.process()` now resolves guidless incremental element
@@ -37,9 +50,42 @@ The streamed traversal relies on SQLite's documented recursive-CTE queue behavio
 
 Existing export callbacks keep the same arguments and parent-before-child order. Unchanged ancestors are not exported. When the exporter reaches a changed element, it calls `shouldExportElement` once for each unchanged ancestor that has not been checked yet, starting at the top. If an ancestor is rejected, `onSkipElement` is called for it and its descendants are skipped, as in a full export. Unchanged elements excluded by ID still trigger `onSkipElement`, and modeled elements continue through the existing model filters. Custom `IModelExporter` subclasses that override `exportElement` or `exportChildElements` use the previous traversal so those overrides continue to receive every element.
 
-A changed element can require an unchanged element that has no mapping in the target, such as its category. `IModelTransformer` does not insert unchanged elements, so it now throws `ITwinError` with key `DependencyMappingMissing` when it cannot map one. Previously, a required parent that was missing from the target could make change processing recurse until the process ran out of memory. It also throws this error when a changed required element is not exported because the filter rejects it or one of its ancestors; previously the import failed later with a less specific error. See [Filtering during change processing](../learning/transformer/index.md#filtering-during-change-processing) for when this error occurs and how to fix it.
+A changed element can require an unchanged element that has no mapping in the target, such as its category. `IModelTransformer` does not insert unchanged elements, so it now throws `ITwinError` with key `DependencyMappingMissing` when it cannot map one. Previously, a required parent that was missing from the target could make change processing recurse until the process ran out of memory. Full transforms such as `processAll()` and change processing also throw this error when an accepted element requires an element that the filter rejects, directly or through an ancestor. Previously, native cloning copied such a category into the target anyway, with a new FederationGuid. A filter that accepts elements must now also accept their categories. See [Filtering and required elements](../learning/transformer/index.md#filtering-and-required-elements) for when this error occurs and how to fix it.
 
 See [Incremental exports](../learning/transformer/index.md#incremental-exports) for callback and customization details.
+
+## Batched relationship export with endpoint FederationGuids
+
+`IModelExporter` now reads relationships in batches. The same query reads the FederationGuids of each relationship's source and target elements. The exporter passes them as a `RelationshipEndpointFederationGuids` object, `{ source?, target? }`, to `IModelExportHandler.onExportRelationship(relationship, isUpdate, endpointFedGuids)` and to the protected `IModelExporter.exportRelationshipInstance`. The exporter always supplies this object. A missing `source` or `target` property means that endpoint element has no FederationGuid. `IModelTransformer.onExportRelationship` uses the object to decide whether a relationship needs an `ExternalSourceAspect`, so it no longer looks up both endpoints for every relationship.
+
+If `endpointFedGuids` is not passed, `IModelTransformer` looks up both FederationGuids as before. Overrides that call `super.onExportRelationship(sourceRelationship)` keep their previous provenance output and performance, but don't get the speedup.
+
+### Getting the best relationship export performance
+
+For the speedup, an `onExportRelationship` override must accept `endpointFedGuids` and pass it to `super`:
+
+```ts
+public override async onExportRelationship(
+  sourceRelationship: Relationship,
+  isUpdate?: boolean,
+  endpointFedGuids?: RelationshipEndpointFederationGuids
+): Promise<void> {
+  // custom logic
+  return super.onExportRelationship(
+    sourceRelationship,
+    isUpdate,
+    endpointFedGuids
+  );
+}
+```
+
+Overrides of `IModelExporter.exportRelationshipInstance` should also pass `endpointFedGuids` to `super`. Code that calls `IModelTransformer.onExportRelationship` directly can pass the FederationGuids it already has. A missing property means that endpoint has none. For example, `{ source: sourceDb.elements.getFederationGuidFromId(rel.sourceId), target: sourceDb.elements.getFederationGuidFromId(rel.targetId) }`.
+
+## Overridable change collection
+
+`IModelTransformer` now reads source changes through the protected, beta `collectChanges(ranges, changedInstanceIds)` method. Override it to supply changed instance IDs and deletion records from another source, such as a precomputed cache, instead of downloading and reading changesets. An override can pass the ranges it can't cover to `super.collectChanges()`. `ChangedInstanceIds.addChangeRecord()` adds a change from its instance ID, class ID, operation, and, for an aspect, owning element ID. See [Supplying source changes](../learning/transformer/change-scanning.md) for the contract and an example.
+
+Deletions are now processed in batches of one changeset range instead of one changeset. This fixes a reverse synchronization case. Suppose branch element B is a copy of master element M, and B has no `FederationGuid`, so the only link between them is a provenance aspect on B that stores M's ID. When a reverse synchronization processes B's deletion, it deletes M. If one branch changeset deletes the aspect and a later one deletes B, the transformer previously couldn't find M when it processed B's deletion, so M stayed in the master iModel. Both changesets are now in the same batch, so the transformer reads M's ID from the deleted aspect's record and deletes M. See [Deletion batches](../learning/transformer/change-scanning.md#deletion-batches).
 
 ## Breaking change: batched incremental element deletion
 

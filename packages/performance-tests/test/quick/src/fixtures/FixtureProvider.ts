@@ -53,9 +53,7 @@ export interface PreparedStandaloneDataset extends PreparedDatasetBase {
 }
 
 export type PreparedDataset =
-  | PreparedLiveHubDataset
-  | PreparedDetachedDataset
-  | PreparedStandaloneDataset;
+  PreparedLiveHubDataset | PreparedDetachedDataset | PreparedStandaloneDataset;
 
 export function requireLiveHubDataset(
   dataset: PreparedDataset

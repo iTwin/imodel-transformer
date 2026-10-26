@@ -23,9 +23,9 @@ import { standaloneFixtureProvider } from "../../src/fixtures/providers/standalo
 import { standaloneDriveRelationshipProcessing } from "../../src/scenarios/standaloneDriveRelationshipProcessing.js";
 import { standaloneFullTransformation } from "../../src/scenarios/standaloneFullTransformation.js";
 import {
-  shutdownIsolatedHost,
-  startIsolatedHost,
-} from "../support/isolatedHost.js";
+  shutdownQuickIModelHost,
+  startQuickIModelHost,
+} from "../../src/framework/QuickIModelHost.js";
 
 const expectedFullTransformSemanticDigest =
   "0014ec00cca96224da1b17eb36789b8a12b68ee614ba6611defd410bde8c4f22";
@@ -58,7 +58,7 @@ describe("realistic synthetic building fixture", () => {
 
   beforeAll(async () => {
     root = fs.mkdtempSync(path.join(os.tmpdir(), "quick-realistic-building-"));
-    await startIsolatedHost();
+    await startQuickIModelHost();
     built = await standaloneFixtureProvider.build(
       realisticBuildingTransformFixture,
       path.join(root, "artifact")
@@ -67,7 +67,7 @@ describe("realistic synthetic building fixture", () => {
 
   afterAll(async () => {
     if (built) await standaloneFixtureProvider.disposeBuild(built);
-    await shutdownIsolatedHost();
+    await shutdownQuickIModelHost();
     if (root !== "") fs.rmSync(root, { recursive: true, force: true });
   });
 

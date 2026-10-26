@@ -1,0 +1,7 @@
+{
+  "type": "none",
+  "comment": "Reformat sources with Prettier 3.9.9.",
+  "packageName": "@itwin/imodel-transformer",
+  "email": "DanRod1999@users.noreply.github.com",
+  "dependentChangeType": "patch"
+}

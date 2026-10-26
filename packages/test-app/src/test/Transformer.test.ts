@@ -29,6 +29,7 @@ import {
   QueryRowFormat,
 } from "@itwin/core-common";
 import { TransformerLoggerCategory } from "@itwin/imodel-transformer";
+import { disableGcsWorkspacesForTests } from "@itwin/imodel-transformer-test-utils";
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 import { loggerCategory, Transformer } from "../Transformer";
 
@@ -37,13 +38,13 @@ function assertAtLeast(actual: number, min: number): void {
 }
 
 describe("imodel-transformer", () => {
-  const sourceDbFileName = require.resolve(
-    "../../../transformer/src/test/assets/CompatibilityTestSeed.bim"
-  );
+  const sourceDbFileName =
+    require.resolve("../../../transformer/src/test/assets/CompatibilityTestSeed.bim");
   let sourceDb: IModelDb;
 
   before(async () => {
     await IModelHost.startup();
+    disableGcsWorkspacesForTests();
 
     if (false) {
       // set to true to enable logging
