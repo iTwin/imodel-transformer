@@ -217,7 +217,9 @@ processes therefore never contend for the default profile. The harness disables
 GCS workspace loading before opening any iModel, so a fresh profile never
 downloads geographic coordinate data. On shutdown it removes the private profile
 directory. The shared `IModelHost.cacheDir` is unchanged; only the profile is
-private.
+private. The host also sets `disableThinnedNativeInstanceWorkflow`, the
+configuration recommended for transformer workloads, so both comparison arms
+measure the native element, model, and aspect read path.
 
 ### Profiling flow
 
@@ -519,7 +521,7 @@ timeouts.
 During Vitest collection, `TransformerRegression.test.ts`:
 
 1. Loads environment configuration and authenticates.
-2. Starts `IModelHost` with Hub access.
+2. Starts `IModelHost` with Hub access and `disableThinnedNativeInstanceWorkflow`.
 3. Discovers and filters configured Hub iModels.
 4. Adds the generated local iModel.
 5. Loads built-in and optional comparison transformer modules.

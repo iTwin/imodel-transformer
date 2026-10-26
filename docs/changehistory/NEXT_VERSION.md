@@ -13,6 +13,19 @@ To migrate:
 - Node.js 22.12.x prints a one-time `ExperimentalWarning` when a CommonJS module calls `require()` on an ES module. Node.js 22.13 and later do not print it.
 - Test runners and bundlers that implement their own module loader instead of Node's may not support `require()` of ES modules. Configure them to load ESM.
 
+## Recommended `IModelHost` configuration
+
+With the supported `@itwin/core-backend` versions, transformations currently run faster when the thinned native instance workflow is disabled. The transformer cannot configure `IModelHost` for you, so set `disableThinnedNativeInstanceWorkflow` when your application starts the host:
+
+```ts
+await IModelHost.startup({
+  // ...other options
+  disableThinnedNativeInstanceWorkflow: true,
+});
+```
+
+The option only changes how `getElement()`, `getModel()`, and `getAspect()` read entities. It does not change transformer behavior. The repository's performance suites and test app now use this setting. The transformer's unit tests still use the default so the default read path stays covered.
+
 ## Context-based provenance resolution for incremental deletions
 
 `IModelTransformer.process()` now resolves guidless incremental element
