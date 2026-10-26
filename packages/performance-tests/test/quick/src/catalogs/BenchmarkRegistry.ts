@@ -11,6 +11,7 @@ import { incrementalSynchronizationBenchmark } from "../scenarios/incrementalSyn
 import { largeBaseIncrementalSynchronizationBenchmark } from "../scenarios/largeBaseIncrementalSynchronization.js";
 import { schemaProcessingBenchmark } from "../scenarios/schemaProcessing.js";
 import { standaloneDriveRelationshipProcessingBenchmark } from "../scenarios/standaloneDriveRelationshipProcessing.js";
+import { standaloneFullRetransformationBenchmark } from "../scenarios/standaloneFullRetransformation.js";
 import { standaloneFullTransformationBenchmark } from "../scenarios/standaloneFullTransformation.js";
 
 // Every benchmark is added in exactly one explicit place so the compiled CLI remains predictable.
@@ -21,6 +22,7 @@ const registrations: readonly BenchmarkRegistration[] = Object.freeze([
   schemaProcessingBenchmark,
   standaloneFullTransformationBenchmark,
   standaloneDriveRelationshipProcessingBenchmark,
+  standaloneFullRetransformationBenchmark,
 ]);
 
 const scenarios = new Map<string, BenchmarkScenarioDefinition>();
