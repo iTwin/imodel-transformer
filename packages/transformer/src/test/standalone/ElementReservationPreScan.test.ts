@@ -14,14 +14,14 @@ import {
 import { Guid, Id64String } from "@itwin/core-bentley";
 import { CodeScopeSpec, CodeSpec, IModel } from "@itwin/core-common";
 import { describe, expect, it, onTestFinished, vi } from "vitest";
-import type { ElementReservationPreScanMode } from "../../ElementReservationPreScan";
-import { IModelTransformer } from "../../IModelTransformer";
+import type { ElementReservationPreScanMode } from "../../ElementReservationPreScan.js";
+import { IModelTransformer } from "../../IModelTransformer.js";
 import {
   createStartedEditTxn,
   IModelTransformerTestUtils,
   TransformerExtensiveTestScenario,
-} from "../IModelTransformerUtils";
-import { useLocalReservations } from "./ElementReservationTestUtils";
+} from "../IModelTransformerUtils.js";
+import { useLocalReservations } from "./ElementReservationTestUtils.js";
 
 const outputFile = (name: string) =>
   IModelTransformerTestUtils.prepareOutputFile(

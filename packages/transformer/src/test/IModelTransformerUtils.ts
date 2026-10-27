@@ -61,7 +61,7 @@ import {
   ViewDefinition2d,
   withEditTxn,
 } from "@itwin/core-backend";
-import * as TestUtils from "./TestUtils";
+import * as TestUtils from "./TestUtils/index.js";
 import {
   Base64EncodedString,
   BisCodeSpec,
@@ -94,19 +94,19 @@ import {
   IModelExporter,
   IModelExportHandler,
   RelationshipEndpointFederationGuids,
-} from "../IModelExporter";
-import { IModelImporter, IModelImportOptions } from "../IModelImporter";
+} from "../IModelExporter.js";
+import { IModelImporter, IModelImportOptions } from "../IModelImporter.js";
 import {
   IModelTransformer,
   IModelTransformOptions,
   ProcessChangesOptions,
   RelationshipPropsForDelete,
-} from "../IModelTransformer";
+} from "../IModelTransformer.js";
 import {
   IModelTransformerError,
   IModelTransformerErrorScope,
-} from "../IModelTransformerError";
-import { KnownTestLocations } from "./TestUtils/KnownTestLocations";
+} from "../IModelTransformerError.js";
+import { KnownTestLocations } from "./TestUtils/KnownTestLocations.js";
 
 /** Creates an EditTxn for the given db and starts it. */
 // __PUBLISH_EXTRACT_START__ EditTxnInTransformer.create-started-edit-txn
@@ -144,7 +144,7 @@ export async function expectTransformerError(
   return error;
 }
 
-export { HubWrappers } from "./TestUtils/IModelTestUtils";
+export { HubWrappers } from "./TestUtils/IModelTestUtils.js";
 
 export class IModelTransformerTestUtils extends TestUtils.IModelTestUtils {
   protected static override get knownTestLocations(): {

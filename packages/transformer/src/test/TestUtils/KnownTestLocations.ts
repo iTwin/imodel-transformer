@@ -3,6 +3,7 @@
  * See LICENSE.md in the project root for license terms and full copyright notice.
  *--------------------------------------------------------------------------------------------*/
 
+import { fileURLToPath } from "node:url";
 import * as path from "node:path";
 import * as fs from "node:fs";
 import { tmpdir } from "node:os";
@@ -19,7 +20,7 @@ function getTestWorkerId(): string {
 export class KnownTestLocations {
   /** The directory where test assets are stored. Keep in mind that the test is playing the role of the app. */
   public static get assetsDir(): string {
-    return path.join(__dirname, "../assets");
+    return path.join(path.dirname(fileURLToPath(import.meta.url)), "../assets");
   }
 
   /** Worker-local directory for generated files and native caches. */

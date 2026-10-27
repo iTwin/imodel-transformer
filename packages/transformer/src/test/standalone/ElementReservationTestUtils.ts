@@ -5,7 +5,7 @@
 
 import { type GuidString, OpenMode } from "@itwin/core-bentley";
 import { IModelDb, SchemaSync } from "@itwin/core-backend";
-import { _nativeDb } from "@itwin/core-backend/lib/cjs/internal/Symbols";
+import { _nativeDb } from "@itwin/core-backend/lib/cjs/internal/Symbols.js";
 
 /**
  * Enable the real SchemaSync reservation implementation against a local SQLite database.

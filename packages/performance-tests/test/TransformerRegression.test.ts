@@ -185,6 +185,7 @@ async function setupTestData(
     cloudStorage: new AzureClientStorage(new BlockBlobClientWrapperFactory()),
   });
   hostConfig.hubAccess = new BackendIModelsAccess(hubClient);
+  hostConfig.disableThinnedNativeInstanceWorkflow = true;
   await IModelHost.startup(hostConfig);
   disableGcsWorkspacesForTests();
 

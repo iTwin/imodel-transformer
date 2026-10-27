@@ -8,10 +8,10 @@ import { afterAll, afterEach, beforeAll, vi } from "vitest";
 import { IModelHost, IModelHostOptions } from "@itwin/core-backend";
 import { Logger, LogLevel, ProcessDetector } from "@itwin/core-bentley";
 import { disableGcsWorkspacesForTests } from "@itwin/imodel-transformer-test-utils";
-import { KnownTestLocations } from "./TestUtils/KnownTestLocations";
-import { transformerTestHub } from "./TestUtils/TransformerTestHub";
+import { KnownTestLocations } from "./TestUtils/KnownTestLocations.js";
+import { transformerTestHub } from "./TestUtils/TransformerTestHub.js";
 // Register custom matchers before each test file loads.
-import "./TestUtils/AdvancedEqual";
+import "./TestUtils/AdvancedEqual.js";
 
 export async function startTransformerTestHost(): Promise<void> {
   Logger.initializeToConsole();

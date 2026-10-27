@@ -19,8 +19,8 @@ import {
   IModel,
   RelatedElement,
 } from "@itwin/core-common";
-import { IModelExporter, IModelExportHandler } from "./IModelExporter";
-import type { IModelCloneContext } from "./IModelCloneContext";
+import { IModelExporter, IModelExportHandler } from "./IModelExporter.js";
+import type { IModelCloneContext } from "./IModelCloneContext.js";
 
 /** How the element reservation pre-scan determines the identity of a new target element.
  * - `"transform"` calls [[IModelTransformer.onTransformElement]], without geometry, when the element's target model and
