@@ -8,6 +8,7 @@ import * as path from "node:path";
 import { installCheckpointDownload } from "@itwin/imodel-transformer-test-utils";
 import * as TestUtils from "../TestUtils";
 import {
+  BackendHubAccess,
   BriefcaseDb,
   BriefcaseManager,
   EditTxn,
@@ -26,7 +27,7 @@ import {
   IModelTransformerTestUtils,
 } from "../IModelTransformerUtils";
 import { transformerTestHub } from "../TestUtils/TransformerTestHub";
-import { AccessToken } from "@itwin/core-bentley";
+import { AccessToken, Id64, Id64String } from "@itwin/core-bentley";
 import {
   Code,
   ExternalSourceProps,
@@ -38,13 +39,12 @@ import {
 } from "@itwin/core-common";
 import { Point3d, YawPitchRollAngles } from "@itwin/core-geometry";
 import { IModelTransformer } from "../../IModelTransformer";
-// Allow this example to use the monorepo's development versions of the core libraries.
-process.env.TRANSFORMER_NO_STRICT_DEP_CHECK = "1";
 
 // This example reads package metadata with require, so disable the rule for this file.
 /* eslint-disable @typescript-eslint/no-require-imports */
 
 async function initializeBranch(
+  hubAccess: BackendHubAccess,
   myITwinId: string,
   masterIModelId: string,
   myAccessToken: AccessToken
@@ -59,7 +59,8 @@ async function initializeBranch(
   const masterDb = await BriefcaseDb.open({ fileName: masterDbProps.fileName });
 
   // Create the branch from the master's current file as its initial version.
-  const branchIModelId = await transformerTestHub.createNewIModel({
+  // hubAccess is the BackendHubAccess that the application passes to IModelHost.startup.
+  const branchIModelId = await hubAccess.createNewIModel({
     accessToken: myAccessToken,
     iTwinId: myITwinId,
     iModelName: "my-branch-imodel",
@@ -77,52 +78,59 @@ async function initializeBranch(
   const branchDb = await BriefcaseDb.open({ fileName: branchDbProps.fileName });
   const branchEditTxn = new EditTxn(branchDb, "initialize branch iModel");
   branchEditTxn.start();
+  let initializeSucceeded = false;
+  try {
+    // Create the repository link and external source that identify the master as the
+    // branch's Target Scope Element.
+    const masterLinkRepoId = branchDb
+      .constructEntity<RepositoryLink, RepositoryLinkProps>({
+        classFullName: RepositoryLink.classFullName,
+        code: RepositoryLink.createCode(
+          branchDb,
+          IModelDb.repositoryModelId,
+          "example-code-value"
+        ),
+        model: IModelDb.repositoryModelId,
+        url: "https://wherever-you-got-your-imodel.net",
+        format: "iModel",
+        repositoryGuid: masterDb.iModelId,
+        description: "master iModel repository",
+      })
+      .insert(branchEditTxn);
 
-  // Create the repository link and external source that identify the master as the
-  // branch's Target Scope Element.
-  const masterLinkRepoId = branchDb
-    .constructEntity<RepositoryLink, RepositoryLinkProps>({
-      classFullName: RepositoryLink.classFullName,
-      code: RepositoryLink.createCode(
-        branchDb,
-        IModelDb.repositoryModelId,
-        "example-code-value"
-      ),
-      model: IModelDb.repositoryModelId,
-      url: "https://wherever-you-got-your-imodel.net",
-      format: "iModel",
-      repositoryGuid: masterDb.iModelId,
-      description: "master iModel repository",
-    })
-    .insert(branchEditTxn);
+    const masterExternalSourceId = branchDb
+      .constructEntity<ExternalSource, ExternalSourceProps>({
+        classFullName: ExternalSource.classFullName,
+        model: IModelDb.rootSubjectId,
+        code: Code.createEmpty(),
+        repository: new ExternalSourceIsInRepository(masterLinkRepoId),
+        connectorName: "iModel Transformer",
+        connectorVersion: require("@itwin/imodel-transformer/package.json")
+          .version,
+      })
+      .insert(branchEditTxn);
 
-  const masterExternalSourceId = branchDb
-    .constructEntity<ExternalSource, ExternalSourceProps>({
-      classFullName: ExternalSource.classFullName,
-      model: IModelDb.rootSubjectId,
-      code: Code.createEmpty(),
-      repository: new ExternalSourceIsInRepository(masterLinkRepoId),
-      connectorName: "iModel Transformer",
-      // eslint-disable-next-line @typescript-eslint/no-var-requires
-      connectorVersion: require("@itwin/imodel-transformer/package.json")
-        .version,
-    })
-    .insert(branchEditTxn);
-
-  // Initialize provenance for the branch.
-  const branchInitializer = new IModelTransformer(
-    { source: masterDb, target: branchEditTxn },
-    {
-      // The branch is a raw copy of the source, so record the provenance required for
-      // future synchronization.
-      wasSourceIModelCopiedToTarget: true,
-      // Store synchronization provenance under the ExternalSource that represents the master.
-      targetScopeElementId: masterExternalSourceId,
+    // Initialize provenance for the branch.
+    const branchInitializer = new IModelTransformer(
+      { source: masterDb, target: branchEditTxn },
+      {
+        // The branch is a raw copy of the source, so record the provenance required for
+        // future synchronization.
+        wasSourceIModelCopiedToTarget: true,
+        // Store synchronization provenance under the ExternalSource that represents the master.
+        targetScopeElementId: masterExternalSourceId,
+      }
+    );
+    try {
+      await branchInitializer.process();
+    } finally {
+      branchInitializer.dispose();
     }
-  );
-  await branchInitializer.process();
-  branchInitializer.dispose();
-  branchEditTxn.end("save");
+    initializeSucceeded = true;
+  } finally {
+    // Save a successful initialization and abandon a failed one.
+    branchEditTxn.end(initializeSucceeded ? "save" : "abandon");
+  }
 
   // Push the branch changes to the hub.
   const description = "initialized branch iModel";
@@ -144,18 +152,24 @@ async function forwardSyncMasterToBranch(
   // __PUBLISH_EXTRACT_START__ IModelBranchingOperations_forwardSync
   const repositoryLinkId = branchDb.elements.queryElementIdByCode(
     RepositoryLink.createCode(
-      masterDb,
+      branchDb,
       IModelDb.repositoryModelId,
       "example-code-value"
     )
   );
-  let masterExternalSourceId;
-  for await (const row of branchDb.createQueryReader(
-    `SELECT ECInstanceId FROM ${ExternalSource.classFullName} WHERE Repository.Id=:id`,
-    QueryBinder.from({ id: repositoryLinkId })
-  )) {
-    masterExternalSourceId = row.ECInstanceId;
+  let masterExternalSourceId: Id64String | undefined;
+  if (repositoryLinkId !== undefined) {
+    for await (const row of branchDb.createQueryReader(
+      `SELECT ECInstanceId FROM ${ExternalSource.classFullName} WHERE Repository.Id=:id`,
+      QueryBinder.from({ id: repositoryLinkId })
+    )) {
+      masterExternalSourceId = row.ECInstanceId;
+    }
   }
+  // Without this ID, the transformer would use the root subject as the target scope.
+  if (masterExternalSourceId === undefined)
+    throw new Error("The branch has no ExternalSource for the master iModel.");
+
   const branchEditTxn = new EditTxn(branchDb, "synchronize master changes");
   branchEditTxn.start();
   const synchronizer = new IModelTransformer(
@@ -167,10 +181,16 @@ async function forwardSyncMasterToBranch(
       argsForProcessChanges: {},
     }
   );
+  let syncSucceeded = false;
+  try {
+    await synchronizer.process();
+    syncSucceeded = true;
+  } finally {
+    synchronizer.dispose();
+    // Save a successful synchronization and abandon a failed one.
+    branchEditTxn.end(syncSucceeded ? "save" : "abandon");
+  }
 
-  await synchronizer.process();
-  synchronizer.dispose();
-  branchEditTxn.end("save");
   // Push the synchronized branch changes.
   const description = "updated branch with recent master changes";
   await branchDb.pushChanges({
@@ -189,18 +209,24 @@ async function reverseSyncBranchToMaster(
   // The master and branch databases are already open (see the initialization example).
   const repositoryLinkId = branchDb.elements.queryElementIdByCode(
     RepositoryLink.createCode(
-      masterDb,
+      branchDb,
       IModelDb.repositoryModelId,
       "example-code-value"
     )
   );
-  let masterExternalSourceId;
-  for await (const row of branchDb.createQueryReader(
-    `SELECT ECInstanceId FROM ${ExternalSource.classFullName} WHERE Repository.Id=:id`,
-    QueryBinder.from({ id: repositoryLinkId })
-  )) {
-    masterExternalSourceId = row.ECInstanceId;
+  let masterExternalSourceId: Id64String | undefined;
+  if (repositoryLinkId !== undefined) {
+    for await (const row of branchDb.createQueryReader(
+      `SELECT ECInstanceId FROM ${ExternalSource.classFullName} WHERE Repository.Id=:id`,
+      QueryBinder.from({ id: repositoryLinkId })
+    )) {
+      masterExternalSourceId = row.ECInstanceId;
+    }
   }
+  // Without this ID, the transformer would use the root subject as the target scope.
+  if (masterExternalSourceId === undefined)
+    throw new Error("The branch has no ExternalSource for the master iModel.");
+
   const masterEditTxn = new EditTxn(masterDb, "synchronize branch changes");
   masterEditTxn.start();
   const branchEditTxn = new EditTxn(
@@ -219,11 +245,18 @@ async function reverseSyncBranchToMaster(
       sourceEditTxn: branchEditTxn,
     }
   );
+  let syncSucceeded = false;
+  try {
+    await reverseSynchronizer.process();
+    syncSucceeded = true;
+  } finally {
+    reverseSynchronizer.dispose();
+    // Save or abandon the master changes and branch provenance together.
+    const endMode = syncSucceeded ? "save" : "abandon";
+    masterEditTxn.end(endMode);
+    branchEditTxn.end(endMode);
+  }
 
-  await reverseSynchronizer.process();
-  reverseSynchronizer.dispose();
-  masterEditTxn.end("save");
-  branchEditTxn.end("save");
   // Push the synchronized master changes and branch provenance.
   const description = "merged changes from branch into master";
   await masterDb.pushChanges({
@@ -333,22 +366,37 @@ describe("IModelBranchingOperations", () => {
     const masterIModelId = await transformerTestHub.createNewIModel({
       accessToken: myAccessToken,
       iTwinId: myITwinId,
-      iModelName: "my-branch-imodel",
+      iModelName: "my-master-imodel",
       version0: version0Path,
       noLocks: true,
     });
     const { masterDb, branchDb } = await initializeBranch(
+      transformerTestHub,
       myITwinId,
       masterIModelId,
       myAccessToken
     );
-    // Use distinct numbers because the branch already contains the master's edit
-    // after forward synchronization.
-    await arbitraryEdit(masterDb, myAccessToken, "edit master", 0);
-    await forwardSyncMasterToBranch(masterDb, branchDb, myAccessToken);
-    await arbitraryEdit(branchDb, myAccessToken, "edit branch", 1);
-    await reverseSyncBranchToMaster(branchDb, masterDb, myAccessToken);
-    masterDb.close();
-    branchDb.close();
+    try {
+      // Use distinct numbers because the branch already contains the master's edit
+      // after forward synchronization.
+      await arbitraryEdit(masterDb, myAccessToken, "edit master", 0);
+      await forwardSyncMasterToBranch(masterDb, branchDb, myAccessToken);
+      expect(
+        Id64.isValidId64(
+          IModelTransformerTestUtils.queryByCodeValue(branchDb, "0")
+        )
+      ).toBe(true);
+
+      await arbitraryEdit(branchDb, myAccessToken, "edit branch", 1);
+      await reverseSyncBranchToMaster(branchDb, masterDb, myAccessToken);
+      expect(
+        Id64.isValidId64(
+          IModelTransformerTestUtils.queryByCodeValue(masterDb, "1")
+        )
+      ).toBe(true);
+    } finally {
+      masterDb.close();
+      branchDb.close();
+    }
   });
 });
