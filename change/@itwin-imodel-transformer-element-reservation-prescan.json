@@ -1,0 +1,7 @@
+{
+  "type": "minor",
+  "comment": "Add the alpha elementReservationPreScan option, which reserves new elements with a federation GUID in one batch before process() when the target uses server-based element reservations",
+  "packageName": "@itwin/imodel-transformer",
+  "email": "DanRod1999@users.noreply.github.com",
+  "dependentChangeType": "patch"
+}

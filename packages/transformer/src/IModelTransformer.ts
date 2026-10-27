@@ -96,6 +96,11 @@ import {
 import { IModelImporter, OptimizeGeometryOptions } from "./IModelImporter.js";
 import { TransformerLoggerCategory } from "./TransformerLoggerCategory.js";
 import { IModelCloneContext } from "./IModelCloneContext.js";
+import {
+  ElementReservationPreScan,
+  ElementReservationPreScanMode,
+  ElementReservationPreScanStats,
+} from "./ElementReservationPreScan.js";
 import type { IModelTransformContext } from "./IModelTransformContext.js";
 import { rangesFromRangeAndSkipped } from "./Algo.js";
 import { SyncTypeResolver } from "./SyncTypeResolver.js";
@@ -267,6 +272,23 @@ export interface IModelTransformOptions {
    * @beta
    */
   sourceEditTxn?: EditTxn;
+
+  /** Scan the elements a [[IModelTransformer.process]] call will export before it starts, and reserve every new
+   * target element that has a federation GUID in one batch. The transformation itself then runs unchanged; the backend
+   * assigns the reserved ids when the elements are inserted.
+   * - `"auto"` runs the scan only when the target uses server-based element reservations and does not hold the schema lock.
+   * - `"on"` always runs the scan. It reserves only on targets that use server-based reservations without the schema lock.
+   * - `"off"` disables the scan. A target that requires reservations then rejects new elements that have a federation GUID.
+   *
+   * The scan calls [[IModelTransformer.onTransformElement]] for its identity only when a subclass overrides it or the
+   * clone context overrides `cloneElement`. Overrides of [[IModelTransformer.shouldExportElement]],
+   * [[IModelTransformer.hasElementChanged]], and [[IModelTransformer.onTransformElement]] must return the same result in
+   * the scan and in the transformation.
+   * The scan does not run when the source was copied to the target, when ids are preserved, or within one iModel.
+   * @default "auto"
+   * @alpha
+   */
+  elementReservationPreScan?: "auto" | "on" | "off";
 }
 
 /**
@@ -461,6 +483,11 @@ export class IModelTransformer extends IModelExportHandler {
   >;
   private _changesetRanges: [number, number][] | undefined = undefined;
 
+  /** Statistics of the element reservation pre-scan of the last [[process]] call, if it ran. @internal */
+  public elementReservationPreScanStats?: ElementReservationPreScanStats;
+  /** Codes to insert for reserved elements whose code scope is a new element of this run, keyed by federation GUID. */
+  private _reservedNewScopeCodes?: Map<string, CodeProps>;
+
   /**
    * Set if the transformer is being used to perform the provenance initialization step of a fork initialization.
    * In general don't use the transformer for that, prefer [[BranchProvenanceInitializer.initializeBranchProvenance]]
@@ -502,6 +529,7 @@ export class IModelTransformer extends IModelExportHandler {
       skipPropagateChangesToRootElements:
         options?.skipPropagateChangesToRootElements ?? true,
       tryAlignGeolocation: options?.tryAlignGeolocation ?? false,
+      elementReservationPreScan: options?.elementReservationPreScan ?? "auto",
     };
     // check if authorization client is defined
     if (IModelHost.authorizationClient === undefined) {
@@ -1537,6 +1565,17 @@ export class IModelTransformer extends IModelExportHandler {
     }
 
     if (!this._options.wasSourceIModelCopiedToTarget) {
+      if (
+        targetElementProps.id === undefined &&
+        targetElementProps.federationGuid !== undefined
+      ) {
+        // The reservation names a new code scope by federation GUID, which the backend resolves at insert.
+        const reservedCode = this._reservedNewScopeCodes?.get(
+          targetElementProps.federationGuid
+        );
+        if (reservedCode !== undefined)
+          targetElementProps.code = { ...reservedCode };
+      }
       await this.importer.importElement(targetElementProps); // don't need to import if iModel was copied
     }
 
@@ -2745,9 +2784,86 @@ export class IModelTransformer extends IModelExportHandler {
 
     this.logSettings();
 
+    await this.reserveNewElements();
+
     return this._options.argsForProcessChanges !== undefined
       ? this.processChanges(this._options.argsForProcessChanges)
       : this.processAll();
+  }
+
+  /** Runs the element reservation pre-scan and reserves the new elements it finds in one batch.
+   * @see [[IModelTransformOptions.elementReservationPreScan]]
+   */
+  private async reserveNewElements(): Promise<void> {
+    this.elementReservationPreScanStats = undefined;
+    this._reservedNewScopeCodes = undefined;
+    const option = this._options.elementReservationPreScan;
+    const reservations = this.targetDb.reservations;
+    const canReserve =
+      reservations.isServerBased && !this.targetDb.holdsSchemaLock;
+    if (
+      option === "off" ||
+      (option === "auto" && !canReserve) ||
+      this._options.wasSourceIModelCopiedToTarget ||
+      this._options.preserveElementIdsForFiltering ||
+      !this.context.isBetweenIModels
+    )
+      return;
+
+    const mode = this.resolvePreScanMode();
+    const scan = new ElementReservationPreScan(
+      {
+        sourceDb: this.sourceDb,
+        targetDb: this.targetDb,
+        exporter: this.exporter,
+        context: this._cloneContext,
+        shouldExportElement: async (element) =>
+          this.shouldExportElement(element),
+        hasElementChanged: (element) => this.hasElementChanged(element),
+        onTransformElement: async (element) => this.onTransformElement(element),
+        queryElementIdByCode: (code) =>
+          this.queryElementIdByCode(this.targetDb, code),
+        canLoadIdentityOnly:
+          this.shouldExportElement ===
+            IModelTransformer.prototype.shouldExportElement &&
+          this.hasElementChanged ===
+            IModelTransformer.prototype.hasElementChanged &&
+          this.exporter.shouldExportElement ===
+            IModelExporter.prototype.shouldExportElement,
+      },
+      mode
+    );
+    await scan.run({
+      skipPropagateChangesToRootElements:
+        this._options.skipPropagateChangesToRootElements ?? true,
+    });
+
+    if (scan.reservations.length > 0 && canReserve) {
+      const start = performance.now();
+      await reservations.reserveElements({ elements: scan.reservations });
+      scan.stats.reserveMs = performance.now() - start;
+      scan.stats.submitted = true;
+      this._reservedNewScopeCodes = scan.newScopeCodes;
+    }
+    this.elementReservationPreScanStats = scan.stats;
+    Logger.logInfo(
+      loggerCategory,
+      "Element reservation pre-scan finished.",
+      () => ({ ...scan.stats })
+    );
+  }
+
+  /** The base [[onTransformElement]] and clone only change an element's class, federation GUID, and code in ways the
+   * `"identity"` scan derives itself, so a full clone is only needed when a subclass customizes either one.
+   */
+  private resolvePreScanMode(): ElementReservationPreScanMode {
+    const transformOverridden =
+      this.onTransformElement !==
+      IModelTransformer.prototype.onTransformElement;
+    const cloneOverridden =
+      this._cloneContext.cloneElement !==
+      IModelCloneContext.prototype.cloneElement;
+    return transformOverridden || cloneOverridden ? "transform" : "identity";
   }
 
   /** Export everything from the source iModel and import the transformed entities into the target iModel.
