@@ -72,6 +72,11 @@ export class BenchmarkReporter {
     const reconstruction = samples.map(
       (sample) => sample.reconstructionMilliseconds
     );
+    const scenarioMetrics = measured.flatMap((sample) =>
+      sample.scenarioMetrics === undefined
+        ? []
+        : [{ sample: sample.sample, values: sample.scenarioMetrics }]
+    );
     const phaseSummary = (values: readonly number[]) => ({
       median: median(values),
       maximum: Math.max(...values),
@@ -92,6 +97,7 @@ export class BenchmarkReporter {
       measuredSamples: measured.length,
       reportSchemaVersion: identity.reportSchemaVersion,
       scenarioId: samples[0].scenarioId,
+      ...(scenarioMetrics.length === 0 ? {} : { scenarioMetrics }),
       varianceStatus: classifyVariance(
         measured.length,
         wallCoefficientOfVariation,
