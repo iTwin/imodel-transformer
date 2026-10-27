@@ -26,6 +26,7 @@ import {
   realisticBuildingTransformLargeParameters,
   realisticBuildingTransformLargeRecipe,
   realisticBuildingTransformLargeSourceExpectedCounts,
+  realisticBuildingTransformManyModelsParameters,
 } from "../../src/fixtures/recipes/realisticBuildingTransformLarge.js";
 import {
   assertScenarioSupportsFixture,
@@ -187,6 +188,32 @@ describe("quick performance scenario catalog", () => {
       relationships:
         realisticBuildingTransformLargeSourceExpectedCounts.refersToRelationships +
         realisticBuildingTransformLargeSourceExpectedCounts.drivesRelationships,
+    });
+  });
+
+  it("registers the many-models realistic building fixture as an opt-in full transform", () => {
+    const resolved = resolveBenchmarkRun(
+      "standalone-full-transformation",
+      "realistic-building-transform-many-models"
+    );
+    expect(resolved.descriptor.layout.topology).to.equal(
+      "standalone-source-and-empty-target"
+    );
+    expect(realisticBuildingTransformManyModelsParameters).to.deep.equal({
+      ...realisticBuildingTransformLargeParameters,
+      modelCount: 2_000,
+    });
+    expect(resolved.descriptor.distribution.base).to.deep.equal({
+      aspects:
+        realisticBuildingTransformLargeParameters.includedUniqueAspectCount +
+        realisticBuildingTransformLargeParameters.includedMultiAspectCount +
+        realisticBuildingTransformLargeParameters.externalSourceAspectCount,
+      elements: realisticBuildingTransformLargeParameters.elementCount,
+      geometricElements:
+        realisticBuildingTransformLargeParameters.geometricElementCount,
+      relationships:
+        realisticBuildingTransformLargeParameters.refersToRelationshipCount +
+        realisticBuildingTransformLargeParameters.drivesRelationshipCount,
     });
   });
 

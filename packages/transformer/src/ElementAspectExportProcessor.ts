@@ -10,7 +10,7 @@ import {
   IModelDb,
 } from "@itwin/core-backend";
 import { Id64String } from "@itwin/core-bentley";
-import { ensureECSqlReaderIsAsyncIterableIterator } from "./ECSqlReaderAsyncIterableIteratorAdapter";
+import { ensureECSqlReaderIsAsyncIterableIterator } from "./ECSqlReaderAsyncIterableIteratorAdapter.js";
 import { QueryBinder } from "@itwin/core-common";
 
 interface AspectChanges {
@@ -38,8 +38,7 @@ export class ElementAspectExportProcessor {
   private readonly _excludedElementAspectClassFullNames = new Set<string>();
   private _hasExportableAspects: Promise<boolean> | undefined;
   private _expandedExcludedElementAspectClassFullNames:
-    | Promise<ReadonlySet<string>>
-    | undefined;
+    Promise<ReadonlySet<string>> | undefined;
   private _aspectChanges: AspectChanges | undefined;
 
   /** ElementAspect class names excluded from source queries. */

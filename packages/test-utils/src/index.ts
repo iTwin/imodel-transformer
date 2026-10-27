@@ -4,3 +4,4 @@
  *--------------------------------------------------------------------------------------------*/
 
 export * from "./LocalTestHub";
+export * from "./GcsWorkspaceSettings";

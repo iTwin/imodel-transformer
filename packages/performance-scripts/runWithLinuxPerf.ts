@@ -21,13 +21,11 @@ PERF_WARMUP_DELAY='500' # the amount of time to wait for perf to initialize befo
 The program will now exit.
 `;
 
-if (
-  !(
-    (process.env.NODE_OPTIONS?.includes("--perf-basic-prof") ||
-      process.env.NODE_OPTIONS?.includes("--perf-prof")) &&
-    process.env.NODE_OPTIONS?.includes("--interpreted-frames-native-stack")
-  )
-) {
+if (!(
+  (process.env.NODE_OPTIONS?.includes("--perf-basic-prof") ||
+    process.env.NODE_OPTIONS?.includes("--perf-prof")) &&
+  process.env.NODE_OPTIONS?.includes("--interpreted-frames-native-stack")
+)) {
   console.error(usageText);
   process.exit(1);
 }

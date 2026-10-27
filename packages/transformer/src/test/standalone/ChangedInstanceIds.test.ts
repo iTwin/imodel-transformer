@@ -3,7 +3,7 @@
  * See LICENSE.md in the project root for license terms and full copyright notice.
  *--------------------------------------------------------------------------------------------*/
 import * as path from "node:path";
-import { KnownTestLocations } from "../TestUtils";
+import { KnownTestLocations } from "../TestUtils/index.js";
 import {
   ChangeInstance,
   DocumentListModel,
@@ -21,7 +21,7 @@ import {
 import {
   expectTransformerError,
   IModelTransformerTestUtils,
-} from "../IModelTransformerUtils";
+} from "../IModelTransformerUtils.js";
 import { Id64String, ITwinError } from "@itwin/core-bentley";
 import {
   ElementProps,
@@ -29,11 +29,14 @@ import {
   IModel,
   QueryBinder,
 } from "@itwin/core-common";
-import { ChangedInstanceIds, ChangedInstanceOps } from "../../IModelExporter";
+import {
+  ChangedInstanceIds,
+  ChangedInstanceOps,
+} from "../../IModelExporter.js";
 import {
   IModelTransformerError,
   IModelTransformerErrorScope,
-} from "../../IModelTransformerError";
+} from "../../IModelTransformerError.js";
 import { expect } from "vitest";
 
 describe("ChangedInstanceIds", () => {
@@ -639,6 +642,69 @@ describe("ChangedInstanceIds", () => {
       expect([...sourceDbChanges.aspectOwnerElementIds]).to.deep.equal([
         childDrawing1.id,
       ]);
+    });
+  });
+
+  describe("addChangeRecord", () => {
+    const classIdOf = (id: Id64String, classFullName: string) =>
+      sourceDb.withQueryReader(
+        `SELECT ECClassId FROM ${classFullName} WHERE ECInstanceId=:id`,
+        (reader) => {
+          expect(reader.step()).to.be.true;
+          return reader.current[0] as Id64String;
+        },
+        new QueryBinder().bindId("id", id)
+      );
+
+    it("categorizes changes by class and records aspect owners", async () => {
+      const ids = new ChangedInstanceIds(sourceDb);
+      await ids.addChangeRecord({
+        id: childDrawing1.id!,
+        ecClassId: classIdOf(childDrawing1.id!, "BisCore.Element"),
+        op: "Updated",
+      });
+      // The owner given for a deleted aspect is used without reading the source iModel.
+      await ids.addChangeRecord({
+        id: "0xffffffffff",
+        ecClassId: classIdOf(aspect1Id, ExternalSourceAspect.classFullName),
+        op: "Deleted",
+        aspectOwnerElementId: childDrawing2.id,
+      });
+
+      assertHasValues(ids.element, "element", [], [childDrawing1.id!], []);
+      assertHasValues(ids.aspect, "aspect", [], [], ["0xffffffffff"]);
+      expect([...ids.aspectOwnerElementIds]).to.deep.equal([childDrawing2.id]);
+    });
+
+    it("requires the owner of a deleted aspect", async () => {
+      const ids = new ChangedInstanceIds(sourceDb);
+      const ecClassId = classIdOf(
+        aspect1Id,
+        ExternalSourceAspect.classFullName
+      );
+      await expectTransformerError(
+        ids.addChangeRecord({ id: "0xffffffffff", ecClassId, op: "Deleted" }),
+        IModelTransformerError.AspectOwnerRequired,
+        "Deleted ElementAspect change 0xffffffffff requires the owning element ID."
+      );
+      // An inserted aspect needs no owner, because a later delete of it must give one.
+      await ids.addChangeRecord({
+        id: "0xffffffffff",
+        ecClassId,
+        op: "Inserted",
+      });
+      assertHasValues(ids.aspect, "aspect", ["0xffffffffff"], [], []);
+    });
+
+    it("combines changes to the same instance in order", async () => {
+      const ids = new ChangedInstanceIds(sourceDb);
+      const ecClassId = classIdOf(childDrawing1.id!, "BisCore.Element");
+      await ids.addChangeRecord({ id: "0x123", ecClassId, op: "Inserted" });
+      await ids.addChangeRecord({ id: "0x123", ecClassId, op: "Deleted" });
+      await ids.addChangeRecord({ id: "0x456", ecClassId, op: "Updated" });
+      await ids.addChangeRecord({ id: "0x456", ecClassId, op: "Deleted" });
+
+      assertHasValues(ids.element, "element", [], [], ["0x456"]);
     });
   });
 

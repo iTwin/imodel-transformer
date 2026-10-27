@@ -8,7 +8,7 @@
 
 import { EntityReference } from "@itwin/core-common";
 import { IModelDb } from "@itwin/core-backend";
-import { EntityUnifier } from "./EntityUnifier";
+import { EntityUnifier } from "./EntityUnifier.js";
 
 /** A positive-only read-through cache of entity existence checks, scoped to a single transformation run.
  *

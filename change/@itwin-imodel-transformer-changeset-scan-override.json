@@ -1,0 +1,7 @@
+{
+  "type": "minor",
+  "comment": "Add the protected IModelTransformer.collectChanges() method so subclasses can supply changed instance IDs and deletion records from another source instead of downloading changesets. Deletions are now remapped in batches of one changeset range instead of one changeset.",
+  "packageName": "@itwin/imodel-transformer",
+  "email": "50554904+hl662@users.noreply.github.com",
+  "dependentChangeType": "patch"
+}

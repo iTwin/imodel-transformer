@@ -10,7 +10,6 @@ import * as inspector from "node:inspector";
 import {
   CompressedId64Set,
   Guid,
-  GuidString,
   Id64,
   Id64Set,
   Id64String,
@@ -62,7 +61,7 @@ import {
   ViewDefinition2d,
   withEditTxn,
 } from "@itwin/core-backend";
-import * as TestUtils from "./TestUtils";
+import * as TestUtils from "./TestUtils/index.js";
 import {
   Base64EncodedString,
   BisCodeSpec,
@@ -91,19 +90,23 @@ import {
   SubjectProps,
   ViewDetails3dProps,
 } from "@itwin/core-common";
-import { IModelExporter, IModelExportHandler } from "../IModelExporter";
-import { IModelImporter, IModelImportOptions } from "../IModelImporter";
+import {
+  IModelExporter,
+  IModelExportHandler,
+  RelationshipEndpointFederationGuids,
+} from "../IModelExporter.js";
+import { IModelImporter, IModelImportOptions } from "../IModelImporter.js";
 import {
   IModelTransformer,
   IModelTransformOptions,
   ProcessChangesOptions,
   RelationshipPropsForDelete,
-} from "../IModelTransformer";
+} from "../IModelTransformer.js";
 import {
   IModelTransformerError,
   IModelTransformerErrorScope,
-} from "../IModelTransformerError";
-import { KnownTestLocations } from "./TestUtils/KnownTestLocations";
+} from "../IModelTransformerError.js";
+import { KnownTestLocations } from "./TestUtils/KnownTestLocations.js";
 
 /** Creates an EditTxn for the given db and starts it. */
 // __PUBLISH_EXTRACT_START__ EditTxnInTransformer.create-started-edit-txn
@@ -141,7 +144,7 @@ export async function expectTransformerError(
   return error;
 }
 
-export { HubWrappers } from "./TestUtils/IModelTestUtils";
+export { HubWrappers } from "./TestUtils/IModelTestUtils.js";
 
 export class IModelTransformerTestUtils extends TestUtils.IModelTestUtils {
   protected static override get knownTestLocations(): {
@@ -728,8 +731,7 @@ export async function assertIdentityTransformation(
       }
       if (sourceElem instanceof DisplayStyle3d) {
         const styles = expectedSourceElemJsonProps.styles as
-          | DisplayStyle3dSettingsProps
-          | undefined;
+          DisplayStyle3dSettingsProps | undefined;
         if (styles?.environment?.sky) {
           const sky = styles.environment.sky;
           if (!sky.image) sky.image = { type: SkyBoxImageType.None };
@@ -763,8 +765,7 @@ export async function assertIdentityTransformation(
 
       if (sourceElem instanceof SpatialViewDefinition) {
         const viewProps = expectedSourceElemJsonProps.viewDetails as
-          | ViewDetails3dProps
-          | undefined;
+          ViewDetails3dProps | undefined;
         if (viewProps && viewProps.acs)
           viewProps.acs = remapElem(viewProps.acs);
       }
@@ -999,7 +1000,9 @@ export async function assertIdentityTransformation(
   expect(targetRelationshipsToFind.size).to.equal(0);
 }
 
-export class TransformerExtensiveTestScenario extends TestUtils.ExtensiveTestScenario {
+export class TransformerExtensiveTestScenario
+  extends TestUtils.ExtensiveTestScenario
+{
   public static async prepareTargetDb(targetDb: IModelDb): Promise<void> {
     // Import desired target schemas
     const targetSchemaFileName: string = path.join(
@@ -2419,8 +2422,7 @@ export class IModelToTextFileExporter extends IModelExportHandler {
   public override async onExportRelationship(
     relationship: Relationship,
     isUpdate: boolean | undefined,
-    sourceFedGuid?: GuidString,
-    targetFedGuid?: GuidString
+    endpointFedGuids?: RelationshipEndpointFederationGuids
   ): Promise<void> {
     if (this._firstRelationship) {
       this.writeSeparator();
@@ -2431,12 +2433,7 @@ export class IModelToTextFileExporter extends IModelExportHandler {
         relationship.id
       }${this.formatOperationName(isUpdate)}`
     );
-    await super.onExportRelationship(
-      relationship,
-      isUpdate,
-      sourceFedGuid,
-      targetFedGuid
-    );
+    await super.onExportRelationship(relationship, isUpdate, endpointFedGuids);
   }
   public override async onDeleteRelationship(
     relInstanceId: Id64String
@@ -2556,19 +2553,13 @@ export class ClassCounter extends IModelExportHandler {
   public override async onExportRelationship(
     relationship: Relationship,
     isUpdate: boolean | undefined,
-    sourceFedGuid?: GuidString,
-    targetFedGuid?: GuidString
+    endpointFedGuids?: RelationshipEndpointFederationGuids
   ): Promise<void> {
     this.incrementClassCount(
       this._relationshipClassCounts,
       relationship.classFullName
     );
-    await super.onExportRelationship(
-      relationship,
-      isUpdate,
-      sourceFedGuid,
-      targetFedGuid
-    );
+    await super.onExportRelationship(relationship, isUpdate, endpointFedGuids);
   }
 }
 

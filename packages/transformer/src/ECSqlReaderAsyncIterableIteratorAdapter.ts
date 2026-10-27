@@ -10,9 +10,7 @@ import { ECSqlReader, QueryRowProxy } from "@itwin/core-common";
  * It allows to iterate through query results in itwin 3.x using for await() syntax like using itwin 4.x version.
  * @internal
  */
-export class ECSqlReaderAsyncIterableIteratorAdapter
-  implements AsyncIterableIterator<QueryRowProxy>
-{
+export class ECSqlReaderAsyncIterableIteratorAdapter implements AsyncIterableIterator<QueryRowProxy> {
   public constructor(private _ecSqlReader: ECSqlReader) {}
 
   public [Symbol.asyncIterator](): AsyncIterableIterator<QueryRowProxy> {

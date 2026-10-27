@@ -25,17 +25,17 @@ import {
   IModel,
   QueryBinder,
 } from "@itwin/core-common";
-import { TransformerLoggerCategory } from "./TransformerLoggerCategory";
+import { TransformerLoggerCategory } from "./TransformerLoggerCategory.js";
 import type {
   IModelTransformOptions,
   TargetScopeProvenanceJsonProps,
-} from "./IModelTransformer";
-import type { SyncTypeResolver } from "./SyncTypeResolver";
-import type { IModelTransformContext } from "./IModelTransformContext";
+} from "./IModelTransformer.js";
+import type { SyncTypeResolver } from "./SyncTypeResolver.js";
+import type { IModelTransformContext } from "./IModelTransformContext.js";
 import {
   IModelTransformerError,
   IModelTransformerErrorScope,
-} from "./IModelTransformerError";
+} from "./IModelTransformerError.js";
 
 const loggerCategory: string = TransformerLoggerCategory.IModelTransformer;
 
@@ -275,11 +275,9 @@ export class ProvenanceManager {
     let hasTargetRow = await targetReader.step();
     while (hasSourceRow && hasTargetRow) {
       const sourceFedGuid = sourceReader.current.federationGuid as
-        | GuidString
-        | undefined;
+        GuidString | undefined;
       const targetFedGuid = targetReader.current.federationGuid as
-        | GuidString
-        | undefined;
+        GuidString | undefined;
       if (
         sourceFedGuid !== undefined &&
         targetFedGuid !== undefined &&
@@ -719,10 +717,7 @@ export class ProvenanceManager {
   }: {
     initializeReverseSyncVersion?: boolean;
     sourceChangeDataState:
-      | "uninited"
-      | "has-changes"
-      | "no-changes"
-      | "unconnected";
+      "uninited" | "has-changes" | "no-changes" | "unconnected";
   }) {
     const shouldSkipSyncVersionUpdate =
       !initializeReverseSyncVersion && sourceChangeDataState !== "has-changes";

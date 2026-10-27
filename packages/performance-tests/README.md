@@ -88,15 +88,15 @@ The `standalone-full-transformation` scenario uses
 source copy and a newly-created empty target. Untimed `prepare()` imports
 schemas, `measure()` contains only `IModelTransformer.process()`, and
 `finish()` computes the target output-shape digest used for A/B comparability.
-Five configured fixtures support it: `standalone-full-transform`
+Six configured fixtures support it: `standalone-full-transform`
 (element-heavy, no relationships), `relationship-heavy-transform` (5,000
 elements with 30,000 `ElementGroupsMembers` relationships, exercising the
 relationship export path including federation-guid lookups),
 `reference-heavy-transform` (8,000 parent elements and 37,000 child elements
 whose round-robin parent navigation references exercise source-reference
 validation with about 8,000 unique references), and the opt-in
-`realistic-building-transform` and `realistic-building-transform-large`
-fixtures described below. Stock `process()` does not copy their
+`realistic-building-transform`, `realistic-building-transform-large`, and
+`realistic-building-transform-many-models` fixtures described below. Stock `process()` does not copy their
 `ElementDrivesElement` relationships.
 
 The `standalone-drive-relationship-processing` scenario supports the two
@@ -136,7 +136,11 @@ across non-null source element and GeometryPart streams, approximately 2.74
 MiB) and independently configurable geometry-bearing element, geometry-part,
 included-aspect, external-source-aspect, and relationship counts.
 
-Like the smaller profile, the large fixture models only aggregate
+`realistic-building-transform-many-models` uses the large profile's content
+but spreads it across 2,000 models instead of 32, which exposes per-model
+export costs such as sub-model discovery.
+
+Like the smaller profile, the large fixtures model only aggregate
 transformer-relevant cardinality and shape. It is not a byte-size model and
 does not reproduce any real iModel's schemas, labels, identifiers, placements,
 geometry, topology, or embedded payloads.
@@ -149,10 +153,10 @@ Install the workspace dependencies from the repository root:
 pnpm install
 ```
 
-Build the CommonJS transformer package before running quick commands:
+Build the ESM transformer package before running quick commands:
 
 ```sh
-pnpm --dir packages/transformer build:cjs
+pnpm --dir packages/transformer build:esm
 ```
 
 Then run commands from `packages/performance-tests`:
@@ -176,6 +180,11 @@ The local benchmark default is one warm-up followed by one measured sample:
 ```sh
 pnpm test:quick
 ```
+
+Each quick-harness process uses and cleans up its own `IModelHost` profile and
+disables GCS workspace loading. Concurrent runs under the same OS user do not
+share the default profile or download geographic coordinate data. Like the
+weekly suite, it starts `IModelHost` with `disableThinnedNativeInstanceWorkflow`.
 
 ### Profiling a quick scenario
 
@@ -232,13 +241,13 @@ panel.
 
 Registered fixtures per scenario:
 
-| Scenario ID                                | Fixture IDs                                                                                                                                                    | Default                        |
-| ------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------ |
-| `incremental-synchronization`              | `balanced-incremental`, `deletion-heavy-incremental`, `hierarchical-incremental`                                                                               | `balanced-incremental`         |
-| `standalone-full-transformation`           | `standalone-full-transform`, `relationship-heavy-transform`, `reference-heavy-transform`, `realistic-building-transform`, `realistic-building-transform-large` | `standalone-full-transform`    |
-| `standalone-drive-relationship-processing` | `realistic-building-transform`, `realistic-building-transform-large`                                                                                           | `realistic-building-transform` |
-| `schema-processing`                        | `schema-processing-large`                                                                                                                                      | `schema-processing-large`      |
-| `changeset-scanning`                       | `update-heavy-scan`                                                                                                                                            | `update-heavy-scan`            |
+| Scenario ID                                | Fixture IDs                                                                                                                                                                                                | Default                        |
+| ------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------ |
+| `incremental-synchronization`              | `balanced-incremental`, `deletion-heavy-incremental`, `hierarchical-incremental`                                                                                                                           | `balanced-incremental`         |
+| `standalone-full-transformation`           | `standalone-full-transform`, `relationship-heavy-transform`, `reference-heavy-transform`, `realistic-building-transform`, `realistic-building-transform-large`, `realistic-building-transform-many-models` | `standalone-full-transform`    |
+| `standalone-drive-relationship-processing` | `realistic-building-transform`, `realistic-building-transform-large`                                                                                                                                       | `realistic-building-transform` |
+| `schema-processing`                        | `schema-processing-large`                                                                                                                                                                                  | `schema-processing-large`      |
+| `changeset-scanning`                       | `update-heavy-scan`                                                                                                                                                                                        | `update-heavy-scan`            |
 
 Example in a POSIX shell:
 
