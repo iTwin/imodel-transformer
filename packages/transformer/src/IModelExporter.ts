@@ -873,7 +873,9 @@ export class IModelExporter {
         return; // not in changeset, don't export
       }
     }
-    await this.handler.onExportModel(model, isUpdate);
+    await this._elementAspectExportCoordinator.runHandlerCallback(async () =>
+      this.handler.onExportModel(model, isUpdate)
+    );
     return this.trackProgress();
   }
 
@@ -1208,8 +1210,12 @@ export class IModelExporter {
     );
     // the order and `await`ing of calls beyond here is depended upon by the IModelTransformer for a current bug workaround
     if (await this.shouldExportElement(element)) {
-      await this.handler.preExportElement(element);
-      await this.handler.onExportElement(element, isUpdate);
+      await this._elementAspectExportCoordinator.runHandlerCallback(
+        async () => {
+          await this.handler.preExportElement(element);
+          await this.handler.onExportElement(element, isUpdate);
+        }
+      );
       await this.trackProgress();
       await this._elementAspectExportCoordinator.addAcceptedOwner(elementId);
       return "visit";

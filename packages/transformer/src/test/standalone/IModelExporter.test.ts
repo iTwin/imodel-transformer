@@ -370,9 +370,10 @@ describe("IModelExporter", () => {
     expect(exportedOwnerBatchSizes).to.deep.equal([1_000, 1_000, 1]);
   });
 
-  it("deduplicates owners across scope batches and resets at outer scope boundaries", async () => {
+  it("deduplicates out-of-order owners across scope batches and resets at outer scope boundaries", async () => {
     const ownerA = Id64.fromLocalAndBriefcaseIds(1, 0);
     const ownerB = Id64.fromLocalAndBriefcaseIds(2, 0);
+    const ownerC = Id64.fromLocalAndBriefcaseIds(3, 0);
     const exportedOwners: Id64String[] = [];
     let cacheResetCount = 0;
     const coordinator = new ElementAspectExportCoordinator(
@@ -385,19 +386,24 @@ describe("IModelExporter", () => {
     );
 
     coordinator.begin(1);
-    await coordinator.addAcceptedOwner(ownerA);
+    await coordinator.runHandlerCallback(async () =>
+      coordinator.addAcceptedOwner(ownerA)
+    );
     coordinator.begin();
     await coordinator.addAcceptedOwner(ownerB);
     await coordinator.addAcceptedOwner(ownerA);
+    await coordinator.exportOwners(new Set([ownerC]));
+    await coordinator.addAcceptedOwner(ownerC);
+    await coordinator.exportOwners(new Set([ownerA, ownerC]));
     await coordinator.end();
     await coordinator.end();
-    expect(exportedOwners).to.deep.equal([ownerA, ownerB]);
+    expect(exportedOwners).to.deep.equal([ownerA, ownerB, ownerC]);
     expect(cacheResetCount).to.equal(1);
 
     coordinator.begin(1);
     await coordinator.addAcceptedOwner(ownerA);
     await coordinator.end();
-    expect(exportedOwners).to.deep.equal([ownerA, ownerB, ownerA]);
+    expect(exportedOwners).to.deep.equal([ownerA, ownerB, ownerC, ownerA]);
     expect(cacheResetCount).to.equal(2);
 
     await coordinator.exportOwners(new Set([ownerA]));
@@ -405,10 +411,147 @@ describe("IModelExporter", () => {
     expect(exportedOwners).to.deep.equal([
       ownerA,
       ownerB,
+      ownerC,
       ownerA,
       ownerA,
       ownerA,
     ]);
+  });
+
+  it("does not remember owners accepted outside handler callbacks", async () => {
+    const ownerIds = [1, 2, 3].map((localId) =>
+      Id64.fromLocalAndBriefcaseIds(localId, 0)
+    );
+    const exportedOwners: Id64String[] = [];
+    const coordinator = new ElementAspectExportCoordinator(
+      1,
+      () => new Set<string>(),
+      async (ownerBatch) => {
+        exportedOwners.push(...ownerBatch);
+      }
+    );
+    const outOfOrderOwnerIds: ReadonlySet<Id64String> =
+      coordinator["_outOfOrderOwnerIds"];
+
+    coordinator.begin();
+    for (const ownerId of ownerIds) {
+      await coordinator.addAcceptedOwner(ownerId);
+      await coordinator.addAcceptedOwner(ownerId);
+    }
+    expect(outOfOrderOwnerIds.size).to.equal(0);
+    await coordinator.end();
+
+    expect(exportedOwners).to.deep.equal(
+      ownerIds.flatMap((ownerId) => [ownerId, ownerId])
+    );
+  });
+
+  it("restores handler callback state when a callback fails", async () => {
+    const ownerA = Id64.fromLocalAndBriefcaseIds(1, 0);
+    const ownerB = Id64.fromLocalAndBriefcaseIds(2, 0);
+    const coordinator = new ElementAspectExportCoordinator(
+      10,
+      () => new Set<string>(),
+      async () => {}
+    );
+    const outOfOrderOwnerIds: ReadonlySet<Id64String> =
+      coordinator["_outOfOrderOwnerIds"];
+
+    coordinator.begin();
+    await expect(
+      coordinator.runHandlerCallback(async () => {
+        await coordinator.addAcceptedOwner(ownerA);
+        throw new Error("callback failed");
+      })
+    ).rejects.toThrow("callback failed");
+    await coordinator.addAcceptedOwner(ownerB);
+    expect([...outOfOrderOwnerIds]).to.deep.equal([ownerA]);
+    coordinator.abort();
+    expect(outOfOrderOwnerIds.size).to.equal(0);
+  });
+
+  it("exports aspects once for an owner that a handler exports before the traversal reaches it", async () => {
+    const sourceDbPath = IModelTransformerTestUtils.prepareOutputFile(
+      "IModelExporter",
+      "OutOfOrderAspectOwner.bim"
+    );
+    const sourceDb = SnapshotDb.createEmpty(sourceDbPath, {
+      rootSubject: { name: "OutOfOrderAspectOwner" },
+    });
+    try {
+      await importElementAspectTestSchema(sourceDb);
+      const [requiringId, requiredId] = withEditTxn(
+        sourceDb,
+        "insert aspect owners",
+        (txn) => {
+          const firstId = Subject.insert(
+            txn,
+            IModel.rootSubjectId,
+            "Requiring"
+          );
+          const secondId = Subject.insert(
+            txn,
+            IModel.rootSubjectId,
+            "Required"
+          );
+          txn.insertAspect({
+            classFullName: "ExporterAspectTest:UniqueAspect",
+            element: new ElementOwnsUniqueAspect(secondId),
+          });
+          txn.insertAspect({
+            classFullName: "ExporterAspectTest:MultiAspectA",
+            element: { id: secondId },
+          });
+          return [firstId, secondId];
+        }
+      );
+
+      const exporter = new IModelExporter(sourceDb);
+      const elementExportOrder: Id64String[] = [];
+      const uniqueAspectOwners: Id64String[] = [];
+      const multiAspectOwners: Id64String[] = [];
+      class Handler extends IModelExportHandler {
+        public override async preExportElement(element: Element) {
+          if (element.id === requiringId)
+            await exporter.exportElement(requiredId);
+        }
+        public override async onExportElement(element: Element) {
+          elementExportOrder.push(element.id);
+        }
+        public override async onExportElementUniqueAspect(
+          aspect: ElementUniqueAspect
+        ) {
+          if (aspect.classFullName === "ExporterAspectTest:UniqueAspect")
+            uniqueAspectOwners.push(aspect.element.id);
+        }
+        public override async onExportElementMultiAspects(
+          aspects: ElementMultiAspect[]
+        ) {
+          for (const aspect of aspects) {
+            if (aspect.classFullName === "ExporterAspectTest:MultiAspectA")
+              multiAspectOwners.push(aspect.element.id);
+          }
+        }
+      }
+      exporter.registerHandler(new Handler());
+
+      // Single-owner batches flush the early export before the traversal reaches the owner again.
+      const coordinator = exporter.elementAspectExportCoordinator;
+      coordinator.begin(1);
+      await exporter.exportAll();
+      await coordinator.end();
+
+      expect(elementExportOrder.indexOf(requiredId)).to.be.lessThan(
+        elementExportOrder.indexOf(requiringId)
+      );
+      expect(
+        elementExportOrder.filter((id) => id === requiredId)
+      ).to.have.length(2);
+      expect(uniqueAspectOwners).to.deep.equal([requiredId]);
+      expect(multiAspectOwners).to.deep.equal([requiredId]);
+    } finally {
+      sourceDb.close();
+    }
   });
 
   it("rebuilds unchanged unique aspects for changed owners", async () => {
