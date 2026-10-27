@@ -6,7 +6,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { installCheckpointDownload } from "@itwin/imodel-transformer-test-utils";
-import * as TestUtils from "../TestUtils";
+import * as TestUtils from "../TestUtils/index.js";
 import {
   BackendHubAccess,
   BriefcaseDb,
@@ -25,8 +25,8 @@ import {
 import {
   HubWrappers,
   IModelTransformerTestUtils,
-} from "../IModelTransformerUtils";
-import { transformerTestHub } from "../TestUtils/TransformerTestHub";
+} from "../IModelTransformerUtils.js";
+import { transformerTestHub } from "../TestUtils/TransformerTestHub.js";
 import { AccessToken, Id64, Id64String } from "@itwin/core-bentley";
 import {
   Code,
@@ -38,10 +38,8 @@ import {
   SubCategoryAppearance,
 } from "@itwin/core-common";
 import { Point3d, YawPitchRollAngles } from "@itwin/core-geometry";
-import { IModelTransformer } from "../../IModelTransformer";
-
-// This example reads package metadata with require, so disable the rule for this file.
-/* eslint-disable @typescript-eslint/no-require-imports */
+import { IModelTransformer } from "../../IModelTransformer.js";
+import transformerPackageJson from "@itwin/imodel-transformer/package.json" with { type: "json" };
 
 async function initializeBranch(
   hubAccess: BackendHubAccess,
@@ -105,8 +103,7 @@ async function initializeBranch(
         code: Code.createEmpty(),
         repository: new ExternalSourceIsInRepository(masterLinkRepoId),
         connectorName: "iModel Transformer",
-        connectorVersion: require("@itwin/imodel-transformer/package.json")
-          .version,
+        connectorVersion: transformerPackageJson.version,
       })
       .insert(branchEditTxn);
 
