@@ -92,7 +92,7 @@ importers:
         specifier: ^16.2.7
         version: 16.4.0
       prettier:
-        specifier: ^3.6.2
+        specifier: 3.9.9
         version: 3.9.9
       typescript:
         specifier: 'catalog:'
@@ -231,6 +231,9 @@ importers:
       '@itwin/build-tools':
         specifier: 'catalog:'
         version: 5.14.2(@types/node@22.20.4)(mocha@11.8.0)
+      '@itwin/imodel-transformer-test-utils':
+        specifier: workspace:*
+        version: link:../test-utils
       '@types/mocha':
         specifier: ^8.2.3
         version: 8.2.3

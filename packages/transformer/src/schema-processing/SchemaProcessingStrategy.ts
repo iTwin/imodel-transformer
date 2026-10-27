@@ -13,8 +13,7 @@ import { Schema, SchemaKey } from "@itwin/ecschema-metadata";
  * @beta
  */
 export type SchemaProcessingResult =
-  | { kind: "source"; schema: Schema }
-  | { kind: "generated"; schema: Schema };
+  { kind: "source"; schema: Schema } | { kind: "generated"; schema: Schema };
 
 /** Read-only access to schemas already present in the target iModel.
  * @beta
@@ -61,9 +60,7 @@ export interface ProcessSchemasOptions {
  * Selects source schemas that are absent from the target or have a newer version.
  * @beta
  */
-export class NewerVersionSchemaImportStrategy
-  implements SchemaProcessingStrategy
-{
+export class NewerVersionSchemaImportStrategy implements SchemaProcessingStrategy {
   /** Select schemas that are absent from the target or have a newer version. */
   public async processSchemas(
     context: SchemaProcessingContext

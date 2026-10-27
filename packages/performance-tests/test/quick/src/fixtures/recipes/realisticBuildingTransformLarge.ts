@@ -884,3 +884,23 @@ export const realisticBuildingTransformLargeFixture = configureFixture(
 
 export const realisticBuildingTransformLargeDescriptor =
   realisticBuildingTransformLargeFixture.descriptor;
+
+/** The large profile's content spread across 2,000 models to expose per-model export costs. */
+export const realisticBuildingTransformManyModelsParameters: RealisticBuildingTransformLargeParameters =
+  Object.freeze({
+    ...realisticBuildingTransformLargeParameters,
+    modelCount: 2_000,
+  });
+
+export const realisticBuildingTransformManyModelsFixture = configureFixture(
+  realisticBuildingTransformLargeRecipe,
+  {
+    id: "realistic-building-transform-many-models",
+    version: 1,
+    label: "large realistic synthetic building across many models",
+    scenarioClaims: ["full transformation"],
+    topology: "standalone-source-and-empty-target",
+    seed: 49979687,
+    parameters: realisticBuildingTransformManyModelsParameters,
+  }
+);

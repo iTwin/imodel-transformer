@@ -23,6 +23,7 @@ import {
 } from "@itwin/object-storage-azure";
 import { Reporter } from "@itwin/perf-tools";
 import { TestBrowserAuthorizationClient } from "@itwin/oidc-signin-tool";
+import { disableGcsWorkspacesForTests } from "@itwin/imodel-transformer-test-utils";
 import {
   CleanupTask,
   runCleanupTasks,
@@ -49,8 +50,7 @@ import nativeTransformerTestModule from "./transformers/NativeTransformer";
 import rawForkOperationsTestModule from "./transformers/RawForkOperations";
 
 type AuthorizationClient =
-  | NodeCliAuthorizationClient
-  | TestBrowserAuthorizationClient;
+  NodeCliAuthorizationClient | TestBrowserAuthorizationClient;
 type PerformanceTestCase = typeof identityTransformer;
 
 const testCasesMap = new Map<string, RegressionTestCase<PerformanceTestCase>>([
@@ -185,7 +185,9 @@ async function setupTestData(
     cloudStorage: new AzureClientStorage(new BlockBlobClientWrapperFactory()),
   });
   hostConfig.hubAccess = new BackendIModelsAccess(hubClient);
+  hostConfig.disableThinnedNativeInstanceWorkflow = true;
   await IModelHost.startup(hostConfig);
+  disableGcsWorkspacesForTests();
 
   return preFetchAsyncIterator(getTestIModels(hubClient, filterIModels));
 }

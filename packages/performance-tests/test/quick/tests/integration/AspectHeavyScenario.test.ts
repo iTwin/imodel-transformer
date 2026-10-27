@@ -23,9 +23,9 @@ import {
   aspectHeavyProcessChanges,
 } from "../../src/scenarios/aspectHeavyNoop.js";
 import {
-  shutdownIsolatedHost,
-  startIsolatedHost,
-} from "../support/isolatedHost.js";
+  shutdownQuickIModelHost,
+  startQuickIModelHost,
+} from "../../src/framework/QuickIModelHost.js";
 
 const elementCount = 5;
 const aspectsPerElement = 3;
@@ -65,11 +65,11 @@ describe("aspect-heavy scenarios", () => {
 
   beforeAll(async () => {
     root = fs.mkdtempSync(path.join(os.tmpdir(), "quick-aspect-heavy-"));
-    await startIsolatedHost();
+    await startQuickIModelHost();
   });
 
   afterAll(async () => {
-    await shutdownIsolatedHost();
+    await shutdownQuickIModelHost();
     if (root !== "") fs.rmSync(root, { recursive: true, force: true });
   });
 

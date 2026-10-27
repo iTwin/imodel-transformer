@@ -6,7 +6,6 @@
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { IModelHost } from "@itwin/core-backend";
 import { CleanupTask, runWithCleanup } from "../../../Cleanup.js";
 import {
   assertScenarioSupportsFixture,
@@ -38,9 +37,12 @@ import {
   PreparedDataset,
   requireFixtureArtifact,
 } from "../fixtures/FixtureProvider.js";
-import { quickTestHub } from "../fixtures/QuickTestHub.js";
 import { quickPath } from "../support/paths.js";
 import { TransformerProvenance } from "../comparison/TransformerProvenance.js";
+import {
+  shutdownQuickIModelHost,
+  startQuickIModelHost,
+} from "./QuickIModelHost.js";
 
 export const benchmarkOutputMarkerName =
   ".imodel-transformer-quick-performance";
@@ -275,7 +277,7 @@ export class BenchmarkRunner {
     let completed = false;
     let shutdownSucceeded = false;
     return runWithCleanup(async () => {
-      await IModelHost.startup({ hubAccess: quickTestHub });
+      await startQuickIModelHost();
       const manifest = await runWithCleanup(async () => {
         built = await provider.build(this._fixture, stagingDirectory);
         requireFixtureArtifact(built);
@@ -299,7 +301,7 @@ export class BenchmarkRunner {
       {
         name: "shut down IModelHost after reusable fixture build",
         run: async () => {
-          if (IModelHost.isValid) await IModelHost.shutdown();
+          await shutdownQuickIModelHost();
           shutdownSucceeded = true;
         },
       },
@@ -325,7 +327,7 @@ export class BenchmarkRunner {
     prepareBenchmarkOutputDirectoryForFixture(this._outputDir, this._fixture);
     const samples: BenchmarkSample[] = [];
     await runWithCleanup(async () => {
-      await IModelHost.startup({ hubAccess: quickTestHub });
+      await startQuickIModelHost();
       let ownsBuild = true;
       let built: BuiltFixture;
       if (fixtureArtifactDirectory === undefined) {
@@ -487,7 +489,7 @@ export class BenchmarkRunner {
       {
         name: "shut down IModelHost after quick performance run",
         run: async () => {
-          if (IModelHost.isValid) await IModelHost.shutdown();
+          await shutdownQuickIModelHost();
         },
       },
     ]);

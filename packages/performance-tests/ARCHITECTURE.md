@@ -214,6 +214,16 @@ The runner wraps scenario, sample, fixture-build, and `IModelHost` lifecycles in
 cleanup tasks. It attempts all applicable cleanup and preserves both originating
 and cleanup errors when more than one operation fails.
 
+Every quick-harness process starts `IModelHost` with a profile name derived from
+its process ID. Baseline, candidate, fixture, benchmark, and integration-test
+processes therefore never contend for the default profile. The harness disables
+GCS workspace loading before opening any iModel, so a fresh profile never
+downloads geographic coordinate data. On shutdown it removes the private profile
+directory. The shared `IModelHost.cacheDir` is unchanged; only the profile is
+private. The host also sets `disableThinnedNativeInstanceWorkflow`, the
+configuration recommended for transformer workloads, so both comparison arms
+measure the native element, model, and aspect read path.
+
 ### Profiling flow
 
 The compiled `quick:profile` CLI reuses the normal scenario resolution, fixture
@@ -509,7 +519,7 @@ timeouts.
 During Vitest collection, `TransformerRegression.test.ts`:
 
 1. Loads environment configuration and authenticates.
-2. Starts `IModelHost` with Hub access.
+2. Starts `IModelHost` with Hub access and `disableThinnedNativeInstanceWorkflow`.
 3. Discovers and filters configured Hub iModels.
 4. Adds the generated local iModel.
 5. Loads built-in and optional comparison transformer modules.

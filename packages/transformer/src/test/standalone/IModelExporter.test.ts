@@ -4,6 +4,7 @@
  *--------------------------------------------------------------------------------------------*/
 
 import {
+  DefinitionModel,
   // eslint-disable-next-line @typescript-eslint/no-redeclare
   Element,
   ElementAspect,
@@ -17,6 +18,7 @@ import {
   GraphicalElement3dRepresentsElement,
   IModelDb,
   IModelJsFs,
+  Model,
   PhysicalModel,
   PhysicalObject,
   PhysicalPartition,
@@ -27,7 +29,7 @@ import {
   SubjectOwnsPartitionElements,
   withEditTxn,
 } from "@itwin/core-backend";
-import { GuidString, Id64, Id64String, ITwinError } from "@itwin/core-bentley";
+import { Guid, Id64, Id64String, ITwinError } from "@itwin/core-bentley";
 import {
   Code,
   ExternalSourceAspectProps,
@@ -47,17 +49,18 @@ import {
   ExporterInitOptions,
   IModelExporter,
   IModelExportHandler,
-} from "../../IModelExporter";
-import { ElementAspectExportCoordinator } from "../../ElementAspectExportCoordinator";
+  RelationshipEndpointFederationGuids,
+} from "../../IModelExporter.js";
+import { ElementAspectExportCoordinator } from "../../ElementAspectExportCoordinator.js";
 import {
   IModelTransformerError,
   IModelTransformerErrorScope,
-} from "../../IModelTransformerError";
-import { IModelTransformerTestUtils } from "../IModelTransformerUtils";
-import { ProvenanceManager } from "../../ProvenanceManager";
-import { importElementAspectTestSchema } from "../TestUtils/ElementAspectTestUtils";
-import { createBRepDataProps } from "../TestUtils/GeometryTestUtil";
-import { KnownTestLocations } from "../TestUtils/KnownTestLocations";
+} from "../../IModelTransformerError.js";
+import { IModelTransformerTestUtils } from "../IModelTransformerUtils.js";
+import { ProvenanceManager } from "../../ProvenanceManager.js";
+import { importElementAspectTestSchema } from "../TestUtils/ElementAspectTestUtils.js";
+import { createBRepDataProps } from "../TestUtils/GeometryTestUtil.js";
+import { KnownTestLocations } from "../TestUtils/KnownTestLocations.js";
 
 export async function elementAspectExportExample(
   sourceDb: IModelDb,
@@ -197,6 +200,58 @@ describe("IModelExporter", () => {
     }
   });
 
+  it("exports definition sub-models before other sub-models, each in id order", async () => {
+    const sourceDb = SnapshotDb.createEmpty(
+      IModelTransformerTestUtils.prepareOutputFile(
+        "IModelExporter",
+        "SubModelOrder.bim"
+      ),
+      { rootSubject: { name: "SubModelOrder" } }
+    );
+    try {
+      // Interleave ids so id order alone would put physical models first.
+      const [physicalA, definitionA, physicalB, definitionB] = withEditTxn(
+        sourceDb,
+        "insert interleaved models",
+        (txn) => [
+          PhysicalModel.insert(txn, IModel.rootSubjectId, "PhysicalA"),
+          DefinitionModel.insert(txn, IModel.rootSubjectId, "DefinitionA"),
+          PhysicalModel.insert(txn, IModel.rootSubjectId, "PhysicalB"),
+          DefinitionModel.insert(txn, IModel.rootSubjectId, "DefinitionB"),
+        ]
+      );
+      const exportedModelIds: Id64String[] = [];
+      const exporter = new IModelExporter(sourceDb);
+      exporter.registerHandler(
+        new (class extends IModelExportHandler {
+          public override async onExportModel(model: Model): Promise<void> {
+            exportedModelIds.push(model.id);
+          }
+        })()
+      );
+      await exporter.exportModel(IModel.repositoryModelId);
+
+      const byId = (a: Id64String, b: Id64String) =>
+        BigInt(a) < BigInt(b) ? -1 : BigInt(a) > BigInt(b) ? 1 : 0;
+      const definitionModelIds = [
+        IModel.dictionaryId,
+        definitionA,
+        definitionB,
+      ].sort(byId);
+      const otherModelIds = exportedModelIds
+        .slice(1)
+        .filter((id) => !definitionModelIds.includes(id));
+      expect(otherModelIds).to.include.members([physicalA, physicalB]);
+      expect(exportedModelIds).to.deep.equal([
+        IModel.repositoryModelId,
+        ...definitionModelIds,
+        ...[...otherModelIds].sort(byId),
+      ]);
+    } finally {
+      sourceDb.close();
+    }
+  });
+
   it("exports aspects from exportAll and honors owner filtering", async () => {
     const sourceDbPath = IModelTransformerTestUtils.prepareOutputFile(
       "IModelExporter",
@@ -315,9 +370,10 @@ describe("IModelExporter", () => {
     expect(exportedOwnerBatchSizes).to.deep.equal([1_000, 1_000, 1]);
   });
 
-  it("deduplicates owners across scope batches and resets at outer scope boundaries", async () => {
+  it("deduplicates out-of-order owners across scope batches and resets at outer scope boundaries", async () => {
     const ownerA = Id64.fromLocalAndBriefcaseIds(1, 0);
     const ownerB = Id64.fromLocalAndBriefcaseIds(2, 0);
+    const ownerC = Id64.fromLocalAndBriefcaseIds(3, 0);
     const exportedOwners: Id64String[] = [];
     let cacheResetCount = 0;
     const coordinator = new ElementAspectExportCoordinator(
@@ -330,19 +386,24 @@ describe("IModelExporter", () => {
     );
 
     coordinator.begin(1);
-    await coordinator.addAcceptedOwner(ownerA);
+    await coordinator.runHandlerCallback(async () =>
+      coordinator.addAcceptedOwner(ownerA)
+    );
     coordinator.begin();
     await coordinator.addAcceptedOwner(ownerB);
     await coordinator.addAcceptedOwner(ownerA);
+    await coordinator.exportOwners(new Set([ownerC]));
+    await coordinator.addAcceptedOwner(ownerC);
+    await coordinator.exportOwners(new Set([ownerA, ownerC]));
     await coordinator.end();
     await coordinator.end();
-    expect(exportedOwners).to.deep.equal([ownerA, ownerB]);
+    expect(exportedOwners).to.deep.equal([ownerA, ownerB, ownerC]);
     expect(cacheResetCount).to.equal(1);
 
     coordinator.begin(1);
     await coordinator.addAcceptedOwner(ownerA);
     await coordinator.end();
-    expect(exportedOwners).to.deep.equal([ownerA, ownerB, ownerA]);
+    expect(exportedOwners).to.deep.equal([ownerA, ownerB, ownerC, ownerA]);
     expect(cacheResetCount).to.equal(2);
 
     await coordinator.exportOwners(new Set([ownerA]));
@@ -350,10 +411,147 @@ describe("IModelExporter", () => {
     expect(exportedOwners).to.deep.equal([
       ownerA,
       ownerB,
+      ownerC,
       ownerA,
       ownerA,
       ownerA,
     ]);
+  });
+
+  it("does not remember owners accepted outside handler callbacks", async () => {
+    const ownerIds = [1, 2, 3].map((localId) =>
+      Id64.fromLocalAndBriefcaseIds(localId, 0)
+    );
+    const exportedOwners: Id64String[] = [];
+    const coordinator = new ElementAspectExportCoordinator(
+      1,
+      () => new Set<string>(),
+      async (ownerBatch) => {
+        exportedOwners.push(...ownerBatch);
+      }
+    );
+    const outOfOrderOwnerIds: ReadonlySet<Id64String> =
+      coordinator["_outOfOrderOwnerIds"];
+
+    coordinator.begin();
+    for (const ownerId of ownerIds) {
+      await coordinator.addAcceptedOwner(ownerId);
+      await coordinator.addAcceptedOwner(ownerId);
+    }
+    expect(outOfOrderOwnerIds.size).to.equal(0);
+    await coordinator.end();
+
+    expect(exportedOwners).to.deep.equal(
+      ownerIds.flatMap((ownerId) => [ownerId, ownerId])
+    );
+  });
+
+  it("restores handler callback state when a callback fails", async () => {
+    const ownerA = Id64.fromLocalAndBriefcaseIds(1, 0);
+    const ownerB = Id64.fromLocalAndBriefcaseIds(2, 0);
+    const coordinator = new ElementAspectExportCoordinator(
+      10,
+      () => new Set<string>(),
+      async () => {}
+    );
+    const outOfOrderOwnerIds: ReadonlySet<Id64String> =
+      coordinator["_outOfOrderOwnerIds"];
+
+    coordinator.begin();
+    await expect(
+      coordinator.runHandlerCallback(async () => {
+        await coordinator.addAcceptedOwner(ownerA);
+        throw new Error("callback failed");
+      })
+    ).rejects.toThrow("callback failed");
+    await coordinator.addAcceptedOwner(ownerB);
+    expect([...outOfOrderOwnerIds]).to.deep.equal([ownerA]);
+    coordinator.abort();
+    expect(outOfOrderOwnerIds.size).to.equal(0);
+  });
+
+  it("exports aspects once for an owner that a handler exports before the traversal reaches it", async () => {
+    const sourceDbPath = IModelTransformerTestUtils.prepareOutputFile(
+      "IModelExporter",
+      "OutOfOrderAspectOwner.bim"
+    );
+    const sourceDb = SnapshotDb.createEmpty(sourceDbPath, {
+      rootSubject: { name: "OutOfOrderAspectOwner" },
+    });
+    try {
+      await importElementAspectTestSchema(sourceDb);
+      const [requiringId, requiredId] = withEditTxn(
+        sourceDb,
+        "insert aspect owners",
+        (txn) => {
+          const firstId = Subject.insert(
+            txn,
+            IModel.rootSubjectId,
+            "Requiring"
+          );
+          const secondId = Subject.insert(
+            txn,
+            IModel.rootSubjectId,
+            "Required"
+          );
+          txn.insertAspect({
+            classFullName: "ExporterAspectTest:UniqueAspect",
+            element: new ElementOwnsUniqueAspect(secondId),
+          });
+          txn.insertAspect({
+            classFullName: "ExporterAspectTest:MultiAspectA",
+            element: { id: secondId },
+          });
+          return [firstId, secondId];
+        }
+      );
+
+      const exporter = new IModelExporter(sourceDb);
+      const elementExportOrder: Id64String[] = [];
+      const uniqueAspectOwners: Id64String[] = [];
+      const multiAspectOwners: Id64String[] = [];
+      class Handler extends IModelExportHandler {
+        public override async preExportElement(element: Element) {
+          if (element.id === requiringId)
+            await exporter.exportElement(requiredId);
+        }
+        public override async onExportElement(element: Element) {
+          elementExportOrder.push(element.id);
+        }
+        public override async onExportElementUniqueAspect(
+          aspect: ElementUniqueAspect
+        ) {
+          if (aspect.classFullName === "ExporterAspectTest:UniqueAspect")
+            uniqueAspectOwners.push(aspect.element.id);
+        }
+        public override async onExportElementMultiAspects(
+          aspects: ElementMultiAspect[]
+        ) {
+          for (const aspect of aspects) {
+            if (aspect.classFullName === "ExporterAspectTest:MultiAspectA")
+              multiAspectOwners.push(aspect.element.id);
+          }
+        }
+      }
+      exporter.registerHandler(new Handler());
+
+      // Single-owner batches flush the early export before the traversal reaches the owner again.
+      const coordinator = exporter.elementAspectExportCoordinator;
+      coordinator.begin(1);
+      await exporter.exportAll();
+      await coordinator.end();
+
+      expect(elementExportOrder.indexOf(requiredId)).to.be.lessThan(
+        elementExportOrder.indexOf(requiringId)
+      );
+      expect(
+        elementExportOrder.filter((id) => id === requiredId)
+      ).to.have.length(2);
+      expect(uniqueAspectOwners).to.deep.equal([requiredId]);
+      expect(multiAspectOwners).to.deep.equal([requiredId]);
+    } finally {
+      sourceDb.close();
+    }
   });
 
   it("rebuilds unchanged unique aspects for changed owners", async () => {
@@ -1012,21 +1210,18 @@ describe("IModelExporter", () => {
         const exported: Array<{
           relationship: Relationship;
           isUpdate: boolean | undefined;
-          sourceFedGuid?: GuidString;
-          targetFedGuid?: GuidString;
+          endpointFedGuids?: RelationshipEndpointFederationGuids;
         }> = [];
         class CaptureHandler extends IModelExportHandler {
           public override async onExportRelationship(
             exportedRelationship: Relationship,
             exportedIsUpdate: boolean | undefined,
-            handlerSourceFedGuid?: GuidString,
-            handlerTargetFedGuid?: GuidString
+            handlerEndpointFedGuids?: RelationshipEndpointFederationGuids
           ): Promise<void> {
             exported.push({
               relationship: exportedRelationship,
               isUpdate: exportedIsUpdate,
-              sourceFedGuid: handlerSourceFedGuid,
-              targetFedGuid: handlerTargetFedGuid,
+              endpointFedGuids: handlerEndpointFedGuids,
             });
           }
         }
@@ -1036,8 +1231,7 @@ describe("IModelExporter", () => {
         );
 
         expect(exported.length).to.equal(1);
-        const { relationship, isUpdate, sourceFedGuid, targetFedGuid } =
-          exported[0];
+        const { relationship, isUpdate, endpointFedGuids } = exported[0];
         expect(isUpdate).to.equal(undefined);
 
         // the bulk-hydrated instance must match what relationships.getInstance would produce
@@ -1051,12 +1245,12 @@ describe("IModelExporter", () => {
         expect((relationship as any).myDouble).to.equal(3.14);
 
         // endpoint fedguids captured by the bulk query and passed to the handler must match per-element lookups
-        assert(sourceFedGuid !== undefined);
-        assert(targetFedGuid !== undefined);
-        expect(sourceFedGuid).to.equal(
+        assert(endpointFedGuids?.source !== undefined);
+        assert(endpointFedGuids.target !== undefined);
+        expect(endpointFedGuids.source).to.equal(
           sourceDb.elements.getFederationGuidFromId(sourceElemId)
         );
-        expect(targetFedGuid).to.equal(
+        expect(endpointFedGuids.target).to.equal(
           sourceDb.elements.getFederationGuidFromId(targetElemId)
         );
       } finally {
@@ -1074,19 +1268,17 @@ describe("IModelExporter", () => {
         );
         const directExporter = new IModelExporter(sourceDb);
         let directRelationship: Relationship | undefined;
-        let directSourceFedGuid: GuidString | undefined;
-        let directTargetFedGuid: GuidString | undefined;
+        let directEndpointFedGuids:
+          RelationshipEndpointFederationGuids | undefined;
         directExporter.registerHandler(
           new (class extends IModelExportHandler {
             public override async onExportRelationship(
               exportedRelationship: Relationship,
               _isUpdate: boolean | undefined,
-              sourceFedGuid?: GuidString,
-              targetFedGuid?: GuidString
+              endpointFedGuids?: RelationshipEndpointFederationGuids
             ): Promise<void> {
               directRelationship = exportedRelationship;
-              directSourceFedGuid = sourceFedGuid;
-              directTargetFedGuid = targetFedGuid;
+              directEndpointFedGuids = endpointFedGuids;
             }
           })()
         );
@@ -1098,10 +1290,10 @@ describe("IModelExporter", () => {
         expect(directRelationship?.toJSON()).to.deep.equal(
           viaGetInstance.toJSON()
         );
-        expect(directSourceFedGuid).to.equal(
+        expect(directEndpointFedGuids?.source).to.equal(
           sourceDb.elements.getFederationGuidFromId(sourceElemId)
         );
-        expect(directTargetFedGuid).to.equal(
+        expect(directEndpointFedGuids?.target).to.equal(
           sourceDb.elements.getFederationGuidFromId(targetElemId)
         );
 
@@ -1127,15 +1319,13 @@ describe("IModelExporter", () => {
           protected override async exportRelationshipInstance(
             exportedRelationship: Relationship,
             exportedIsUpdate: boolean | undefined,
-            sourceFedGuid?: GuidString,
-            targetFedGuid?: GuidString
+            endpointFedGuids?: RelationshipEndpointFederationGuids
           ): Promise<void> {
             this.hookCalls++;
             await super.exportRelationshipInstance(
               exportedRelationship,
               exportedIsUpdate,
-              sourceFedGuid,
-              targetFedGuid
+              endpointFedGuids
             );
           }
         }
@@ -1148,6 +1338,89 @@ describe("IModelExporter", () => {
         );
         await hookExporter.exportRelationship(relClassFullName, relId);
         expect(hookExporter.hookCalls).to.equal(2);
+      } finally {
+        sourceDb.close();
+      }
+    });
+
+    it("passes endpoint FederationGuids without a value for endpoints that have none", async () => {
+      const sourceDb = SnapshotDb.createEmpty(
+        IModelTransformerTestUtils.prepareOutputFile(
+          "IModelExporter",
+          "RelationshipEndpointWithoutFedGuid.bim"
+        ),
+        { rootSubject: { name: "relationship-endpoint-without-fedguid" } }
+      );
+      try {
+        const { relId, sourceFedGuid } = withEditTxn(
+          sourceDb,
+          "insert elements and relationship",
+          (txn) => {
+            const categoryId = SpatialCategory.insert(
+              txn,
+              IModel.dictionaryId,
+              "SpatialCategory",
+              new SubCategoryAppearance()
+            );
+            const modelId = PhysicalModel.insert(
+              txn,
+              IModel.rootSubjectId,
+              "PhysicalModel"
+            );
+            const physicalObjectProps: PhysicalElementProps = {
+              classFullName: PhysicalObject.classFullName,
+              model: modelId,
+              category: categoryId,
+              code: Code.createEmpty(),
+            };
+            const withGuid = txn.insertElement(physicalObjectProps);
+            const withoutGuid = txn.insertElement({
+              ...physicalObjectProps,
+              federationGuid: Guid.empty,
+            });
+            return {
+              relId: txn.insertRelationship({
+                classFullName:
+                  GraphicalElement3dRepresentsElement.classFullName,
+                sourceId: withGuid,
+                targetId: withoutGuid,
+              }),
+              sourceFedGuid:
+                sourceDb.elements.getFederationGuidFromId(withGuid),
+            };
+          }
+        );
+        assert(sourceFedGuid !== undefined);
+
+        const received: Array<RelationshipEndpointFederationGuids | undefined> =
+          [];
+        const exporter = new IModelExporter(sourceDb);
+        exporter.registerHandler(
+          new (class extends IModelExportHandler {
+            public override async onExportRelationship(
+              _relationship: Relationship,
+              _isUpdate: boolean | undefined,
+              endpointFedGuids?: RelationshipEndpointFederationGuids
+            ): Promise<void> {
+              received.push(endpointFedGuids);
+            }
+          })()
+        );
+        await exporter.exportRelationships(
+          ElementRefersToElements.classFullName
+        );
+        await exporter.exportRelationship(
+          GraphicalElement3dRepresentsElement.classFullName,
+          relId
+        );
+
+        // Both the bulk and targeted paths supply the object, so the transformer doesn't look up the missing endpoint.
+        expect(received).to.have.length(2);
+        for (const endpointFedGuids of received) {
+          assert(endpointFedGuids !== undefined);
+          expect(endpointFedGuids.source).to.equal(sourceFedGuid);
+          expect(endpointFedGuids.target).to.be.undefined;
+        }
       } finally {
         sourceDb.close();
       }

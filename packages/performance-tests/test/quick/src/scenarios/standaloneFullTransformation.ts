@@ -9,7 +9,10 @@ import {
   PreparedDataset,
   requireStandaloneDataset,
 } from "../fixtures/FixtureProvider.js";
-import { realisticBuildingTransformLargeFixture } from "../fixtures/recipes/realisticBuildingTransformLarge.js";
+import {
+  realisticBuildingTransformLargeFixture,
+  realisticBuildingTransformManyModelsFixture,
+} from "../fixtures/recipes/realisticBuildingTransformLarge.js";
 import { realisticBuildingTransformFixture } from "../fixtures/recipes/realisticBuildingTransform.js";
 import { referenceHeavyTransformFixture } from "../fixtures/recipes/referenceHeavyTransform.js";
 import { standaloneFullTransformFixture } from "../fixtures/recipes/standaloneFullTransform.js";
@@ -94,6 +97,7 @@ export const standaloneFullTransformationBenchmark = defineBenchmark({
     relationshipHeavyTransformFixture,
     realisticBuildingTransformFixture,
     realisticBuildingTransformLargeFixture,
+    realisticBuildingTransformManyModelsFixture,
     referenceHeavyTransformFixture,
   ],
 });
