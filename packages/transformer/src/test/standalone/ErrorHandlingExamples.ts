@@ -5,12 +5,12 @@
 
 import { EditTxn } from "@itwin/core-backend";
 import { Id64String, ITwinError } from "@itwin/core-bentley";
-import { IModelImporter } from "../../IModelImporter";
-import { IModelTransformer } from "../../IModelTransformer";
+import { IModelImporter } from "../../IModelImporter.js";
+import { IModelTransformer } from "../../IModelTransformer.js";
 import {
   IModelTransformerError,
   IModelTransformerErrorScope,
-} from "../../IModelTransformerError";
+} from "../../IModelTransformerError.js";
 
 // __PUBLISH_EXTRACT_START__ ErrorHandling.handle-identified-error
 async function processWithErrorHandling(

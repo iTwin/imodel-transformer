@@ -4,6 +4,7 @@
  *--------------------------------------------------------------------------------------------*/
 
 import {
+  DefinitionModel,
   // eslint-disable-next-line @typescript-eslint/no-redeclare
   Element,
   ElementAspect,
@@ -17,6 +18,7 @@ import {
   GraphicalElement3dRepresentsElement,
   IModelDb,
   IModelJsFs,
+  Model,
   PhysicalModel,
   PhysicalObject,
   PhysicalPartition,
@@ -48,17 +50,17 @@ import {
   IModelExporter,
   IModelExportHandler,
   RelationshipEndpointFederationGuids,
-} from "../../IModelExporter";
-import { ElementAspectExportCoordinator } from "../../ElementAspectExportCoordinator";
+} from "../../IModelExporter.js";
+import { ElementAspectExportCoordinator } from "../../ElementAspectExportCoordinator.js";
 import {
   IModelTransformerError,
   IModelTransformerErrorScope,
-} from "../../IModelTransformerError";
-import { IModelTransformerTestUtils } from "../IModelTransformerUtils";
-import { ProvenanceManager } from "../../ProvenanceManager";
-import { importElementAspectTestSchema } from "../TestUtils/ElementAspectTestUtils";
-import { createBRepDataProps } from "../TestUtils/GeometryTestUtil";
-import { KnownTestLocations } from "../TestUtils/KnownTestLocations";
+} from "../../IModelTransformerError.js";
+import { IModelTransformerTestUtils } from "../IModelTransformerUtils.js";
+import { ProvenanceManager } from "../../ProvenanceManager.js";
+import { importElementAspectTestSchema } from "../TestUtils/ElementAspectTestUtils.js";
+import { createBRepDataProps } from "../TestUtils/GeometryTestUtil.js";
+import { KnownTestLocations } from "../TestUtils/KnownTestLocations.js";
 
 export async function elementAspectExportExample(
   sourceDb: IModelDb,
@@ -195,6 +197,58 @@ describe("IModelExporter", () => {
     }
     if (!IModelJsFs.existsSync(outputDir)) {
       IModelJsFs.mkdirSync(outputDir);
+    }
+  });
+
+  it("exports definition sub-models before other sub-models, each in id order", async () => {
+    const sourceDb = SnapshotDb.createEmpty(
+      IModelTransformerTestUtils.prepareOutputFile(
+        "IModelExporter",
+        "SubModelOrder.bim"
+      ),
+      { rootSubject: { name: "SubModelOrder" } }
+    );
+    try {
+      // Interleave ids so id order alone would put physical models first.
+      const [physicalA, definitionA, physicalB, definitionB] = withEditTxn(
+        sourceDb,
+        "insert interleaved models",
+        (txn) => [
+          PhysicalModel.insert(txn, IModel.rootSubjectId, "PhysicalA"),
+          DefinitionModel.insert(txn, IModel.rootSubjectId, "DefinitionA"),
+          PhysicalModel.insert(txn, IModel.rootSubjectId, "PhysicalB"),
+          DefinitionModel.insert(txn, IModel.rootSubjectId, "DefinitionB"),
+        ]
+      );
+      const exportedModelIds: Id64String[] = [];
+      const exporter = new IModelExporter(sourceDb);
+      exporter.registerHandler(
+        new (class extends IModelExportHandler {
+          public override async onExportModel(model: Model): Promise<void> {
+            exportedModelIds.push(model.id);
+          }
+        })()
+      );
+      await exporter.exportModel(IModel.repositoryModelId);
+
+      const byId = (a: Id64String, b: Id64String) =>
+        BigInt(a) < BigInt(b) ? -1 : BigInt(a) > BigInt(b) ? 1 : 0;
+      const definitionModelIds = [
+        IModel.dictionaryId,
+        definitionA,
+        definitionB,
+      ].sort(byId);
+      const otherModelIds = exportedModelIds
+        .slice(1)
+        .filter((id) => !definitionModelIds.includes(id));
+      expect(otherModelIds).to.include.members([physicalA, physicalB]);
+      expect(exportedModelIds).to.deep.equal([
+        IModel.repositoryModelId,
+        ...definitionModelIds,
+        ...[...otherModelIds].sort(byId),
+      ]);
+    } finally {
+      sourceDb.close();
     }
   });
 

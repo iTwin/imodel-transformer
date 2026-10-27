@@ -18,9 +18,9 @@ import {
   RepositoryLinkProps,
 } from "@itwin/core-common";
 import { strict as assert } from "node:assert";
-import { ProvenanceManager } from "./ProvenanceManager";
+import { ProvenanceManager } from "./ProvenanceManager.js";
 import { pathToFileURL } from "node:url";
-import { transformerPackageMetadata } from "./TransformerPackageMetadata";
+import { transformerPackageMetadata } from "./TransformerPackageMetadata.js";
 
 /**
  * @alpha

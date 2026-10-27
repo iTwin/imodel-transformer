@@ -9,7 +9,7 @@
 import { LRUMap } from "@itwin/core-bentley";
 import { EntityReference } from "@itwin/core-common";
 import { IModelDb } from "@itwin/core-backend";
-import { EntityUnifier } from "./EntityUnifier";
+import { EntityUnifier } from "./EntityUnifier.js";
 
 /** Default maximum number of cached entities per [IModelDb]($core-backend) in an [[EntityExistenceCache]].
  * @internal

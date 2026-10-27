@@ -52,17 +52,17 @@ import {
   RelationshipProps,
 } from "@itwin/core-common";
 import { ECVersion, Schema, SchemaKey } from "@itwin/ecschema-metadata";
-import { TransformerLoggerCategory } from "./TransformerLoggerCategory";
+import { TransformerLoggerCategory } from "./TransformerLoggerCategory.js";
 import { strict as nodeAssert } from "node:assert";
-import { ElementAspectExportProcessor } from "./ElementAspectExportProcessor";
-import { ElementAspectExportCoordinator } from "./ElementAspectExportCoordinator";
+import { ElementAspectExportProcessor } from "./ElementAspectExportProcessor.js";
+import { ElementAspectExportCoordinator } from "./ElementAspectExportCoordinator.js";
 import {
   IModelTransformerError,
   IModelTransformerErrorScope,
-} from "./IModelTransformerError";
-import { ChangesetScanner } from "./ChangesetScanner";
-import { SourceClassKinds } from "./SourceClassKinds";
-import { ChangedElementForest } from "./ChangedElementForest";
+} from "./IModelTransformerError.js";
+import { ChangesetScanner } from "./ChangesetScanner.js";
+import { SourceClassKinds } from "./SourceClassKinds.js";
+import { ChangedElementForest } from "./ChangedElementForest.js";
 
 const loggerCategory = TransformerLoggerCategory.IModelExporter;
 
@@ -1037,27 +1037,24 @@ export class IModelExporter {
 
   private async exportSubModelsImpl(parentModelId: Id64String): Promise<void> {
     Logger.logTrace(loggerCategory, `exportSubModels(${parentModelId})`);
+    // Export DefinitionModels before other Models, each in ECInstanceId order.
+    // Classifying in ECSQL avoids loading every sub-model here and again in exportModel.
+    // Partition in JS: sorting on the classification in ECSQL raised peak native memory on many-model iModels.
+    const sql = `
+      SELECT ECInstanceId, IIF(ECClassId IS (${DefinitionModel.classFullName}), 1, 0) isDefinitionModel
+      FROM ${Model.classFullName}
+      WHERE ParentModel.Id=:parentModelId
+      ORDER BY ECInstanceId`;
+    const params = new QueryBinder().bindId("parentModelId", parentModelId);
     const definitionModelIds: Id64String[] = [];
     const otherModelIds: Id64String[] = [];
-    const sql = `SELECT ECInstanceId FROM ${Model.classFullName} WHERE ParentModel.Id=:parentModelId ORDER BY ECInstanceId`;
-    const params = new QueryBinder().bindId("parentModelId", parentModelId);
     for await (const row of this.sourceDb.createQueryReader(sql, params, {
       usePrimaryConn: true,
     })) {
-      const modelId: Id64String = row.id;
-      const model: Model = this.sourceDb.models.getModel(modelId);
-      if (model instanceof DefinitionModel) {
-        definitionModelIds.push(modelId);
-      } else {
-        otherModelIds.push(modelId);
-      }
+      (row.isDefinitionModel ? definitionModelIds : otherModelIds).push(row.id);
     }
-    // export DefinitionModels before other types of Models
-    for (const definitionModelId of definitionModelIds) {
-      await this.exportModel(definitionModelId);
-    }
-    for (const otherModelId of otherModelIds) {
-      await this.exportModel(otherModelId);
+    for (const subModelId of [...definitionModelIds, ...otherModelIds]) {
+      await this.exportModel(subModelId);
     }
   }
 
