@@ -4,12 +4,14 @@
  *--------------------------------------------------------------------------------------------*/
 
 import {
+  DefinitionElement,
   EditTxn,
   // eslint-disable-next-line @typescript-eslint/no-redeclare
   Element,
   IModelDb,
   PhysicalModel,
   PhysicalObject,
+  RecipeDefinitionElement,
   SnapshotDb,
   SpatialCategory,
   SubCategory,
@@ -24,10 +26,11 @@ import {
   ElementProps,
   IModel,
   PhysicalElementProps,
+  QueryBinder,
 } from "@itwin/core-common";
-import { expect } from "vitest";
-import { IModelTransformer } from "../../IModelTransformer";
-import { IModelTransformerTestUtils } from "../IModelTransformerUtils";
+import { expect, vi } from "vitest";
+import { IModelTransformer } from "../../IModelTransformer.js";
+import { IModelTransformerTestUtils } from "../IModelTransformerUtils.js";
 
 describe("In-place IModelTransformer", () => {
   it("should update Category elements", async () => {
@@ -283,6 +286,87 @@ describe("In-place IModelTransformer", () => {
       expect(transformed.code.scope).not.toBe(testData.sourceScopeId);
       expect(transformed.code.value).toBe("TestElement");
     } finally {
+      transformer.dispose();
+      editTxn.end();
+      iModel.close();
+    }
+  });
+
+  it("should classify required references as reusable definitions once per class without loading them", async () => {
+    const iModelFile = IModelTransformerTestUtils.prepareOutputFile(
+      "InPlaceIModelTransformer",
+      "DefinitionReuseClassification.bim"
+    );
+    const iModel = SnapshotDb.createEmpty(iModelFile, {
+      rootSubject: { name: "DefinitionReuseClassification" },
+    });
+    const elementCount = 6;
+    const { categoryIds, sourceModelId, targetModelId } = withEditTxn(
+      iModel,
+      "insert test data",
+      (txn) => {
+        const ids = {
+          categoryIds: ["CategoryA", "CategoryB"].map((name) =>
+            SpatialCategory.insert(txn, IModel.dictionaryId, name, {})
+          ),
+          sourceModelId: PhysicalModel.insert(
+            txn,
+            IModel.rootSubjectId,
+            "SourceModel"
+          ),
+          targetModelId: PhysicalModel.insert(
+            txn,
+            IModel.rootSubjectId,
+            "TargetModel"
+          ),
+        };
+        for (let i = 0; i < elementCount; ++i)
+          txn.insertElement({
+            category: ids.categoryIds[i % ids.categoryIds.length],
+            classFullName: PhysicalObject.classFullName,
+            model: ids.sourceModelId,
+            code: Code.createEmpty(),
+          } as PhysicalElementProps);
+        return ids;
+      }
+    );
+
+    const editTxn = new EditTxn(iModel, "copy model contents in place");
+    editTxn.start();
+    const transformer = new IModelTransformer(
+      { source: iModel, target: editTxn },
+      { noProvenance: true }
+    );
+    const tryGetElement = vi.spyOn(iModel.elements, "tryGetElement");
+    const withQueryReader = vi.spyOn(iModel, "withQueryReader");
+    try {
+      await transformer.processModelContents(sourceModelId, targetModelId);
+      editTxn.saveChanges();
+
+      // Referenced elements are not loaded to classify them.
+      expect(
+        tryGetElement.mock.calls.filter(
+          ([, elementClass]) => elementClass === DefinitionElement
+        )
+      ).toHaveLength(0);
+      // One classification per referenced class: SpatialCategory and the source model's PhysicalPartition.
+      const classifications = withQueryReader.mock.calls.filter(([ecsql]) =>
+        ecsql.includes(RecipeDefinitionElement.classFullName)
+      );
+      expect(classifications).toHaveLength(2);
+
+      // Both categories are still reused in place rather than copied.
+      const copiedCategoryIds: string[] = [];
+      for await (const row of iModel.createQueryReader(
+        `SELECT Category.Id categoryId FROM ${PhysicalObject.classFullName} WHERE Model.Id=?`,
+        QueryBinder.from([targetModelId])
+      ))
+        copiedCategoryIds.push(row.categoryId);
+      expect(copiedCategoryIds).toHaveLength(elementCount);
+      expect(new Set(copiedCategoryIds)).toEqual(new Set(categoryIds));
+    } finally {
+      tryGetElement.mockRestore();
+      withQueryReader.mockRestore();
       transformer.dispose();
       editTxn.end();
       iModel.close();

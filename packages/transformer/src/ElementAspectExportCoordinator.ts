@@ -11,13 +11,21 @@ export type ElementAspectExportPreparation = (
 ) => Promise<void>;
 
 /** Coordinates scoped batches of accepted ElementAspect owners, including preparation before aspect export.
+ *
+ * Owner deduplication within a scope is bounded: the main element traversal visits each element once, so its owners
+ * are not remembered. Only owners exported out of order are remembered: those accepted while a handler callback
+ * is running (see [[runHandlerCallback]]), such as  required references that `IModelTransformer.onExportElement`
+ * exports early, and owners passed explicitly to [[exportOwners]]. When the traversal reaches such an owner again,
+ * its aspects are not exported a second time. An owner that the traversal finished before a handler callback
+ * re-exports it does have its aspects exported again.
  * @internal
  */
 export class ElementAspectExportCoordinator {
   private readonly _acceptedOwnerIds = new Set<Id64String>();
-  private readonly _processedOwnerIds = new Set<Id64String>();
+  private readonly _outOfOrderOwnerIds = new Set<Id64String>();
   private _batchSize: number;
   private _depth = 0;
+  private _handlerCallbackDepth = 0;
   private _prepare?: ElementAspectExportPreparation;
 
   public constructor(
@@ -97,17 +105,32 @@ export class ElementAspectExportCoordinator {
     await this.end();
   }
 
+  /** Runs an export handler callback. Owners accepted while it runs were exported out of traversal order
+   * (e.g. a required reference exported by the callback), so they are remembered for the rest of the scope.
+   */
+  public async runHandlerCallback<T>(callback: () => Promise<T>): Promise<T> {
+    this._handlerCallbackDepth++;
+    try {
+      return await callback();
+    } finally {
+      this._handlerCallbackDepth--;
+    }
+  }
+
   /** Adds an accepted source owner to the current group and exports the group when it reaches the configured batch size. */
   public async addAcceptedOwner(elementId: Id64String): Promise<void> {
-    if (!this.isActive || this._processedOwnerIds.has(elementId)) return;
+    if (!this.isActive || this._outOfOrderOwnerIds.has(elementId)) return;
 
+    if (this._handlerCallbackDepth > 0) this._outOfOrderOwnerIds.add(elementId);
     this._acceptedOwnerIds.add(elementId);
     if (this._acceptedOwnerIds.size >= this._batchSize) {
       await this.flush();
     }
   }
 
-  /** Runs preparation and aspect export for an explicit owner set in bounded groups. */
+  /** Runs preparation and aspect export for an explicit owner set in bounded groups.
+   * While a scope is active, owners already remembered in the scope are skipped and the rest are remembered.
+   */
   public async exportOwners(
     ownerElementIds: ReadonlySet<Id64String>
   ): Promise<void> {
@@ -115,15 +138,21 @@ export class ElementAspectExportCoordinator {
     if (this.isActive && ownerElementIds.size > 0) {
       const unprocessedOwnerIds = new Set<Id64String>();
       for (const elementId of ownerElementIds) {
-        if (!this._processedOwnerIds.has(elementId)) {
+        if (!this._outOfOrderOwnerIds.has(elementId)) {
           unprocessedOwnerIds.add(elementId);
-          this._processedOwnerIds.add(elementId);
+          this._outOfOrderOwnerIds.add(elementId);
         }
       }
       if (unprocessedOwnerIds.size === 0) return;
       ownerIds = unprocessedOwnerIds;
     }
 
+    await this.exportOwnerBatches(ownerIds);
+  }
+
+  private async exportOwnerBatches(
+    ownerIds: ReadonlySet<Id64String>
+  ): Promise<void> {
     if (ownerIds.size <= this._defaultBatchSize) {
       await this.exportOwnerBatch(ownerIds);
       return;
@@ -152,12 +181,12 @@ export class ElementAspectExportCoordinator {
   private async flush(): Promise<void> {
     const ownerElementIds = new Set(this._acceptedOwnerIds);
     this._acceptedOwnerIds.clear();
-    await this.exportOwners(ownerElementIds);
+    await this.exportOwnerBatches(ownerElementIds);
   }
 
   private resetScopeState(): void {
     this._acceptedOwnerIds.clear();
-    this._processedOwnerIds.clear();
+    this._outOfOrderOwnerIds.clear();
   }
 
   private reset(): void {

@@ -28,13 +28,13 @@ import * as path from "node:path";
 import {
   createStartedEditTxn,
   IModelTransformerTestUtils,
-} from "../IModelTransformerUtils";
-import { KnownTestLocations } from "../TestUtils/KnownTestLocations";
+} from "../IModelTransformerUtils.js";
+import { KnownTestLocations } from "../TestUtils/KnownTestLocations.js";
 
-import { EntityExistenceCache } from "../../EntityExistenceCache";
-import { EntityUnifier } from "../../EntityUnifier";
-import { IModelTransformer } from "../../IModelTransformer";
-import { IModelImporter } from "../../IModelImporter";
+import { EntityExistenceCache } from "../../EntityExistenceCache.js";
+import { EntityUnifier } from "../../EntityUnifier.js";
+import { IModelTransformer } from "../../IModelTransformer.js";
+import { IModelImporter } from "../../IModelImporter.js";
 
 describe("EntityExistenceCache", () => {
   const outputDir = path.join(
@@ -223,6 +223,80 @@ describe("EntityExistenceCache", () => {
 
     createQueryReader.mockRestore();
     db.close();
+  });
+
+  it("evicts the least recently used entries beyond its limit", async () => {
+    const { db, objIds } = createDbWithPhysicalObjects("LruEviction.bim", 3);
+    const cache = new EntityExistenceCache(2);
+    const [refA, refB, refC] = objIds.map((id): EntityReference => `e${id}`);
+    const spy = spyOnExistenceQueries(db, ConcreteEntityTypes.Element);
+
+    try {
+      expect(await cache.exists(db, refA)).to.be.true;
+      expect(await cache.exists(db, refB)).to.be.true;
+      // a hit marks refA as recently used, so caching refC evicts refB
+      expect(await cache.exists(db, refA)).to.be.true;
+      expect(await cache.exists(db, refC)).to.be.true;
+      expect(spy.queriedReferences()).to.deep.equal([refA, refB, refC]);
+
+      expect(await cache.exists(db, refA)).to.be.true;
+      expect(await cache.exists(db, refC)).to.be.true;
+      expect(spy.queriedReferences()).to.deep.equal([refA, refB, refC]);
+
+      cache.invalidate(db, refB); // evicted entries can still be invalidated
+      expect(await cache.exists(db, refB)).to.be.true;
+      expect(spy.queriedReferences()).to.deep.equal([refA, refB, refC, refB]);
+    } finally {
+      spy.restore();
+      db.close();
+    }
+  });
+
+  it("bounds batch checks and marked entries by its limit", async () => {
+    const { db, objIds } = createDbWithPhysicalObjects("LruBatch.bim", 3);
+    const cache = new EntityExistenceCache(2);
+    const [refA, refB, refC] = objIds.map((id): EntityReference => `e${id}`);
+    const cachedSize = () => cache["_existsByDb"].get(db)?.size;
+    const spy = spyOnExistenceQueries(db, ConcreteEntityTypes.Element);
+
+    try {
+      await cache.existsAll(db, [refA, refB]);
+      await cache.existsAll(db, [refA]); // refreshes refA
+      cache.markExists(db, refC); // evicts refB
+      expect(cachedSize()).to.equal(2);
+
+      const found = await cache.existsAll(db, [refA, refB, refC]);
+      expect(found).to.deep.equal(new Set([refA, refB, refC]));
+      expect(spy.queriedReferences()).to.deep.equal([refA, refB, refB]);
+      expect(cachedSize()).to.equal(2);
+    } finally {
+      spy.restore();
+      db.close();
+    }
+  });
+
+  it("applies its limit to each iModel separately", async () => {
+    const first = createDbWithPhysicalObjects("LruPerDbFirst.bim");
+    const second = createDbWithPhysicalObjects("LruPerDbSecond.bim");
+    const cache = new EntityExistenceCache(1);
+    const firstRef: EntityReference = `e${first.objIds[0]}`;
+    const secondRef: EntityReference = `e${second.objIds[0]}`;
+    const firstQueries = vi.spyOn(first.db, "createQueryReader");
+    const secondQueries = vi.spyOn(second.db, "createQueryReader");
+
+    try {
+      expect(await cache.exists(first.db, firstRef)).to.be.true;
+      expect(await cache.exists(second.db, secondRef)).to.be.true;
+      expect(await cache.exists(first.db, firstRef)).to.be.true;
+      expect(await cache.exists(second.db, secondRef)).to.be.true;
+      expect(firstQueries).toHaveBeenCalledTimes(1);
+      expect(secondQueries).toHaveBeenCalledTimes(1);
+    } finally {
+      firstQueries.mockRestore();
+      secondQueries.mockRestore();
+      first.db.close();
+      second.db.close();
+    }
   });
 
   it("markExists avoids querying; invalidate and clearDb force a re-query", async () => {

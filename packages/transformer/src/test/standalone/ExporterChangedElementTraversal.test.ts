@@ -22,13 +22,13 @@ import {
   ChangedInstanceIds,
   IModelExporter,
   IModelExportHandler,
-} from "../../IModelExporter";
-import { ChangedElementForest } from "../../ChangedElementForest";
-import { IModelTransformerTestUtils } from "../IModelTransformerUtils";
+} from "../../IModelExporter.js";
+import { ChangedElementForest } from "../../ChangedElementForest.js";
+import { IModelTransformerTestUtils } from "../IModelTransformerUtils.js";
 import {
   insertSubjectTree,
   TreeSpec,
-} from "../TestUtils/ExporterTraversalTestUtils";
+} from "../TestUtils/ExporterTraversalTestUtils.js";
 
 /** Recorded traversal event: callback kind, element id, and the isUpdate flag for exports. */
 type ChangeTraversalEvent =
