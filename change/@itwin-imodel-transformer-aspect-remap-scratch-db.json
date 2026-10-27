@@ -1,0 +1,7 @@
+{
+  "type": "patch",
+  "comment": "Store ElementAspect id remappings in a temporary on-disk SQLite database instead of an unbounded in-memory map",
+  "packageName": "@itwin/imodel-transformer",
+  "email": "DanRod1999@users.noreply.github.com",
+  "dependentChangeType": "patch"
+}
