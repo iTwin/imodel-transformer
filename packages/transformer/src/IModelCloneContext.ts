@@ -32,7 +32,7 @@ import { EntityClass } from "@itwin/ecschema-metadata";
 import { ECReferenceTypesCache } from "./ECReferenceTypesCache.js";
 import { EntityExistenceCache } from "./EntityExistenceCache.js";
 import { TransformerLoggerCategory } from "./TransformerLoggerCategory.js";
-import { BigMap } from "./BigMap.js";
+import { AspectRemapTable } from "./AspectRemapTable.js";
 import type { IModelTransformContext } from "./IModelTransformContext.js";
 
 const loggerCategory: string = TransformerLoggerCategory.IModelCloneContext;
@@ -45,12 +45,21 @@ export class IModelCloneContext
   implements IModelTransformContext
 {
   private _refTypesCache = new ECReferenceTypesCache();
-  private _aspectRemapTable = new BigMap<Id64String>();
+  private _aspectRemapTable = new AspectRemapTable();
 
   /** A positive-only cache of entity existence checks, scoped to the current transformation run.
    * @internal
    */
   public readonly existenceCache = new EntityExistenceCache();
+
+  /** Dispose native resources, including the temporary aspect remapping database. */
+  public override [Symbol.dispose](): void {
+    try {
+      this._aspectRemapTable[Symbol.dispose]();
+    } finally {
+      super[Symbol.dispose]();
+    }
+  }
 
   /** perform necessary initialization to use a clone context, namely caching the reference types in the source's schemas */
   public override async initialize() {
@@ -162,7 +171,7 @@ export class IModelCloneContext
    * @returns the target AspectId or [Id64.invalid]($bentley) if a mapping not found.
    */
   public findTargetAspectId(sourceAspectId: Id64String): Id64String {
-    return this._aspectRemapTable.get(sourceAspectId) ?? Id64.invalid;
+    return this._aspectRemapTable.get(sourceAspectId);
   }
 
   /** Look up a target [EntityReference]($bentley) from a source [EntityReference]($bentley)
