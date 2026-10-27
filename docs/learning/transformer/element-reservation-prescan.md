@@ -1,28 +1,33 @@
 # Element reservation pre-scan (prototype)
 
-> Status: alpha prototype for [#418](https://github.com/iTwin/imodel-transformer/issues/418). It is an alternative to the plan, reserve, and replay design in [#473](https://github.com/iTwin/imodel-transformer/pull/473). The option and its behavior can change. The option is intended to be opt-in; the prototype branch defaults it to `"auto"` so the test suite and performance runs exercise it.
+> Status: alpha prototype for [#418](https://github.com/iTwin/imodel-transformer/issues/418). It is an alternative to the plan, reserve, and replay design in [#473](https://github.com/iTwin/imodel-transformer/pull/473). The option and its behavior can change.
 
 A target iModel that uses server-based element reservations (SchemaSync without the schema lock) rejects an insert of an element with a federation GUID unless that element was reserved first. Reserving one element at a time takes the shared write lock for every request, so the transformer needs to reserve all new elements of a run in one batch, before it inserts any of them.
 
 The pre-scan finds those elements by exporting the run's selection once without importing anything. It then submits one `reserveElements` call and runs the transformation unchanged. The backend applies each reserved ID when the transformation inserts the element.
 
 ```ts
-const transformer = new IModelTransformer(
-  { source: sourceDb, target: editTxn },
-  { elementReservationPreScan: "identity" }
-);
+// The pre-scan runs by default when the target uses server-based reservations.
+const transformer = new IModelTransformer({
+  source: sourceDb,
+  target: editTxn,
+});
 await transformer.process();
 ```
 
 ## When the pre-scan runs
 
-`IModelTransformer.process()` runs the pre-scan after `initialize()` and before it exports anything, when all of the following are true:
+`elementReservationPreScan` controls the pre-scan:
 
-- `elementReservationPreScan` is `"auto"`, `"transform"`, or `"identity"`;
-- the source and target are different iModels;
-- `wasSourceIModelCopiedToTarget` and `preserveElementIdsForFiltering` are not set.
+| Value              | Behavior                                                                                                           |
+| ------------------ | ------------------------------------------------------------------------------------------------------------------ |
+| `"auto"` (default) | Runs only when the target's `reservations.isServerBased` is true and the target does not hold the schema lock.     |
+| `"on"`             | Always runs. It submits reservations only on a target that uses server-based reservations without the schema lock. |
+| `"off"`            | Never runs. A target that requires reservations then rejects new elements that have a federation GUID.             |
 
-It always classifies the selection and records statistics. It submits the reservations only when the target's `reservations.isServerBased` is true and the target does not hold the schema lock. The other `process*` entry points are not covered.
+Other targets pay nothing by default. `"on"` is useful to measure the scan on a local target.
+
+`IModelTransformer.process()` runs the pre-scan after `initialize()` and before it exports anything. It never runs when the source and target are the same iModel, or when `wasSourceIModelCopiedToTarget` or `preserveElementIdsForFiltering` is set. The other `process*` entry points are not covered.
 
 ## Why the pre-scan depends on `initialize()`
 
@@ -72,16 +77,14 @@ What a sync inserts is not known up front, so the pre-scan asks the same questio
 
 ## Identity modes
 
-The reservation must name the class and code the transformation inserts. The backend rejects an insert whose class or code differs from its reservation with `reservation-conflict`.
+The reservation must name the class and code the transformation inserts. The backend rejects an insert whose class or code differs from its reservation with `reservation-conflict`. The pre-scan picks one of two internal modes; the mode is not an option.
 
-| Mode          | Identity                                                                                                                                                                                                  |
-| ------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `"identity"`  | Derived from the source: the remapped class, the source federation GUID, and the source code with the target CodeSpec and scope. No hooks run.                                                            |
+| Mode          | Identity                                                                                                                                                                                                    |
+| ------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `"identity"`  | Derived from the source: the remapped class, the source federation GUID, and the source code with the target CodeSpec and scope. No hooks run.                                                              |
 | `"transform"` | Calls `onTransformElement` without geometry, when the element's model and category are already mapped. Otherwise it falls back to `"identity"`. The code comes from the hook only when the scope is mapped. |
 
-`"identity"` is correct when hooks do not change an element's class, federation GUID, or code. `"transform"` honors hooks that change them, at the cost of a second clone of each classified element.
-
-`"auto"` picks `"transform"` when a subclass overrides `onTransformElement` or the clone context overrides `cloneElement`, and `"identity"` otherwise. The base transform and clone change identity only in ways that `"identity"` derives itself.
+The pre-scan uses `"transform"` when a subclass overrides `onTransformElement` or the clone context overrides `cloneElement`, and `"identity"` otherwise. The base transform and clone change identity only in ways that `"identity"` derives itself. `"identity"` would be wrong for a hook that changes an element's class or code, which is why the mode is not exposed.
 
 In `"identity"` mode, the scan loads only the identity columns of each element when `shouldExportElement`, `hasElementChanged`, and the exporter's `shouldExportElement` are not overridden. One cached SQLite statement reads the class, model, parent, federation GUID, code, and category. A class whose constructor validates other properties, such as a ViewDefinition, falls back to a full load. An overridden filter may read any property, so it always gets a full element.
 
@@ -111,16 +114,18 @@ A code scope that the traversal reaches after the element is unmapped at insert.
 
 ## Comparison with plan, reserve, and replay (#473)
 
-|                       | Pre-scan                                                       | Plan, reserve, replay (#473)                                    |
-| --------------------- | -------------------------------------------------------------- | --------------------------------------------------------------- |
-| Transformation        | Unchanged, except the new-scope code override                  | Exporter events recorded and replayed through a swapped handler |
+|                       | Pre-scan                                                        | Plan, reserve, replay (#473)                                    |
+| --------------------- | --------------------------------------------------------------- | --------------------------------------------------------------- |
+| Transformation        | Unchanged, except the new-scope code override                   | Exporter events recorded and replayed through a swapped handler |
 | Hooks                 | Filters run twice; `onTransformElement` twice only in transform | All hooks run twice, the first time with an identity-only view  |
-| New exporter callback | Not affected                                                   | Must be added to the recording                                  |
-| Matching              | Same order, separate implementation                            | Separate planner                                                |
-| Geometry              | Not loaded                                                     | Loaded during planning                                          |
-| Default               | Opt-in                                                         | Automatic                                                       |
+| New exporter callback | Not affected                                                    | Must be added to the recording                                  |
+| Matching              | Same order, separate implementation                             | Separate planner                                                |
+| Geometry              | Not loaded                                                      | Loaded during planning                                          |
+| Default               | Automatic on reservation targets only                           | Automatic                                                       |
 
 ## Measured cost
+
+These measurements predate the current default: the scan ran on every target, so the numbers are the cost a reservation target pays. Other targets now skip the scan by default.
 
 The pre-scan's local cost is measured without a reservation server. On a local target, the scan runs in full and only `reserveElements` is skipped, so the comparison isolates the pre-scan from network time.
 
@@ -132,13 +137,13 @@ Each variant branch differs from the prototype only in the option's default. All
 
 The table shows the change in median wall time, candidate against `main`, within the same workflow run. Absolute times differ between runners, so only deltas within a run are comparable.
 
-| Fixture                                       | `off`  | `identity`                                                                        | `transform`                                                                       |
-| --------------------------------------------- | ------ | --------------------------------------------------------------------------------- | --------------------------------------------------------------------------------- |
-| balanced-incremental                          | +0.02% | [+5.15%](https://github.com/iTwin/imodel-transformer/actions/runs/39488162255)    | [+6.74%](https://github.com/iTwin/imodel-transformer/actions/runs/39488118768)    |
-| hierarchical-incremental                      | +0.32% | [+20.79%](https://github.com/iTwin/imodel-transformer/actions/runs/39488170829)   | [+24.28%](https://github.com/iTwin/imodel-transformer/actions/runs/39488128448)   |
-| large-base-incremental                        | −0.06% | [+2.50%](https://github.com/iTwin/imodel-transformer/actions/runs/39488178756)    | [+2.89%](https://github.com/iTwin/imodel-transformer/actions/runs/39488136774)    |
-| realistic-building-transform (3,440 elements) | +0.41% | [+10.02%](https://github.com/iTwin/imodel-transformer/actions/runs/39488195588)   | [+8.21%](https://github.com/iTwin/imodel-transformer/actions/runs/39488153454)    |
-| standalone-full-transform (10,000 elements)   | +0.86% | [+19.30%](https://github.com/iTwin/imodel-transformer/actions/runs/39488187359)   | [+19.26%](https://github.com/iTwin/imodel-transformer/actions/runs/39488145229)   |
+| Fixture                                       | `off`  | `identity`                                                                      | `transform`                                                                     |
+| --------------------------------------------- | ------ | ------------------------------------------------------------------------------- | ------------------------------------------------------------------------------- |
+| balanced-incremental                          | +0.02% | [+5.15%](https://github.com/iTwin/imodel-transformer/actions/runs/39488162255)  | [+6.74%](https://github.com/iTwin/imodel-transformer/actions/runs/39488118768)  |
+| hierarchical-incremental                      | +0.32% | [+20.79%](https://github.com/iTwin/imodel-transformer/actions/runs/39488170829) | [+24.28%](https://github.com/iTwin/imodel-transformer/actions/runs/39488128448) |
+| large-base-incremental                        | −0.06% | [+2.50%](https://github.com/iTwin/imodel-transformer/actions/runs/39488178756)  | [+2.89%](https://github.com/iTwin/imodel-transformer/actions/runs/39488136774)  |
+| realistic-building-transform (3,440 elements) | +0.41% | [+10.02%](https://github.com/iTwin/imodel-transformer/actions/runs/39488195588) | [+8.21%](https://github.com/iTwin/imodel-transformer/actions/runs/39488153454)  |
+| standalone-full-transform (10,000 elements)   | +0.86% | [+19.30%](https://github.com/iTwin/imodel-transformer/actions/runs/39488187359) | [+19.26%](https://github.com/iTwin/imodel-transformer/actions/runs/39488145229) |
 
 - The version pin alone costs under 1%, so the `identity` and `transform` deltas are the pre-scan's cost.
 - A full transformation costs about 50 µs per element, or about 0.5 s for 10,000 elements.
@@ -148,9 +153,9 @@ The table shows the change in median wall time, candidate against `main`, within
 
 For comparison, #473 estimated 1.2–1.9× before optimizations. The pre-scan measured 1.03–1.24×.
 
-### After `"auto"` and identity-only loads
+### After automatic mode selection and identity-only loads
 
-With `"auto"` as the default and identity-only loads, the CI quick-performance overhead against `main` dropped as follows:
+With the mode picked automatically and identity-only loads, the CI quick-performance overhead against `main` dropped as follows:
 
 | Fixture                      | Before (`identity`) | After |
 | ---------------------------- | ------------------- | ----- |

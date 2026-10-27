@@ -65,15 +65,25 @@ async function importSourceSchemas(sourceDb: IModelDb, targetDb: IModelDb) {
   }
 }
 
+/** Overrides the transform without changing it, which makes the pre-scan use `"transform"` mode. */
+class CustomTransformer extends IModelTransformer {
+  public override async onTransformElement(sourceElement: Element) {
+    return super.onTransformElement(sourceElement);
+  }
+}
+
 async function transform(
   sourceDb: IModelDb,
   targetDb: IModelDb,
   options: ConstructorParameters<typeof IModelTransformer>[1],
-  configure?: (transformer: IModelTransformer) => void
+  configure?: (transformer: IModelTransformer) => void,
+  mode: ElementReservationPreScanMode = "identity"
 ) {
   const txn = createStartedEditTxn(targetDb);
   try {
-    const transformer = new IModelTransformer(
+    const transformerClass =
+      mode === "transform" ? CustomTransformer : IModelTransformer;
+    const transformer = new transformerClass(
       { source: sourceDb, target: txn },
       options
     );
@@ -81,7 +91,8 @@ async function transform(
       configure?.(transformer);
       await transformer.process();
       txn.saveChanges();
-      return { ...transformer.elementReservationPreScanStats! };
+      const stats = transformer.elementReservationPreScanStats;
+      return stats === undefined ? undefined : { ...stats };
     } finally {
       transformer.dispose();
     }
@@ -125,11 +136,10 @@ describe("element reservation pre-scan", () => {
       );
       const reserve = vi.spyOn(targetDb.reservations, "reserveElements");
 
-      const stats = await transform(sourceDb, targetDb, {
-        elementReservationPreScan: mode,
-      });
+      const stats = (await transform(sourceDb, targetDb, {}, undefined, mode))!;
 
       expect(reserve).toHaveBeenCalledTimes(1);
+      expect(stats.mode).toBe(mode);
       expect(stats.identityLoads).toBe(mode === "identity");
       expect(stats.submitted).toBe(true);
       expect(stats.unreservableScopes).toBe(0);
@@ -158,15 +168,23 @@ describe("element reservation pre-scan", () => {
       );
       await importSourceSchemas(sourceDb, targetDb);
 
-      const first = await transform(sourceDb, targetDb, {
-        elementReservationPreScan: mode,
-      });
+      const first = (await transform(
+        sourceDb,
+        targetDb,
+        { elementReservationPreScan: "on" },
+        undefined,
+        mode
+      ))!;
       expect(first.submitted).toBe(false);
       expect(first.insertsWithFederationGuid).toBeGreaterThan(0);
 
-      const second = await transform(sourceDb, targetDb, {
-        elementReservationPreScan: mode,
-      });
+      const second = (await transform(
+        sourceDb,
+        targetDb,
+        { elementReservationPreScan: "on" },
+        undefined,
+        mode
+      ))!;
       expect(second.insertsWithFederationGuid).toBe(0);
       expect(second.insertsWithoutFederationGuid).toBe(0);
       expect(second.classified).toBe(first.classified);
@@ -208,9 +226,7 @@ describe("element reservation pre-scan", () => {
         (adapter) => adapter.dispose()
       );
 
-      const stats = await transform(sourceDb, targetDb, {
-        elementReservationPreScan: mode,
-      });
+      const stats = (await transform(sourceDb, targetDb, {}, undefined, mode))!;
 
       expect(stats.insertsWithFederationGuid).toBe(5);
       expect(stats.newScopeCodes).toBe(4);
@@ -231,59 +247,70 @@ describe("element reservation pre-scan", () => {
     }
   );
 
-  it("auto mode clones only when the transform is customized", async () => {
+  it("runs by default only when the target uses server-based reservations", async () => {
     const sourceDb = adopt(createDb("auto-source"), (db) => db.close());
     const plainTarget = adopt(createDb("auto-plain-target"), (db) =>
       db.close()
     );
-    const plain = await transform(sourceDb, plainTarget, {});
+    expect(await transform(sourceDb, plainTarget, {})).toBeUndefined();
+
+    const reservedTarget = createDb("auto-reserved-target");
+    adopt(
+      await useLocalReservations(
+        reservedTarget,
+        outputFile("auto-reserved-sync.db")
+      ),
+      (adapter) => adapter.dispose()
+    );
+    expect(await transform(sourceDb, reservedTarget, {})).toBeDefined();
+  });
+
+  it("clones only when the transform is customized", async () => {
+    const sourceDb = adopt(createDb("mode-source"), (db) => db.close());
+    const on = { elementReservationPreScan: "on" } as const;
+    const plainTarget = adopt(createDb("mode-plain-target"), (db) =>
+      db.close()
+    );
+    const plain = (await transform(sourceDb, plainTarget, on))!;
     expect(plain.mode).toBe("identity");
     expect(plain.identityLoads).toBe(true);
 
-    const filteredTarget = adopt(createDb("auto-filtered-target"), (db) =>
+    const filteredTarget = adopt(createDb("mode-filtered-target"), (db) =>
       db.close()
     );
-    const filtered = await transform(
+    const filtered = (await transform(
       sourceDb,
       filteredTarget,
-      {},
+      on,
       (transformer) => {
         transformer.shouldExportElement = async () => true;
       }
-    );
+    ))!;
     expect(filtered.mode).toBe("identity");
     expect(filtered.identityLoads).toBe(false);
 
-    class CustomTransformer extends IModelTransformer {
-      public override async onTransformElement(sourceElement: Element) {
-        return super.onTransformElement(sourceElement);
-      }
-    }
-    const customTarget = adopt(createDb("auto-custom-target"), (db) =>
+    const customTarget = adopt(createDb("mode-custom-target"), (db) =>
       db.close()
     );
-    const txn = createStartedEditTxn(customTarget);
-    const custom = new CustomTransformer({ source: sourceDb, target: txn });
-    try {
-      await custom.process();
-      expect(custom.elementReservationPreScanStats?.mode).toBe("transform");
-    } finally {
-      custom.dispose();
-      txn.end();
-    }
+    const custom = (await transform(
+      sourceDb,
+      customTarget,
+      on,
+      undefined,
+      "transform"
+    ))!;
+    expect(custom.mode).toBe("transform");
   });
 
   it("does not run when disabled", async () => {
     const sourceDb = adopt(createDb("off-source"), (db) => db.close());
-    const targetDb = adopt(createDb("off-target"), (db) => db.close());
-    const txn = createStartedEditTxn(targetDb);
-    const transformer = new IModelTransformer(
-      { source: sourceDb, target: txn },
-      { elementReservationPreScan: "off" }
+    const targetDb = createDb("off-target");
+    adopt(
+      await useLocalReservations(targetDb, outputFile("off-sync.db")),
+      (adapter) => adapter.dispose()
     );
-    await transformer.process();
-    expect(transformer.elementReservationPreScanStats).toBeUndefined();
-    transformer.dispose();
-    txn.end();
+    expect(
+      await transform(sourceDb, targetDb, { elementReservationPreScan: "off" })
+    ).toBeUndefined();
   });
 });

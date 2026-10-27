@@ -27,7 +27,7 @@ import type { IModelCloneContext } from "./IModelCloneContext";
  *   category are already mapped, and falls back to `"identity"` otherwise, because the native clone requires a mapped
  *   target model and imports an unmapped category into the target.
  * - `"identity"` derives the class, federation GUID, and code from the source element without cloning it.
- * @alpha
+ * @internal
  */
 export type ElementReservationPreScanMode = "transform" | "identity";
 

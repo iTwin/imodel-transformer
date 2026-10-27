@@ -2,7 +2,7 @@
 
 ## Element reservation pre-scan (alpha)
 
-The alpha `IModelTransformOptions.elementReservationPreScan` option reserves new target elements in one batch before `IModelTransformer.process()` inserts them, for targets that use server-based element reservations. The pre-scan exports the run's selection once without importing, classifies each element as an update or an insert, and submits one `reserveElements` call for the inserts that have a federation GUID. The transformation then runs unchanged. See [Element reservation pre-scan](../learning/transformer/element-reservation-prescan.md) for the identity modes and limits.
+The alpha `IModelTransformOptions.elementReservationPreScan` option reserves new target elements in one batch before `IModelTransformer.process()` inserts them, for targets that use server-based element reservations. The pre-scan exports the run's selection once without importing, classifies each element as an update or an insert, and submits one `reserveElements` call for the inserts that have a federation GUID. The transformation then runs unchanged. By default the pre-scan runs only when the target uses server-based element reservations; `"on"` and `"off"` force it on or off. See [Element reservation pre-scan](../learning/transformer/element-reservation-prescan.md) for how it classifies elements and its limits.
 
 ## Context-based provenance resolution for incremental deletions
 

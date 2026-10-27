@@ -10,7 +10,6 @@ export * from "./IModelTransformContext";
 export * from "./schema-processing/SchemaProcessingStrategy";
 export * from "./IModelTransformerError";
 export * from "./BranchProvenanceInitializer";
-export type { ElementReservationPreScanMode } from "./ElementReservationPreScan";
 export type {
   CollectedChanges,
   DeletionBatch,

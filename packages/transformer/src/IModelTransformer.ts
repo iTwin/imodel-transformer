@@ -274,19 +274,21 @@ export interface IModelTransformOptions {
   sourceEditTxn?: EditTxn;
 
   /** Scan the elements a [[IModelTransformer.process]] call will export before it starts, and reserve every new
-   * target element that has a federation GUID in one batch, if the target uses server-based element reservations.
-   * The transformation itself then runs unchanged; the backend assigns the reserved ids when the elements are inserted.
-   * - `"transform"` classifies elements with [[IModelTransformer.onTransformElement]] where the target model is already mapped.
-   * - `"identity"` derives the target class, federation GUID, and code from the source element.
-   * - `"auto"` uses `"transform"` when a subclass overrides [[IModelTransformer.onTransformElement]] or the clone
-   *   context overrides `cloneElement`, and `"identity"` otherwise.
-   * - `"off"` disables the scan.
+   * target element that has a federation GUID in one batch. The transformation itself then runs unchanged; the backend
+   * assigns the reserved ids when the elements are inserted.
+   * - `"auto"` runs the scan only when the target uses server-based element reservations and does not hold the schema lock.
+   * - `"on"` always runs the scan. It reserves only on targets that use server-based reservations without the schema lock.
+   * - `"off"` disables the scan. A target that requires reservations then rejects new elements that have a federation GUID.
+   *
+   * The scan calls [[IModelTransformer.onTransformElement]] for its identity only when a subclass overrides it or the
+   * clone context overrides `cloneElement`. Overrides of [[IModelTransformer.shouldExportElement]],
+   * [[IModelTransformer.hasElementChanged]], and [[IModelTransformer.onTransformElement]] must return the same result in
+   * the scan and in the transformation.
    * The scan does not run when the source was copied to the target, when ids are preserved, or within one iModel.
-   * @note Prototype for measuring the cost of the scan. On targets without server-based reservations the scan still runs, but nothing is reserved.
    * @default "auto"
    * @alpha
    */
-  elementReservationPreScan?: ElementReservationPreScanMode | "auto" | "off";
+  elementReservationPreScan?: "auto" | "on" | "off";
 }
 
 /**
@@ -2796,17 +2798,19 @@ export class IModelTransformer extends IModelExportHandler {
     this.elementReservationPreScanStats = undefined;
     this._reservedNewScopeCodes = undefined;
     const option = this._options.elementReservationPreScan;
+    const reservations = this.targetDb.reservations;
+    const canReserve =
+      reservations.isServerBased && !this.targetDb.holdsSchemaLock;
     if (
-      option === undefined ||
       option === "off" ||
+      (option === "auto" && !canReserve) ||
       this._options.wasSourceIModelCopiedToTarget ||
       this._options.preserveElementIdsForFiltering ||
       !this.context.isBetweenIModels
     )
       return;
 
-    const mode: ElementReservationPreScanMode =
-      option === "auto" ? this.resolveAutoPreScanMode() : option;
+    const mode = this.resolvePreScanMode();
     const scan = new ElementReservationPreScan(
       {
         sourceDb: this.sourceDb,
@@ -2834,12 +2838,7 @@ export class IModelTransformer extends IModelExportHandler {
         this._options.skipPropagateChangesToRootElements ?? true,
     });
 
-    const reservations = this.targetDb.reservations;
-    if (
-      scan.reservations.length > 0 &&
-      reservations.isServerBased &&
-      !this.targetDb.holdsSchemaLock
-    ) {
+    if (scan.reservations.length > 0 && canReserve) {
       const start = performance.now();
       await reservations.reserveElements({ elements: scan.reservations });
       scan.stats.reserveMs = performance.now() - start;
@@ -2857,7 +2856,7 @@ export class IModelTransformer extends IModelExportHandler {
   /** The base [[onTransformElement]] and clone only change an element's class, federation GUID, and code in ways the
    * `"identity"` scan derives itself, so a full clone is only needed when a subclass customizes either one.
    */
-  private resolveAutoPreScanMode(): ElementReservationPreScanMode {
+  private resolvePreScanMode(): ElementReservationPreScanMode {
     const transformOverridden =
       this.onTransformElement !==
       IModelTransformer.prototype.onTransformElement;

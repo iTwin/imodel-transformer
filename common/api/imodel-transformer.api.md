@@ -135,9 +135,6 @@ export interface ElementDeletionRecord extends DeletionRecordBase {
     federationGuid?: string;
 }
 
-// @alpha
-export type ElementReservationPreScanMode = "transform" | "identity";
-
 // @public
 export type ExportChangesOptions = {
     skipPropagateChangesToRootElements?: boolean;
@@ -487,7 +484,7 @@ export interface IModelTransformOptions {
     cloneUsingBinaryGeometry?: boolean;
     danglingReferencesBehavior?: "reject" | "ignore";
     // @alpha
-    elementReservationPreScan?: ElementReservationPreScanMode | "auto" | "off";
+    elementReservationPreScan?: "auto" | "on" | "off";
     forceExternalSourceAspectProvenance?: boolean;
     includeSourceProvenance?: boolean;
     loadSourceGeometry?: boolean;
