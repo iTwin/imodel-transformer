@@ -1,6 +1,6 @@
 {
   "name": "@itwin/imodel-transformer",
-  "version": "2.0.0-dev.76",
+  "version": "2.0.0-dev.77",
   "description": "API for exporting an iModel's parts and also importing them into another iModel",
   "type": "module",
   "main": "lib/imodel-transformer.js",
