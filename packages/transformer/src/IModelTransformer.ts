@@ -1256,11 +1256,9 @@ export class IModelTransformer extends IModelExportHandler {
 
   /**
    * If they haven't been already, import all of the required references
-   * @internal do not call, override or implement this, it will be removed
+   * Called from [[onExportElement]] before the element itself is transformed.
    */
-  public override async preExportElement(
-    sourceElement: Element
-  ): Promise<void> {
+  private async preExportElement(sourceElement: Element): Promise<void> {
     if (!this.hasElementChanged(sourceElement)) {
       Logger.logTrace(
         loggerCategory,
@@ -1462,9 +1460,11 @@ export class IModelTransformer extends IModelExportHandler {
   }
 
   /** Override of [IModelExportHandler.onExportElement]($transformer) that imports an element into the target iModel when it is exported from the source iModel.
-   * This override calls [[onTransformElement]] and then [IModelImporter.importElement]($transformer) to update the target iModel.
+   * This override first imports any required references that are not yet mapped in the target, then calls [[onTransformElement]] and [IModelImporter.importElement]($transformer) to update the target iModel.
+   * @note Overrides must call `super.onExportElement` to keep required-reference import.
    */
   public override async onExportElement(sourceElement: Element): Promise<void> {
+    await this.preExportElement(sourceElement);
     this.markSourceEntityExists(sourceElement);
     let targetElementId: Id64String = Id64.invalid;
     let targetElementProps: ElementProps;

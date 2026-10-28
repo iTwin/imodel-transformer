@@ -1785,6 +1785,156 @@ describe("IModelTransformer", () => {
     }
   });
 
+  it("imports required references before transforming the element that uses them", async () => {
+    const sourceDbFile = IModelTransformerTestUtils.prepareOutputFile(
+      "IModelTransformer",
+      "RequiredReferenceOrder-Source.bim"
+    );
+    const targetDbFile = IModelTransformerTestUtils.prepareOutputFile(
+      "IModelTransformer",
+      "RequiredReferenceOrder-Target.bim"
+    );
+    const sourceDb = SnapshotDb.createEmpty(sourceDbFile, {
+      rootSubject: { name: "RequiredReferenceOrderSource" },
+    });
+    const targetDb = SnapshotDb.createEmpty(targetDbFile, {
+      rootSubject: { name: "RequiredReferenceOrderTarget" },
+    });
+    // Elements in a model are exported in ECInstanceId order, so a view that is retargeted to
+    // selectors and a display style inserted after it is reached before the elements it requires.
+    const { viewId, requiredIds } = withEditTxn(
+      sourceDb,
+      "insert a view whose required references are inserted after it",
+      (txn) => {
+        const definitionModelId = DefinitionModel.insert(
+          txn,
+          IModel.rootSubjectId,
+          "Definitions"
+        );
+        const physicalModelId = PhysicalModel.insert(
+          txn,
+          IModel.rootSubjectId,
+          "PhysicalModel"
+        );
+        const categoryId = SpatialCategory.insert(
+          txn,
+          definitionModelId,
+          "Category",
+          {}
+        );
+        const insertViewReferences = (suffix: string) => ({
+          modelSelectorId: ModelSelector.insert(
+            txn,
+            definitionModelId,
+            `Models${suffix}`,
+            [physicalModelId]
+          ),
+          categorySelectorId: CategorySelector.insert(
+            txn,
+            definitionModelId,
+            `Categories${suffix}`,
+            [categoryId]
+          ),
+          displayStyleId: DisplayStyle3d.insert(
+            txn,
+            definitionModelId,
+            `Style${suffix}`
+          ),
+        });
+        const placeholders = insertViewReferences("Placeholder");
+        const view = OrthographicViewDefinition.insert(
+          txn,
+          definitionModelId,
+          "EarlyView",
+          placeholders.modelSelectorId,
+          placeholders.categorySelectorId,
+          placeholders.displayStyleId,
+          new Range3d(0, 0, 0, 1, 1, 1)
+        );
+        const late = insertViewReferences("Late");
+        txn.updateElement({
+          ...sourceDb.elements.getElementProps(view),
+          modelSelectorId: late.modelSelectorId,
+          categorySelectorId: late.categorySelectorId,
+          displayStyleId: late.displayStyleId,
+        });
+        return { viewId: view, requiredIds: late };
+      }
+    );
+
+    type Event = [kind: "export" | "transform", id: Id64String];
+    class RecordingTransformer extends IModelTransformer {
+      public events: Event[] = [];
+      public override async onExportElement(sourceElement: Element) {
+        this.events.push(["export", sourceElement.id]);
+        return super.onExportElement(sourceElement);
+      }
+      public override async onTransformElement(sourceElement: Element) {
+        this.events.push(["transform", sourceElement.id]);
+        return super.onTransformElement(sourceElement);
+      }
+    }
+
+    const editTxn = createStartedEditTxn(targetDb);
+    try {
+      const transformer = new RecordingTransformer({
+        source: sourceDb,
+        target: editTxn,
+      });
+      await transformer.process();
+
+      const indexOf = (event: Event) =>
+        transformer.events.findIndex(
+          ([kind, id]) => kind === event[0] && id === event[1]
+        );
+      const exportView = indexOf(["export", viewId]);
+      const transformView = indexOf(["transform", viewId]);
+      expect(exportView).to.be.greaterThanOrEqual(0);
+      expect(transformView).to.be.greaterThan(exportView);
+      // the view is exported exactly once by the traversal
+      expect(
+        transformer.events.filter(
+          ([kind, id]) => kind === "export" && id === viewId
+        )
+      ).to.have.lengthOf(1);
+
+      for (const [name, requiredId] of Object.entries(requiredIds)) {
+        const exportRequired = indexOf(["export", requiredId]);
+        const transformRequired = indexOf(["transform", requiredId]);
+        // the traversal reaches the view first, so each required reference is exported
+        // and transformed inside the view's onExportElement, before the view is transformed
+        expect(exportRequired, `${name} export`).to.be.greaterThan(exportView);
+        expect(transformRequired, `${name} transform`).to.be.greaterThan(
+          exportRequired
+        );
+        expect(transformRequired, `${name} transform`).to.be.lessThan(
+          transformView
+        );
+      }
+
+      const targetView =
+        targetDb.elements.getElement<OrthographicViewDefinition>(
+          transformer.context.findTargetElementId(viewId)
+        );
+      const expectTargetRef = (sourceId: Id64String, targetRef: Id64String) => {
+        const targetId = transformer.context.findTargetElementId(sourceId);
+        expect(Id64.isValid(targetId)).to.be.true;
+        expect(targetRef).to.equal(targetId);
+      };
+      expectTargetRef(requiredIds.modelSelectorId, targetView.modelSelectorId);
+      expectTargetRef(
+        requiredIds.categorySelectorId,
+        targetView.categorySelectorId
+      );
+      expectTargetRef(requiredIds.displayStyleId, targetView.displayStyleId);
+      transformer.dispose();
+    } finally {
+      editTxn.end("abandon");
+      sourceDb.close();
+      targetDb.close();
+    }
+  });
+
   it("processSubject does not export aspects for unrelated mapped elements", async () => {
     const sourceDbFile = IModelTransformerTestUtils.prepareOutputFile(
       "IModelTransformer",

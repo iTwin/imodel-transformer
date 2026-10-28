@@ -14,7 +14,7 @@ export type ElementAspectExportPreparation = (
  *
  * Owner deduplication within a scope is bounded: the main element traversal visits each element once, so its owners
  * are not remembered. Only owners exported out of order are remembered: those accepted while a handler callback
- * is running (see [[runHandlerCallback]]), such as required references that `IModelTransformer.preExportElement`
+ * is running (see [[runHandlerCallback]]), such as  required references that `IModelTransformer.onExportElement`
  * exports early, and owners passed explicitly to [[exportOwners]]. When the traversal reaches such an owner again,
  * its aspects are not exported a second time. An owner that the traversal finished before a handler callback
  * re-exports it does have its aspects exported again.

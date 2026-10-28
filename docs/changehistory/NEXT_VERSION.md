@@ -1,5 +1,11 @@
 # Next release notes
 
+## Required-reference import moved into `IModelTransformer.onExportElement`
+
+The `@internal` `IModelExportHandler.preExportElement` hook has been removed. `IModelExporter` now calls only `onExportElement` for each accepted element. `IModelTransformer.onExportElement` imports any required references (such as a category, parent, or model) that are not yet mapped in the target before it transforms the element, which is the work `preExportElement` used to do.
+
+`IModelTransformer` subclasses that override `onExportElement` must call `super.onExportElement` to keep required-reference import. All in-repo overrides already do. Custom `IModelExportHandler` implementations that overrode `preExportElement` should move that logic into `onExportElement`.
+
 ## Breaking change: ESM-only package
 
 `@itwin/imodel-transformer` now publishes only ES modules. The `lib/cjs` output has been removed, and `lib/` contains the ESM JavaScript and declarations. The package root and `@itwin/imodel-transformer/schema-processing` remain the supported entry points.
