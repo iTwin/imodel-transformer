@@ -32,6 +32,7 @@ import {
   ExternalSourceAspect,
   GenericSchema,
   GeometricModel,
+  GeometryPart,
   IModelDb,
   IModelHost,
   IModelJsFs,
@@ -72,6 +73,7 @@ import {
   ElementProps,
   ExternalSourceAspectProps,
   GeometricElementProps,
+  GeometryPartProps,
   IModel,
   IModelError,
   IModelVersion,
@@ -731,6 +733,190 @@ describe("IModelTransformerHub", () => {
     } finally {
       warningSpy.mockRestore();
       deleteSpy.mockRestore();
+      if (sourceDb)
+        await HubWrappers.closeAndDeleteBriefcaseDb(accessToken, sourceDb);
+      if (targetDb)
+        await HubWrappers.closeAndDeleteBriefcaseDb(accessToken, targetDb);
+      await transformerTestHub.deleteIModel({
+        accessToken,
+        iTwinId,
+        iModelId: sourceIModelId,
+      });
+      await transformerTestHub.deleteIModel({
+        accessToken,
+        iTwinId,
+        iModelId: targetIModelId,
+      });
+    }
+  });
+
+  it("keeps a geometry part that a target-only element places when the source deletes it", async () => {
+    const sourceIModelId = await createPopulatedIModelHubIModel(
+      IModelTransformerTestUtils.generateUniqueName("KeptPartSource")
+    );
+    const targetIModelId = await createPopulatedIModelHubIModel(
+      IModelTransformerTestUtils.generateUniqueName("KeptPartTarget")
+    );
+    let sourceDb: BriefcaseDb | undefined;
+    let targetDb: BriefcaseDb | undefined;
+    const warningSpy = vi.spyOn(Logger, "logWarning");
+
+    try {
+      sourceDb = await HubWrappers.downloadAndOpenBriefcase({
+        accessToken,
+        iTwinId,
+        iModelId: sourceIModelId,
+      });
+      targetDb = await HubWrappers.downloadAndOpenBriefcase({
+        accessToken,
+        iTwinId,
+        iModelId: targetIModelId,
+      });
+      await sourceDb.locks.acquireLocks({ shared: "0x10", exclusive: "0x1" });
+      await targetDb.locks.acquireLocks({ shared: "0x10", exclusive: "0x1" });
+
+      const size = Point3d.create(1, 1, 1);
+      const insertPartUser = (
+        txn: EditTxn,
+        modelId: Id64String,
+        categoryId: Id64String,
+        partId: Id64String,
+        name: string
+      ) =>
+        txn.insertElement({
+          classFullName: PhysicalObject.classFullName,
+          model: modelId,
+          category: categoryId,
+          code: new Code({ scope: "0x1", spec: "0x1", value: name }),
+          placement: { origin: [0, 0, 0], angles: {} },
+          geom: IModelTestUtils.createBox(
+            size,
+            categoryId,
+            IModelDb.getDefaultSubCategoryId(categoryId),
+            undefined,
+            partId
+          ),
+        } as PhysicalElementProps);
+      const source = withEditTxn(sourceDb, "insert source data", (txn) => {
+        const modelId = PhysicalModel.insert(
+          txn,
+          IModel.rootSubjectId,
+          "SourceModel"
+        );
+        const categoryId = SpatialCategory.insert(
+          txn,
+          IModel.dictionaryId,
+          "SourceCategory",
+          {}
+        );
+        const partId = txn.insertElement({
+          classFullName: GeometryPart.classFullName,
+          model: IModel.dictionaryId,
+          code: GeometryPart.createCode(
+            sourceDb!,
+            IModel.dictionaryId,
+            "SourcePart"
+          ),
+          geom: IModelTestUtils.createBox(size),
+        } as GeometryPartProps);
+        const elementId = insertPartUser(
+          txn,
+          modelId,
+          categoryId,
+          partId,
+          "SourceElement"
+        );
+        return { partId, elementId };
+      });
+      await sourceDb.pushChanges({
+        accessToken,
+        description: "Initial source data",
+        retainLocks: true,
+      });
+
+      const processAllEditTxn = createStartedEditTxn(targetDb);
+      const processAllTransformer = new IModelTransformer({
+        source: sourceDb,
+        target: processAllEditTxn,
+      });
+      await processAllTransformer.process();
+      processAllTransformer.dispose();
+      processAllEditTxn.end();
+      await targetDb.pushChanges({
+        accessToken,
+        description: "Initial processAll transformation",
+        retainLocks: true,
+      });
+
+      const targetPartId = targetDb.elements.queryElementIdByCode(
+        GeometryPart.createCode(targetDb, IModel.dictionaryId, "SourcePart")
+      )!;
+      expect(targetPartId).to.not.be.undefined;
+      const targetCategoryId = targetDb.elements.queryElementIdByCode(
+        SpatialCategory.createCode(
+          targetDb,
+          IModel.dictionaryId,
+          "SourceCategory"
+        )
+      )!;
+      const targetModelId = IModelTestUtils.queryByCodeValue(
+        targetDb,
+        "SourceModel"
+      );
+      const targetOnlyId = withEditTxn(targetDb, "insert target-only", (txn) =>
+        insertPartUser(
+          txn,
+          targetModelId,
+          targetCategoryId,
+          targetPartId,
+          "TargetOnly"
+        )
+      );
+      await targetDb.pushChanges({
+        accessToken,
+        description: "Insert target-only part user",
+        retainLocks: true,
+      });
+
+      withEditTxn(sourceDb, "delete element and part", (txn) => {
+        txn.deleteElement(source.elementId);
+        txn.deleteDefinitionElements([source.partId]);
+      });
+      await sourceDb.pushChanges({
+        accessToken,
+        description: "Delete source element and part",
+        retainLocks: true,
+      });
+
+      // Only native code reads geometry, so native deletion refuses the part instead of the transformer skipping it.
+      const editTxn = createStartedEditTxn(targetDb);
+      const transformer = new IModelTransformer(
+        { source: sourceDb, target: editTxn },
+        { argsForProcessChanges: {} }
+      );
+      await transformer.process();
+      transformer.dispose();
+      editTxn.end();
+      await targetDb.pushChanges({
+        accessToken,
+        description: "Process source part deletion",
+        retainLocks: true,
+      });
+
+      expect(
+        IModelTestUtils.queryByCodeValue(targetDb, "SourceElement")
+      ).to.equal(Id64.invalid);
+      expect(targetDb.elements.tryGetElement(targetPartId)).to.not.be.undefined;
+      expect(targetDb.elements.tryGetElement(targetOnlyId)).to.not.be.undefined;
+      const refusedWarnings = warningSpy.mock.calls.filter(([, message]) =>
+        String(message).includes("native deletion refused")
+      );
+      expect(refusedWarnings).to.have.length(1);
+      expect(refusedWarnings[0][1]).to.contain(
+        `${targetPartId} (BisCore:GeometryPart "SourcePart")`
+      );
+    } finally {
+      warningSpy.mockRestore();
       if (sourceDb)
         await HubWrappers.closeAndDeleteBriefcaseDb(accessToken, sourceDb);
       if (targetDb)

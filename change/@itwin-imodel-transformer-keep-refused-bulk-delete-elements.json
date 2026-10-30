@@ -1,0 +1,7 @@
+{
+  "type": "patch",
+  "comment": "Keep elements that native bulk deletion refuses because something outside the deleted trees still uses them, such as a geometry part that target-only geometry places, log a warning, and delete the rest instead of throwing ElementBulkDeleteFailed with status PartialSuccess.",
+  "packageName": "@itwin/imodel-transformer",
+  "email": "DanRod1999@users.noreply.github.com",
+  "dependentChangeType": "patch"
+}

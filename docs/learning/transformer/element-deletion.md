@@ -1,6 +1,6 @@
 # Deleting elements
 
-`IModelImporter.deleteElements()` deletes a set of target elements and everything that depends on them. It keeps any element that something outside the deletion still uses, logs a warning, and deletes the rest. If a native deletion call fails, it throws; see [Handling deletion errors](#handling-deletion-errors).
+`IModelImporter.deleteElements()` deletes a set of target elements and everything that depends on them. It keeps any element that something outside the deletion still uses, logs a warning, and deletes the rest. If a native deletion call fails for another reason, it throws; see [Handling deletion errors](#handling-deletion-errors).
 
 ## Where deletions come from
 
@@ -31,7 +31,9 @@ flowchart TD
     C -->|"No"| E["Delete the trees in one or two native calls,<br/>users before the definitions they use"]
     E --> F{"Did a call fail?"}
     F -->|"No"| G["Done"]
-    F -->|"Yes"| H["Throw ElementBulkDeleteFailed"]
+    F -->|"Core refused an element<br/>that something still uses"| I["Keep that element<br/>and the elements that contain it"]
+    I -->|"Plan again"| B
+    F -->|"Another failure"| H["Throw ElementBulkDeleteFailed"]
 ```
 
 Before deleting anything, the importer checks the BisCore references that iTwin.js core validates when it deletes an element:
@@ -46,7 +48,7 @@ Parent and model references need no check, because the trees contain every child
 
 Core refuses to delete a category or view definition that another element in the same native call still uses, even when that element is also being deleted. So when the trees contain both, the importer deletes the elements that use them in a first call and the rest in a second call. Code scopes and a view definition's display style and selectors can be deleted in the same call as the elements that use them.
 
-Geometry can also use definitions: geometry parts, render materials, textures, line styles, and non-default sub-categories. Only core can read which geometry uses them. When the trees contain one of these, the importer deletes the trees' geometric elements first, but it doesn't check whether an element outside the trees still uses it. If one does, core refuses the deletion and the importer throws `ElementBulkDeleteFailed`.
+Geometry can also use definitions: geometry parts, render materials, textures, line styles, and non-default sub-categories. Only core can read which geometry uses them. When the trees contain one of these, the importer deletes the trees' geometric elements first, but it doesn't check whether an element outside the trees still uses it. If one does, core refuses to delete it, and the importer keeps it; see [Elements that are still in use](#elements-that-are-still-in-use).
 
 References from domain schemas aren't checked in advance either. Core still validates them on every native call, and the importer never passes `skipFKConstraintValidations`, which lets core delete a category that is still in use.
 
@@ -61,11 +63,13 @@ Everything else requested is still deleted, including other requested contents o
 
 A kept element's children and sub-model contents stay even when only its code is used as a scope. For example, a partition kept as a code scope keeps its whole sub-model.
 
+Core can also refuse to delete an element because of a use the importer doesn't check in advance, such as geometry outside the trees that places a geometry part in them. Core reports the root of the native call whose tree contains the refused element, so the importer keeps that root, its whole tree, and the requested elements that contain it. For example, when the source deletes a definition model and a target element that didn't come from the source places a geometry part in it, the whole definition model stays. The importer then plans again without the kept elements and deletes the rest. Once it's done, it logs one more warning in the same category, listing up to ten refused elements with their class and code.
+
 The importer doesn't try again later. A kept element keeps its provenance, such as the FederationGuid it shared with the deleted source element, and the source deletion was already processed, so later syncs don't delete it, even after nothing uses it. To remove it, delete it yourself once nothing uses it.
 
 ## Handling deletion errors
 
-A native deletion call can still fail, for example because geometry outside the trees uses a geometry part in them, or because of a reference from a domain schema. The importer then throws an `ITwinError` with scope `IModelTransformerErrorScope` and key `IModelTransformerError.ElementBulkDeleteFailed`. Its `status`, `sqlDeleteStatus`, and `failedIds` describe the failed call. Deletions from that call and earlier ones are still pending in the transaction, so abandon the transaction before fixing the dependency and retrying:
+A native deletion call can still fail, for example because of a database error, or because core refuses to delete an element that no requested element contains, such as an element whose code a requested element scopes. The importer then throws an `ITwinError` with scope `IModelTransformerErrorScope` and key `IModelTransformerError.ElementBulkDeleteFailed`. Its `status`, `sqlDeleteStatus`, and `failedIds` describe the failed call. Deletions from that call and earlier ones are still pending in the transaction, so abandon the transaction before fixing the dependency and retrying:
 
 ```ts
 [[include:ErrorHandling.handle-bulk-delete-errors]]
