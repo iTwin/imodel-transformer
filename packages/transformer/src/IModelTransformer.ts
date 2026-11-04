@@ -814,6 +814,8 @@ export class IModelTransformer extends IModelExportHandler {
     const targetElementProps: ElementProps =
       await this._cloneContext.cloneElement(sourceElement, {
         binaryGeometry: this._options.cloneUsingBinaryGeometry,
+        // write cleared values so that updating an existing target element clears them too
+        explicitClears: true,
       });
     // Special case: source element is the root subject
     if (sourceElement.id === IModel.rootSubjectId) {
