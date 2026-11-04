@@ -10,9 +10,9 @@ import {
   BriefcaseManager,
   ChangeInstance,
   ChangesetReader,
+  ChangeUnifier,
   ExternalSourceAspect,
   IModelDb,
-  PartialChangeUnifier,
   PropertyFilter,
 } from "@itwin/core-backend";
 import { Id64String, ITwinError } from "@itwin/core-bentley";
@@ -206,9 +206,8 @@ export function addDeletionRecord(
 }
 
 /**
- * Reads each changeset once, unifies table changes into EC instance changes,
- * normalizes overflow-only inserts and deletes to updates, writes all operations
- * to [[ChangedInstanceIds]], and records the deleted instances needed to process deletions.
+ * Reads each changeset once, unifies table changes into EC instance changes in native code with bounded memory,
+ * writes all operations to [[ChangedInstanceIds]], and records the deleted instances needed to process deletions.
  * @internal
  */
 export class ChangesetScanner {
@@ -296,10 +295,15 @@ export class ChangesetScanner {
         db: iModel,
         propFilter: PropertyFilter.InstanceKeyAndIdentifiers,
       });
-      const changeUnifier = new PartialChangeUnifier();
+      let changeUnifier: ChangeUnifier;
       try {
-        while (csReader.step()) changeUnifier.appendFrom(csReader);
-        for (const change of changeUnifier.instances) {
+        // Merges natively; past the default memory budget, merged instances spill to temporary files.
+        changeUnifier = ChangeUnifier.fromReader(csReader);
+      } finally {
+        csReader[Symbol.dispose]();
+      }
+      try {
+        for (const change of changeUnifier.instances()) {
           if (change.ECClassId === undefined)
             ITwinError.throwError({
               iTwinErrorId: {
@@ -308,23 +312,10 @@ export class ChangesetScanner {
               },
               message: `ECClassId was not found for id: ${change.ECInstanceId}! Table is : ${change.$meta.tables}`,
             });
-          // Change is recorded at table level, not EC entity level.
-          // This normalizes overflow-table expansion records so they do not
-          // appear as element inserts or deletes.
-          if (
-            (change.$meta.op === "Inserted" || change.$meta.op === "Deleted") &&
-            change.$meta.tables.every((table) => table.endsWith("Overflow"))
-          ) {
-            change.$meta.op = "Updated";
-          }
           yield change;
         }
       } finally {
-        try {
-          changeUnifier[Symbol.dispose]();
-        } finally {
-          csReader[Symbol.dispose]();
-        }
+        changeUnifier[Symbol.dispose]();
       }
     }
   }

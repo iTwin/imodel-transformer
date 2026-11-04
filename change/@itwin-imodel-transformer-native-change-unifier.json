@@ -1,0 +1,7 @@
+{
+  "type": "patch",
+  "comment": "Unify changesets with core's native ChangeUnifier so changeset scanning memory is bounded (#434)",
+  "packageName": "@itwin/imodel-transformer",
+  "email": "44824788+DanRod1999@users.noreply.github.com",
+  "dependentChangeType": "patch"
+}
