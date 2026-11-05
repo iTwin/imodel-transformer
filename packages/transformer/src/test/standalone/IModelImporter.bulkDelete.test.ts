@@ -1631,6 +1631,84 @@ describe("IModelImporter bulk element deletion", () => {
     }
   });
 
+  it("keeps the code scope of a geometry part that an element outside the batch uses", async () => {
+    const targetDb = createTargetDb("GeometryPartStillInUseCodeScope");
+    try {
+      const ids = withEditTxn(targetDb, "insert part and user", (txn) => {
+        const definitionModelId = DefinitionModel.insert(
+          txn,
+          IModel.rootSubjectId,
+          "Definition model"
+        );
+        const modelId = PhysicalModel.insert(
+          txn,
+          IModel.rootSubjectId,
+          "Physical model"
+        );
+        const categoryId = SpatialCategory.insert(
+          txn,
+          IModel.dictionaryId,
+          "Spatial category",
+          new SubCategoryAppearance()
+        );
+        const codeSpecId = targetDb.codeSpecs.insert(
+          txn,
+          "RelatedElementCodeSpec",
+          CodeScopeSpec.Type.RelatedElement
+        );
+        const scopeId = Subject.insert(txn, IModel.rootSubjectId, "Scope");
+        const independentId = Subject.insert(
+          txn,
+          IModel.rootSubjectId,
+          "Independent"
+        );
+        const size = Point3d.create(1, 1, 1);
+        const partId = txn.insertElement({
+          classFullName: GeometryPart.classFullName,
+          model: definitionModelId,
+          code: { spec: codeSpecId, scope: scopeId, value: "Part" },
+          geom: IModelTestUtils.createBox(size),
+        } as GeometryPartProps);
+        const userId = txn.insertElement({
+          classFullName: "Generic:PhysicalObject",
+          model: modelId,
+          category: categoryId,
+          code: Code.createEmpty(),
+          placement: { origin: [0, 0, 0], angles: {} },
+          geom: IModelTestUtils.createBox(
+            size,
+            categoryId,
+            IModelDb.getDefaultSubCategoryId(categoryId),
+            undefined,
+            partId
+          ),
+        } as PhysicalElementProps);
+        return { scopeId, independentId, partId, userId };
+      });
+      // The part's code scope is a separate root deleted in the same native call as the part. Native validation must
+      // refuse the part without deleting its scope, so the importer can keep both.
+      const requested = new Set([ids.scopeId, ids.independentId]);
+      const editTxn = createStartedEditTxn(targetDb);
+      const warningSpy = vi.spyOn(Logger, "logWarning");
+      try {
+        await new IModelImporter(editTxn).deleteElements(requested);
+        expect(warningSpy).toHaveBeenCalledOnce();
+        expect(warningSpy.mock.calls[0][1]).to.contain(
+          `: ${ids.partId} (BisCore:GeometryPart "Part")`
+        );
+      } finally {
+        warningSpy.mockRestore();
+      }
+      expect(targetDb.elements.tryGetElement(ids.independentId)).to.be
+        .undefined;
+      for (const id of [ids.scopeId, ids.partId, ids.userId])
+        expect(targetDb.elements.tryGetElement(id)).to.not.be.undefined;
+      editTxn.end("abandon");
+    } finally {
+      targetDb.close();
+    }
+  });
+
   it("keeps elements that native validation refuses without deleting anything and retries the rest", async () => {
     const targetDb = createTargetDb("RefusalWithoutDeletion");
     try {
