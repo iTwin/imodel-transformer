@@ -1,6 +1,6 @@
 {
   "type": "patch",
-  "comment": "Require iTwin.js 5.15.0-dev.20 peer dependencies and develop against iTwin.js 5.15.0-dev.20.",
+  "comment": "Require iTwin.js 5.15.0 peer dependencies and develop against iTwin.js 5.15.0.",
   "packageName": "@itwin/imodel-transformer",
   "email": "44824788+DanRod1999@users.noreply.github.com",
   "dependentChangeType": "patch"
