@@ -28,8 +28,8 @@ flowchart TD
     B --> C{"Does anything outside the trees<br/>use an element in them?"}
     C -->|"Yes"| D["Keep that element and what it needs"]
     D -->|"Plan again"| B
-    C -->|"No"| E["Delete the trees in one or two native calls,<br/>users before the definitions they use"]
-    E --> F{"Did a call fail?"}
+    C -->|"No"| E["Delete the trees in one native call"]
+    E --> F{"Did the call fail?"}
     F -->|"No"| G["Done"]
     F -->|"Core refused an element<br/>that something still uses"| I["Keep that element<br/>and the elements that contain it"]
     I -->|"Plan again"| B
@@ -46,9 +46,9 @@ Before deleting anything, the importer checks the BisCore references that iTwin.
 
 Parent and model references need no check, because the trees contain every child and sub-model element.
 
-Core refuses to delete a category or view definition that another element in the same native call still uses, even when that element is also being deleted. So when the trees contain both, the importer deletes the elements that use them in a first call and the rest in a second call. Code scopes and a view definition's display style and selectors can be deleted in the same call as the elements that use them.
+Core validates all the elements that a native call deletes together and ignores references between them. So the importer deletes all the trees in one call, even when they contain a definition, such as a category or a view definition, together with the elements that use it.
 
-Geometry can also use definitions: geometry parts, render materials, textures, line styles, and non-default sub-categories. Only core can read which geometry uses them. When the trees contain one of these, the importer deletes the trees' geometric elements first, but it doesn't check whether an element outside the trees still uses it. If one does, core refuses to delete it, and the importer keeps it; see [Elements that are still in use](#elements-that-are-still-in-use).
+Geometry can also use definitions: geometry parts, render materials, textures, line styles, and non-default sub-categories. Only core can read which geometry uses them, so the importer doesn't check whether an element outside the trees still uses one. If one does, core refuses to delete it, and the importer keeps it; see [Elements that are still in use](#elements-that-are-still-in-use).
 
 References from domain schemas aren't checked in advance either. Core still validates them on every native call, and the importer never passes `skipFKConstraintValidations`, which lets core delete a category that is still in use.
 
@@ -69,7 +69,7 @@ The importer doesn't try again later. A kept element keeps its provenance, such 
 
 ## Handling deletion errors
 
-A native deletion call can still fail, for example because of a database error, or because core refuses to delete an element that no requested element contains, such as an element whose code a requested element scopes. The importer then throws an `ITwinError` with scope `IModelTransformerErrorScope` and key `IModelTransformerError.ElementBulkDeleteFailed`. Its `status`, `sqlDeleteStatus`, and `failedIds` describe the failed call. Deletions from that call and earlier ones are still pending in the transaction, so abandon the transaction before fixing the dependency and retrying:
+A native deletion call can still fail, for example because of a database error, or because core refuses to delete an element that no requested element contains, such as an element whose code a requested element scopes. The importer then throws an `ITwinError` with scope `IModelTransformerErrorScope` and key `IModelTransformerError.ElementBulkDeleteFailed`. Its `status`, `sqlDeleteStatus`, and `failedIds` describe the failed call. Changes from that call can still be pending in the transaction, so abandon the transaction before fixing the dependency and retrying:
 
 ```ts
 [[include:ErrorHandling.handle-bulk-delete-errors]]

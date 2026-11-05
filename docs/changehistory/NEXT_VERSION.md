@@ -146,17 +146,19 @@ If an element outside the batch still uses an element in it through a reference 
 
 If core refuses to delete an element because of a use that the importer doesn't check in advance, for example because geometry outside the batch places a geometry part in it, the importer keeps the refused element and the requested elements that contain it, deletes the rest, and logs a warning that lists them with the reason core gave.
 
-If a native deletion call fails for another reason, such as a database error, `IModelImporter.deleteElements()` throws an `ElementBulkDeleteError` with scope `IModelTransformerErrorScope` and key `IModelTransformerError.ElementBulkDeleteFailed`. Its `status`, `sqlDeleteStatus`, and `failedIds` describe the failed call. Deletions from that call and earlier ones are still pending in the caller's target transaction, so abandon the transaction before fixing the dependency and retrying.
+If a native deletion call fails for another reason, such as a database error, `IModelImporter.deleteElements()` throws an `ElementBulkDeleteError` with scope `IModelTransformerErrorScope` and key `IModelTransformerError.ElementBulkDeleteFailed`. Its `status`, `sqlDeleteStatus`, and `failedIds` describe the failed call. Changes from that call can still be pending in the caller's target transaction, so abandon the transaction before fixing the dependency and retrying.
 
 See [Deleting elements](../learning/transformer/element-deletion.md) for details and an error-handling example.
 
-Batched deletion is 8 to 10 times faster than per-element deletion. A batch that deletes both a category and elements that use it takes two native calls, because core refuses to delete a category still used by an element in the same call. Together with the reference checks, that costs 14% to 20% compared with one unchecked call, which throws and leaves the categories behind. Other batches cost 3% to 7% more. These medians come from interleaved runs of `IModelImporter` deletion on core-backend 5.13.0 with 100,000 physical elements and 100 spatial categories, measured before later planning changes that add about 40 ms to a batch like this:
+Batched deletion is 8 to 10 times faster than per-element deletion. On core-backend 5.13.0 with 100,000 physical elements and 100 spatial categories, per-element deletion in 2.0.0-dev.50 took 19.3 to 21.0 seconds and batched deletion took 2.0 to 2.4 seconds.
 
-| Requested elements              | Per-element deletion (2.0.0-dev.50)       | One native call without reference checks      | Batched deletion with reference checks |
-| ------------------------------- | ----------------------------------------- | --------------------------------------------- | -------------------------------------- |
-| Elements, then their categories | 19.4 s                                    | 1.96 s, throws, and the 100 categories remain | 2.35 s                                 |
-| Categories, then their elements | 19.3 s, silently keeps all 100 categories | 1.91 s, throws, and the 100 categories remain | 2.18 s                                 |
-| Elements only                   | 21.0 s                                    | 1.97 s                                        | 2.03 s                                 |
+A batch that deletes a definition together with every element that uses it takes one native call, because core validates the batch as a whole and ignores references between its elements. The reference checks add up to about 13% to one unchecked `EditTxn.deleteElements` call, which is close to the run-to-run variation. These medians come from eight interleaved runs on core-backend 5.15.0:
+
+| Requested elements                                        | One unchecked native call | Batched deletion with reference checks |
+| --------------------------------------------------------- | ------------------------- | -------------------------------------- |
+| 100,000 elements and the 100 categories they use          | 3.64 s                    | 3.90 s                                 |
+| 100,000 elements only                                     | 3.63 s                    | 4.09 s                                 |
+| 20,000 elements and the 100 categories and parts they use | 1.12 s                    | 1.06 s                                 |
 
 ## Schema-processing strategies
 

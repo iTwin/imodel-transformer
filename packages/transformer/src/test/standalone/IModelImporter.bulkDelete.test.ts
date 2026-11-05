@@ -20,11 +20,13 @@ import {
   IModelDb,
   ModelSelector,
   PhysicalModel,
+  RenderMaterialElement,
   Sheet,
   SheetModel,
   SpatialCategory,
   SpatialViewDefinition,
   StandaloneDb,
+  SubCategory,
   Subject,
   withEditTxn,
 } from "@itwin/core-backend";
@@ -161,13 +163,13 @@ function insertSpatialView(
   return { displayStyleId, modelSelectorId, categorySelectorId, viewId };
 }
 
-async function planPhases(
+async function planRoots(
   db: IModelDb,
   elementIds: ReadonlySet<Id64String>
-): Promise<Set<Id64String>[]> {
+): Promise<Set<Id64String>> {
   const plan = await planBulkDelete(db, elementIds);
   expect(plan.keptReferences.size).to.equal(0);
-  return plan.phases.map((roots) => new Set(roots));
+  return new Set(plan.roots);
 }
 
 function createTargetDb(testName: string): StandaloneDb {
@@ -281,9 +283,9 @@ describe("IModelImporter bulk element deletion", () => {
         };
       });
       const explicitRoots = new Set([ids.rootId]);
-      expect(await planPhases(targetDb, explicitRoots)).to.deep.equal([
-        new Set([ids.rootId, ids.firstCodeRootId, ids.secondCodeRootId]),
-      ]);
+      expect(await planRoots(targetDb, explicitRoots)).to.deep.equal(
+        new Set([ids.rootId, ids.firstCodeRootId, ids.secondCodeRootId])
+      );
 
       const editTxn = createStartedEditTxn(targetDb);
       const nativeDeleteSpy = vi.spyOn(editTxn, "deleteElements");
@@ -329,9 +331,9 @@ describe("IModelImporter bulk element deletion", () => {
       });
       const roots = new Set([ids.rootId, ids.childId, "0xdead"]);
       // The child is deleted with its requested parent, so it is not a root of its own.
-      expect(await planPhases(targetDb, roots)).to.deep.equal([
-        new Set([ids.rootId]),
-      ]);
+      expect(await planRoots(targetDb, roots)).to.deep.equal(
+        new Set([ids.rootId])
+      );
 
       const editTxn = createStartedEditTxn(targetDb);
       const nativeDeleteSpy = vi.spyOn(editTxn, "deleteElements");
@@ -395,9 +397,9 @@ describe("IModelImporter bulk element deletion", () => {
         };
       });
       const explicitRoots = new Set([ids.modelId]);
-      expect(await planPhases(targetDb, explicitRoots)).to.deep.equal([
-        new Set([ids.modelId, ids.codeScopeDependentId]),
-      ]);
+      expect(await planRoots(targetDb, explicitRoots)).to.deep.equal(
+        new Set([ids.modelId, ids.codeScopeDependentId])
+      );
 
       const editTxn = createStartedEditTxn(targetDb);
       const nativeDeleteSpy = vi.spyOn(editTxn, "deleteElements");
@@ -466,9 +468,9 @@ describe("IModelImporter bulk element deletion", () => {
         ids.outerModelId,
         ids.nestedCategoryId,
       ]);
-      expect(await planPhases(targetDb, explicitRoots)).to.deep.equal([
-        expectedDeleteRoots,
-      ]);
+      expect(await planRoots(targetDb, explicitRoots)).to.deep.equal(
+        expectedDeleteRoots
+      );
 
       const editTxn = createStartedEditTxn(targetDb);
       const nativeDeleteSpy = vi.spyOn(editTxn, "deleteElements");
@@ -501,7 +503,7 @@ describe("IModelImporter bulk element deletion", () => {
     }
   });
 
-  it("deletes an element and the category it uses in one batch", async () => {
+  it("deletes an element and the category it uses in one native call", async () => {
     const targetDb = createTargetDb("ElementAndCategory");
     try {
       const ids = withEditTxn(targetDb, "insert categorized element", (txn) => {
@@ -524,16 +526,13 @@ describe("IModelImporter bulk element deletion", () => {
         };
       });
       const roots = new Set([ids.categoryId, ids.elementId]);
-      expect(await planPhases(targetDb, roots)).to.deep.equal([
-        new Set([ids.elementId]),
-        new Set([ids.categoryId]),
-      ]);
+      expect(await planRoots(targetDb, roots)).to.deep.equal(roots);
 
       const editTxn = createStartedEditTxn(targetDb);
       const nativeDeleteSpy = vi.spyOn(editTxn, "deleteElements");
       await new IModelImporter(editTxn).deleteElements(roots);
 
-      expect(nativeDeleteSpy).toHaveBeenCalledTimes(2);
+      expect(nativeDeleteSpy).toHaveBeenCalledOnce();
       for (const id of Object.values(ids))
         expect(targetDb.elements.tryGetElement(id)).to.be.undefined;
       editTxn.end("abandon");
@@ -576,14 +575,16 @@ describe("IModelImporter bulk element deletion", () => {
         return { outerContainerId, innerContainerId, categoryId, elementId };
       });
       const roots = new Set([ids.outerContainerId, ids.elementId]);
-      expect(await planPhases(targetDb, roots)).to.deep.equal([
-        new Set([ids.elementId]),
-        new Set([ids.outerContainerId, ids.categoryId]),
-      ]);
+      // The category's code is scoped by the inner container's sub-model, so the category is a root of its own.
+      expect(await planRoots(targetDb, roots)).to.deep.equal(
+        new Set([ids.outerContainerId, ids.categoryId, ids.elementId])
+      );
 
       const editTxn = createStartedEditTxn(targetDb);
+      const nativeDeleteSpy = vi.spyOn(editTxn, "deleteElements");
       await new IModelImporter(editTxn).deleteElements(roots);
 
+      expect(nativeDeleteSpy).toHaveBeenCalledOnce();
       for (const id of Object.values(ids))
         expect(targetDb.elements.tryGetElement(id)).to.be.undefined;
       editTxn.end("abandon");
@@ -613,14 +614,15 @@ describe("IModelImporter bulk element deletion", () => {
         return { subjectId, definitionModelId, categoryId, modelId, elementId };
       });
       const roots = new Set([ids.subjectId]);
-      expect(await planPhases(targetDb, roots)).to.deep.equal([
-        new Set([ids.elementId]),
-        new Set([ids.subjectId, ids.categoryId]),
-      ]);
+      expect(await planRoots(targetDb, roots)).to.deep.equal(
+        new Set([ids.subjectId, ids.categoryId])
+      );
 
       const editTxn = createStartedEditTxn(targetDb);
+      const nativeDeleteSpy = vi.spyOn(editTxn, "deleteElements");
       await new IModelImporter(editTxn).deleteElements(roots);
 
+      expect(nativeDeleteSpy).toHaveBeenCalledOnce();
       for (const id of Object.values(ids))
         expect(targetDb.elements.tryGetElement(id)).to.be.undefined;
       editTxn.end("abandon");
@@ -629,7 +631,7 @@ describe("IModelImporter bulk element deletion", () => {
     }
   });
 
-  it("deletes a code dependent with a parent before the category user that scopes its code", async () => {
+  it("deletes a category user and a code dependent with a parent whose code it scopes in the same native call", async () => {
     const targetDb = createTargetDb("ParentedCodeDependentOfCategoryUser");
     try {
       const ids = withEditTxn(targetDb, "insert subject tree", (txn) => {
@@ -673,10 +675,10 @@ describe("IModelImporter bulk element deletion", () => {
         return { subjectId, categoryId, userId, parentId, dependentId };
       });
       const roots = new Set([ids.subjectId]);
-      expect(await planPhases(targetDb, roots)).to.deep.equal([
-        new Set([ids.userId, ids.dependentId]),
-        new Set([ids.subjectId, ids.categoryId]),
-      ]);
+      // The dependent's parent is in the subject's tree, so the dependent is deleted with it rather than as a root.
+      expect(await planRoots(targetDb, roots)).to.deep.equal(
+        new Set([ids.subjectId, ids.categoryId])
+      );
 
       const editTxn = createStartedEditTxn(targetDb);
       await new IModelImporter(editTxn).deleteElements(roots);
@@ -689,7 +691,7 @@ describe("IModelImporter bulk element deletion", () => {
     }
   });
 
-  it("deletes category users first when a tree deleted last has an element whose code another tree scopes", async () => {
+  it("deletes a category, its users, and an element whose code another deleted tree scopes in the same native call", async () => {
     const targetDb = createTargetDb("CodeScopeInOtherTree");
     try {
       const ids = withEditTxn(targetDb, "insert trees", (txn) => {
@@ -750,11 +752,9 @@ describe("IModelImporter bulk element deletion", () => {
         };
       });
       const requested = new Set([ids.subjectId, ids.scopeId, ids.userModelId]);
-      // Deleting the scope's tree before the subject's would delete the scope while its dependent still exists.
-      expect(await planPhases(targetDb, requested)).to.deep.equal([
-        new Set([ids.userId]),
-        new Set([ids.subjectId, ids.categoryId, ids.scopeId, ids.userModelId]),
-      ]);
+      expect(await planRoots(targetDb, requested)).to.deep.equal(
+        new Set([ids.subjectId, ids.categoryId, ids.scopeId, ids.userModelId])
+      );
 
       const editTxn = createStartedEditTxn(targetDb);
       await new IModelImporter(editTxn).deleteElements(requested);
@@ -766,7 +766,7 @@ describe("IModelImporter bulk element deletion", () => {
     }
   });
 
-  it("deletes a 2D element and the drawing category it uses in one batch", async () => {
+  it("deletes a 2D element and the drawing category it uses in one native call", async () => {
     const targetDb = createTargetDb("DrawingCategoryUsedInBatch");
     try {
       const ids = withEditTxn(targetDb, "insert drawing", (txn) => {
@@ -800,10 +800,7 @@ describe("IModelImporter bulk element deletion", () => {
         };
       });
       const requested = new Set([ids.categoryId, ids.graphicId]);
-      expect(await planPhases(targetDb, requested)).to.deep.equal([
-        new Set([ids.graphicId]),
-        new Set([ids.categoryId]),
-      ]);
+      expect(await planRoots(targetDb, requested)).to.deep.equal(requested);
 
       const editTxn = createStartedEditTxn(targetDb);
       await new IModelImporter(editTxn).deleteElements(requested);
@@ -815,7 +812,7 @@ describe("IModelImporter bulk element deletion", () => {
     }
   });
 
-  it("deletes an element in two requested trees before the category it uses", async () => {
+  it("deletes an element in two requested trees and the category it uses in one native call", async () => {
     const targetDb = createTargetDb("CategoryUserInTwoTrees");
     try {
       const ids = withEditTxn(targetDb, "insert overlapping trees", (txn) => {
@@ -847,10 +844,9 @@ describe("IModelImporter bulk element deletion", () => {
         return { categoryId, scopeId, modelId, userId };
       });
       const requested = new Set([ids.categoryId, ids.scopeId, ids.modelId]);
-      expect(await planPhases(targetDb, requested)).to.deep.equal([
-        new Set([ids.scopeId, ids.modelId, ids.userId]),
-        new Set([ids.categoryId]),
-      ]);
+      expect(await planRoots(targetDb, requested)).to.deep.equal(
+        new Set([ids.categoryId, ids.scopeId, ids.modelId, ids.userId])
+      );
 
       const editTxn = createStartedEditTxn(targetDb);
       await new IModelImporter(editTxn).deleteElements(requested);
@@ -889,9 +885,9 @@ describe("IModelImporter bulk element deletion", () => {
         return ids;
       });
       // Each requested element is walked once, not once per requested ancestor.
-      expect(await planPhases(targetDb, new Set(chainIds))).to.deep.equal([
-        new Set([chainIds[0]]),
-      ]);
+      expect(await planRoots(targetDb, new Set(chainIds))).to.deep.equal(
+        new Set([chainIds[0]])
+      );
 
       const editTxn = createStartedEditTxn(targetDb);
       await new IModelImporter(editTxn).deleteElements(new Set(chainIds));
@@ -949,9 +945,9 @@ describe("IModelImporter bulk element deletion", () => {
       expect(plan.keptReferences).to.deep.equal(
         new Map([[ids.categoryId, ids.survivorId]])
       );
-      expect(plan.phases.map((roots) => new Set(roots))).to.deep.equal([
-        new Set([ids.deletedElementId, ids.independentId]),
-      ]);
+      expect(new Set(plan.roots)).to.deep.equal(
+        new Set([ids.deletedElementId, ids.independentId])
+      );
 
       const editTxn = createStartedEditTxn(targetDb);
       const nativeDeleteSpy = vi.spyOn(editTxn, "deleteElements");
@@ -1037,7 +1033,7 @@ describe("IModelImporter bulk element deletion", () => {
       expect(plan.keptReferences).to.deep.equal(
         new Map([[ids.usedCategoryId, ids.survivorId]])
       );
-      expect(plan.phases).to.deep.equal([[ids.unusedCategoryId]]);
+      expect(plan.roots).to.deep.equal([ids.unusedCategoryId]);
 
       const editTxn = createStartedEditTxn(targetDb);
       await new IModelImporter(editTxn).deleteElements(requested);
@@ -1112,7 +1108,7 @@ describe("IModelImporter bulk element deletion", () => {
           [ids.categoryId, ids.scopeId],
         ])
       );
-      expect(plan.phases).to.deep.equal([]);
+      expect(plan.roots).to.deep.equal([]);
 
       const editTxn = createStartedEditTxn(targetDb);
       const nativeDeleteSpy = vi.spyOn(editTxn, "deleteElements");
@@ -1184,7 +1180,7 @@ describe("IModelImporter bulk element deletion", () => {
     }
   });
 
-  it("deletes an element and the geometry part it uses in one batch", async () => {
+  it("deletes an element and the geometry part it uses in one native call", async () => {
     const targetDb = createTargetDb("GeometryPartUsedInBatch");
     try {
       const ids = withEditTxn(targetDb, "insert part and user", (txn) => {
@@ -1211,14 +1207,16 @@ describe("IModelImporter bulk element deletion", () => {
         });
       });
       const requested = new Set([ids.partId, ids.userId]);
-      // Native validation refuses the part while its user exists, even when both are in the same call.
-      expect(await planPhases(targetDb, requested)).to.deep.equal([
-        new Set([ids.userId]),
-        new Set([ids.partId]),
-      ]);
+      expect(await planRoots(targetDb, requested)).to.deep.equal(requested);
 
       const editTxn = createStartedEditTxn(targetDb);
+      const nativeDeleteSpy = vi.spyOn(editTxn, "deleteElements");
       await new IModelImporter(editTxn).deleteElements(requested);
+
+      expect(nativeDeleteSpy).toHaveBeenCalledOnce();
+      expect(nativeDeleteSpy.mock.results[0].value).to.deep.include({
+        status: BulkDeleteElementsStatus.Success,
+      });
       for (const id of requested)
         expect(targetDb.elements.tryGetElement(id)).to.be.undefined;
       editTxn.end("abandon");
@@ -1255,13 +1253,15 @@ describe("IModelImporter bulk element deletion", () => {
       });
       const requested = new Set([ids.subjectId]);
       // The part's code is scoped by its definition model, so the part is a root of its own.
-      expect(await planPhases(targetDb, requested)).to.deep.equal([
-        new Set([ids.userId]),
-        new Set([ids.subjectId, ids.partId]),
-      ]);
+      expect(await planRoots(targetDb, requested)).to.deep.equal(
+        new Set([ids.subjectId, ids.partId])
+      );
 
       const editTxn = createStartedEditTxn(targetDb);
+      const nativeDeleteSpy = vi.spyOn(editTxn, "deleteElements");
       await new IModelImporter(editTxn).deleteElements(requested);
+
+      expect(nativeDeleteSpy).toHaveBeenCalledOnce();
       for (const id of [ids.subjectId, ids.partId, ids.userId])
         expect(targetDb.elements.tryGetElement(id)).to.be.undefined;
       editTxn.end("abandon");
@@ -1270,7 +1270,88 @@ describe("IModelImporter bulk element deletion", () => {
     }
   });
 
-  it("deletes a view attachment before the view it shows", async () => {
+  it("deletes a definition model and a physical model whose elements use its definitions in one native call", async () => {
+    const targetDb = createTargetDb("DefinitionAndPhysicalModels");
+    try {
+      const ids = withEditTxn(targetDb, "insert models", (txn) => {
+        const definitionModelId = DefinitionModel.insert(
+          txn,
+          IModel.rootSubjectId,
+          "Definition model"
+        );
+        const categoryId = SpatialCategory.insert(
+          txn,
+          definitionModelId,
+          "Category",
+          new SubCategoryAppearance()
+        );
+        const subCategoryId = SubCategory.insert(
+          txn,
+          categoryId,
+          "Sub-category",
+          new SubCategoryAppearance()
+        );
+        const materialId = RenderMaterialElement.insert(
+          txn,
+          definitionModelId,
+          "Material",
+          { paletteName: "Palette" }
+        );
+        const modelId = PhysicalModel.insert(
+          txn,
+          IModel.rootSubjectId,
+          "Physical model"
+        );
+        const size = Point3d.create(1, 1, 1);
+        const partId = txn.insertElement({
+          classFullName: GeometryPart.classFullName,
+          model: definitionModelId,
+          code: GeometryPart.createCode(targetDb, definitionModelId, "Part"),
+          geom: IModelTestUtils.createBox(size),
+        } as GeometryPartProps);
+        const userId = txn.insertElement({
+          classFullName: "Generic:PhysicalObject",
+          model: modelId,
+          category: categoryId,
+          code: Code.createEmpty(),
+          placement: { origin: [0, 0, 0], angles: {} },
+          geom: IModelTestUtils.createBox(
+            size,
+            categoryId,
+            subCategoryId,
+            materialId,
+            partId
+          ),
+        } as PhysicalElementProps);
+        return {
+          definitionModelId,
+          categoryId,
+          subCategoryId,
+          materialId,
+          partId,
+          modelId,
+          userId,
+        };
+      });
+      const requested = new Set([ids.definitionModelId, ids.modelId]);
+
+      const editTxn = createStartedEditTxn(targetDb);
+      const nativeDeleteSpy = vi.spyOn(editTxn, "deleteElements");
+      await new IModelImporter(editTxn).deleteElements(requested);
+
+      expect(nativeDeleteSpy).toHaveBeenCalledOnce();
+      expect(nativeDeleteSpy.mock.results[0].value).to.deep.include({
+        status: BulkDeleteElementsStatus.Success,
+      });
+      for (const id of Object.values(ids))
+        expect(targetDb.elements.tryGetElement(id)).to.be.undefined;
+      editTxn.end("abandon");
+    } finally {
+      targetDb.close();
+    }
+  });
+
+  it("deletes a view attachment and the view it shows in one native call", async () => {
     const targetDb = createTargetDb("ViewAttachmentInBatch");
     try {
       const ids = withEditTxn(targetDb, "insert sheet and view", (txn) => {
@@ -1324,13 +1405,13 @@ describe("IModelImporter bulk element deletion", () => {
         return { sheetId, attachmentId, viewId: view.viewId };
       });
       const requested = new Set([ids.sheetId, ids.viewId]);
-      expect(await planPhases(targetDb, requested)).to.deep.equal([
-        new Set([ids.sheetId]),
-        new Set([ids.viewId]),
-      ]);
+      expect(await planRoots(targetDb, requested)).to.deep.equal(requested);
 
       const editTxn = createStartedEditTxn(targetDb);
+      const nativeDeleteSpy = vi.spyOn(editTxn, "deleteElements");
       await new IModelImporter(editTxn).deleteElements(requested);
+
+      expect(nativeDeleteSpy).toHaveBeenCalledOnce();
       for (const id of [ids.sheetId, ids.attachmentId, ids.viewId])
         expect(targetDb.elements.tryGetElement(id)).to.be.undefined;
       editTxn.end("abandon");
@@ -1381,13 +1462,11 @@ describe("IModelImporter bulk element deletion", () => {
           [ids.categorySelectorId, ids.viewId],
         ])
       );
-      expect(plan.phases).to.deep.equal([[ids.independentId]]);
+      expect(plan.roots).to.deep.equal([ids.independentId]);
 
-      // Deleting the view with them needs one call, because native validation accepts a view definition's references
-      // to definitions in the same call.
-      expect(
-        await planPhases(targetDb, new Set([...requested, ids.viewId]))
-      ).to.have.length(1);
+      // Requested with the view, they are deleted in the same call as the view.
+      const withView = new Set([...requested, ids.viewId]);
+      expect(await planRoots(targetDb, withView)).to.deep.equal(withView);
     } finally {
       targetDb.close();
     }
@@ -1421,7 +1500,7 @@ describe("IModelImporter bulk element deletion", () => {
       expect(plan.keptReferences).to.deep.equal(
         new Map([[ids.defaultSubCategoryId, ids.categoryId]])
       );
-      expect(plan.phases).to.deep.equal([[ids.independentId]]);
+      expect(plan.roots).to.deep.equal([ids.independentId]);
     } finally {
       targetDb.close();
     }
@@ -1538,10 +1617,7 @@ describe("IModelImporter bulk element deletion", () => {
         ids.unusedPartId,
         ids.independentId,
       ]);
-      expect(await planPhases(targetDb, requested)).to.deep.equal([
-        new Set([ids.independentId]),
-        new Set([ids.partId, ids.unusedPartId]),
-      ]);
+      expect(await planRoots(targetDb, requested)).to.deep.equal(requested);
 
       const editTxn = createStartedEditTxn(targetDb);
       const nativeDeleteSpy = vi.spyOn(editTxn, "deleteElements");
@@ -1555,10 +1631,10 @@ describe("IModelImporter bulk element deletion", () => {
       } finally {
         warningSpy.mockRestore();
       }
-      // The second call reproduces the reported failure: native validation refuses the used part and deletes nothing.
-      // The third call deletes the unused part.
-      expect(nativeDeleteSpy).toHaveBeenCalledTimes(3);
-      expect(nativeDeleteSpy.mock.results[1].value).to.deep.include({
+      // The first call reproduces the reported failure: native validation refuses the used part and deletes nothing.
+      // The second call deletes the rest.
+      expect(nativeDeleteSpy).toHaveBeenCalledTimes(2);
+      expect(nativeDeleteSpy.mock.results[0].value).to.deep.include({
         status: BulkDeleteElementsStatus.ConstraintViolation,
         failures: [
           {
@@ -1567,9 +1643,9 @@ describe("IModelImporter bulk element deletion", () => {
           },
         ],
       });
-      expect(nativeDeleteSpy.mock.calls[2][0]).to.deep.equal([
-        ids.unusedPartId,
-      ]);
+      expect(new Set(nativeDeleteSpy.mock.calls[1][0])).to.deep.equal(
+        new Set([ids.unusedPartId, ids.independentId])
+      );
       for (const id of [ids.unusedPartId, ids.independentId])
         expect(targetDb.elements.tryGetElement(id)).to.be.undefined;
       for (const id of [ids.partId, ids.userId, ids.definitionModelId])
@@ -1618,10 +1694,9 @@ describe("IModelImporter bulk element deletion", () => {
       const requested = new Set([ids.definitionModelId, ids.independentId]);
       // The part's code is scoped by its definition model, so the part is a root of its own in the same native call as
       // the definition model that contains it. Native validation refuses the whole call, so neither is deleted.
-      expect(await planPhases(targetDb, requested)).to.deep.equal([
-        new Set([ids.independentId]),
-        new Set([ids.definitionModelId, ids.partId]),
-      ]);
+      expect(await planRoots(targetDb, requested)).to.deep.equal(
+        new Set([ids.independentId, ids.definitionModelId, ids.partId])
+      );
 
       const editTxn = createStartedEditTxn(targetDb);
       const warningSpy = vi.spyOn(Logger, "logWarning");

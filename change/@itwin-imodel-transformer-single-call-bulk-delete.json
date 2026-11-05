@@ -1,0 +1,7 @@
+{
+  "type": "patch",
+  "comment": "Delete a batch whose definitions are used only by elements in the same batch in one native deleteElements call, instead of deleting the users in a separate first call",
+  "packageName": "@itwin/imodel-transformer",
+  "email": "DanRod1999@users.noreply.github.com",
+  "dependentChangeType": "patch"
+}

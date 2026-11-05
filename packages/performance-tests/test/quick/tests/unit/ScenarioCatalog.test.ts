@@ -14,6 +14,7 @@ import {
   listRegisteredScenarios,
 } from "../../src/catalogs/BenchmarkRegistry.js";
 import { validateFixtureDescriptor } from "../../src/fixtures/FixtureDescriptor.js";
+import { definitionDeletionIncrementalRecipe } from "../../src/fixtures/recipes/definitionDeletionIncremental.js";
 import { hierarchicalIncrementalRecipe } from "../../src/fixtures/recipes/hierarchicalIncremental.js";
 import { largeBaseIncrementalRecipe } from "../../src/fixtures/recipes/largeBaseIncremental.js";
 import { referenceHeavyTransformRecipe } from "../../src/fixtures/recipes/referenceHeavyTransform.js";
@@ -116,6 +117,58 @@ describe("quick performance scenario catalog", () => {
         sourceChangesets: 1,
       },
     });
+  });
+
+  it.each([
+    ["category-deletion-incremental", 0],
+    ["geometry-part-deletion-incremental", 10_000],
+  ])(
+    "registers the %s fixture for incremental comparison",
+    (fixtureId, geometricElements) => {
+      const resolved = resolveBenchmarkRun(
+        "incremental-synchronization",
+        fixtureId
+      );
+
+      expect(resolved.descriptor).to.deep.include({
+        id: fixtureId,
+        version: 1,
+      });
+      expect(resolved.descriptor.layout).to.deep.include({
+        recipe: "definition-deletion-incremental",
+        topology: "source-and-empty-target",
+      });
+      expect(resolved.descriptor.scenarioClaims).to.include.members([
+        "incremental synchronization",
+        "element deletion",
+      ]);
+      expect(resolved.descriptor.distribution).to.deep.include({
+        base: {
+          aspects: 0,
+          elements: 10_025,
+          geometricElements,
+          relationships: 0,
+        },
+        operations: {
+          aspects: { deletes: 0, inserts: 0, updates: 0 },
+          elements: { deletes: 10_000, inserts: 0, updates: 0 },
+          relationships: { deletes: 0, inserts: 0, updates: 0 },
+          geometryUpdates: 0,
+          sourceChangesets: 1,
+        },
+      });
+    }
+  );
+
+  it.each([
+    { scale: 0, categoryCount: 1, geometryPartCount: 0 },
+    { scale: 1, categoryCount: 0, geometryPartCount: 0 },
+    { scale: 1, categoryCount: 1, geometryPartCount: -1 },
+    { scale: 1.5, categoryCount: 1, geometryPartCount: 0 },
+  ])("rejects invalid definition-deletion parameters %o", (parameters) => {
+    expect(() =>
+      definitionDeletionIncrementalRecipe.distribution(parameters)
+    ).to.throw(/Definition-deletion fixture/);
   });
 
   it("registers the realistic synthetic building fixture as an opt-in full transform", () => {
