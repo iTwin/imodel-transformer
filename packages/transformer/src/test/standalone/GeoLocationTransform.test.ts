@@ -21,6 +21,7 @@ import {
   Code,
   ColorDef,
   EcefLocation,
+  GeodeticDatumProps,
   GeographicCRS,
   GeometryStreamBuilder,
   Helmert2DWithZOffset,
@@ -353,6 +354,18 @@ describe("Linear Geolocation Transformations", () => {
   });
 });
 
+// Core validates the geographic coordinate system when it writes iModel properties. The tests disable GCS workspaces,
+// so a datum referenced only by id cannot be resolved; define the NAD27 datum and its Clarke 1866 ellipsoid inline.
+const offlineNad27Datum: GeodeticDatumProps = {
+  id: "NAD27",
+  ellipsoidId: "CLRK66",
+  ellipsoid: {
+    id: "CLRK66",
+    equatorialRadius: 6378206.4,
+    polarRadius: 6356583.8,
+  },
+};
+
 describe("Non Linear Geolocation Transformations", () => {
   let horizontalCRS: HorizontalCRS;
   let verticalCRS: VerticalCRS;
@@ -365,7 +378,7 @@ describe("Non Linear Geolocation Transformations", () => {
       description: "",
       source: "Mentor Software Client",
       deprecated: false,
-      datumId: "NAD27",
+      datum: offlineNad27Datum,
       unit: "Meter",
       projection: {
         method: "TransverseMercator",
@@ -803,7 +816,7 @@ describe("Non Linear Geolocation Transformations", () => {
       description: "",
       source: "Mentor Software Client",
       deprecated: false,
-      datumId: "NAD27",
+      datum: offlineNad27Datum,
       unit: "Meter",
       projection: {
         method: "TransverseMercator",

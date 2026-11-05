@@ -6,6 +6,7 @@
 import { DbResult, Id64String, Logger } from "@itwin/core-bentley";
 import {
   BulkDeleteElementsStatus,
+  BulkDeleteFailureReason,
   CategorySelector,
   DefinitionContainer,
   DefinitionModel,
@@ -1461,7 +1462,7 @@ describe("IModelImporter bulk element deletion", () => {
         async () =>
           new IModelImporter(editTxn).deleteElements(new Set([ids.partId])),
         IModelTransformerError.ElementBulkDeleteFailed,
-        `Bulk element deletion failed: status DeletionFailed, SQLite status ${DbResult.BE_SQLITE_OK}, failed element IDs: ${ids.partId}`
+        `Bulk element deletion failed: status ConstraintViolation, SQLite status ${DbResult.BE_SQLITE_OK}, failed element IDs: ${ids.partId}`
       );
       expect(targetDb.elements.tryGetElement(ids.partId)).to.not.be.undefined;
       editTxn.end("abandon");
@@ -1481,21 +1482,57 @@ describe("IModelImporter bulk element deletion", () => {
       const nativeDeleteSpy = vi
         .spyOn(editTxn, "deleteElements")
         .mockReturnValue({
-          status: BulkDeleteElementsStatus.PartialSuccess,
+          status: BulkDeleteElementsStatus.ConstraintViolation,
           sqlDeleteStatus: DbResult.BE_SQLITE_OK,
+          failures: [
+            {
+              elementId: independentId,
+              reason: BulkDeleteFailureReason.ReferencedByForeignKey,
+            },
+          ],
           failedIds: new Set([independentId]),
         });
       const error = (await expectTransformerError(
         async () =>
           new IModelImporter(editTxn).deleteElements(new Set([independentId])),
         IModelTransformerError.ElementBulkDeleteFailed,
-        `Bulk element deletion failed: status PartialSuccess, SQLite status ${DbResult.BE_SQLITE_OK}, failed element IDs: ${independentId}`
+        `Bulk element deletion failed: status ConstraintViolation, SQLite status ${DbResult.BE_SQLITE_OK}, failed element IDs: ${independentId}`
       )) as ElementBulkDeleteError;
 
-      expect(error.status).to.equal(BulkDeleteElementsStatus.PartialSuccess);
+      expect(error.status).to.equal(
+        BulkDeleteElementsStatus.ConstraintViolation
+      );
       expect(error.sqlDeleteStatus).to.equal(DbResult.BE_SQLITE_OK);
       expect(error.failedIds).to.deep.equal(new Set([independentId]));
       expect(nativeDeleteSpy).toHaveBeenCalledOnce();
+      editTxn.end("abandon");
+    } finally {
+      targetDb.close();
+    }
+  });
+
+  it("reports every requested root when native deletion fails without listing failures", async () => {
+    const targetDb = createTargetDb("NativeDeletionFailed");
+    try {
+      const independentId = withEditTxn(targetDb, "insert subject", (txn) =>
+        Subject.insert(txn, IModel.rootSubjectId, "Independent")
+      );
+      const editTxn = createStartedEditTxn(targetDb);
+      vi.spyOn(editTxn, "deleteElements").mockReturnValue({
+        status: BulkDeleteElementsStatus.DeletionFailed,
+        sqlDeleteStatus: DbResult.BE_SQLITE_ERROR,
+        failures: [],
+        failedIds: new Set([independentId]),
+      });
+      const error = (await expectTransformerError(
+        async () =>
+          new IModelImporter(editTxn).deleteElements(new Set([independentId])),
+        IModelTransformerError.ElementBulkDeleteFailed,
+        `Bulk element deletion failed: status DeletionFailed, SQLite status ${DbResult.BE_SQLITE_ERROR}, failed element IDs: ${independentId}`
+      )) as ElementBulkDeleteError;
+
+      expect(error.status).to.equal(BulkDeleteElementsStatus.DeletionFailed);
+      expect(error.failedIds).to.deep.equal(new Set([independentId]));
       editTxn.end("abandon");
     } finally {
       targetDb.close();

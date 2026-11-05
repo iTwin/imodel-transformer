@@ -541,6 +541,11 @@ export class IModelImporter {
   private deleteElementRoots(roots: Id64String[]): void {
     const result = this._editTxn.deleteElements(roots);
     if (result.status !== BulkDeleteElementsStatus.Success) {
+      // Constraint violations list the blocking elements. Other failures leave every requested root undeleted.
+      const failedIds =
+        result.failures.length > 0
+          ? new Set(result.failures.map((failure) => failure.elementId))
+          : new Set(roots);
       ITwinError.throwError<ElementBulkDeleteError>({
         iTwinErrorId: {
           scope: IModelTransformerErrorScope,
@@ -549,11 +554,11 @@ export class IModelImporter {
         message:
           `Bulk element deletion failed: status ${BulkDeleteElementsStatus[result.status]}, ` +
           `SQLite status ${result.sqlDeleteStatus}, failed element IDs: ${[
-            ...result.failedIds,
+            ...failedIds,
           ].join(", ")}`,
         status: result.status,
         sqlDeleteStatus: result.sqlDeleteStatus,
-        failedIds: new Set(result.failedIds),
+        failedIds,
       });
     }
   }
