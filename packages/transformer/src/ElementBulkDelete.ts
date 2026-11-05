@@ -127,8 +127,7 @@ async function planPhases(
         usersOfDeletedDefinitions.add(id);
     for (const rootId of geometryRoots) rootsWithUsedDefinitions.add(rootId);
   }
-  if (rootsWithUsedDefinitions.size === 0)
-    return [withoutContainedRoots(trees.roots, trees)];
+  if (rootsWithUsedDefinitions.size === 0) return [[...trees.roots]];
   // True when a root deleted in the last call removes the element.
   const isInTreeWithUsedDefinition = (id: Id64String) =>
     (trees.rootsByElement.get(id) ?? []).some((rootId) =>
@@ -153,10 +152,9 @@ async function planPhases(
     const otherRoots = [...trees.roots].filter(
       (id) => !rootsWithUsedDefinitions.has(id)
     );
-    const lastRoots = withoutContainedRoots(rootsWithUsedDefinitions, trees);
     return otherRoots.length > 0
-      ? [withoutContainedRoots(otherRoots, trees), lastRoots]
-      : [lastRoots];
+      ? [otherRoots, [...rootsWithUsedDefinitions]]
+      : [[...rootsWithUsedDefinitions]];
   }
 
   // Otherwise delete the users and their code dependents as roots of their own. Core refuses to delete an
@@ -170,28 +168,9 @@ async function planPhases(
   const remainingRoots = [...trees.roots].filter(
     (id) => !userTrees.rootsByElement.has(id)
   );
-  const phases = [withoutContainedRoots(userTrees.roots, userTrees)];
-  if (remainingRoots.length > 0)
-    phases.push(withoutContainedRoots(remainingRoots, trees));
+  const phases = [[...userTrees.roots]];
+  if (remainingRoots.length > 0) phases.push(remainingRoots);
   return phases;
-}
-
-/** Removes roots that another root in the same native call already deletes as a child or sub-model element.
- * Native code records an element passed as a root without its parent or modeled element. If it then refused that
- * element, it would still delete the element that contains it, leaving the refused element without its parent or model.
- */
-function withoutContainedRoots(
-  roots: Iterable<Id64String>,
-  trees: DeletionTrees
-): Id64Array {
-  const rootSet = new Set(roots);
-  // Another root's tree reaches an element only through children and sub-models: code dependents are roots of their own.
-  return [...rootSet].filter(
-    (id) =>
-      !(trees.rootsByElement.get(id) ?? []).some(
-        (rootId) => rootId !== id && rootSet.has(rootId)
-      )
-  );
 }
 
 /** Finds the native deletion roots and every element their deletion removes.

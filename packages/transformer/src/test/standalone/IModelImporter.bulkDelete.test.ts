@@ -462,8 +462,10 @@ describe("IModelImporter bulk element deletion", () => {
         };
       });
       const explicitRoots = new Set([ids.outerModelId]);
-      // The nested category's code is scoped by its container, but the outer model's tree already contains it.
-      const expectedDeleteRoots = new Set([ids.outerModelId]);
+      const expectedDeleteRoots = new Set([
+        ids.outerModelId,
+        ids.nestedCategoryId,
+      ]);
       expect(await planPhases(targetDb, explicitRoots)).to.deep.equal([
         expectedDeleteRoots,
       ]);
@@ -576,7 +578,7 @@ describe("IModelImporter bulk element deletion", () => {
       const roots = new Set([ids.outerContainerId, ids.elementId]);
       expect(await planPhases(targetDb, roots)).to.deep.equal([
         new Set([ids.elementId]),
-        new Set([ids.outerContainerId]),
+        new Set([ids.outerContainerId, ids.categoryId]),
       ]);
 
       const editTxn = createStartedEditTxn(targetDb);
@@ -613,7 +615,7 @@ describe("IModelImporter bulk element deletion", () => {
       const roots = new Set([ids.subjectId]);
       expect(await planPhases(targetDb, roots)).to.deep.equal([
         new Set([ids.elementId]),
-        new Set([ids.subjectId]),
+        new Set([ids.subjectId, ids.categoryId]),
       ]);
 
       const editTxn = createStartedEditTxn(targetDb);
@@ -673,7 +675,7 @@ describe("IModelImporter bulk element deletion", () => {
       const roots = new Set([ids.subjectId]);
       expect(await planPhases(targetDb, roots)).to.deep.equal([
         new Set([ids.userId, ids.dependentId]),
-        new Set([ids.subjectId]),
+        new Set([ids.subjectId, ids.categoryId]),
       ]);
 
       const editTxn = createStartedEditTxn(targetDb);
@@ -751,7 +753,7 @@ describe("IModelImporter bulk element deletion", () => {
       // Deleting the scope's tree before the subject's would delete the scope while its dependent still exists.
       expect(await planPhases(targetDb, requested)).to.deep.equal([
         new Set([ids.userId]),
-        new Set([ids.subjectId, ids.scopeId, ids.userModelId]),
+        new Set([ids.subjectId, ids.categoryId, ids.scopeId, ids.userModelId]),
       ]);
 
       const editTxn = createStartedEditTxn(targetDb);
@@ -834,7 +836,7 @@ describe("IModelImporter bulk element deletion", () => {
           IModel.rootSubjectId,
           "Physical model"
         );
-        // In the model's tree, so the model's root deletes it although the scope's tree scopes its code.
+        // In the model's tree, and a root of its own because the scope's tree scopes its code.
         const userId = insertPhysicalObject(txn, {
           modelId,
           categoryId,
@@ -846,7 +848,7 @@ describe("IModelImporter bulk element deletion", () => {
       });
       const requested = new Set([ids.categoryId, ids.scopeId, ids.modelId]);
       expect(await planPhases(targetDb, requested)).to.deep.equal([
-        new Set([ids.scopeId, ids.modelId]),
+        new Set([ids.scopeId, ids.modelId, ids.userId]),
         new Set([ids.categoryId]),
       ]);
 
@@ -1252,10 +1254,10 @@ describe("IModelImporter bulk element deletion", () => {
         };
       });
       const requested = new Set([ids.subjectId]);
-      // The part's code is scoped by its definition model, which the subject's tree already contains.
+      // The part's code is scoped by its definition model, so the part is a root of its own.
       expect(await planPhases(targetDb, requested)).to.deep.equal([
         new Set([ids.userId]),
-        new Set([ids.subjectId]),
+        new Set([ids.subjectId, ids.partId]),
       ]);
 
       const editTxn = createStartedEditTxn(targetDb);
@@ -1614,11 +1616,11 @@ describe("IModelImporter bulk element deletion", () => {
         };
       });
       const requested = new Set([ids.definitionModelId, ids.independentId]);
-      // The part's code is scoped by its definition model, but the definition model's root already deletes it as a
-      // sub-model element. Passing it as a root too would let native code delete the definition model when it refuses the part.
+      // The part's code is scoped by its definition model, so the part is a root of its own in the same native call as
+      // the definition model that contains it. Native validation refuses the whole call, so neither is deleted.
       expect(await planPhases(targetDb, requested)).to.deep.equal([
         new Set([ids.independentId]),
-        new Set([ids.definitionModelId]),
+        new Set([ids.definitionModelId, ids.partId]),
       ]);
 
       const editTxn = createStartedEditTxn(targetDb);
