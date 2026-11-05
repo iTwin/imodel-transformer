@@ -31,6 +31,7 @@ import { TransformerLoggerCategory } from "./TransformerLoggerCategory.js";
 import {
   BulkDeleteElementsResult,
   BulkDeleteElementsStatus,
+  BulkDeleteFailureReason,
   EditTxn,
   ElementAspect,
   ElementMultiAspect,
@@ -76,19 +77,25 @@ function formatKeptReferences(
   return unlisted > 0 ? `${listed}, and ${unlisted} more` : listed;
 }
 
-/** True when native validation refused some roots because something still uses them, without a database error.
- * Core then deletes the other roots and reports `PartialSuccess`, or `DeletionFailed` when it refuses every root.
- * Core versions that validate before deleting anything report the refusal with the same `failedIds` but delete nothing.
+/** True when native validation refused the call because elements in it can't be deleted, such as a definition that
+ * something outside the deleted trees still uses. Native code then deletes nothing and lists each refused element.
  */
 function isRefusal(result: BulkDeleteElementsResult): boolean {
   return (
-    result.status !== BulkDeleteElementsStatus.Success &&
-    result.sqlDeleteStatus === DbResult.BE_SQLITE_OK &&
-    result.failedIds.size > 0
+    result.status === BulkDeleteElementsStatus.ConstraintViolation &&
+    result.failures.length > 0
   );
 }
 
-function throwBulkDeleteError(result: BulkDeleteElementsResult): never {
+function throwBulkDeleteError(
+  result: BulkDeleteElementsResult,
+  roots: Iterable<Id64String>
+): never {
+  // Constraint violations list the blocking elements. Other failures leave every requested root undeleted.
+  const failedIds =
+    result.failures.length > 0
+      ? new Set(result.failures.map((failure) => failure.elementId))
+      : new Set(roots);
   ITwinError.throwError<ElementBulkDeleteError>({
     iTwinErrorId: {
       scope: IModelTransformerErrorScope,
@@ -97,11 +104,11 @@ function throwBulkDeleteError(result: BulkDeleteElementsResult): never {
     message:
       `Bulk element deletion failed: status ${BulkDeleteElementsStatus[result.status]}, ` +
       `SQLite status ${result.sqlDeleteStatus}, failed element IDs: ${[
-        ...result.failedIds,
+        ...failedIds,
       ].join(", ")}`,
     status: result.status,
     sqlDeleteStatus: result.sqlDeleteStatus,
-    failedIds: new Set(result.failedIds),
+    failedIds,
   });
 }
 
@@ -550,7 +557,7 @@ export class IModelImporter {
   ): Promise<void> {
     const requestedIds = new Set(elementIds);
     const keptReferences = new Map<Id64String, Id64String>();
-    const refusedIds = new Set<Id64String>();
+    const refusals = new Map<Id64String, BulkDeleteFailureReason>();
     let rootCount = 0;
     let operationCount = 0;
     for (;;) {
@@ -569,35 +576,38 @@ export class IModelImporter {
           keptReferences.set(id, referencingId);
       }
 
-      let refusal: BulkDeleteElementsResult | undefined;
+      let refusal:
+        { result: BulkDeleteElementsResult; roots: Id64String[] } | undefined;
       for (const roots of plan.phases) {
         rootCount += roots.length;
         ++operationCount;
         const result = this._editTxn.deleteElements(roots);
         if (result.status === BulkDeleteElementsStatus.Success) continue;
-        if (!isRefusal(result)) throwBulkDeleteError(result);
-        refusal = result;
+        if (!isRefusal(result)) throwBulkDeleteError(result, roots);
+        refusal = { result, roots };
         break;
       }
       if (!refusal) break;
 
       // Keep the refused elements and every requested element whose deletion would delete them, then plan again.
-      // Requested trees that the refused call already deleted no longer exist, so the next plan skips them.
+      // The refused call deleted nothing. Requested trees that earlier calls deleted no longer exist, so the next plan skips them.
+      const refusedIds = new Set(
+        refusal.result.failures.map((failure) => failure.elementId)
+      );
       const requestedCount = requestedIds.size;
-      for (const id of await queryKeptElements(
-        this.targetDb,
-        refusal.failedIds
-      ))
+      for (const id of await queryKeptElements(this.targetDb, refusedIds))
         requestedIds.delete(id);
-      if (requestedIds.size === requestedCount) throwBulkDeleteError(refusal);
-      for (const id of refusal.failedIds) refusedIds.add(id);
+      if (requestedIds.size === requestedCount)
+        throwBulkDeleteError(refusal.result, refusal.roots);
+      for (const { elementId, reason } of refusal.result.failures)
+        refusals.set(elementId, reason);
     }
 
-    if (refusedIds.size > 0) {
+    if (refusals.size > 0) {
       Logger.logWarning(
         loggerCategory,
-        `Kept ${refusedIds.size} elements that native deletion refused because something outside the deleted trees still uses them, such as geometry that places a geometry part, and the elements that contain them: ${this.formatRefusedElements(
-          refusedIds
+        `Kept ${refusals.size} elements that native deletion refused, such as a geometry part that geometry outside the deleted trees places, and the elements that contain them: ${this.formatRefusedElements(
+          refusals
         )}`
       );
     }
@@ -610,19 +620,22 @@ export class IModelImporter {
     await this.trackProgress(elementIds.size);
   }
 
-  /** Lists the first refused elements, with their class and code, for a log message. */
-  private formatRefusedElements(elementIds: ReadonlySet<Id64String>): string {
-    const listed = [...elementIds]
+  /** Lists the first refused elements, with their class, code, and refusal reason, for a log message. */
+  private formatRefusedElements(
+    refusals: ReadonlyMap<Id64String, BulkDeleteFailureReason>
+  ): string {
+    const listed = [...refusals]
       .slice(0, maxListedElements)
-      .map((elementId) => {
+      .map(([elementId, reason]) => {
+        const reasonName = BulkDeleteFailureReason[reason];
         const props = this.targetDb.elements.tryGetElementProps(elementId);
-        if (!props) return elementId;
+        if (!props) return `${elementId} (${reasonName})`;
         return props.code.value
-          ? `${elementId} (${props.classFullName} "${props.code.value}")`
-          : `${elementId} (${props.classFullName})`;
+          ? `${elementId} (${props.classFullName} "${props.code.value}", ${reasonName})`
+          : `${elementId} (${props.classFullName}, ${reasonName})`;
       })
       .join(", ");
-    const unlisted = elementIds.size - maxListedElements;
+    const unlisted = refusals.size - maxListedElements;
     return unlisted > 0 ? `${listed}, and ${unlisted} more` : listed;
   }
 

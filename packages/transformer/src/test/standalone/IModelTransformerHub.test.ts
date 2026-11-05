@@ -913,7 +913,7 @@ describe("IModelTransformerHub", () => {
       );
       expect(refusedWarnings).to.have.length(1);
       expect(refusedWarnings[0][1]).to.contain(
-        `${targetPartId} (BisCore:GeometryPart "SourcePart")`
+        `${targetPartId} (BisCore:GeometryPart "SourcePart", DefinitionInUse)`
       );
     } finally {
       warningSpy.mockRestore();

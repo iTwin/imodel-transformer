@@ -3473,7 +3473,7 @@ describe("IModelTransformer", () => {
     targetTxn.saveChanges();
 
     // save subject 1 element properties for new subject(it should have same fed guid and code)
-    const targetSubjectProps = sourceDb.elements.getElementProps(
+    const targetSubjectProps: ElementProps = sourceDb.elements.getElementProps(
       targetSubjectId!
     );
     targetSubjectProps.id = undefined;

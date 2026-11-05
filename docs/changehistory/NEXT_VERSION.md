@@ -144,7 +144,7 @@ Calls to the public `IModelImporter.deleteElement(elementId)` don't need to chan
 
 If an element outside the batch still uses an element in it through a reference that the importer checks, such as its category, its code scope, or a view definition's display style, the importer keeps the used element, the elements it needs, and the elements that contain it, deletes the rest, and logs a warning listing up to ten kept elements. Later syncs don't try to delete kept elements again. Per-element deletion also kept definitions that were still in use, but without a warning.
 
-If core refuses to delete an element because of a use that the importer doesn't check in advance, for example because geometry outside the batch places a geometry part in it, the importer keeps the root of the refused native call's tree and the requested elements that contain it, deletes the rest, and logs a warning that lists them.
+If core refuses to delete an element because of a use that the importer doesn't check in advance, for example because geometry outside the batch places a geometry part in it, the importer keeps the refused element and the requested elements that contain it, deletes the rest, and logs a warning that lists them with the reason core gave.
 
 If a native deletion call fails for another reason, such as a database error, `IModelImporter.deleteElements()` throws an `ElementBulkDeleteError` with scope `IModelTransformerErrorScope` and key `IModelTransformerError.ElementBulkDeleteFailed`. Its `status`, `sqlDeleteStatus`, and `failedIds` describe the failed call. Deletions from that call and earlier ones are still pending in the caller's target transaction, so abandon the transaction before fixing the dependency and retrying.
 
