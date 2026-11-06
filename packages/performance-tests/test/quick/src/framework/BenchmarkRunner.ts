@@ -14,6 +14,7 @@ import {
 import {
   BenchmarkScenario,
   BenchmarkScenarioDefinition,
+  BenchmarkScenarioMetrics,
   ScenarioConfiguration,
 } from "./BenchmarkScenario.js";
 import {
@@ -149,6 +150,7 @@ export interface BenchmarkSample {
   readonly sample: number;
   readonly scenarioId: string;
   readonly scenarioConfiguration?: ScenarioConfiguration;
+  readonly scenarioMetrics?: BenchmarkScenarioMetrics;
   readonly semanticDigest: string;
   readonly teardownMilliseconds: number;
   readonly topology: FixtureTopology;
@@ -428,6 +430,7 @@ export class BenchmarkRunner {
             const rssDeltaBytes = process.memoryUsage().rss - rssBefore;
             const verificationStart = process.hrtime.bigint();
             const semanticDigest = await activeScenario.finish();
+            const scenarioMetrics = activeScenario.getMetrics?.();
             const verificationMilliseconds =
               Number(process.hrtime.bigint() - verificationStart) / 1_000_000;
             return {
@@ -451,6 +454,7 @@ export class BenchmarkRunner {
               sample,
               scenarioId: this._scenario.id,
               scenarioConfiguration: this._scenario.configuration,
+              ...(scenarioMetrics === undefined ? {} : { scenarioMetrics }),
               semanticDigest,
               topology: descriptor.layout.topology,
               transformerProvenance,
