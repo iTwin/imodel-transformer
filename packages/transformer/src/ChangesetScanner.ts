@@ -290,32 +290,24 @@ export class ChangesetScanner {
     csFiles: ChangesetFileProps[]
   ): Generator<ChangeInstance> {
     for (const csFile of csFiles) {
-      const csReader = ChangesetReader.openFile({
+      // `using` disposes the unifier and then the reader independently whenever this iteration exits.
+      using csReader = ChangesetReader.openFile({
         fileName: csFile.pathname,
         db: iModel,
         propFilter: PropertyFilter.InstanceKeyAndIdentifiers,
       });
-      let changeUnifier: ChangeUnifier;
-      try {
-        // Merges natively; past the default memory budget, merged instances spill to temporary files.
-        changeUnifier = ChangeUnifier.fromReader(csReader);
-      } finally {
-        csReader[Symbol.dispose]();
-      }
-      try {
-        for (const change of changeUnifier.instances()) {
-          if (change.ECClassId === undefined)
-            ITwinError.throwError({
-              iTwinErrorId: {
-                scope: IModelTransformerErrorScope,
-                key: IModelTransformerError.ChangedInstanceMetadataMissing,
-              },
-              message: `ECClassId was not found for id: ${change.ECInstanceId}! Table is : ${change.$meta.tables}`,
-            });
-          yield change;
-        }
-      } finally {
-        changeUnifier[Symbol.dispose]();
+      // Merges natively; past the default memory budget, merged instances spill to temporary files.
+      using changeUnifier = ChangeUnifier.fromReader(csReader);
+      for (const change of changeUnifier.instances()) {
+        if (change.ECClassId === undefined)
+          ITwinError.throwError({
+            iTwinErrorId: {
+              scope: IModelTransformerErrorScope,
+              key: IModelTransformerError.ChangedInstanceMetadataMissing,
+            },
+            message: `ECClassId was not found for id: ${change.ECInstanceId}! Table is : ${change.$meta.tables}`,
+          });
+        yield change;
       }
     }
   }

@@ -438,6 +438,23 @@ describe("ChangesetScanner owner resolution", () => {
       });
       expect(readerDispose).toHaveBeenCalledTimes(1);
     });
+
+    it("disposes the unifier even when disposing the reader fails", async () => {
+      const disposeError = new Error("reader dispose failed");
+      const disposeReader = ChangesetReader.prototype[Symbol.dispose];
+      vi.spyOn(ChangesetReader.prototype, Symbol.dispose).mockImplementation(
+        function (this: ChangesetReader) {
+          disposeReader.call(this);
+          throw disposeError;
+        }
+      );
+      const unifierDispose = vi.spyOn(ChangeUnifier.prototype, Symbol.dispose);
+      await withEditTxn(db, "change element", async (txn) => {
+        Subject.insert(txn, IModel.rootSubjectId, "inserted");
+        await expect(scanSnapshot(files)).rejects.toBe(disposeError);
+      });
+      expect(unifierDispose).toHaveBeenCalledTimes(1);
+    });
   });
 
   describe("deletion classification", () => {
