@@ -1721,6 +1721,155 @@ describe("IModelImporter bulk element deletion", () => {
     }
   });
 
+  it("keeps the code dependents of a geometry part that an element outside the batch uses", async () => {
+    const targetDb = createTargetDb("GeometryPartStillInUseCodeDependent");
+    try {
+      const ids = withEditTxn(targetDb, "insert part and users", (txn) => {
+        const definitionModelId = DefinitionModel.insert(
+          txn,
+          IModel.rootSubjectId,
+          "Definition model"
+        );
+        const modelId = PhysicalModel.insert(
+          txn,
+          IModel.rootSubjectId,
+          "Physical model"
+        );
+        const categoryId = SpatialCategory.insert(
+          txn,
+          IModel.dictionaryId,
+          "Spatial category",
+          new SubCategoryAppearance()
+        );
+        const codeSpecId = targetDb.codeSpecs.insert(
+          txn,
+          "RelatedElementCodeSpec",
+          CodeScopeSpec.Type.RelatedElement
+        );
+        const independentId = Subject.insert(
+          txn,
+          IModel.rootSubjectId,
+          "Independent"
+        );
+        const partIds = insertGeometryPartUser(txn, targetDb, {
+          definitionModelId,
+          modelId,
+          categoryId,
+        });
+        const codeDependentId = insertPhysicalObject(txn, {
+          modelId,
+          categoryId,
+          codeSpecId,
+          codeScope: partIds.partId,
+          codeValue: "Scoped by part",
+        });
+        return { independentId, codeDependentId, ...partIds };
+      });
+      // The part's code dependent is in the part's tree. When native validation refuses the part, the importer keeps
+      // the whole tree, so the code dependent stays even though the part's other uses are outside the batch.
+      const requested = new Set([ids.partId, ids.independentId]);
+      const editTxn = createStartedEditTxn(targetDb);
+      const nativeSpy = vi.spyOn(editTxn, "deleteElements");
+      const warningSpy = vi.spyOn(Logger, "logWarning");
+      try {
+        await new IModelImporter(editTxn).deleteElements(requested);
+        expect(warningSpy).toHaveBeenCalledOnce();
+        expect(warningSpy.mock.calls[0][1]).to.contain(
+          `: ${ids.partId} (BisCore:GeometryPart "Part", DefinitionInUse)`
+        );
+        expect(nativeSpy).toHaveBeenCalledTimes(2);
+      } finally {
+        warningSpy.mockRestore();
+        nativeSpy.mockRestore();
+      }
+      expect(targetDb.elements.tryGetElement(ids.independentId)).to.be
+        .undefined;
+      for (const id of [ids.partId, ids.codeDependentId, ids.userId])
+        expect(targetDb.elements.tryGetElement(id)).to.not.be.undefined;
+      editTxn.end("abandon");
+    } finally {
+      targetDb.close();
+    }
+  });
+
+  it("keeps every model under a subject that contains a geometry part an element outside the batch uses", async () => {
+    const targetDb = createTargetDb("GeometryPartStillInUseUnderSubject");
+    try {
+      const ids = withEditTxn(targetDb, "insert subject and users", (txn) => {
+        const subjectId = Subject.insert(txn, IModel.rootSubjectId, "Subject");
+        const definitionModelId = DefinitionModel.insert(
+          txn,
+          subjectId,
+          "Definition model"
+        );
+        const subjectModelId = PhysicalModel.insert(
+          txn,
+          subjectId,
+          "Subject physical model"
+        );
+        const outsideModelId = PhysicalModel.insert(
+          txn,
+          IModel.rootSubjectId,
+          "Outside physical model"
+        );
+        const categoryId = SpatialCategory.insert(
+          txn,
+          IModel.dictionaryId,
+          "Spatial category",
+          new SubCategoryAppearance()
+        );
+        const independentId = Subject.insert(
+          txn,
+          IModel.rootSubjectId,
+          "Independent"
+        );
+        const partIds = insertGeometryPartUser(txn, targetDb, {
+          definitionModelId,
+          modelId: outsideModelId,
+          categoryId,
+        });
+        const subjectElementId = insertPhysicalObject(txn, {
+          modelId: subjectModelId,
+          categoryId,
+        });
+        return {
+          subjectId,
+          subjectModelId,
+          subjectElementId,
+          independentId,
+          ...partIds,
+        };
+      });
+      // Native validation refuses the part, so the importer keeps the subject that contains it. The subject's other
+      // models stay whole: none of their contents are deleted while the subject stays.
+      const requested = new Set([ids.subjectId, ids.independentId]);
+      const editTxn = createStartedEditTxn(targetDb);
+      const warningSpy = vi.spyOn(Logger, "logWarning");
+      try {
+        await new IModelImporter(editTxn).deleteElements(requested);
+        expect(warningSpy).toHaveBeenCalledOnce();
+        expect(warningSpy.mock.calls[0][1]).to.contain(
+          `: ${ids.partId} (BisCore:GeometryPart "Part", DefinitionInUse)`
+        );
+      } finally {
+        warningSpy.mockRestore();
+      }
+      expect(targetDb.elements.tryGetElement(ids.independentId)).to.be
+        .undefined;
+      for (const id of [
+        ids.subjectId,
+        ids.subjectModelId,
+        ids.subjectElementId,
+        ids.partId,
+        ids.userId,
+      ])
+        expect(targetDb.elements.tryGetElement(id)).to.not.be.undefined;
+      editTxn.end("abandon");
+    } finally {
+      targetDb.close();
+    }
+  });
+
   it("keeps the code scope of a geometry part that an element outside the batch uses", async () => {
     const targetDb = createTargetDb("GeometryPartStillInUseCodeScope");
     try {
