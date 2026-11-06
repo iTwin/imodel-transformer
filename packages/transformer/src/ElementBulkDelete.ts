@@ -36,9 +36,10 @@ interface DeletionTrees {
  * Native validation checks each root against the iModel before the call, so a root is refused when its tree
  * contains a definition, such as a category or a view, that a non-definition element in the same call still
  * uses. The plan deletes those users in an earlier call than the definitions they use. Validation stays enabled
- * for every call, so a reference this plan does not know about fails loudly instead of leaving a dangling
- * reference. That includes elements outside the trees whose geometry uses a definition in them, such as a
- * geometry part: only native code can read geometry, so those uses are not checked in advance.
+ * for every call, so native code refuses an element that something this plan does not know about still uses
+ * instead of leaving a dangling reference. That includes elements outside the trees whose geometry uses a
+ * definition in them, such as a geometry part: only native code can read geometry, so those uses are not checked
+ * in advance. The importer keeps the refused elements and plans again without them.
  * @internal
  */
 export async function planBulkDelete(
@@ -236,8 +237,9 @@ async function queryDeletionTrees(
  * The whole subtree below a blocked element is kept, even when the element is blocked only as a code scope and
  * its children could be deleted. A kept category needs its sub-categories, because the plan can't see geometry
  * outside the trees that uses them, and keeping too much is safe.
+ * @internal
  */
-async function queryKeptElements(
+export async function queryKeptElements(
   targetDb: IModelDb,
   blockedIds: ReadonlySet<Id64String>
 ): Promise<Id64Set> {
