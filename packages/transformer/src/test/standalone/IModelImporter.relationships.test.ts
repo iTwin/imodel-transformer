@@ -25,6 +25,14 @@ interface TestRelationshipProps extends RelationshipProps {
   label?: string;
 }
 
+class ProgressCountingImporter extends IModelImporter {
+  public progressCalls = 0;
+  protected override async onProgress(): Promise<void> {
+    this.progressCalls++;
+    await super.onProgress();
+  }
+}
+
 describe("IModelImporter relationships", () => {
   let targetDb: StandaloneDb;
   let editTxn: EditTxn;
@@ -217,8 +225,8 @@ describe("IModelImporter relationships", () => {
       const [a, b] = elementIds;
       const relId = insertRelationship(testRelClass, a, b);
       editTxn.saveChanges();
-      importer.progressInterval = 1;
-      const onProgress = vi.spyOn(importer, "onProgress");
+      const progressImporter = new ProgressCountingImporter(editTxn);
+      progressImporter.progressInterval = 1;
       const failure = new Error("bulk delete failed");
       const originalDelete = editTxn.deleteRelationships.bind(editTxn);
       vi.spyOn(editTxn, "deleteRelationships").mockImplementationOnce(
@@ -229,12 +237,12 @@ describe("IModelImporter relationships", () => {
       );
 
       await expect(
-        importer.deleteRelationships([
+        progressImporter.deleteRelationships([
           { id: relId, classFullName: testRelClass },
         ])
       ).rejects.toBe(failure);
 
-      expect(onProgress).not.toHaveBeenCalled();
+      expect(progressImporter.progressCalls).to.equal(0);
       editTxn.abandonChanges();
       expect(targetDb.relationships.tryGetInstance(testRelClass, relId)).to.not
         .be.undefined;
