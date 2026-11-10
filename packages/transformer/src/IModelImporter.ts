@@ -29,7 +29,9 @@ import {
 } from "@itwin/core-common";
 import { TransformerLoggerCategory } from "./TransformerLoggerCategory.js";
 import {
+  BulkDeleteElementsResult,
   BulkDeleteElementsStatus,
+  BulkDeleteFailureReason,
   EditTxn,
   ElementAspect,
   ElementMultiAspect,
@@ -53,26 +55,62 @@ import {
   IModelTransformerError,
   IModelTransformerErrorScope,
 } from "./IModelTransformerError.js";
-import { planBulkDelete } from "./ElementBulkDelete.js";
+import { planBulkDelete, queryKeptElements } from "./ElementBulkDelete.js";
 import { EntityExistenceCache } from "./EntityExistenceCache.js";
 import { relationshipEndpointsKey } from "./RelationshipEndpointsKey.js";
 
 const loggerCategory: string = TransformerLoggerCategory.IModelImporter;
 
+const maxListedElements = 10;
+
 /** Lists the first kept references for a log message. */
 function formatKeptReferences(
   keptReferences: ReadonlyMap<Id64String, Id64String>
 ): string {
-  const maxListed = 10;
   const listed = [...keptReferences]
-    .slice(0, maxListed)
+    .slice(0, maxListedElements)
     .map(
       ([elementId, referencingId]) =>
         `${elementId} (referenced by ${referencingId})`
     )
     .join(", ");
-  const unlisted = keptReferences.size - maxListed;
+  const unlisted = keptReferences.size - maxListedElements;
   return unlisted > 0 ? `${listed}, and ${unlisted} more` : listed;
+}
+
+/** True when native validation refused the call because elements in it can't be deleted, such as a definition that
+ * something outside the deleted trees still uses. Native code then deletes nothing and lists each refused element.
+ */
+function isRefusal(result: BulkDeleteElementsResult): boolean {
+  return (
+    result.status === BulkDeleteElementsStatus.ConstraintViolation &&
+    result.failures.length > 0
+  );
+}
+
+function throwBulkDeleteError(
+  result: BulkDeleteElementsResult,
+  roots: Iterable<Id64String>
+): never {
+  // Constraint violations list the blocking elements. Other failures leave every requested root undeleted.
+  const failedIds =
+    result.failures.length > 0
+      ? new Set(result.failures.map((failure) => failure.elementId))
+      : new Set(roots);
+  ITwinError.throwError<ElementBulkDeleteError>({
+    iTwinErrorId: {
+      scope: IModelTransformerErrorScope,
+      key: IModelTransformerError.ElementBulkDeleteFailed,
+    },
+    message:
+      `Bulk element deletion failed: status ${BulkDeleteElementsStatus[result.status]}, ` +
+      `SQLite status ${result.sqlDeleteStatus}, failed element IDs: ${[
+        ...failedIds,
+      ].join(", ")}`,
+    status: result.status,
+    sqlDeleteStatus: result.sqlDeleteStatus,
+    failedIds,
+  });
 }
 
 /** Error thrown when native bulk deletion fails to delete one or more requested element trees.
@@ -511,63 +549,102 @@ export class IModelImporter {
   /** Adds roots required by code-scope dependencies, then deletes the target element trees in as few native operations as their references allow.
    * Usually one native operation is enough. When a tree contains a definition, such as a category, that another deleted element uses, the elements that use it are deleted first.
    * Elements that something outside the deleted trees still references are kept, with a warning, and the rest are deleted.
+   * When native validation refuses elements that something still uses in a way the importer can't check in advance, such as a geometry part that
+   * geometry outside the deleted trees places, those elements are kept as well, with a warning, and the rest are deleted.
    * @note An override must call `super.onDeleteElements` once to perform the deletion.
    */
   protected async onDeleteElements(
     elementIds: ReadonlySet<Id64String>
   ): Promise<void> {
-    const plan = await planBulkDelete(this.targetDb, elementIds);
-    if (plan.keptReferences.size > 0) {
+    const requestedIds = new Set(elementIds);
+    const keptReferences = new Map<Id64String, Id64String>();
+    const refusals = new Map<Id64String, BulkDeleteFailureReason>();
+    let rootCount = 0;
+    let operationCount = 0;
+    for (;;) {
+      const plan = await planBulkDelete(this.targetDb, requestedIds);
+      const newKeptReferences = new Map(
+        [...plan.keptReferences].filter(([id]) => !keptReferences.has(id))
+      );
+      if (newKeptReferences.size > 0) {
+        Logger.logWarning(
+          loggerCategory,
+          `Kept ${newKeptReferences.size} elements that elements outside the deleted trees still reference, and the elements that contain them: ${formatKeptReferences(
+            newKeptReferences
+          )}`
+        );
+        for (const [id, referencingId] of newKeptReferences)
+          keptReferences.set(id, referencingId);
+      }
+
+      let refusal:
+        { result: BulkDeleteElementsResult; roots: Id64String[] } | undefined;
+      for (const roots of plan.phases) {
+        rootCount += roots.length;
+        ++operationCount;
+        const result = this._editTxn.deleteElements(roots);
+        if (result.status === BulkDeleteElementsStatus.Success) continue;
+        if (!isRefusal(result)) throwBulkDeleteError(result, roots);
+        refusal = { result, roots };
+        break;
+      }
+      if (!refusal) break;
+
+      // Keep the refused elements and every requested element whose deletion would delete them, then plan again.
+      // The refused call deleted nothing. Requested trees that earlier calls deleted no longer exist, so the next plan skips them.
+      const refusedIds = new Set(
+        refusal.result.failures.map((failure) => failure.elementId)
+      );
+      const requestedCount = requestedIds.size;
+      for (const id of await queryKeptElements(this.targetDb, refusedIds))
+        requestedIds.delete(id);
+      if (requestedIds.size === requestedCount)
+        throwBulkDeleteError(refusal.result, refusal.roots);
+      for (const { elementId, reason } of refusal.result.failures)
+        refusals.set(elementId, reason);
+    }
+
+    if (refusals.size > 0) {
       Logger.logWarning(
         loggerCategory,
-        `Kept ${plan.keptReferences.size} elements that elements outside the deleted trees still reference, and the elements that contain them: ${formatKeptReferences(
-          plan.keptReferences
+        `Kept ${refusals.size} elements that native deletion refused, such as a geometry part that geometry outside the deleted trees places, and the elements that contain them: ${this.formatRefusedElements(
+          refusals
         )}`
       );
     }
-    if (plan.phases.length === 0) return;
-    let rootCount = 0;
-    for (const roots of plan.phases) {
-      rootCount += roots.length;
-      this.deleteElementRoots(roots);
-    }
+    if (operationCount === 0) return;
 
     Logger.logInfo(
       loggerCategory,
-      `Deleted ${elementIds.size} requested element trees using ${rootCount} native deletion roots in ${plan.phases.length} native operations`
+      `Deleted ${elementIds.size} requested element trees using ${rootCount} native deletion roots in ${operationCount} native operations`
     );
     await this.trackProgress(elementIds.size);
   }
 
-  private deleteElementRoots(roots: Id64String[]): void {
-    const result = this._editTxn.deleteElements(roots);
-    if (result.status !== BulkDeleteElementsStatus.Success) {
-      // Constraint violations list the blocking elements. Other failures leave every requested root undeleted.
-      const failedIds =
-        result.failures.length > 0
-          ? new Set(result.failures.map((failure) => failure.elementId))
-          : new Set(roots);
-      ITwinError.throwError<ElementBulkDeleteError>({
-        iTwinErrorId: {
-          scope: IModelTransformerErrorScope,
-          key: IModelTransformerError.ElementBulkDeleteFailed,
-        },
-        message:
-          `Bulk element deletion failed: status ${BulkDeleteElementsStatus[result.status]}, ` +
-          `SQLite status ${result.sqlDeleteStatus}, failed element IDs: ${[
-            ...failedIds,
-          ].join(", ")}`,
-        status: result.status,
-        sqlDeleteStatus: result.sqlDeleteStatus,
-        failedIds,
-      });
-    }
+  /** Lists the first refused elements, with their class, code, and refusal reason, for a log message. */
+  private formatRefusedElements(
+    refusals: ReadonlyMap<Id64String, BulkDeleteFailureReason>
+  ): string {
+    const listed = [...refusals]
+      .slice(0, maxListedElements)
+      .map(([elementId, reason]) => {
+        const reasonName = BulkDeleteFailureReason[reason];
+        const props = this.targetDb.elements.tryGetElementProps(elementId);
+        if (!props) return `${elementId} (${reasonName})`;
+        return props.code.value
+          ? `${elementId} (${props.classFullName} "${props.code.value}", ${reasonName})`
+          : `${elementId} (${props.classFullName}, ${reasonName})`;
+      })
+      .join(", ");
+    const unlisted = refusals.size - maxListedElements;
+    return unlisted > 0 ? `${listed}, and ${unlisted} more` : listed;
   }
 
   /** Deletes target element trees, using one native operation unless references between the trees require more.
    * Requested roots in [[doNotUpdateElementIds]] are skipped. This does not prevent an element in that set from being deleted as part of another root's cascade.
-   * Elements that something outside the deleted trees still references are kept, along with their child elements and sub-models and the elements that contain them. A warning lists them.
-   * @throws [[ElementBulkDeleteError]] if a native operation fails for any root, for example because geometry outside the deleted trees uses a geometry part in them, or because of a reference in a domain schema. The transformer does not check those references first. Deletions from that and earlier native operations stay pending in the caller-owned transaction. Abandon the transaction before retrying.
+   * Elements that something outside the deleted trees still uses are kept, along with their child elements and sub-models and the elements that contain them. A warning lists them.
+   * That includes elements that native validation refuses because of a use the importer doesn't check in advance, such as geometry outside the deleted trees that places a geometry part in them.
+   * @throws [[ElementBulkDeleteError]] if a native operation fails with a database error, or refuses elements that no requested element contains. Deletions from that and earlier native operations stay pending in the caller-owned transaction. Abandon the transaction before retrying.
    */
   public async deleteElements(
     elementIds: ReadonlySet<Id64String>

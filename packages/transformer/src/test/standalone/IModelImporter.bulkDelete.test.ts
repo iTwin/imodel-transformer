@@ -1427,7 +1427,7 @@ describe("IModelImporter bulk element deletion", () => {
     }
   });
 
-  it("throws when an element outside the batch uses a geometry part in it", async () => {
+  it("keeps a geometry part that an element outside the batch uses", async () => {
     const targetDb = createTargetDb("GeometryPartStillInUse");
     try {
       const ids = withEditTxn(targetDb, "insert part and user", (txn) => {
@@ -1458,27 +1458,332 @@ describe("IModelImporter bulk element deletion", () => {
       expect(plan.keptReferences.size).to.equal(0);
 
       const editTxn = createStartedEditTxn(targetDb);
-      await expectTransformerError(
-        async () =>
-          new IModelImporter(editTxn).deleteElements(new Set([ids.partId])),
-        IModelTransformerError.ElementBulkDeleteFailed,
-        `Bulk element deletion failed: status ConstraintViolation, SQLite status ${DbResult.BE_SQLITE_OK}, failed element IDs: ${ids.partId}`
-      );
+      const nativeDeleteSpy = vi.spyOn(editTxn, "deleteElements");
+      const warningSpy = vi.spyOn(Logger, "logWarning");
+      try {
+        await new IModelImporter(editTxn).deleteElements(new Set([ids.partId]));
+        expect(warningSpy).toHaveBeenCalledOnce();
+        expect(warningSpy.mock.calls[0][1]).to.equal(
+          `Kept 1 elements that native deletion refused, such as a geometry part that geometry outside the deleted trees places, and the elements that contain them: ${ids.partId} (BisCore:GeometryPart "Part", DefinitionInUse)`
+        );
+      } finally {
+        warningSpy.mockRestore();
+      }
+      expect(nativeDeleteSpy).toHaveBeenCalledOnce();
+      expect(nativeDeleteSpy.mock.results[0].value).to.deep.include({
+        status: BulkDeleteElementsStatus.ConstraintViolation,
+        failures: [
+          {
+            elementId: ids.partId,
+            reason: BulkDeleteFailureReason.DefinitionInUse,
+          },
+        ],
+      });
       expect(targetDb.elements.tryGetElement(ids.partId)).to.not.be.undefined;
+      expect(targetDb.elements.tryGetElement(ids.userId)).to.not.be.undefined;
       editTxn.end("abandon");
     } finally {
       targetDb.close();
     }
   });
 
-  it("reports native failures without retrying individual roots", async () => {
-    const targetDb = createTargetDb("NativeFailure");
+  it("keeps a geometry part that an element outside the batch uses and deletes the rest of the native call", async () => {
+    const targetDb = createTargetDb("GeometryPartStillInUseWithOtherRoots");
     try {
-      const independentId = withEditTxn(targetDb, "insert subject", (txn) =>
-        Subject.insert(txn, IModel.rootSubjectId, "Independent")
-      );
+      const ids = withEditTxn(targetDb, "insert parts and user", (txn) => {
+        const definitionModelId = DefinitionModel.insert(
+          txn,
+          IModel.rootSubjectId,
+          "Definition model"
+        );
+        const modelId = PhysicalModel.insert(
+          txn,
+          IModel.rootSubjectId,
+          "Physical model"
+        );
+        const categoryId = SpatialCategory.insert(
+          txn,
+          IModel.dictionaryId,
+          "Spatial category",
+          new SubCategoryAppearance()
+        );
+        const unusedPartId = txn.insertElement({
+          classFullName: GeometryPart.classFullName,
+          model: definitionModelId,
+          code: GeometryPart.createCode(
+            targetDb,
+            definitionModelId,
+            "Unused part"
+          ),
+          geom: IModelTestUtils.createBox(Point3d.create(1, 1, 1)),
+        } as GeometryPartProps);
+        const independentId = Subject.insert(
+          txn,
+          IModel.rootSubjectId,
+          "Independent"
+        );
+        return {
+          definitionModelId,
+          unusedPartId,
+          independentId,
+          ...insertGeometryPartUser(txn, targetDb, {
+            definitionModelId,
+            modelId,
+            categoryId,
+          }),
+        };
+      });
+      const requested = new Set([
+        ids.partId,
+        ids.unusedPartId,
+        ids.independentId,
+      ]);
+      expect(await planPhases(targetDb, requested)).to.deep.equal([
+        new Set([ids.independentId]),
+        new Set([ids.partId, ids.unusedPartId]),
+      ]);
+
       const editTxn = createStartedEditTxn(targetDb);
-      // Simulates a reference that the transformer does not check before deletion, such as one from a domain schema.
+      const nativeDeleteSpy = vi.spyOn(editTxn, "deleteElements");
+      const warningSpy = vi.spyOn(Logger, "logWarning");
+      try {
+        await new IModelImporter(editTxn).deleteElements(requested);
+        expect(warningSpy).toHaveBeenCalledOnce();
+        expect(warningSpy.mock.calls[0][1]).to.contain(
+          `: ${ids.partId} (BisCore:GeometryPart "Part", DefinitionInUse)`
+        );
+      } finally {
+        warningSpy.mockRestore();
+      }
+      // The second call reproduces the reported failure: native validation refuses the used part and deletes nothing.
+      // The third call deletes the unused part.
+      expect(nativeDeleteSpy).toHaveBeenCalledTimes(3);
+      expect(nativeDeleteSpy.mock.results[1].value).to.deep.include({
+        status: BulkDeleteElementsStatus.ConstraintViolation,
+        failures: [
+          {
+            elementId: ids.partId,
+            reason: BulkDeleteFailureReason.DefinitionInUse,
+          },
+        ],
+      });
+      expect(nativeDeleteSpy.mock.calls[2][0]).to.deep.equal([
+        ids.unusedPartId,
+      ]);
+      for (const id of [ids.unusedPartId, ids.independentId])
+        expect(targetDb.elements.tryGetElement(id)).to.be.undefined;
+      for (const id of [ids.partId, ids.userId, ids.definitionModelId])
+        expect(targetDb.elements.tryGetElement(id)).to.not.be.undefined;
+      editTxn.end("abandon");
+    } finally {
+      targetDb.close();
+    }
+  });
+
+  it("keeps the definition model that contains a geometry part an element outside the batch uses", async () => {
+    const targetDb = createTargetDb("GeometryPartStillInUseInDefinitionModel");
+    try {
+      const ids = withEditTxn(targetDb, "insert part and user", (txn) => {
+        const definitionModelId = DefinitionModel.insert(
+          txn,
+          IModel.rootSubjectId,
+          "Definition model"
+        );
+        const modelId = PhysicalModel.insert(
+          txn,
+          IModel.rootSubjectId,
+          "Physical model"
+        );
+        const categoryId = SpatialCategory.insert(
+          txn,
+          IModel.dictionaryId,
+          "Spatial category",
+          new SubCategoryAppearance()
+        );
+        const independentId = Subject.insert(
+          txn,
+          IModel.rootSubjectId,
+          "Independent"
+        );
+        return {
+          definitionModelId,
+          independentId,
+          ...insertGeometryPartUser(txn, targetDb, {
+            definitionModelId,
+            modelId,
+            categoryId,
+          }),
+        };
+      });
+      const requested = new Set([ids.definitionModelId, ids.independentId]);
+      // The part's code is scoped by its definition model, so the part is a root of its own in the same native call as
+      // the definition model that contains it. Native validation refuses the whole call, so neither is deleted.
+      expect(await planPhases(targetDb, requested)).to.deep.equal([
+        new Set([ids.independentId]),
+        new Set([ids.definitionModelId, ids.partId]),
+      ]);
+
+      const editTxn = createStartedEditTxn(targetDb);
+      const warningSpy = vi.spyOn(Logger, "logWarning");
+      try {
+        await new IModelImporter(editTxn).deleteElements(requested);
+        expect(warningSpy).toHaveBeenCalledOnce();
+        expect(warningSpy.mock.calls[0][1]).to.contain(
+          `: ${ids.partId} (BisCore:GeometryPart "Part", DefinitionInUse)`
+        );
+      } finally {
+        warningSpy.mockRestore();
+      }
+      expect(targetDb.elements.tryGetElement(ids.independentId)).to.be
+        .undefined;
+      for (const id of [ids.definitionModelId, ids.partId, ids.userId])
+        expect(targetDb.elements.tryGetElement(id)).to.not.be.undefined;
+      expect(targetDb.models.tryGetModelProps(ids.definitionModelId)).to.not.be
+        .undefined;
+      editTxn.end("abandon");
+    } finally {
+      targetDb.close();
+    }
+  });
+
+  it("keeps the code scope of a geometry part that an element outside the batch uses", async () => {
+    const targetDb = createTargetDb("GeometryPartStillInUseCodeScope");
+    try {
+      const ids = withEditTxn(targetDb, "insert part and user", (txn) => {
+        const definitionModelId = DefinitionModel.insert(
+          txn,
+          IModel.rootSubjectId,
+          "Definition model"
+        );
+        const modelId = PhysicalModel.insert(
+          txn,
+          IModel.rootSubjectId,
+          "Physical model"
+        );
+        const categoryId = SpatialCategory.insert(
+          txn,
+          IModel.dictionaryId,
+          "Spatial category",
+          new SubCategoryAppearance()
+        );
+        const codeSpecId = targetDb.codeSpecs.insert(
+          txn,
+          "RelatedElementCodeSpec",
+          CodeScopeSpec.Type.RelatedElement
+        );
+        const scopeId = Subject.insert(txn, IModel.rootSubjectId, "Scope");
+        const independentId = Subject.insert(
+          txn,
+          IModel.rootSubjectId,
+          "Independent"
+        );
+        const size = Point3d.create(1, 1, 1);
+        const partId = txn.insertElement({
+          classFullName: GeometryPart.classFullName,
+          model: definitionModelId,
+          code: { spec: codeSpecId, scope: scopeId, value: "Part" },
+          geom: IModelTestUtils.createBox(size),
+        } as GeometryPartProps);
+        const userId = txn.insertElement({
+          classFullName: "Generic:PhysicalObject",
+          model: modelId,
+          category: categoryId,
+          code: Code.createEmpty(),
+          placement: { origin: [0, 0, 0], angles: {} },
+          geom: IModelTestUtils.createBox(
+            size,
+            categoryId,
+            IModelDb.getDefaultSubCategoryId(categoryId),
+            undefined,
+            partId
+          ),
+        } as PhysicalElementProps);
+        return { scopeId, independentId, partId, userId };
+      });
+      // The part's code scope is a separate root deleted in the same native call as the part. Native validation must
+      // refuse the part without deleting its scope, so the importer can keep both.
+      const requested = new Set([ids.scopeId, ids.independentId]);
+      const editTxn = createStartedEditTxn(targetDb);
+      const warningSpy = vi.spyOn(Logger, "logWarning");
+      try {
+        await new IModelImporter(editTxn).deleteElements(requested);
+        expect(warningSpy).toHaveBeenCalledOnce();
+        expect(warningSpy.mock.calls[0][1]).to.contain(
+          `: ${ids.partId} (BisCore:GeometryPart "Part", DefinitionInUse)`
+        );
+      } finally {
+        warningSpy.mockRestore();
+      }
+      expect(targetDb.elements.tryGetElement(ids.independentId)).to.be
+        .undefined;
+      for (const id of [ids.scopeId, ids.partId, ids.userId])
+        expect(targetDb.elements.tryGetElement(id)).to.not.be.undefined;
+      editTxn.end("abandon");
+    } finally {
+      targetDb.close();
+    }
+  });
+
+  it("keeps elements that native validation refuses without deleting anything and retries the rest", async () => {
+    const targetDb = createTargetDb("RefusalWithoutDeletion");
+    try {
+      const ids = withEditTxn(targetDb, "insert subjects", (txn) => {
+        const refusedId = Subject.insert(txn, IModel.rootSubjectId, "Refused");
+        return {
+          refusedId,
+          refusedChildId: Subject.insert(txn, refusedId, "Refused child"),
+          deletedId: Subject.insert(txn, IModel.rootSubjectId, "Deleted"),
+        };
+      });
+      const requested = new Set([ids.refusedId, ids.deletedId]);
+      const editTxn = createStartedEditTxn(targetDb);
+      // Simulates a refusal that the plan can't predict, such as a reference from a domain schema.
+      const nativeDeleteSpy = vi
+        .spyOn(editTxn, "deleteElements")
+        .mockReturnValueOnce({
+          status: BulkDeleteElementsStatus.ConstraintViolation,
+          sqlDeleteStatus: DbResult.BE_SQLITE_OK,
+          failures: [
+            {
+              elementId: ids.refusedId,
+              reason: BulkDeleteFailureReason.ReferencedByForeignKey,
+            },
+          ],
+          failedIds: new Set([ids.refusedId]),
+        });
+      const warningSpy = vi.spyOn(Logger, "logWarning");
+      try {
+        await new IModelImporter(editTxn).deleteElements(requested);
+        expect(warningSpy).toHaveBeenCalledOnce();
+        expect(warningSpy.mock.calls[0][1]).to.contain(
+          `: ${ids.refusedId} (BisCore:Subject "Refused", ReferencedByForeignKey)`
+        );
+      } finally {
+        warningSpy.mockRestore();
+      }
+
+      expect(nativeDeleteSpy).toHaveBeenCalledTimes(2);
+      expect(new Set(nativeDeleteSpy.mock.calls[0][0])).to.deep.equal(
+        requested
+      );
+      expect(nativeDeleteSpy.mock.calls[1][0]).to.deep.equal([ids.deletedId]);
+      expect(targetDb.elements.tryGetElement(ids.deletedId)).to.be.undefined;
+      for (const id of [ids.refusedId, ids.refusedChildId])
+        expect(targetDb.elements.tryGetElement(id)).to.not.be.undefined;
+      editTxn.end("abandon");
+    } finally {
+      targetDb.close();
+    }
+  });
+
+  it("throws when native validation refuses an element that no requested element contains", async () => {
+    const targetDb = createTargetDb("RefusalOutsideRequest");
+    try {
+      const ids = withEditTxn(targetDb, "insert subjects", (txn) => ({
+        requestedId: Subject.insert(txn, IModel.rootSubjectId, "Requested"),
+        unrelatedId: Subject.insert(txn, IModel.rootSubjectId, "Unrelated"),
+      }));
+      const editTxn = createStartedEditTxn(targetDb);
       const nativeDeleteSpy = vi
         .spyOn(editTxn, "deleteElements")
         .mockReturnValue({
@@ -1486,24 +1791,25 @@ describe("IModelImporter bulk element deletion", () => {
           sqlDeleteStatus: DbResult.BE_SQLITE_OK,
           failures: [
             {
-              elementId: independentId,
+              elementId: ids.unrelatedId,
               reason: BulkDeleteFailureReason.ReferencedByForeignKey,
             },
           ],
-          failedIds: new Set([independentId]),
+          failedIds: new Set([ids.unrelatedId]),
         });
       const error = (await expectTransformerError(
         async () =>
-          new IModelImporter(editTxn).deleteElements(new Set([independentId])),
+          new IModelImporter(editTxn).deleteElements(
+            new Set([ids.requestedId])
+          ),
         IModelTransformerError.ElementBulkDeleteFailed,
-        `Bulk element deletion failed: status ConstraintViolation, SQLite status ${DbResult.BE_SQLITE_OK}, failed element IDs: ${independentId}`
+        `Bulk element deletion failed: status ConstraintViolation, SQLite status ${DbResult.BE_SQLITE_OK}, failed element IDs: ${ids.unrelatedId}`
       )) as ElementBulkDeleteError;
 
       expect(error.status).to.equal(
         BulkDeleteElementsStatus.ConstraintViolation
       );
-      expect(error.sqlDeleteStatus).to.equal(DbResult.BE_SQLITE_OK);
-      expect(error.failedIds).to.deep.equal(new Set([independentId]));
+      expect(error.failedIds).to.deep.equal(new Set([ids.unrelatedId]));
       expect(nativeDeleteSpy).toHaveBeenCalledOnce();
       editTxn.end("abandon");
     } finally {
@@ -1518,12 +1824,15 @@ describe("IModelImporter bulk element deletion", () => {
         Subject.insert(txn, IModel.rootSubjectId, "Independent")
       );
       const editTxn = createStartedEditTxn(targetDb);
-      vi.spyOn(editTxn, "deleteElements").mockReturnValue({
-        status: BulkDeleteElementsStatus.DeletionFailed,
-        sqlDeleteStatus: DbResult.BE_SQLITE_ERROR,
-        failures: [],
-        failedIds: new Set([independentId]),
-      });
+      // A database error is not a refusal, so the importer throws instead of retrying without the failed roots.
+      const nativeDeleteSpy = vi
+        .spyOn(editTxn, "deleteElements")
+        .mockReturnValue({
+          status: BulkDeleteElementsStatus.DeletionFailed,
+          sqlDeleteStatus: DbResult.BE_SQLITE_ERROR,
+          failures: [],
+          failedIds: new Set([independentId]),
+        });
       const error = (await expectTransformerError(
         async () =>
           new IModelImporter(editTxn).deleteElements(new Set([independentId])),
@@ -1533,6 +1842,7 @@ describe("IModelImporter bulk element deletion", () => {
 
       expect(error.status).to.equal(BulkDeleteElementsStatus.DeletionFailed);
       expect(error.failedIds).to.deep.equal(new Set([independentId]));
+      expect(nativeDeleteSpy).toHaveBeenCalledOnce();
       editTxn.end("abandon");
     } finally {
       targetDb.close();
