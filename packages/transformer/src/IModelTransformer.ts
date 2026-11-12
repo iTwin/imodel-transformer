@@ -2360,6 +2360,10 @@ export class IModelTransformer extends IModelExportHandler {
         this.context.remapElement(sourceElementId, targetElementId);
       }
     );
+    // Captured before custom changes, which can drop a processed insert by marking it deleted.
+    const processedSourceElementInserts = new Set(
+      this.exporter.sourceDbChanges?.element.insertIds
+    );
     if (this.exporter.sourceDbChanges)
       await this.addCustomChanges(this.exporter.sourceDbChanges);
 
@@ -2437,7 +2441,8 @@ export class IModelTransformer extends IModelExportHandler {
           element.federationGuid,
           deletedScopeEsaByElementId,
           alreadyImportedElementInserts,
-          alreadyImportedModelInserts
+          alreadyImportedModelInserts,
+          processedSourceElementInserts
         );
       for (const model of batch.models)
         await this.processDeletedElement(
@@ -2445,7 +2450,8 @@ export class IModelTransformer extends IModelExportHandler {
           undefined,
           deletedScopeEsaByElementId,
           alreadyImportedElementInserts,
-          alreadyImportedModelInserts
+          alreadyImportedModelInserts,
+          processedSourceElementInserts
         );
     }
   }
@@ -2582,6 +2588,7 @@ export class IModelTransformer extends IModelExportHandler {
    * @param deletedScopeEsaByElementId this transformation scope's deleted ESAs in the same batch, keyed by the ID of the element that owned each one.
    * @param alreadyImportedElementInserts used to handle entity recreation and not delete already handled element inserts.
    * @param alreadyImportedModelInserts used to handle entity recreation and not delete already handled model inserts.
+   * @param processedSourceElementInserts source elements inserted in the processed changesets, before custom changes were added.
    */
   private async processDeletedElement(
     sourceId: Id64String,
@@ -2591,7 +2598,8 @@ export class IModelTransformer extends IModelExportHandler {
       ExternalSourceAspectDeletionRecord
     >,
     alreadyImportedElementInserts: Set<Id64String>,
-    alreadyImportedModelInserts: Set<Id64String>
+    alreadyImportedModelInserts: Set<Id64String>,
+    processedSourceElementInserts: ReadonlySet<Id64String>
   ): Promise<void> {
     let targetId = await this.findTargetElementIdForDeletion(
       sourceId,
@@ -2611,12 +2619,46 @@ export class IModelTransformer extends IModelExportHandler {
     this.context.remapElement(sourceId, targetId);
     // If an entity insert and an entity delete both point to the same entity in target iModel, that means that entity was recreated.
     // In such case an entity update will be triggered and we no longer need to delete the entity.
-    if (alreadyImportedElementInserts.has(targetId)) {
+    if (
+      alreadyImportedElementInserts.has(targetId) ||
+      this.isTargetOwnedByElementRecreatedOutsideProcessedChanges(
+        sourceId,
+        federationGuid,
+        targetId,
+        processedSourceElementInserts
+      )
+    ) {
       this.exporter.sourceDbChanges?.element.deleteIds.delete(sourceId);
     }
     if (alreadyImportedModelInserts.has(targetId)) {
       this.exporter.sourceDbChanges?.model.deleteIds.delete(sourceId);
     }
+  }
+
+  /**
+   * Whether the target of a deleted source element still belongs to another source element that holds the same
+   * federation GUID and was inserted outside the processed changesets, such as in one pushed by a synchronization in
+   * the other direction. Recreations inserted in the processed changesets are handled through their inserts instead.
+   */
+  private isTargetOwnedByElementRecreatedOutsideProcessedChanges(
+    deletedSourceId: Id64String,
+    federationGuid: string | undefined,
+    targetId: Id64String,
+    processedSourceElementInserts: ReadonlySet<Id64String>
+  ): boolean {
+    if (federationGuid === undefined) return false;
+    const liveSourceId =
+      this.sourceDb.elements.getIdFromFederationGuid(federationGuid);
+    if (
+      liveSourceId === undefined ||
+      liveSourceId === deletedSourceId ||
+      processedSourceElementInserts.has(liveSourceId)
+    )
+      return false;
+    return (
+      this.targetDb.elements.getIdFromFederationGuid(federationGuid) ===
+      targetId
+    );
   }
 
   private async _tryInitChangesetData(args?: ProcessChangesOptions) {
