@@ -100,6 +100,7 @@ import type { IModelTransformContext } from "./IModelTransformContext.js";
 import { rangesFromRangeAndSkipped } from "./Algo.js";
 import { SyncTypeResolver } from "./SyncTypeResolver.js";
 import { ProvenanceManager } from "./ProvenanceManager.js";
+import { DeletionTargetResolver } from "./DeletionTargetLookups.js";
 import {
   NewerVersionSchemaImportStrategy,
   ProcessSchemasOptions,
@@ -2404,6 +2405,12 @@ export class IModelTransformer extends IModelExportHandler {
     this._pendingRelationshipDeleteTargets.clear();
     this._reimportedTargetRelationshipIds.clear();
 
+    // If the source holds the provenance, its ESAs (keyed by source element IDs) take precedence over federation GUIDs.
+    const sourceHoldsProvenance =
+      this.sourceDb === (await this.getProvenanceDb());
+    const isProvenanceSource =
+      this.sourceDb === (await this._provenanceManager.getProvenanceSourceDb());
+
     for (const batch of deletionBatches) {
       // Deletion records can only resolve targets within their own batch, so these lookups are rebuilt for each batch.
       // They cover elements and scope ESAs deleted in the source, which can no longer be read from it.
@@ -2425,17 +2432,27 @@ export class IModelTransformer extends IModelExportHandler {
             element.ecInstanceId,
             element.federationGuid
           );
+      const resolver = await DeletionTargetResolver.create({
+        sourceDb: this.sourceDb,
+        targetDb: this.targetDb,
+        targetScopeElementId: this.targetScopeElementId,
+        sourceHoldsProvenance,
+        batch,
+        deletedScopeEsaByElementId,
+        deletedFederationGuidByElementId,
+      });
       for (const relationship of batch.relationships)
         await this.processDeletedRelationship(
           relationship,
-          deletedScopeEsaByElementId,
-          deletedFederationGuidByElementId
+          resolver,
+          isProvenanceSource
         );
       for (const element of batch.elements)
         await this.processDeletedElement(
           element.ecInstanceId,
           element.federationGuid,
-          deletedScopeEsaByElementId,
+          resolver,
+          isProvenanceSource,
           alreadyImportedElementInserts,
           alreadyImportedModelInserts
         );
@@ -2443,7 +2460,8 @@ export class IModelTransformer extends IModelExportHandler {
         await this.processDeletedElement(
           model.ecInstanceId,
           undefined,
-          deletedScopeEsaByElementId,
+          resolver,
+          isProvenanceSource,
           alreadyImportedElementInserts,
           alreadyImportedModelInserts
         );
@@ -2463,82 +2481,27 @@ export class IModelTransformer extends IModelExportHandler {
   ): Promise<void> {}
 
   /**
-   * Finds the target ID of a source element while processing deletions, first through the transformation's
-   * ExternalSourceAspects when the source holds the provenance, then through the federation GUID. The element may be
-   * deleted itself, or be a surviving endpoint of a deleted relationship.
-   * @param sourceId the source element ID.
-   * @param federationGuid the source element's federation GUID, if known.
-   * @param deletedScopeEsaByElementId this transformation scope's deleted ESAs in the same batch, keyed by the ID of the element that owned each one.
-   */
-  private async findTargetElementIdForDeletion(
-    sourceId: Id64String,
-    federationGuid: string | undefined,
-    deletedScopeEsaByElementId: Map<
-      Id64String,
-      ExternalSourceAspectDeletionRecord
-    >
-  ): Promise<Id64String | undefined> {
-    /**
-     * If the deleted source entity is in the provenanceDb, then we can use its ids to query for ESAs.
-     * This is because the ESAs are stored on an element Id thats present in the provenanceDb.
-     */
-    if (this.sourceDb === (await this.getProvenanceDb())) {
-      let identifierValue: string | undefined;
-      // TODO: clarify what happens if there are multiple (e.g. elements were merged)
-      for await (const row of this.sourceDb.createQueryReader(
-        "SELECT esa.Identifier FROM bis.ExternalSourceAspect esa WHERE Scope.Id=:scopeId AND Kind=:kind AND Element.Id=:relatedElementId LIMIT 1",
-        QueryBinder.from([
-          this.targetScopeElementId,
-          ExternalSourceAspect.Kind.Element,
-          sourceId,
-        ]),
-        { usePrimaryConn: true }
-      )) {
-        identifierValue = row.Identifier;
-      }
-      identifierValue =
-        identifierValue ?? deletedScopeEsaByElementId.get(sourceId)?.identifier;
-      // Check for targetId by an esa first
-      if (identifierValue) return identifierValue;
-    }
-
-    // Check for targetId using sourceId's fedguid if we didn't find an esa.
-    if (federationGuid)
-      return this.targetDb.elements.getIdFromFederationGuid(federationGuid);
-    return undefined;
-  }
-
-  /**
    * Helper function for [[prepareSourceChanges]]. Records how to find the target relationship of a deleted source relationship.
    * @param deletion the deleted source relationship.
-   * @param deletedScopeEsaByElementId this transformation scope's deleted ESAs in the same batch, keyed by the ID of the element that owned each one.
-   * @param deletedFederationGuidByElementId federation GUIDs of the elements deleted in the same batch, for endpoints that no longer exist in the source.
+   * @param resolver finds the targets of the endpoints, using lookups read for the whole deletion batch.
+   * @param isProvenanceSource whether the source is the provenance source of this transformation.
+   * @note The relationship's own provenance is still queried per relationship. That happens only with ESA relationship
+   * provenance or when an endpoint cannot be resolved, and the query needs the relationship's endpoints in the target.
    */
   private async processDeletedRelationship(
     deletion: RelationshipDeletionRecord,
-    deletedScopeEsaByElementId: Map<
-      Id64String,
-      ExternalSourceAspectDeletionRecord
-    >,
-    deletedFederationGuidByElementId: ReadonlyMap<Id64String, string>
+    resolver: DeletionTargetResolver,
+    isProvenanceSource: boolean
   ): Promise<void> {
     const { ecInstanceId } = deletion;
     const classFullName = this.sourceDb.getClassNameFromId(deletion.ecClassId);
-    const getEndpointInTarget = async (sourceId: Id64String) =>
-      this.findTargetElementIdForDeletion(
+    const getEndpointInTarget = (sourceId: Id64String) =>
+      resolver.findTargetElementId(
         sourceId,
-        this.sourceDb.elements.tryGetElement(sourceId)?.federationGuid ??
-          deletedFederationGuidByElementId.get(sourceId),
-        deletedScopeEsaByElementId
+        resolver.endpointFederationGuid(sourceId)
       );
-    const sourceIdInTarget = await getEndpointInTarget(
-      deletion.sourceECInstanceId
-    );
-    const targetIdInTarget = await getEndpointInTarget(
-      deletion.targetECInstanceId
-    );
-    const isProvenanceSource =
-      this.sourceDb === (await this._provenanceManager.getProvenanceSourceDb());
+    const sourceIdInTarget = getEndpointInTarget(deletion.sourceECInstanceId);
+    const targetIdInTarget = getEndpointInTarget(deletion.targetECInstanceId);
     const queryRelationshipProvenance = async () =>
       this._provenanceManager.queryProvenanceForRelationship(ecInstanceId, {
         classFullName,
@@ -2579,29 +2542,21 @@ export class IModelTransformer extends IModelExportHandler {
    * Helper function for [[prepareSourceChanges]]. Remaps a deleted source element or model to its target.
    * @param sourceId the deleted source element or model.
    * @param federationGuid the deleted source element's federation GUID, if it had one. Undefined for models.
-   * @param deletedScopeEsaByElementId this transformation scope's deleted ESAs in the same batch, keyed by the ID of the element that owned each one.
+   * @param resolver finds the target, using lookups read for the whole deletion batch.
+   * @param isProvenanceSource whether the source is the provenance source of this transformation.
    * @param alreadyImportedElementInserts used to handle entity recreation and not delete already handled element inserts.
    * @param alreadyImportedModelInserts used to handle entity recreation and not delete already handled model inserts.
    */
   private async processDeletedElement(
     sourceId: Id64String,
     federationGuid: string | undefined,
-    deletedScopeEsaByElementId: Map<
-      Id64String,
-      ExternalSourceAspectDeletionRecord
-    >,
+    resolver: DeletionTargetResolver,
+    isProvenanceSource: boolean,
     alreadyImportedElementInserts: Set<Id64String>,
     alreadyImportedModelInserts: Set<Id64String>
   ): Promise<void> {
-    let targetId = await this.findTargetElementIdForDeletion(
-      sourceId,
-      federationGuid,
-      deletedScopeEsaByElementId
-    );
-    if (
-      targetId === undefined &&
-      this.sourceDb === (await this._provenanceManager.getProvenanceSourceDb())
-    ) {
+    let targetId = resolver.findTargetElementId(sourceId, federationGuid);
+    if (targetId === undefined && isProvenanceSource) {
       const contextTargetId = this.context.findTargetElementId(sourceId);
       if (Id64.isValidId64(contextTargetId)) targetId = contextTargetId;
     }
