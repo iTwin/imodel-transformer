@@ -2360,8 +2360,10 @@ export class IModelTransformer extends IModelExportHandler {
         this.context.remapElement(sourceElementId, targetElementId);
       }
     );
-    // Element inserts from the scanned changesets, captured before custom changes can drop one by marking it deleted.
-    // Only read when resolving element deletes, so skipped when the changesets delete no elements.
+    // IDs of source elements that were inserted into the source iModel by the source changesets this run reads
+    // (the changesets since the last synchronization, excluding skipped ones). Used when resolving element deletes to tell
+    // whether a recreated element's insert is among those changesets. Copied now because addCustomChanges can remove
+    // entries from insertIds, and skipped when the changesets delete no elements because it would not be read.
     const changesetElementInserts = this._deletionBatches?.some(
       (batch) => batch.elements.length > 0
     )
@@ -2591,7 +2593,7 @@ export class IModelTransformer extends IModelExportHandler {
    * @param deletedScopeEsaByElementId this transformation scope's deleted ESAs in the same batch, keyed by the ID of the element that owned each one.
    * @param alreadyImportedElementInserts used to handle entity recreation and not delete already handled element inserts.
    * @param alreadyImportedModelInserts used to handle entity recreation and not delete already handled model inserts.
-   * @param changesetElementInserts source elements inserted in the scanned changesets, captured before custom changes were added.
+   * @param changesetElementInserts IDs of source elements inserted into the source iModel by the source changesets this run reads, before custom changes were added.
    */
   private async processDeletedElement(
     sourceId: Id64String,
