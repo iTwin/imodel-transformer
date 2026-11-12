@@ -5,22 +5,18 @@
 
 import { afterEach, beforeEach, expect, vi } from "vitest";
 import * as path from "node:path";
-import { installCheckpointDownload } from "@itwin/imodel-transformer-test-utils";
 import {
   BriefcaseDb,
   BriefcaseManager,
   DefinitionContainer,
   DefinitionModel,
   EditTxn,
-  // eslint-disable-next-line @typescript-eslint/no-redeclare
-  Element,
   ElementGroupsMembers,
   ElementOwnsChildElements,
   ElementOwnsExternalSourceAspects,
   ElementOwnsMultiAspects,
   ExternalSourceAspect,
   IModelDb,
-  IModelHost,
   IModelJsFs,
   PhysicalModel,
   PhysicalObject,
@@ -29,7 +25,6 @@ import {
   Subject,
   withEditTxn,
 } from "@itwin/core-backend";
-import * as TestUtils from "../TestUtils/index.js";
 import {
   AccessToken,
   DbResult,
@@ -43,7 +38,6 @@ import {
   ElementAspectProps,
   ExternalSourceAspectProps,
   IModel,
-  IModelVersion,
   PhysicalElementProps,
   QueryBinder,
 } from "@itwin/core-common";
@@ -62,43 +56,21 @@ import {
   createStartedEditTxn,
   HubWrappers,
 } from "../IModelTransformerUtils.js";
-import { KnownTestLocations } from "../TestUtils/KnownTestLocations.js";
 import { IModelTestUtils } from "../TestUtils/IModelTestUtils.js";
 import { transformerTestHub } from "../TestUtils/TransformerTestHub.js";
+import { useTransformerHub } from "../TestUtils/TransformerHubFixture.js";
 import { populateTimelineSeed } from "../TestUtils/TimelineTestUtil.js";
 
 /** Hub tests for reading source changes: deletion batches, the collectChanges hook, and changeset reader filtering. */
 describe("IModelTransformerHub change scanning", () => {
-  const outputDir = path.join(
-    KnownTestLocations.outputDir,
-    "IModelTransformerHubChangeScanning"
-  );
+  const hub = useTransformerHub("ChangeScanning");
+  const { outputDir, prepareBriefcase, closeAndDeleteBriefcase } = hub;
   let iTwinId: GuidString;
   let accessToken: AccessToken;
 
-  beforeAll(async () => {
-    transformerTestHub.start(
-      "IModelTransformerHubChangeScanning",
-      KnownTestLocations.outputDir
-    );
-    iTwinId = transformerTestHub.iTwinId;
-    IModelJsFs.recursiveMkDirSync(outputDir);
-    accessToken = await HubWrappers.getAccessToken(
-      TestUtils.TestUserType.Regular
-    );
+  beforeAll(() => {
+    ({ iTwinId, accessToken } = hub);
   });
-
-  let restoreCheckpointDownload: (() => void) | undefined;
-  beforeEach(() => {
-    restoreCheckpointDownload = installCheckpointDownload(transformerTestHub);
-  });
-
-  afterEach(() => {
-    restoreCheckpointDownload?.();
-    restoreCheckpointDownload = undefined;
-  });
-
-  afterAll(() => transformerTestHub.stop());
 
   describe("deletion batches in reverse sync", () => {
     interface BranchFixture {
@@ -1020,28 +992,4 @@ describe("IModelTransformerHub change scanning", () => {
       }
     }
   });
-
-  async function prepareBriefcase(name: string) {
-    const iModelId = await HubWrappers.createIModel(accessToken, iTwinId, name);
-
-    const newBriefcase = await HubWrappers.downloadAndOpenBriefcase({
-      accessToken: await IModelHost.getAccessToken(),
-      iTwinId,
-      iModelId,
-      asOf: IModelVersion.latest().toJSON(),
-    });
-    await newBriefcase.locks.acquireLocks({
-      shared: "0x10",
-      exclusive: "0x1",
-    });
-    return newBriefcase;
-  }
-
-  async function closeAndDeleteBriefcase(iModel: BriefcaseDb) {
-    await HubWrappers.closeAndDeleteBriefcaseDb(accessToken, iModel);
-    await transformerTestHub.deleteIModel({
-      iTwinId,
-      iModelId: iModel.iModelId,
-    });
-  }
 });
