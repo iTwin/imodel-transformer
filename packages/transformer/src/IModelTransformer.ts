@@ -2361,9 +2361,12 @@ export class IModelTransformer extends IModelExportHandler {
       }
     );
     // Captured before custom changes, which can drop a processed insert by marking it deleted.
-    const processedSourceElementInserts = new Set(
-      this.exporter.sourceDbChanges?.element.insertIds
-    );
+    // Only read when resolving element deletes, so skipped when the processed changesets have none.
+    const processedSourceElementInserts = this._deletionBatches?.some(
+      (batch) => batch.elements.length > 0
+    )
+      ? new Set(this.exporter.sourceDbChanges?.element.insertIds)
+      : new Set<Id64String>();
     if (this.exporter.sourceDbChanges)
       await this.addCustomChanges(this.exporter.sourceDbChanges);
 
