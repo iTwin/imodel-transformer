@@ -2360,9 +2360,9 @@ export class IModelTransformer extends IModelExportHandler {
         this.context.remapElement(sourceElementId, targetElementId);
       }
     );
-    // Captured before custom changes, which can drop a processed insert by marking it deleted.
-    // Only read when resolving element deletes, so skipped when the processed changesets have none.
-    const processedSourceElementInserts = this._deletionBatches?.some(
+    // Element inserts from the scanned changesets, captured before custom changes can drop one by marking it deleted.
+    // Only read when resolving element deletes, so skipped when the changesets delete no elements.
+    const changesetElementInserts = this._deletionBatches?.some(
       (batch) => batch.elements.length > 0
     )
       ? new Set(this.exporter.sourceDbChanges?.element.insertIds)
@@ -2445,7 +2445,7 @@ export class IModelTransformer extends IModelExportHandler {
           deletedScopeEsaByElementId,
           alreadyImportedElementInserts,
           alreadyImportedModelInserts,
-          processedSourceElementInserts
+          changesetElementInserts
         );
       for (const model of batch.models)
         await this.processDeletedElement(
@@ -2454,7 +2454,7 @@ export class IModelTransformer extends IModelExportHandler {
           deletedScopeEsaByElementId,
           alreadyImportedElementInserts,
           alreadyImportedModelInserts,
-          processedSourceElementInserts
+          changesetElementInserts
         );
     }
   }
@@ -2591,7 +2591,7 @@ export class IModelTransformer extends IModelExportHandler {
    * @param deletedScopeEsaByElementId this transformation scope's deleted ESAs in the same batch, keyed by the ID of the element that owned each one.
    * @param alreadyImportedElementInserts used to handle entity recreation and not delete already handled element inserts.
    * @param alreadyImportedModelInserts used to handle entity recreation and not delete already handled model inserts.
-   * @param processedSourceElementInserts source elements inserted in the processed changesets, before custom changes were added.
+   * @param changesetElementInserts source elements inserted in the scanned changesets, captured before custom changes were added.
    */
   private async processDeletedElement(
     sourceId: Id64String,
@@ -2602,7 +2602,7 @@ export class IModelTransformer extends IModelExportHandler {
     >,
     alreadyImportedElementInserts: Set<Id64String>,
     alreadyImportedModelInserts: Set<Id64String>,
-    processedSourceElementInserts: ReadonlySet<Id64String>
+    changesetElementInserts: ReadonlySet<Id64String>
   ): Promise<void> {
     let targetId = await this.findTargetElementIdForDeletion(
       sourceId,
@@ -2628,7 +2628,7 @@ export class IModelTransformer extends IModelExportHandler {
         sourceId,
         federationGuid,
         targetId,
-        processedSourceElementInserts
+        changesetElementInserts
       )
     ) {
       this.exporter.sourceDbChanges?.element.deleteIds.delete(sourceId);
@@ -2649,7 +2649,7 @@ export class IModelTransformer extends IModelExportHandler {
     deletedSourceId: Id64String,
     federationGuid: string | undefined,
     targetId: Id64String,
-    processedSourceElementInserts: ReadonlySet<Id64String>
+    changesetElementInserts: ReadonlySet<Id64String>
   ): boolean {
     if (federationGuid === undefined) return false;
     const liveSourceId =
@@ -2657,7 +2657,7 @@ export class IModelTransformer extends IModelExportHandler {
     if (
       liveSourceId === undefined ||
       liveSourceId === deletedSourceId ||
-      processedSourceElementInserts.has(liveSourceId)
+      changesetElementInserts.has(liveSourceId)
     )
       return false;
     return (
