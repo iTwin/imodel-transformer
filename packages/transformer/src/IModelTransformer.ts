@@ -2601,6 +2601,8 @@ export class IModelTransformer extends IModelExportHandler {
    * forward synchronization recreated the element in the branch, the processed changes contain the old element's
    * delete but not the new element's insert, and the delete would otherwise remove the target element that the
    * recreated element still maps to. Recreations whose insert is processed are handled by `alreadyImportedElementInserts`.
+   * @note Like the target lookups in [[DeletionTargetResolver]], these federation GUID lookups stay per GUID through
+   * cached synchronous statements, which measured faster than a set-based query per deletion batch.
    */
   private wasRecreatedInSkippedChangeset(
     deletedSourceId: Id64String,
