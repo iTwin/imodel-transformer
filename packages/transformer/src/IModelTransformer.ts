@@ -2621,7 +2621,7 @@ export class IModelTransformer extends IModelExportHandler {
     // In such case an entity update will be triggered and we no longer need to delete the entity.
     if (
       alreadyImportedElementInserts.has(targetId) ||
-      this.isTargetOwnedByElementRecreatedOutsideProcessedChanges(
+      this.wasRecreatedInSkippedChangeset(
         sourceId,
         federationGuid,
         targetId,
@@ -2636,11 +2636,13 @@ export class IModelTransformer extends IModelExportHandler {
   }
 
   /**
-   * Whether the target of a deleted source element still belongs to another source element that holds the same
-   * federation GUID and was inserted outside the processed changesets, such as in one pushed by a synchronization in
-   * the other direction. Recreations inserted in the processed changesets are handled through their inserts instead.
+   * Whether a deleted source element was recreated with the same federation GUID in a changeset that this run does
+   * not process. For example, a reverse synchronization skips changesets pushed by forward synchronizations. If a
+   * forward synchronization recreated the element in the branch, the processed changes contain the old element's
+   * delete but not the new element's insert, and the delete would otherwise remove the target element that the
+   * recreated element still maps to. Recreations whose insert is processed are handled by `alreadyImportedElementInserts`.
    */
-  private isTargetOwnedByElementRecreatedOutsideProcessedChanges(
+  private wasRecreatedInSkippedChangeset(
     deletedSourceId: Id64String,
     federationGuid: string | undefined,
     targetId: Id64String,
