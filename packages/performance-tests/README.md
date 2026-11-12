@@ -75,6 +75,17 @@ processing reaches each changed element through its unchanged ancestors, so the
 fixture exposes per-ancestor work that the flat fixtures never reach. Select it
 with `QUICK_PERF_FIXTURE=hierarchical-incremental`.
 
+The `reverse-synchronization` scenario measures `IModelTransformer.process()`
+synchronizing branch changes back into the master. It treats the fixture target
+as the branch and the fixture source as the master. Its `deletion-heavy-reverse`
+fixture seeds the same 10,025 elements as `deletion-heavy-incremental`,
+initializes the branch's reverse synchronization version after the first
+synchronization, and then deletes 10,000 elements in one branch changeset.
+Reverse synchronization reads provenance from the branch, which exposes
+per-deleted-element provenance work that forward synchronization skips. Recipes
+add branch changes with the optional `applyTargetChangesets` hook, which the
+live-hub provider runs after it establishes provenance.
+
 The package also contains a `source-only` fixture backed by
 `detachedBriefcaseProvider`. It supplies a read-only source `BriefcaseDb` and
 local changeset files without a running Hub during scenario execution. No
@@ -244,6 +255,7 @@ Registered fixtures per scenario:
 | Scenario ID                                | Fixture IDs                                                                                                                                                                                                | Default                        |
 | ------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------ |
 | `incremental-synchronization`              | `balanced-incremental`, `deletion-heavy-incremental`, `hierarchical-incremental`                                                                                                                           | `balanced-incremental`         |
+| `reverse-synchronization`                  | `deletion-heavy-reverse`                                                                                                                                                                                   | `deletion-heavy-reverse`       |
 | `standalone-full-transformation`           | `standalone-full-transform`, `relationship-heavy-transform`, `reference-heavy-transform`, `realistic-building-transform`, `realistic-building-transform-large`, `realistic-building-transform-many-models` | `standalone-full-transform`    |
 | `standalone-drive-relationship-processing` | `realistic-building-transform`, `realistic-building-transform-large`                                                                                                                                       | `realistic-building-transform` |
 | `schema-processing`                        | `schema-processing-large`                                                                                                                                                                                  | `schema-processing-large`      |
