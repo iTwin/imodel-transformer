@@ -188,6 +188,12 @@ export const liveHubFixtureProvider: FixtureProvider = {
         recipeState
       );
       await fixture.validate?.(hub.sourceDb);
+      await fixture.applyTargetChangesets?.(
+        hub.targetDb,
+        hub.sourceDb,
+        hub.accessToken,
+        recipeState
+      );
 
       const sourceTimeline = await captureTimeline(
         hub.accessToken,
