@@ -1,0 +1,7 @@
+{
+  "type": "patch",
+  "comment": "Keep a target element when its source element was deleted and recreated with the same federation GUID in a changeset that the synchronization does not process, such as one pushed by a synchronization in the other direction",
+  "packageName": "@itwin/imodel-transformer",
+  "email": "DanRod1999@users.noreply.github.com",
+  "dependentChangeType": "patch"
+}
