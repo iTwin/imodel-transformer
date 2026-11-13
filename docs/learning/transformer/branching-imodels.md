@@ -136,4 +136,4 @@ A custom [IModelTransformer.collectChanges]($transformer) receives changeset ran
 
 ### Synchronization workflow examples
 
-More in depth samples exist in the [tests](https://github.com/iTwin/imodel-transformer/tree/main/packages/transformer/src/test/hub) for the `@itwin/imodel-transformer` package.
+More in depth samples exist in the [tests](https://github.com/iTwin/imodel-transformer/tree/main/packages/transformer/src/test/integration-tests) for the `@itwin/imodel-transformer` package.
