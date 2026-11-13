@@ -46,7 +46,7 @@ describe("quick performance scenario catalog", () => {
 
   it("rejects unknown scenarios", () => {
     expect(() => getScenarioDefinition("not-a-scenario")).to.throw(
-      'Unknown quick performance scenario "not-a-scenario". Available scenarios: incremental-synchronization, large-base-incremental-synchronization, changeset-scanning, schema-processing, standalone-full-transformation, standalone-drive-relationship-processing'
+      'Unknown quick performance scenario "not-a-scenario". Available scenarios: incremental-synchronization, large-base-incremental-synchronization, reverse-synchronization, changeset-scanning, schema-processing, standalone-full-transformation, standalone-drive-relationship-processing'
     );
   });
 
@@ -116,6 +116,44 @@ describe("quick performance scenario catalog", () => {
         sourceChangesets: 1,
       },
     });
+  });
+
+  it("registers the deletion-heavy fixture for reverse synchronization", () => {
+    const resolved = resolveBenchmarkRun("reverse-synchronization");
+
+    expect(resolved.scenario.defaultFixtureId).to.equal(
+      "deletion-heavy-reverse"
+    );
+    expect(resolved.descriptor.layout).to.deep.include({
+      recipe: "deletion-heavy-reverse",
+      topology: "source-and-empty-target",
+    });
+    expect(resolved.descriptor.scenarioClaims).to.include.members([
+      "reverse synchronization",
+      "element deletion",
+    ]);
+    expect(resolved.descriptor.distribution).to.deep.include({
+      base: {
+        aspects: 20_050,
+        elements: 10_025,
+        geometricElements: 0,
+        relationships: 0,
+      },
+      operations: {
+        aspects: { deletes: 20_000, inserts: 0, updates: 0 },
+        elements: { deletes: 10_000, inserts: 0, updates: 0 },
+        relationships: { deletes: 0, inserts: 0, updates: 0 },
+        geometryUpdates: 0,
+        sourceChangesets: 0,
+        targetChangesets: 2,
+      },
+    });
+    expect(() =>
+      resolveBenchmarkRun(
+        "incremental-synchronization",
+        "deletion-heavy-reverse"
+      )
+    ).to.throw();
   });
 
   it("registers the realistic synthetic building fixture as an opt-in full transform", () => {

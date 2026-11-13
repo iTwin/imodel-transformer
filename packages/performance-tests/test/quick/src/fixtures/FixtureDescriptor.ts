@@ -15,6 +15,11 @@ export interface FixtureOperationCounts {
   >;
   readonly geometryUpdates: number;
   readonly sourceChangesets: number;
+  /**
+   * Changesets pushed to the target after provenance is established. When present, the element,
+   * aspect, and relationship operations describe target changes for reverse synchronization.
+   */
+  readonly targetChangesets?: number;
 }
 
 export interface FixtureDistribution {

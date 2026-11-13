@@ -126,6 +126,17 @@ export interface FixtureRecipe<
     context: FixtureRecipeContext<TParameters>,
     state: TState
   ): Promise<TArtifactData | void>;
+  /**
+   * Optional target changes applied after the live-hub provider establishes provenance and applies
+   * source changes. Only valid for the `source-and-empty-target` topology.
+   */
+  applyTargetChangesets?(
+    targetDb: BriefcaseDb,
+    sourceDb: BriefcaseDb,
+    accessToken: AccessToken,
+    context: FixtureRecipeContext<TParameters>,
+    state: TState
+  ): Promise<void>;
   /** Optional post-construction validation, run before a fixture is consumed or captured. */
   validate?(
     db: IModelDb,
@@ -181,6 +192,12 @@ export interface ConfiguredFixture {
     accessToken: AccessToken,
     state: unknown
   ): Promise<unknown>;
+  applyTargetChangesets?(
+    targetDb: BriefcaseDb,
+    sourceDb: BriefcaseDb,
+    accessToken: AccessToken,
+    state: unknown
+  ): Promise<void>;
   validate?(db: IModelDb): Promise<void>;
 }
 
@@ -288,6 +305,13 @@ export function configureFixture<TParameters, TState, TArtifactData>(
     throw new Error("Fixture seed must be a safe integer");
   if (!Number.isSafeInteger(configuration.version) || configuration.version < 1)
     throw new Error("Fixture version must be a positive safe integer");
+  if (
+    recipe.applyTargetChangesets !== undefined &&
+    configuration.topology !== "source-and-empty-target"
+  )
+    throw new Error(
+      `Fixture recipe "${recipe.id}" applies target changesets and requires the source-and-empty-target topology`
+    );
   assertIdentityInput(configuration.parameters, "Fixture parameters");
   const parameters = deepFreeze(structuredClone(configuration.parameters));
   const distribution = deepFreeze(recipe.distribution(parameters));
@@ -342,6 +366,28 @@ export function configureFixture<TParameters, TState, TArtifactData>(
       state: unknown
     ) =>
       recipe.applySourceChangesets(db, accessToken, context, state as TState),
+    ...(recipe.applyTargetChangesets === undefined
+      ? {}
+      : {
+          applyTargetChangesets: async (
+            targetDb: BriefcaseDb,
+            sourceDb: BriefcaseDb,
+            accessToken: AccessToken,
+            state: unknown
+          ) => {
+            if (recipe.applyTargetChangesets === undefined)
+              throw new Error(
+                `Fixture recipe "${recipe.id}" lost its target changesets`
+              );
+            await recipe.applyTargetChangesets(
+              targetDb,
+              sourceDb,
+              accessToken,
+              context,
+              state as TState
+            );
+          },
+        }),
   };
   if (recipe.validate === undefined) return Object.freeze(configured);
   return Object.freeze({
