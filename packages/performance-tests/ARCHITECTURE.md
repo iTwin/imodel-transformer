@@ -353,7 +353,7 @@ opens the private source read-only, and creates a fresh empty target. Scenario
 `prepare()` runs `processSchemas()` outside measurement. `measure()` runs only
 `IModelTransformer.process()` with source geometry enabled and provenance
 disabled, matching the full-transform setup in
-`packages/transformer/src/test/standalone/TransformerPerf.test.ts`. `finish()`
+`packages/transformer/src/test/transformer/TransformerPerf.test.ts`. `finish()`
 saves and ends the target edit transaction and queries entity totals by class to
 compute a stable target output-shape digest. The A/B coordinator
 requires that digest to match between arms, but the scenario does not compare the
