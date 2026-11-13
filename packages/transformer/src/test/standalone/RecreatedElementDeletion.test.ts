@@ -14,6 +14,7 @@ import {
 } from "@itwin/core-backend";
 import { AccessToken, GuidString } from "@itwin/core-bentley";
 import { Code, IModel, PhysicalElementProps } from "@itwin/core-common";
+import { ChangedInstanceIds } from "../../IModelExporter.js";
 import {
   IModelTransformer,
   IModelTransformOptions,
@@ -27,6 +28,18 @@ import * as TestUtils from "../TestUtils/index.js";
 import { IModelTestUtils } from "../TestUtils/IModelTestUtils.js";
 import { KnownTestLocations } from "../TestUtils/KnownTestLocations.js";
 import { transformerTestHub } from "../TestUtils/TransformerTestHub.js";
+
+type CustomChanges = (sourceDbChanges: ChangedInstanceIds) => Promise<void>;
+
+class CustomChangesTransformer extends IModelTransformer {
+  public customChanges?: CustomChanges;
+
+  protected override async addCustomChanges(
+    sourceDbChanges: ChangedInstanceIds
+  ): Promise<void> {
+    await this.customChanges?.(sourceDbChanges);
+  }
+}
 
 /** iTwin/imodel-transformer#494: an element recreated with the same federation GUID must not be deleted from the target. */
 describe("Element recreated with the same federation guid", () => {
@@ -81,14 +94,16 @@ describe("Element recreated with the same federation guid", () => {
     target: BriefcaseDb,
     options: IModelTransformOptions,
     description: string,
-    reverse = false
+    reverse = false,
+    customChanges?: CustomChanges
   ) {
     const targetEditTxn = createStartedEditTxn(target);
     const sourceEditTxn = reverse ? createStartedEditTxn(source) : undefined;
-    const transformer = new IModelTransformer(
+    const transformer = new CustomChangesTransformer(
       { source, target: targetEditTxn },
       { ...options, sourceEditTxn }
     );
+    transformer.customChanges = customChanges;
     try {
       await transformer.process();
     } finally {
@@ -197,6 +212,51 @@ describe("Element recreated with the same federation guid", () => {
     expect(
       IModelTestUtils.count(targetDb, PhysicalObject.classFullName)
     ).to.equal(1);
+  });
+
+  it("deletes the target element when addCustomChanges deletes the element recreated in the processed changesets", async () => {
+    const { modelId, categoryId, elementId } = insertPhysicalObject(
+      mainDb,
+      "Element1"
+    );
+    const fedGuid = mainDb.elements.getElement(elementId).federationGuid!;
+    await mainDb.pushChanges({ description: "insert Element1" });
+
+    const targetDb = await openBriefcaseWithoutLocks("Target");
+    otherDb = targetDb;
+    await transform(mainDb, targetDb, {}, "process all");
+
+    withEditTxn(mainDb, "delete Element1", (txn) =>
+      txn.deleteElement(elementId)
+    );
+    await mainDb.pushChanges({ description: "delete Element1" });
+    const recreatedElementId = withEditTxn(mainDb, "recreate Element1", (txn) =>
+      txn.insertElement({
+        classFullName: PhysicalObject.classFullName,
+        model: modelId,
+        category: categoryId,
+        code: Code.createEmpty(),
+        userLabel: "Element1_recreated",
+        federationGuid: fedGuid,
+      } as PhysicalElementProps)
+    );
+    await mainDb.pushChanges({ description: "recreate Element1" });
+
+    await transform(
+      mainDb,
+      targetDb,
+      { argsForProcessChanges: {} },
+      "process changes",
+      false,
+      async (sourceDbChanges) =>
+        sourceDbChanges.addCustomElementChange("Deleted", recreatedElementId)
+    );
+
+    expect(targetDb.elements.tryGetElement({ federationGuid: fedGuid })).to.be
+      .undefined;
+    expect(
+      IModelTestUtils.count(targetDb, PhysicalObject.classFullName)
+    ).to.equal(0);
   });
 
   for (const forceExternalSourceAspectProvenance of [false, true]) {
@@ -308,6 +368,56 @@ describe("Element recreated with the same federation guid", () => {
       });
       expect(mergedElement?.id).to.equal(elementId);
       expect(mergedElement?.userLabel).to.equal("Element1_mainUpdated");
+    });
+
+    it(`deletes the master element when addCustomChanges deletes the element that forward sync recreated in the fork (${provenanceKind} provenance)`, async () => {
+      const { elementId } = insertPhysicalObject(mainDb, "Element1");
+      const fedGuid = mainDb.elements.getElement(elementId).federationGuid!;
+      await mainDb.pushChanges({ description: "insert Element1" });
+      const forkDb = await createFork(forceExternalSourceAspectProvenance);
+      otherDb = forkDb;
+
+      const forkElementId = forkDb.elements.getElement({
+        federationGuid: fedGuid,
+      }).id;
+      withEditTxn(forkDb, "delete Element1 in fork", (txn) =>
+        txn.deleteElement(forkElementId)
+      );
+      await forkDb.pushChanges({ description: "delete Element1 in fork" });
+
+      withEditTxn(mainDb, "update Element1 in main", (txn) => {
+        const props = mainDb.elements.getElementProps(elementId);
+        props.userLabel = "Element1_mainUpdated";
+        txn.updateElement(props);
+      });
+      await mainDb.pushChanges({ description: "update Element1 in main" });
+
+      await transform(
+        mainDb,
+        forkDb,
+        { argsForProcessChanges: {}, forceExternalSourceAspectProvenance },
+        "forward synchronization"
+      );
+      const recreatedForkElementId = forkDb.elements.getElement({
+        federationGuid: fedGuid,
+      }).id;
+      expect(recreatedForkElementId).to.not.equal(forkElementId);
+
+      await transform(
+        forkDb,
+        mainDb,
+        { argsForProcessChanges: {}, forceExternalSourceAspectProvenance },
+        "reverse synchronization",
+        true,
+        async (sourceDbChanges) =>
+          sourceDbChanges.addCustomElementChange(
+            "Deleted",
+            recreatedForkElementId
+          )
+      );
+
+      expect(mainDb.elements.tryGetElement({ federationGuid: fedGuid })).to.be
+        .undefined;
     });
 
     it(`deletes the master element when the fork deleted it and it was not recreated (${provenanceKind} provenance)`, async () => {
