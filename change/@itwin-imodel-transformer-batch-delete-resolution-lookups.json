@@ -1,0 +1,7 @@
+{
+  "type": "patch",
+  "comment": "Read ExternalSourceAspects and relationship endpoint federation GUIDs for deleted entities with set-based queries per deletion batch during incremental synchronization, instead of a query or element load per entity.",
+  "packageName": "@itwin/imodel-transformer",
+  "email": "44824788+DanRod1999@users.noreply.github.com",
+  "dependentChangeType": "patch"
+}
