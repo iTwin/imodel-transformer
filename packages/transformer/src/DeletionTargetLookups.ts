@@ -111,8 +111,8 @@ export class DeletionTargetResolver {
   ) {}
 
   /**
-   * @param args.sourceHoldsProvenance whether the source holds this transformation's ExternalSourceAspects, so that
-   * they are checked before federation GUIDs.
+   * @param args.isReverseSync whether this is a reverse synchronization. The source then holds this transformation's
+   * ExternalSourceAspects, and they are checked before federation GUIDs.
    * @param args.deletedScopeEsaByElementId this transformation scope's ESAs deleted in the batch, keyed by the ID of
    * the element that owned each one.
    * @param args.deletedFederationGuidByElementId federation GUIDs of the elements deleted in the batch.
@@ -121,7 +121,7 @@ export class DeletionTargetResolver {
     sourceDb: IModelDb;
     targetDb: IModelDb;
     targetScopeElementId: Id64String;
-    sourceHoldsProvenance: boolean;
+    isReverseSync: boolean;
     batch: DeletionBatch;
     deletedScopeEsaByElementId: ReadonlyMap<
       Id64String,
@@ -139,7 +139,7 @@ export class DeletionTargetResolver {
       args.sourceDb,
       endpointIds
     );
-    const liveScopeEsaIdentifiers = args.sourceHoldsProvenance
+    const liveScopeEsaIdentifiers = args.isReverseSync
       ? await queryScopeEsaIdentifiersByElementId(
           args.sourceDb,
           args.targetScopeElementId,

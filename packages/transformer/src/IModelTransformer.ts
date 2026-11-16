@@ -2418,11 +2418,7 @@ export class IModelTransformer extends IModelExportHandler {
     this._pendingRelationshipDeleteTargets.clear();
     this._reimportedTargetRelationshipIds.clear();
 
-    // If the source holds the provenance, its ESAs (keyed by source element IDs) take precedence over federation GUIDs.
-    const sourceHoldsProvenance =
-      this.sourceDb === (await this.getProvenanceDb());
-    const isProvenanceSource =
-      this.sourceDb === (await this._provenanceManager.getProvenanceSourceDb());
+    const isReverseSync = await this.getIsReverseSynchronization();
 
     for (const batch of deletionBatches) {
       // Deletion records can only resolve targets within their own batch, so these lookups are rebuilt for each batch.
@@ -2449,7 +2445,7 @@ export class IModelTransformer extends IModelExportHandler {
         sourceDb: this.sourceDb,
         targetDb: this.targetDb,
         targetScopeElementId: this.targetScopeElementId,
-        sourceHoldsProvenance,
+        isReverseSync,
         batch,
         deletedScopeEsaByElementId,
         deletedFederationGuidByElementId,
@@ -2458,14 +2454,14 @@ export class IModelTransformer extends IModelExportHandler {
         await this.processDeletedRelationship(
           relationship,
           resolver,
-          isProvenanceSource
+          isReverseSync
         );
       for (const element of batch.elements)
         await this.processDeletedElement(
           element.ecInstanceId,
           element.federationGuid,
           resolver,
-          isProvenanceSource,
+          isReverseSync,
           alreadyImportedElementInserts,
           alreadyImportedModelInserts,
           processedSourceElementInserts
@@ -2475,7 +2471,7 @@ export class IModelTransformer extends IModelExportHandler {
           model.ecInstanceId,
           undefined,
           resolver,
-          isProvenanceSource,
+          isReverseSync,
           alreadyImportedElementInserts,
           alreadyImportedModelInserts,
           processedSourceElementInserts
@@ -2499,14 +2495,14 @@ export class IModelTransformer extends IModelExportHandler {
    * Helper function for [[prepareSourceChanges]]. Records how to find the target relationship of a deleted source relationship.
    * @param deletion the deleted source relationship.
    * @param resolver finds the targets of the endpoints, using lookups read for the whole deletion batch.
-   * @param isProvenanceSource whether the source is the provenance source of this transformation.
+   * @param isReverseSync whether this is a reverse synchronization. Relationship provenance is only queried otherwise.
    * @note The relationship's own provenance is still queried per relationship. That happens only with ESA relationship
    * provenance or when an endpoint cannot be resolved, and the query needs the relationship's endpoints in the target.
    */
   private async processDeletedRelationship(
     deletion: RelationshipDeletionRecord,
     resolver: DeletionTargetResolver,
-    isProvenanceSource: boolean
+    isReverseSync: boolean
   ): Promise<void> {
     const { ecInstanceId } = deletion;
     const classFullName = this.sourceDb.getClassNameFromId(deletion.ecClassId);
@@ -2526,7 +2522,7 @@ export class IModelTransformer extends IModelExportHandler {
     if (sourceIdInTarget && targetIdInTarget) {
       // relationships with ESA provenance must have their aspect deleted too, even when the target relationship is found by endpoints
       const provenanceAspectId =
-        this._options.forceExternalSourceAspectProvenance && isProvenanceSource
+        this._options.forceExternalSourceAspectProvenance && !isReverseSync
           ? (await queryRelationshipProvenance())?.aspectId
           : undefined;
       this._deletedSourceRelationshipData?.set(ecInstanceId, {
@@ -2538,7 +2534,7 @@ export class IModelTransformer extends IModelExportHandler {
       this._pendingRelationshipDeleteTargets.add(
         relationshipEndpointsKey(sourceIdInTarget, targetIdInTarget)
       );
-    } else if (isProvenanceSource) {
+    } else if (!isReverseSync) {
       const relProvenance = await queryRelationshipProvenance();
       if (relProvenance && relProvenance.relationshipId) {
         this._deletedSourceRelationshipData?.set(ecInstanceId, {
@@ -2558,7 +2554,7 @@ export class IModelTransformer extends IModelExportHandler {
    * @param sourceId the deleted source element or model.
    * @param federationGuid the deleted source element's federation GUID, if it had one. Undefined for models.
    * @param resolver finds the target, using lookups read for the whole deletion batch.
-   * @param isProvenanceSource whether the source is the provenance source of this transformation.
+   * @param isReverseSync whether this is a reverse synchronization. The context's remap table is only used otherwise.
    * @param alreadyImportedElementInserts used to handle entity recreation and not delete already handled element inserts.
    * @param alreadyImportedModelInserts used to handle entity recreation and not delete already handled model inserts.
    * @param processedSourceElementInserts IDs of source elements inserted into the source iModel by the source changesets this run reads, before custom changes were added. Undefined when no changesets in the range are skipped, which disables the check for elements recreated in skipped changesets.
@@ -2567,13 +2563,13 @@ export class IModelTransformer extends IModelExportHandler {
     sourceId: Id64String,
     federationGuid: string | undefined,
     resolver: DeletionTargetResolver,
-    isProvenanceSource: boolean,
+    isReverseSync: boolean,
     alreadyImportedElementInserts: Set<Id64String>,
     alreadyImportedModelInserts: Set<Id64String>,
     processedSourceElementInserts: ReadonlySet<Id64String> | undefined
   ): Promise<void> {
     let targetId = resolver.findTargetElementId(sourceId, federationGuid);
-    if (targetId === undefined && isProvenanceSource) {
+    if (targetId === undefined && !isReverseSync) {
       const contextTargetId = this.context.findTargetElementId(sourceId);
       if (Id64.isValidId64(contextTargetId)) targetId = contextTargetId;
     }

@@ -245,12 +245,12 @@ describe("DeletionTargetLookups", () => {
           federationGuid: emptyIdentifierGuid,
         },
       ];
-      const create = async (sourceHoldsProvenance: boolean) =>
+      const create = async (isReverseSync: boolean) =>
         DeletionTargetResolver.create({
           sourceDb,
           targetDb,
           targetScopeElementId: IModel.rootSubjectId,
-          sourceHoldsProvenance,
+          isReverseSync,
           batch: batch({
             elements: elements as DeletionBatch["elements"],
             models: [
@@ -322,7 +322,7 @@ describe("DeletionTargetLookups", () => {
         sourceDb,
         targetDb,
         targetScopeElementId: IModel.rootSubjectId,
-        sourceHoldsProvenance: false,
+        isReverseSync: false,
         batch: batch({
           relationships: [
             {
