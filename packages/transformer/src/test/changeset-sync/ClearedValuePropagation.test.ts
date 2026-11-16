@@ -4,11 +4,9 @@
  *--------------------------------------------------------------------------------------------*/
 
 import { afterEach, beforeEach, expect } from "vitest";
-import { installCheckpointDownload } from "@itwin/imodel-transformer-test-utils";
 import {
   BriefcaseDb,
   IModelDb,
-  IModelHost,
   PhysicalElementAssemblesElements,
   PhysicalElementIsOfType,
   PhysicalModel,
@@ -16,9 +14,7 @@ import {
   SpatialCategory,
   withEditTxn,
 } from "@itwin/core-backend";
-import * as TestUtils from "../TestUtils/index.js";
 import {
-  AccessToken,
   DbResult,
   Guid,
   GuidString,
@@ -30,7 +26,6 @@ import {
   GeometricElement3dProps,
   GeometryStreamBuilder,
   IModel,
-  IModelVersion,
   PhysicalElementProps,
   SubCategoryAppearance,
 } from "@itwin/core-common";
@@ -44,12 +39,8 @@ import {
   IModelTransformer,
   IModelTransformOptions,
 } from "../../IModelTransformer.js";
-import {
-  createStartedEditTxn,
-  HubWrappers,
-} from "../IModelTransformerUtils.js";
-import { KnownTestLocations } from "../TestUtils/KnownTestLocations.js";
-import { transformerTestHub } from "../TestUtils/TransformerTestHub.js";
+import { createStartedEditTxn } from "../IModelTransformerUtils.js";
+import { useTransformerHub } from "../TestUtils/TransformerHubFixture.js";
 
 /** The stored row. Element props cannot tell a NULL origin from a real origin of zero. */
 interface StoredGeometry {
@@ -140,9 +131,8 @@ interface WidgetProps extends PhysicalElementProps {
 
 /** iTwin/imodel-transformer#487: a value cleared in the source must be cleared in an existing target element. */
 describe("Cleared value propagation", () => {
-  let iTwinId: GuidString;
-  let accessToken: AccessToken;
-  let restoreCheckpointDownload: (() => void) | undefined;
+  const hub = useTransformerHub("ClearedValuePropagation");
+  const { prepareBriefcase, closeAndDeleteBriefcase } = hub;
   let sourceDb: BriefcaseDb;
   let targetDb: BriefcaseDb;
   let modelId: Id64String;
@@ -191,24 +181,6 @@ describe("Cleared value propagation", () => {
     return { id, federationGuid };
   }
 
-  async function prepareBriefcase(name: string) {
-    const iModelId = await HubWrappers.createIModel(accessToken, iTwinId, name);
-    const db = await HubWrappers.downloadAndOpenBriefcase({
-      accessToken: await IModelHost.getAccessToken(),
-      iTwinId,
-      iModelId,
-      asOf: IModelVersion.latest().toJSON(),
-    });
-    await db.locks.acquireLocks({ shared: "0x10", exclusive: "0x1" });
-    return db;
-  }
-
-  async function closeAndDeleteBriefcase(db: BriefcaseDb) {
-    const iModelId = db.iModelId;
-    await HubWrappers.closeAndDeleteBriefcaseDb(accessToken, db);
-    await transformerTestHub.deleteIModel({ iTwinId, iModelId });
-  }
-
   async function pushSource(description: string) {
     await sourceDb.pushChanges({ description, retainLocks: true });
   }
@@ -232,7 +204,7 @@ describe("Cleared value propagation", () => {
       editTxn.end(succeeded ? "save" : "abandon");
     }
     await targetDb.pushChanges({
-      accessToken,
+      accessToken: hub.accessToken,
       description: "transform",
       retainLocks: true,
     });
@@ -246,21 +218,7 @@ describe("Cleared value propagation", () => {
     return id!;
   }
 
-  beforeAll(async () => {
-    transformerTestHub.start(
-      "ClearedValuePropagation",
-      KnownTestLocations.outputDir
-    );
-    iTwinId = transformerTestHub.iTwinId;
-    accessToken = await HubWrappers.getAccessToken(
-      TestUtils.TestUserType.Regular
-    );
-  });
-
-  afterAll(() => transformerTestHub.stop());
-
   beforeEach(async () => {
-    restoreCheckpointDownload = installCheckpointDownload(transformerTestHub);
     sourceDb = await prepareBriefcase("ClearedValueSource");
     targetDb = await prepareBriefcase("ClearedValueTarget");
 
@@ -287,8 +245,6 @@ describe("Cleared value propagation", () => {
   afterEach(async () => {
     await closeAndDeleteBriefcase(sourceDb);
     await closeAndDeleteBriefcase(targetDb);
-    restoreCheckpointDownload?.();
-    restoreCheckpointDownload = undefined;
   });
 
   describe("geometry", () => {
