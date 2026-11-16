@@ -545,8 +545,8 @@ export class IModelImporter {
     await this.deleteElements(new Set([elementId]));
   }
 
-  /** Adds roots required by code-scope dependencies, then deletes the target element trees in as few native operations as their references allow.
-   * Usually one native operation is enough. When a tree contains a definition, such as a category, that another deleted element uses, the elements that use it are deleted first.
+  /** Adds roots required by code-scope dependencies, then deletes the target element trees in one native operation.
+   * A definition, such as a category, is deleted in the same operation as the deleted elements that use it.
    * Elements that something outside the deleted trees still references are kept, with a warning, and the rest are deleted.
    * When native validation refuses elements that something still uses in a way the importer can't check in advance, such as a geometry part that
    * geometry outside the deleted trees places, those elements are kept as well, with a warning, and the rest are deleted.
@@ -576,30 +576,24 @@ export class IModelImporter {
           keptReferences.set(id, referencingId);
       }
 
-      let refusal:
-        { result: BulkDeleteElementsResult; roots: Id64String[] } | undefined;
-      for (const roots of plan.phases) {
-        rootCount += roots.length;
-        ++operationCount;
-        const result = this._editTxn.deleteElements(roots);
-        if (result.status === BulkDeleteElementsStatus.Success) continue;
-        if (!isRefusal(result)) throwBulkDeleteError(result, roots);
-        refusal = { result, roots };
-        break;
-      }
-      if (!refusal) break;
+      if (plan.roots.length === 0) break;
+      rootCount += plan.roots.length;
+      ++operationCount;
+      const result = this._editTxn.deleteElements(plan.roots);
+      if (result.status === BulkDeleteElementsStatus.Success) break;
+      if (!isRefusal(result)) throwBulkDeleteError(result, plan.roots);
 
       // Keep the refused elements and every requested element whose deletion would delete them, then plan again.
-      // The refused call deleted nothing. Requested trees that earlier calls deleted no longer exist, so the next plan skips them.
+      // The refused call deleted nothing.
       const refusedIds = new Set(
-        refusal.result.failures.map((failure) => failure.elementId)
+        result.failures.map((failure) => failure.elementId)
       );
       const requestedCount = requestedIds.size;
       for (const id of await queryKeptElements(this.targetDb, refusedIds))
         requestedIds.delete(id);
       if (requestedIds.size === requestedCount)
-        throwBulkDeleteError(refusal.result, refusal.roots);
-      for (const { elementId, reason } of refusal.result.failures)
+        throwBulkDeleteError(result, plan.roots);
+      for (const { elementId, reason } of result.failures)
         refusals.set(elementId, reason);
     }
 
@@ -639,11 +633,11 @@ export class IModelImporter {
     return unlisted > 0 ? `${listed}, and ${unlisted} more` : listed;
   }
 
-  /** Deletes target element trees, using one native operation unless references between the trees require more.
+  /** Deletes target element trees in one native operation, retried without the refused elements if native validation refuses some.
    * Requested roots in [[doNotUpdateElementIds]] are skipped. This does not prevent an element in that set from being deleted as part of another root's cascade.
    * Elements that something outside the deleted trees still uses are kept, along with their child elements and sub-models and the elements that contain them. A warning lists them.
    * That includes elements that native validation refuses because of a use the importer doesn't check in advance, such as geometry outside the deleted trees that places a geometry part in them.
-   * @throws [[ElementBulkDeleteError]] if a native operation fails with a database error, or refuses elements that no requested element contains. Deletions from that and earlier native operations stay pending in the caller-owned transaction. Abandon the transaction before retrying.
+   * @throws [[ElementBulkDeleteError]] if a native operation fails with a database error, or refuses elements that no requested element contains. Changes from that operation can stay pending in the caller-owned transaction. Abandon the transaction before retrying.
    */
   public async deleteElements(
     elementIds: ReadonlySet<Id64String>

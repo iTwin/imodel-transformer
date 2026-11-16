@@ -52,7 +52,7 @@ async function deleteTargetElements(
         IModelTransformerError.ElementBulkDeleteFailed
       )
     ) {
-      // Deletions from earlier native calls are still pending. Discard them before retrying.
+      // Changes from the failed native call can still be pending. Discard them before retrying.
       editTxn.end("abandon");
     }
     throw error;

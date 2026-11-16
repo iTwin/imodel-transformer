@@ -1,0 +1,7 @@
+{
+  "type": "patch",
+  "comment": "Delete a batch whose definitions are used only by elements in the same batch in one native deleteElements call, instead of deleting the users in a separate first call. When core refuses an element, nothing in the kept deletion trees is deleted, such as an element whose code a refused geometry part scopes, or the contents of another model under a kept subject.",
+  "packageName": "@itwin/imodel-transformer",
+  "email": "DanRod1999@users.noreply.github.com",
+  "dependentChangeType": "patch"
+}
