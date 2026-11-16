@@ -281,7 +281,10 @@ export interface IModelTransformOptions {
    * - `"off"` disables the scan. A target that requires reservations then rejects new elements that have a federation GUID.
    *
    * The scan calls [[IModelTransformer.onTransformElement]] for its identity only when a subclass overrides it or the
-   * clone context overrides `cloneElement`. Overrides of [[IModelTransformer.shouldExportElement]],
+   * clone context overrides `cloneElement`. Before an element's target model or category exists, the scan transforms a
+   * clone that holds only the element's class, federation GUID, and code, and does not call `Element.onCloned`. If the
+   * transform reads another property, the scan uses the element's source identity instead.
+   * Overrides of [[IModelTransformer.shouldExportElement]],
    * [[IModelTransformer.hasElementChanged]], and [[IModelTransformer.onTransformElement]] must return the same result in
    * the scan and in the transformation.
    * The scan does not run when the source was copied to the target, when ids are preserved, or within one iModel.
@@ -2846,6 +2849,11 @@ export class IModelTransformer extends IModelExportHandler {
       this._reservedNewScopeCodes = scan.newScopeCodes;
     }
     this.elementReservationPreScanStats = scan.stats;
+    if (scan.stats.identityFallbacks > 0)
+      Logger.logWarning(
+        loggerCategory,
+        `Element reservation pre-scan used the source identity of ${scan.stats.identityFallbacks} elements, because their transform read properties that are not available before their model or category exists. Their inserts fail if the transform changes their class, federation GUID, or code.`
+      );
     Logger.logInfo(
       loggerCategory,
       "Element reservation pre-scan finished.",

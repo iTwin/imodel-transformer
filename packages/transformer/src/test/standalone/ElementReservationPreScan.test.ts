@@ -7,12 +7,22 @@ import {
   // eslint-disable-next-line @typescript-eslint/no-redeclare
   Element,
   IModelDb,
+  PhysicalModel,
+  PhysicalObject,
+  SpatialCategory,
   StandaloneDb,
   Subject,
   withEditTxn,
 } from "@itwin/core-backend";
 import { Guid, Id64String } from "@itwin/core-bentley";
-import { CodeScopeSpec, CodeSpec, IModel } from "@itwin/core-common";
+import {
+  CodeScopeSpec,
+  CodeSpec,
+  ElementProps,
+  IModel,
+  PhysicalElementProps,
+  SubCategoryAppearance,
+} from "@itwin/core-common";
 import { describe, expect, it, onTestFinished, vi } from "vitest";
 import type { ElementReservationPreScanMode } from "../../ElementReservationPreScan.js";
 import { IModelTransformer } from "../../IModelTransformer.js";
@@ -312,5 +322,125 @@ describe("element reservation pre-scan", () => {
     expect(
       await transform(sourceDb, targetDb, { elementReservationPreScan: "off" })
     ).toBeUndefined();
+  });
+
+  describe("transform hooks before the target model exists", () => {
+    const objectCount = 3;
+
+    /** A source whose coded PhysicalObjects are in a model and category that are new to the target. */
+    function createSourceWithNewModel(name: string) {
+      const db = adopt(createDb(name), (sourceDb) => sourceDb.close());
+      const objectIds = withEditTxn(db, "insert physical objects", (txn) => {
+        const spec = db.codeSpecs.insert(
+          txn,
+          CodeSpec.create(db, "RepositoryScoped", CodeScopeSpec.Type.Repository)
+        );
+        const category = SpatialCategory.insert(
+          txn,
+          IModel.dictionaryId,
+          "Category",
+          new SubCategoryAppearance()
+        );
+        const model = PhysicalModel.insert(txn, IModel.rootSubjectId, "Model");
+        return Array.from({ length: objectCount }, (_, i) => {
+          const props: PhysicalElementProps = {
+            classFullName: PhysicalObject.classFullName,
+            model,
+            category,
+            federationGuid: Guid.createValue(),
+            code: { spec, scope: IModel.rootSubjectId, value: `object-${i}` },
+          };
+          return txn.insertElement(props);
+        });
+      });
+      return { db, objectIds };
+    }
+
+    /** Renames PhysicalObject codes, which changes the code the backend checks against the reservation. */
+    class RenamingTransformer extends IModelTransformer {
+      public override async onTransformElement(sourceElement: Element) {
+        const props = await super.onTransformElement(sourceElement);
+        if (sourceElement instanceof PhysicalObject)
+          props.code = { ...props.code, value: `${props.code.value}-renamed` };
+        return props;
+      }
+    }
+
+    async function transformWith(
+      transformerClass: typeof IModelTransformer,
+      sourceDb: IModelDb,
+      targetDb: IModelDb
+    ) {
+      const txn = createStartedEditTxn(targetDb);
+      const transformer = new transformerClass({
+        source: sourceDb,
+        target: txn,
+      });
+      try {
+        await transformer.process();
+        txn.saveChanges();
+        return { ...transformer.elementReservationPreScanStats! };
+      } finally {
+        transformer.dispose();
+        txn.end();
+      }
+    }
+
+    it("reserves the code a hook changes", async () => {
+      const source = createSourceWithNewModel("hook-code-source");
+      const targetDb = createDb("hook-code-target");
+      const reservations = adopt(
+        await useLocalReservations(targetDb, outputFile("hook-code-sync.db")),
+        (adapter) => adapter.dispose()
+      );
+
+      const stats = await transformWith(
+        RenamingTransformer,
+        source.db,
+        targetDb
+      );
+
+      expect(stats.mode).toBe("transform");
+      expect(stats.identityOnlyTransforms).toBe(objectCount);
+      expect(stats.identityFallbacks).toBe(0);
+      for (const [i, sourceId] of source.objectIds.entries()) {
+        const guid = source.db.elements.getElement(sourceId).federationGuid!;
+        const reservation = reservations.sync.findReservedElement(guid)!;
+        expect(reservation.code.value).toBe(`object-${i}-renamed`);
+        const target = targetDb.elements.getElement(reservation.elementId);
+        expect(target.code.value).toBe(`object-${i}-renamed`);
+      }
+    });
+
+    it("uses the source identity when a hook reads a property the identity-only clone does not have", async () => {
+      class LabelReadingTransformer extends IModelTransformer {
+        public override async onTransformElement(sourceElement: Element) {
+          const props: ElementProps = await super.onTransformElement(
+            sourceElement
+          );
+          if (props.userLabel === "never") props.userLabel = undefined;
+          return props;
+        }
+      }
+      const source = createSourceWithNewModel("hook-read-source");
+      const targetDb = createDb("hook-read-target");
+      adopt(
+        await useLocalReservations(targetDb, outputFile("hook-read-sync.db")),
+        (adapter) => adapter.dispose()
+      );
+
+      const stats = await transformWith(
+        LabelReadingTransformer,
+        source.db,
+        targetDb
+      );
+
+      expect(stats.identityOnlyTransforms).toBe(0);
+      expect(stats.identityFallbacks).toBe(objectCount);
+      for (const sourceId of source.objectIds) {
+        const guid = source.db.elements.getElement(sourceId).federationGuid!;
+        expect(targetDb.elements.getIdFromFederationGuid(guid)).toBeDefined();
+      }
+    });
   });
 });

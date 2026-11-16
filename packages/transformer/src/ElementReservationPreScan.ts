@@ -5,7 +5,7 @@
 /** @packageDocumentation
  * @module iModels
  */
-import { GuidString, Id64, Id64String } from "@itwin/core-bentley";
+import { GuidString, Id64, Id64String, Logger } from "@itwin/core-bentley";
 import {
   // eslint-disable-next-line @typescript-eslint/no-redeclare
   Element,
@@ -20,12 +20,20 @@ import {
   RelatedElement,
 } from "@itwin/core-common";
 import { IModelExporter, IModelExportHandler } from "./IModelExporter.js";
-import type { IModelCloneContext } from "./IModelCloneContext.js";
+import {
+  type ElementIdentityProps,
+  IdentityOnlyCloneReadError,
+  type IModelCloneContext,
+} from "./IModelCloneContext.js";
+import { TransformerLoggerCategory } from "./TransformerLoggerCategory.js";
+
+const loggerCategory = TransformerLoggerCategory.IModelTransformer;
 
 /** How the element reservation pre-scan determines the identity of a new target element.
- * - `"transform"` calls [[IModelTransformer.onTransformElement]], without geometry, when the element's target model and
- *   category are already mapped, and falls back to `"identity"` otherwise, because the native clone requires a mapped
- *   target model and imports an unmapped category into the target.
+ * - `"transform"` calls [[IModelTransformer.onTransformElement]], without geometry. When the element's target model or
+ *   category is not mapped yet, the native clone cannot run, because it requires a mapped target model and imports an
+ *   unmapped category into the target. The hooks then transform a clone that holds only the element's class, federation
+ *   GUID, and code, without [[Element.onCloned]]. If a hook reads another property, the element falls back to `"identity"`.
  * - `"identity"` derives the class, federation GUID, and code from the source element without cloning it.
  * @internal
  */
@@ -63,9 +71,15 @@ export interface ElementReservationPreScanStats {
   newScopeCodes: number;
   /** Inserts whose code scope is a new element without a federation GUID. Their reserved code cannot match the insert. */
   unreservableScopes: number;
-  /** Elements classified with [[IModelTransformer.onTransformElement]]. */
+  /** Elements classified with [[IModelTransformer.onTransformElement]] and the native clone. */
   transformed: number;
-  /** Elements in `"transform"` mode whose target model was not mapped, so their identity came from the source. */
+  /** Elements in `"transform"` mode whose target model or category was not mapped, classified with
+   * [[IModelTransformer.onTransformElement]] on an identity-only clone.
+   */
+  identityOnlyTransforms: number;
+  /** Elements in `"transform"` mode whose hooks read a property the identity-only clone does not have, so their identity
+   * came from the source.
+   */
   identityFallbacks: number;
   /** Whether the scan loaded only element identity properties instead of full elements. */
   identityLoads: boolean;
@@ -145,6 +159,7 @@ export class ElementReservationPreScan extends IModelExportHandler {
       newScopeCodes: 0,
       unreservableScopes: 0,
       transformed: 0,
+      identityOnlyTransforms: 0,
       identityFallbacks: 0,
       identityLoads: mode === "identity" && _host.canLoadIdentityOnly,
       requiredReferenceVisits: 0,
@@ -421,39 +436,11 @@ export class ElementReservationPreScan extends IModelExportHandler {
   ): Promise<TargetIdentity> {
     const sourceCode = sourceElement.code;
     const scope = this.getTargetCodeScope(sourceCode.scope);
-
-    let props: ElementProps | undefined;
-    if (this.stats.mode === "transform") {
-      if (this.canClone(sourceElement)) {
-        props = await this._host.onTransformElement(sourceElement);
-        this.stats.transformed++;
-      } else {
-        this.stats.identityFallbacks++;
-      }
-    }
-    const classFullName =
-      props?.classFullName ??
-      this._host.context.findTargetElementClass(sourceElement.classFullName);
-    const federationGuid = props
-      ? props.federationGuid
-      : sourceElement.federationGuid;
-
+    let code: CodeProps;
     if (scope.kind === "unresolved" || scope.kind === "newElementWithoutGuid") {
       if (scope.kind === "newElementWithoutGuid")
         this.stats.unreservableScopes++;
-      return {
-        classFullName,
-        federationGuid,
-        code: Code.createEmpty().toJSON(),
-        lookUpCode: false,
-        hasNewScope: false,
-      };
-    }
-
-    let code: CodeProps;
-    // The scan does not record mappings, so a clone only sees scopes that were mapped before the scan.
-    if (props !== undefined && scope.kind === "mapped") {
-      code = { ...props.code, value: props.code.value ?? "" };
+      code = Code.createEmpty().toJSON();
     } else {
       code = {
         spec: this.getTargetCodeSpecId(sourceCode.spec),
@@ -461,6 +448,37 @@ export class ElementReservationPreScan extends IModelExportHandler {
         value: sourceCode.value ?? "",
       };
     }
+    const sourceIdentity = {
+      classFullName: this._host.context.findTargetElementClass(
+        sourceElement.classFullName
+      ),
+      federationGuid: sourceElement.federationGuid,
+      code,
+    };
+
+    let props: ElementProps | undefined;
+    // Whether the hooks saw the code the transformation will pass them, so their code changes apply.
+    let hooksSawTargetCode = false;
+    if (this.stats.mode === "transform") {
+      if (this.canClone(sourceElement)) {
+        props = await this._host.onTransformElement(sourceElement);
+        this.stats.transformed++;
+        // The scan does not record mappings, so a clone only sees scopes that were mapped before the scan.
+        hooksSawTargetCode = scope.kind === "mapped";
+      } else {
+        props = await this.transformIdentityOnly(sourceElement, sourceIdentity);
+        hooksSawTargetCode =
+          props !== undefined &&
+          (scope.kind === "mapped" || scope.kind === "matched");
+      }
+    }
+    const classFullName = props?.classFullName ?? sourceIdentity.classFullName;
+    const federationGuid = props
+      ? props.federationGuid
+      : sourceIdentity.federationGuid;
+    if (hooksSawTargetCode && props)
+      code = { ...props.code, value: props.code.value ?? "" };
+
     const isTargetScope = scope.kind === "mapped" || scope.kind === "matched";
     return {
       classFullName,
@@ -470,6 +488,33 @@ export class ElementReservationPreScan extends IModelExportHandler {
         isTargetScope && Id64.isValidId64(code.scope) && !Code.isEmpty(code),
       hasNewScope: scope.kind === "newElement",
     };
+  }
+
+  /** Runs [[IModelTransformer.onTransformElement]] on a clone that holds only the element's identity, for an element the
+   * native clone cannot handle yet. The transformation runs [[Element.onCloned]] and reads the remaining properties itself.
+   * @returns the transformed props, or `undefined` if a hook read a property the identity-only clone does not have.
+   */
+  private async transformIdentityOnly(
+    sourceElement: Element,
+    identity: ElementIdentityProps
+  ): Promise<ElementProps | undefined> {
+    try {
+      const props = await this._host.context.withIdentityOnlyClone(
+        sourceElement.id,
+        identity,
+        async () => this._host.onTransformElement(sourceElement)
+      );
+      this.stats.identityOnlyTransforms++;
+      return props;
+    } catch (error) {
+      if (!(error instanceof IdentityOnlyCloneReadError)) throw error;
+      this.stats.identityFallbacks++;
+      Logger.logTrace(
+        loggerCategory,
+        `Element reservation pre-scan used the source identity of element ${sourceElement.id}, because its transform read '${error.property}'.`
+      );
+      return undefined;
+    }
   }
 
   /** Resolves the target code scope the transformation will use, in the order the traversal reaches elements.

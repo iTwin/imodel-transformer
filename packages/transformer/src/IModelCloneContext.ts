@@ -9,6 +9,7 @@ import { strict as assert } from "node:assert";
 import { Id64, Id64String, Logger } from "@itwin/core-bentley";
 import {
   Code,
+  CodeProps,
   CodeScopeSpec,
   ConcreteEntityTypes,
   ECJsNames,
@@ -40,6 +41,62 @@ const loggerCategory: string = TransformerLoggerCategory.IModelCloneContext;
 /** Class names may use `.` or `:` as the schema separator and are case-insensitive. */
 function normalizeClassFullName(classFullName: string): string {
   return classFullName.replace(".", ":").toLowerCase();
+}
+
+/** The class, federation GUID, and code of a target element, without its other properties.
+ * @internal
+ */
+export interface ElementIdentityProps {
+  classFullName: string;
+  federationGuid?: string;
+  code: CodeProps;
+}
+
+/** Thrown when a transform reads a property of an identity-only clone that the clone does not have.
+ * @internal
+ */
+export class IdentityOnlyCloneReadError extends Error {
+  public constructor(
+    public readonly sourceElementId: Id64String,
+    public readonly property: string
+  ) {
+    super(
+      `The identity-only clone of element ${sourceElementId} has no target property '${property}'.`
+    );
+  }
+}
+
+/** Target props that hold only `identity`. Properties a transform sets can be read back. Reading, testing, or enumerating
+ * any other property throws [[IdentityOnlyCloneReadError]], because a missing property is not known to be undefined.
+ */
+function createIdentityOnlyProps(
+  sourceElementId: Id64String,
+  identity: ElementIdentityProps
+): ElementProps {
+  const props: ElementIdentityProps = {
+    classFullName: identity.classFullName,
+    federationGuid: identity.federationGuid,
+    code: { ...identity.code },
+  };
+  const fail = (property: string | symbol): never => {
+    throw new IdentityOnlyCloneReadError(sourceElementId, String(property));
+  };
+  return new Proxy(props as ElementProps, {
+    get: (target, property, receiver) => {
+      // Promise resolution and inspection read symbols and `then`, which are not target properties.
+      if (
+        typeof property === "symbol" ||
+        property === "then" ||
+        Reflect.has(target, property)
+      )
+        return Reflect.get(target, property, receiver);
+      return fail(property);
+    },
+    has: (target, property) => Reflect.has(target, property) || fail(property),
+    ownKeys: () => fail("<all properties>"),
+    getOwnPropertyDescriptor: (target, property) =>
+      Reflect.getOwnPropertyDescriptor(target, property) ?? fail(property),
+  });
 }
 
 /** The context for transforming a *source* Element to a *target* Element and remapping internal identifiers to the target iModel.
@@ -85,6 +142,30 @@ export class IModelCloneContext
     await this._refTypesCache.initAllSchemasInIModel(this.sourceDb);
   }
 
+  private _identityOnlyClone?: {
+    sourceElementId: Id64String;
+    identity: ElementIdentityProps;
+  };
+
+  /** Runs `transform` with [[cloneElement]] returning only `identity` for the source element, without the native clone
+   * or [[Element.onCloned]]. The element reservation pre-scan uses this to run transform hooks for an element whose
+   * target model or category does not exist yet, because the native clone requires both.
+   * @internal
+   */
+  public async withIdentityOnlyClone<T>(
+    sourceElementId: Id64String,
+    identity: ElementIdentityProps,
+    transform: () => Promise<T>
+  ): Promise<T> {
+    const previous = this._identityOnlyClone;
+    this._identityOnlyClone = { sourceElementId, identity };
+    try {
+      return await transform();
+    } finally {
+      this._identityOnlyClone = previous;
+    }
+  }
+
   /** Clone the specified source Element into ElementProps for the target iModel.
    * @internal
    */
@@ -92,6 +173,11 @@ export class IModelCloneContext
     sourceElement: Element,
     cloneOptions?: IModelJsNative.CloneElementOptions
   ): Promise<ElementProps> {
+    if (this._identityOnlyClone?.sourceElementId === sourceElement.id)
+      return createIdentityOnlyProps(
+        sourceElement.id,
+        this._identityOnlyClone.identity
+      );
     const targetElementProps: ElementProps = this[
       "_nativeContext"
     ].cloneElement(sourceElement.id, cloneOptions);

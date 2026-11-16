@@ -79,16 +79,28 @@ What a sync inserts is not known up front, so the pre-scan asks the same questio
 
 The reservation must name the class and code the transformation inserts. The backend rejects an insert whose class or code differs from its reservation with `reservation-conflict`. The pre-scan picks one of two internal modes; the mode is not an option.
 
-| Mode          | Identity                                                                                                                                                                                                    |
-| ------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `"identity"`  | Derived from the source: the remapped class, the source federation GUID, and the source code with the target CodeSpec and scope. No hooks run.                                                              |
-| `"transform"` | Calls `onTransformElement` without geometry, when the element's model and category are already mapped. Otherwise it falls back to `"identity"`. The code comes from the hook only when the scope is mapped. |
+| Mode          | Identity                                                                                                                                                                                  |
+| ------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `"identity"`  | Derived from the source: the remapped class, the source federation GUID, and the source code with the target CodeSpec and scope. No hooks run.                                            |
+| `"transform"` | Calls `onTransformElement` without geometry. When the element's model and category are already mapped, the hooks get a full clone. Otherwise they get an identity-only clone (see below). |
 
 The pre-scan uses `"transform"` when a subclass overrides `onTransformElement` or the clone context overrides `cloneElement`, and `"identity"` otherwise. The base transform and clone change identity only in ways that `"identity"` derives itself. `"identity"` would be wrong for a hook that changes an element's class or code, which is why the mode is not exposed.
 
 In `"identity"` mode, the scan loads only the identity columns of each element when `shouldExportElement`, `hasElementChanged`, and the exporter's `shouldExportElement` are not overridden. One cached SQLite statement reads the class, model, parent, federation GUID, code, and category. A class whose constructor validates other properties, such as a ViewDefinition, falls back to a full load. An overridden filter may read any property, so it always gets a full element.
 
 `"transform"` only clones an element whose category is mapped, because the native clone imports an unmapped category into the target. That import would bypass the export filter before the transformation runs. Geometry is not loaded for the same reason: cloning a geometry stream imports unmapped GeometryParts and SubCategories.
+
+### Identity-only clones
+
+An element whose model or category is new in the same run cannot be cloned during the scan: the native clone needs the target model, and nothing new is mapped until the transformation inserts it. This covers every element of a full transformation into an empty target.
+
+For those elements, `IModelCloneContext.cloneElement` returns an identity-only clone instead of running the native clone. The clone has only `classFullName`, `federationGuid`, and `code`, and `onTransformElement` and `cloneElement` overrides run on it as usual. A hook can change the class or code, and the pre-scan reserves what the hook returns. A hook can set new properties and read them back.
+
+- `onCloned` does not run on an identity-only clone. Core `onCloned` overrides read properties the clone does not have, and they do not change identity. It runs normally in the transformation.
+- Reading any other property, enumerating the clone's keys, or spreading it throws `IdentityOnlyCloneReadError`. The pre-scan catches the error, reserves the source identity for that element, counts it in `identityFallbacks`, and logs one warning per run. If the hook changes that element's class or code, its insert fails with `reservation-conflict`.
+- The hook's code applies only when its input code matches the transformation's: a mapped or matched scope. For a new scope, the pre-scan keeps the GUID-scoped code it reserves, and a hook's code change is ignored.
+
+The scan counts these elements in `identityOnlyTransforms`.
 
 ## Code scopes that are new elements
 
@@ -103,8 +115,8 @@ A code scope that the traversal reaches after the element is unmapped at insert.
 ## Limits
 
 - Every filter runs twice: `shouldExportElement` in the pre-scan and again in the transformation. In `"transform"` mode, `onTransformElement` also runs twice for classified elements.
-- `"transform"` cannot honor hooks for elements whose model or category is new in the same run, because they are not mapped while the scan runs. Those elements use `"identity"`, which covers every element of a full transformation into an empty target.
-- Hooks that change identity must return the same identity in both passes.
+- In `"transform"` mode, a hook for an element whose model or category is new sees only the identity-only clone. A hook that reads other properties falls back to the source identity for that element.
+- Hooks that change identity must return the same identity in both passes. Unlike #473's replay, nothing checks this; a mismatch fails at insert with `reservation-conflict`.
 - `"identity"` ignores identity changes made by hooks, except class remaps registered with `remapElementClass`. The source `Code` object trims the code value while the native clone keeps it, so a value with leading or trailing whitespace can conflict.
 - A missing CodeSpec is imported into the target during the scan, as the transformation's clone would import it.
 - Reservations are not released if the transformation fails after the batch is submitted.
@@ -114,14 +126,15 @@ A code scope that the traversal reaches after the element is unmapped at insert.
 
 ## Comparison with plan, reserve, and replay (#473)
 
-|                       | Pre-scan                                                        | Plan, reserve, replay (#473)                                    |
-| --------------------- | --------------------------------------------------------------- | --------------------------------------------------------------- |
-| Transformation        | Unchanged, except the new-scope code override                   | Exporter events recorded and replayed through a swapped handler |
-| Hooks                 | Filters run twice; `onTransformElement` twice only in transform | All hooks run twice, the first time with an identity-only view  |
-| New exporter callback | Not affected                                                    | Must be added to the recording                                  |
-| Matching              | Same order, separate implementation                             | Separate planner                                                |
-| Geometry              | Not loaded                                                      | Loaded during planning                                          |
-| Default               | Automatic on reservation targets only                           | Automatic                                                       |
+|                       | Pre-scan                                                                                                                                      | Plan, reserve, replay (#473)                                                         |
+| --------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------ |
+| Transformation        | Unchanged, except the new-scope code override                                                                                                 | Exporter events recorded and replayed through a swapped handler                      |
+| Hooks                 | Filters run twice; `onTransformElement` twice only in transform, the first time with an identity-only clone when the model or category is new | All hooks run twice, the first time with an identity-only view when the model is new |
+| Identity check        | None; a mismatch fails at insert                                                                                                              | `plan-changed` when replay differs from the plan                                     |
+| New exporter callback | Not affected                                                                                                                                  | Must be added to the recording                                                       |
+| Matching              | Same order, separate implementation                                                                                                           | Separate planner                                                                     |
+| Geometry              | Not loaded                                                                                                                                    | Loaded during planning                                                               |
+| Default               | Automatic on reservation targets only                                                                                                         | Automatic                                                                            |
 
 ## Measured cost
 
@@ -148,7 +161,7 @@ The table shows the change in median wall time, candidate against `main`, within
 - The version pin alone costs under 1%, so the `identity` and `transform` deltas are the pre-scan's cost.
 - A full transformation costs about 50 µs per element, or about 0.5 s for 10,000 elements.
 - Incremental runs cost 2.5–24%. Hierarchical-incremental is the most expensive relative to its short run, because change processing builds the changed-element traversal twice.
-- In full transformations into an empty target, `transform` costs the same as `identity`. No model is mapped while the scan runs, so every element falls back to `"identity"`. In a local run of the standalone fixture, 10,000 of 10,005 elements fell back.
+- In full transformations into an empty target, `transform` cost the same as `identity`. No model is mapped while the scan runs, so at the time every such element fell back to `"identity"` without running hooks; in a local run of the standalone fixture, 10,000 of 10,005 elements fell back. Those elements now run the hooks on identity-only clones, which these numbers do not measure.
 - Peak RSS stayed within 5 MB of `main`, except standalone-full-transform, where the workflow reported +78 MB in both modes. A local run of the same shape measured +11 MB (176 MB to 187 MB) with no heap growth. The difference is not explained.
 
 For comparison, #473 estimated 1.2–1.9× before optimizations. The pre-scan measured 1.03–1.24×.
