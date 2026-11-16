@@ -70,11 +70,17 @@ function deletionHeavyDistribution(
   };
 }
 
-interface DeletionHeavyRecipeState {
+export interface DeletionHeavyRecipeState {
   readonly elementIdsToDelete: readonly Id64String[];
 }
 
-async function createDeletionHeavySeed(
+/** Federation GUID of the deletion-heavy seed element at `index`. */
+export function deletionHeavyFederationGuid(index: number): string {
+  return `00000000-0000-4000-8000-${index.toString().padStart(12, "0")}`;
+}
+
+/** Seeds `base.elements` PhysicalObjects; the first `scale` are the deletion candidates. */
+export async function createDeletionHeavySeed(
   fileName: string,
   context: FixtureRecipeContext<DeletionHeavyIncrementalParameters>
 ): Promise<DeletionHeavyRecipeState> {
@@ -105,9 +111,7 @@ async function createDeletionHeavySeed(
             category: categoryId,
             classFullName: PhysicalObject.classFullName,
             code: Code.createEmpty(),
-            federationGuid: `00000000-0000-4000-8000-${index
-              .toString()
-              .padStart(12, "0")}`,
+            federationGuid: deletionHeavyFederationGuid(index),
             model: modelId,
             userLabel: `deletion-heavy-${index}`,
           } as PhysicalElementProps);

@@ -246,6 +246,46 @@ describe("configured fixture derivation", () => {
     expect(calls).to.equal(1);
   });
 
+  it("exposes target changesets only when the recipe declares them", async () => {
+    expect(
+      "applyTargetChangesets" in configureFixture(recipe(), configuration())
+    ).to.equal(false);
+
+    const calls: unknown[][] = [];
+    const fixture = configureFixture(
+      defineFixtureRecipe({
+        ...recipe(),
+        async applyTargetChangesets(targetDb, sourceDb, token, context, state) {
+          calls.push([
+            targetDb,
+            sourceDb,
+            token,
+            context.parameters.scale,
+            state,
+          ]);
+        },
+      }),
+      configuration({ topology: "source-and-empty-target" })
+    );
+    const target = {} as BriefcaseDb;
+    const source = {} as BriefcaseDb;
+    await fixture.applyTargetChangesets?.(target, source, "token", "state");
+
+    expect(calls).to.deep.equal([[target, source, "token", 2, "state"]]);
+  });
+
+  it("rejects target changesets without a live target topology", () => {
+    expect(() =>
+      configureFixture(
+        defineFixtureRecipe({
+          ...recipe(),
+          async applyTargetChangesets() {},
+        }),
+        configuration({ topology: "source-only" })
+      )
+    ).to.throw("requires the source-and-empty-target topology");
+  });
+
   it("rejects structured values that cannot be hashed without collisions", () => {
     expect(() =>
       configureFixture(

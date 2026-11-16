@@ -9,6 +9,7 @@ import { BenchmarkScenarioDefinition } from "../framework/BenchmarkScenario.js";
 import { changesetScanningBenchmark } from "../scenarios/changesetScanning.js";
 import { incrementalSynchronizationBenchmark } from "../scenarios/incrementalSynchronization.js";
 import { largeBaseIncrementalSynchronizationBenchmark } from "../scenarios/largeBaseIncrementalSynchronization.js";
+import { reverseSynchronizationBenchmark } from "../scenarios/reverseSynchronization.js";
 import { schemaProcessingBenchmark } from "../scenarios/schemaProcessing.js";
 import { standaloneDriveRelationshipProcessingBenchmark } from "../scenarios/standaloneDriveRelationshipProcessing.js";
 import { standaloneFullTransformationBenchmark } from "../scenarios/standaloneFullTransformation.js";
@@ -17,6 +18,7 @@ import { standaloneFullTransformationBenchmark } from "../scenarios/standaloneFu
 const registrations: readonly BenchmarkRegistration[] = Object.freeze([
   incrementalSynchronizationBenchmark,
   largeBaseIncrementalSynchronizationBenchmark,
+  reverseSynchronizationBenchmark,
   changesetScanningBenchmark,
   schemaProcessingBenchmark,
   standaloneFullTransformationBenchmark,
