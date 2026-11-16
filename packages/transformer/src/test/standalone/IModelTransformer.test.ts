@@ -4568,7 +4568,6 @@ describe("IModelTransformer", () => {
     });
     assert.isTrue(transformer.context.isBetweenIModels);
     await transformer.process();
-    transformer.dispose();
 
     const physicalObj1InTargetId = IModelTransformerTestUtils.queryByUserLabel(
       targetDb,
@@ -4610,6 +4609,7 @@ describe("IModelTransformer", () => {
         `aspect ${i} (${sourceId} in source, ${mappedTarget} in target) but got ${targetId} and the expected id was at index ${indexInResult}`
       );
     }
+    transformer.dispose();
   });
 
   it("handles nested schema references during schema export", async () => {
