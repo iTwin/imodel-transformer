@@ -378,7 +378,14 @@ describe("BenchmarkRunner scenario injection", () => {
     const outputDir = fs.mkdtempSync(
       path.join(os.tmpdir(), "quick-perf-injected-")
     );
-    const calls = { abort: 0, factory: 0, finish: 0, measure: 0, prepare: 0 };
+    const calls = {
+      abort: 0,
+      factory: 0,
+      finish: 0,
+      measure: 0,
+      metrics: 0,
+      prepare: 0,
+    };
     const scenario: BenchmarkScenarioDefinition = {
       id: "injected-scenario",
       defaultFixtureId: balancedIncrementalDescriptor.id,
@@ -402,6 +409,10 @@ describe("BenchmarkRunner scenario injection", () => {
             calls.measure++;
             await delegate.measure();
           },
+          getMetrics() {
+            calls.metrics++;
+            return { insertedAspects: 0 };
+          },
         };
       },
     };
@@ -416,6 +427,7 @@ describe("BenchmarkRunner scenario injection", () => {
         factory: 2,
         finish: 2,
         measure: 2,
+        metrics: 2,
         prepare: 2,
       });
       expect(samples.map((sample) => sample.scenarioId)).to.deep.equal([
@@ -438,7 +450,11 @@ describe("BenchmarkRunner scenario injection", () => {
               fixtureRecipeHash: string;
               fixtureVersion: number;
               reportSchemaVersion: number;
+              sample: number;
               scenarioId: string;
+              scenarioMetrics?: Readonly<
+                Record<string, number | string | boolean>
+              >;
             }
         );
       expect(jsonLines.map((sample) => sample.scenarioId)).to.deep.equal([
@@ -450,6 +466,13 @@ describe("BenchmarkRunner scenario injection", () => {
         fixtureVersion: testDescriptor.version,
         reportSchemaVersion: 1,
       });
+      expect(jsonLines[0].scenarioMetrics).to.deep.equal({
+        insertedAspects: 0,
+      });
+      expect(samples.map((sample) => sample.scenarioMetrics)).to.deep.equal([
+        { insertedAspects: 0 },
+        { insertedAspects: 0 },
+      ]);
       const summary = JSON.parse(
         fs.readFileSync(path.join(outputDir, "summary.json"), "utf8")
       ) as {
@@ -459,6 +482,10 @@ describe("BenchmarkRunner scenario injection", () => {
         jobMilliseconds: number;
         reportSchemaVersion: number;
         scenarioId: string;
+        scenarioMetrics?: readonly {
+          readonly sample: number;
+          readonly values: Readonly<Record<string, number | string | boolean>>;
+        }[];
       };
       expect(summary.scenarioId).to.equal(scenario.id);
       expect(summary).to.include({
@@ -468,6 +495,9 @@ describe("BenchmarkRunner scenario injection", () => {
         reportSchemaVersion: 1,
       });
       expect(summary.fixtureGenerator).to.deep.equal(testDescriptor.generator);
+      expect(summary.scenarioMetrics).to.deep.equal([
+        { sample: 1, values: { insertedAspects: 0 } },
+      ]);
       expect(
         fs.readFileSync(path.join(outputDir, "summary.csv"), "utf8")
       ).to.match(
