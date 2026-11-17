@@ -2867,7 +2867,8 @@ export class IModelTransformer extends IModelExportHandler {
   }
 
   /** The base [[onTransformElement]] and clone only change an element's class, federation GUID, and code in ways the
-   * `"identity"` scan derives itself, so a full clone is only needed when a subclass customizes either one.
+   * `"identity"` scan derives itself, so a full clone is only needed when a subclass customizes either one. The scan
+   * checks each element class for a custom [[Element.onCloned]] itself.
    */
   private resolvePreScanMode(): ElementReservationPreScanMode {
     const transformOverridden =

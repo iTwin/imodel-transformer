@@ -86,6 +86,8 @@ The reservation must name the class and code the transformation inserts. The bac
 
 The pre-scan uses `"transform"` when a subclass overrides `onTransformElement` or the clone context overrides `cloneElement`, and `"identity"` otherwise. The base transform and clone change identity only in ways that `"identity"` derives itself. `"identity"` would be wrong for a hook that changes an element's class or code, which is why the mode is not exposed.
 
+An element class can also change the code in its static `onCloned`, which runs inside every clone. Core classes override `onCloned` only in BisCore, and only to remap references. `IModelCloneContext.hasCustomOnCloned` finds the nearest `onCloned` in the registered JS class's prototype chain, and treats it as custom when that class is not from BisCore. In either mode, the scan classifies elements of such a class with the hooks, as in `"transform"` mode, and loads them fully.
+
 In `"identity"` mode, the scan loads only the identity columns of each element when `shouldExportElement`, `hasElementChanged`, and the exporter's `shouldExportElement` are not overridden. One cached SQLite statement reads the class, model, parent, federation GUID, code, and category. A class whose constructor validates other properties, such as a ViewDefinition, falls back to a full load. An overridden filter may read any property, so it always gets a full element.
 
 The native clone writes to the target in two cases: it imports an unmapped category, and it clones the geometry stream by source ID, which imports unmapped GeometryParts and SubCategories. Either import would happen before the reservations are made and would bypass the export filter. So `"transform"` never runs the native clone for a geometric element or a GeometryPart, or for an element whose category is not mapped.
@@ -99,7 +101,7 @@ The scan cannot run the native clone for:
 
 For those elements, `IModelCloneContext.cloneElement` returns an identity-only clone instead of running the native clone. The clone has only `classFullName`, `federationGuid`, and `code`, and `onTransformElement` and `cloneElement` overrides run on it as usual. A hook can change the class or code, and the pre-scan reserves what the hook returns. A hook can set new properties and read them back.
 
-- `onCloned` does not run on an identity-only clone. Core `onCloned` overrides read properties the clone does not have, and they do not change identity. It runs normally in the transformation.
+- A BisCore `onCloned` does not run on an identity-only clone, because it reads properties the clone does not have and does not change identity. A custom `onCloned` runs on it, with the full source element as its source properties. If it reads a target property the clone does not have, the scan falls back to the source identity. Every `onCloned` runs normally in the transformation.
 - Reading any other property, enumerating the clone's keys, or spreading it throws `IdentityOnlyCloneReadError`. The pre-scan catches the error, reserves the source identity for that element, counts it in `identityFallbacks`, and logs one warning per run. If the hook changes that element's class or code, its insert fails with `reservation-conflict`.
 - The hook's code applies when its input code matches the transformation's: a mapped or matched scope, or a new scope in federation GUID form (see [Code scopes that are new elements](#code-scopes-that-are-new-elements)).
 
@@ -120,7 +122,7 @@ A code scope that the traversal reaches after the element is unmapped at insert.
 - Every filter runs twice: `shouldExportElement` in the pre-scan and again in the transformation. In `"transform"` mode, `onTransformElement` also runs twice for classified elements.
 - In `"transform"` mode, a hook for a geometric element, a GeometryPart, or an element whose model or category is new sees only the identity-only clone. A hook that reads other properties falls back to the source identity for that element.
 - Hooks that change identity must return the same identity in both passes. Unlike #473's replay, nothing checks this; a mismatch fails at insert with `reservation-conflict`.
-- `"identity"` ignores identity changes made by hooks, except class remaps registered with `remapElementClass`. The source `Code` object trims the code value while the native clone keeps it, so a value with leading or trailing whitespace can conflict.
+- `"identity"` ignores identity changes made by transformer hooks, except class remaps registered with `remapElementClass` and a custom class `onCloned`. The source `Code` object trims the code value while the native clone keeps it, so a value with leading or trailing whitespace can conflict.
 - A missing CodeSpec is imported into the target during the scan, as the transformation's clone would import it.
 - Reservations are not released if the transformation fails after the batch is submitted.
 - The batch is not split. Planning state is held in memory as `Map` objects.

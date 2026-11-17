@@ -147,9 +147,10 @@ export class IModelCloneContext
     identity: ElementIdentityProps;
   };
 
-  /** Runs `transform` with [[cloneElement]] returning only `identity` for the source element, without the native clone
-   * or [[Element.onCloned]]. The element reservation pre-scan uses this to run transform hooks for an element whose
-   * target model or category does not exist yet, because the native clone requires both.
+  /** Runs `transform` with [[cloneElement]] returning only `identity` for the source element, without the native clone.
+   * Only an [[Element.onCloned]] override outside BisCore runs on it, see [[hasCustomOnCloned]]. The element reservation
+   * pre-scan uses this to run transform hooks for an element whose target model or category does not exist yet, because
+   * the native clone requires both.
    * @internal
    */
   public async withIdentityOnlyClone<T>(
@@ -187,6 +188,28 @@ export class IModelCloneContext
     }
   }
 
+  private readonly _customOnCloned = new Map<string, boolean>();
+
+  /** Whether the [[Element.onCloned]] that a source class inherits is defined outside the BisCore schema. BisCore
+   * overrides only remap references, so they do not change an element's class, federation GUID, or code.
+   * @internal
+   */
+  public hasCustomOnCloned(sourceClassFullName: string): boolean {
+    let result = this._customOnCloned.get(sourceClassFullName);
+    if (result === undefined) {
+      let owner: typeof Element | null =
+        this.sourceDb.getJsClass<typeof Element>(sourceClassFullName);
+      while (
+        owner !== null &&
+        !Object.prototype.hasOwnProperty.call(owner, "onCloned")
+      )
+        owner = Object.getPrototypeOf(owner) as typeof Element | null;
+      result = owner !== null && owner.schema.schemaName !== "BisCore";
+      this._customOnCloned.set(sourceClassFullName, result);
+    }
+    return result;
+  }
+
   /** Clone the specified source Element into ElementProps for the target iModel.
    * @internal
    */
@@ -194,11 +217,18 @@ export class IModelCloneContext
     sourceElement: Element,
     cloneOptions?: IModelJsNative.CloneElementOptions
   ): Promise<ElementProps> {
-    if (this._identityOnlyClone?.sourceElementId === sourceElement.id)
-      return createIdentityOnlyProps(
+    if (this._identityOnlyClone?.sourceElementId === sourceElement.id) {
+      const props = createIdentityOnlyProps(
         sourceElement.id,
         this._identityOnlyClone.identity
       );
+      // BisCore overrides read properties the clone does not have, and they do not change identity.
+      if (this.hasCustomOnCloned(sourceElement.classFullName))
+        await this.sourceDb
+          .getJsClass<typeof Element>(sourceElement.classFullName)
+          ["onCloned"](this, sourceElement.toJSON(), props);
+      return props;
+    }
     const targetElementProps: ElementProps = this[
       "_nativeContext"
     ].cloneElement(sourceElement.id, cloneOptions);

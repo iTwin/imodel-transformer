@@ -35,9 +35,10 @@ const loggerCategory = TransformerLoggerCategory.IModelTransformer;
  * - `"transform"` calls [[IModelTransformer.onTransformElement]]. The native clone cannot run for a geometric element or
  *   GeometryPart, or when the element's target model or category is not mapped yet, because it requires a mapped target
  *   model and imports an unmapped category and the geometry stream's dependencies into the target. The hooks then
- *   transform a clone that holds only the element's class, federation GUID, and code, without [[Element.onCloned]].
- *   If a hook reads another property, the element falls back to `"identity"`.
- * - `"identity"` derives the class, federation GUID, and code from the source element without cloning it.
+ *   transform a clone that holds only the element's class, federation GUID, and code. Only an [[Element.onCloned]]
+ *   override outside BisCore runs on it. If a hook reads another property, the element falls back to `"identity"`.
+ * - `"identity"` derives the class, federation GUID, and code from the source element without cloning it. An element
+ *   whose class has an [[Element.onCloned]] override outside BisCore is classified as in `"transform"` mode instead.
  * @internal
  */
 export type ElementReservationPreScanMode = "transform" | "identity";
@@ -76,15 +77,15 @@ export interface ElementReservationPreScanStats {
   newScopeCodes: number;
   /** Inserts whose code scope is a new element without a federation GUID. Their reserved code cannot match the insert. */
   unreservableScopes: number;
-  /** Elements classified with [[IModelTransformer.onTransformElement]] and the native clone. */
+  /** Elements classified with [[IModelTransformer.onTransformElement]] and the native clone, in `"transform"` mode or for
+   * a class with a custom [[Element.onCloned]].
+   */
   transformed: number;
-  /** Elements in `"transform"` mode that the native clone could not handle, classified with
-   * [[IModelTransformer.onTransformElement]] on an identity-only clone.
+  /** Elements that the native clone could not handle, classified with [[IModelTransformer.onTransformElement]] on an
+   * identity-only clone.
    */
   identityOnlyTransforms: number;
-  /** Elements in `"transform"` mode whose hooks read a property the identity-only clone does not have, so their identity
-   * came from the source.
-   */
+  /** Elements whose hooks read a property the identity-only clone does not have, so their identity came from the source. */
   identityFallbacks: number;
   /** Whether the scan loaded only element identity properties instead of full elements. */
   identityLoads: boolean;
@@ -238,7 +239,9 @@ export class ElementReservationPreScan extends IModelExportHandler {
     // A missing element fails as a full load does.
     if (
       props !== undefined &&
-      !this._fullLoadClasses.has(props.classFullName)
+      !this._fullLoadClasses.has(props.classFullName) &&
+      // A custom onCloned gets the full source element.
+      !this._host.context.hasCustomOnCloned(props.classFullName)
     ) {
       try {
         return this._host.sourceDb.constructEntity<Element>(props);
@@ -514,7 +517,11 @@ export class ElementReservationPreScan extends IModelExportHandler {
     let props: ElementProps | undefined;
     // Whether the hooks saw the code the transformation will pass them, so their code changes apply.
     let hooksSawTargetCode = false;
-    if (this.stats.mode === "transform") {
+    // A custom onCloned can change identity, so its elements run the hooks in either mode.
+    if (
+      this.stats.mode === "transform" ||
+      this._host.context.hasCustomOnCloned(sourceElement.classFullName)
+    ) {
       if (this.canClone(sourceElement)) {
         // The native clone empties a code whose scope is not mapped yet, so the hooks get the GUID-scoped code instead.
         props =

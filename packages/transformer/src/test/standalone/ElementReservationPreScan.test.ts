@@ -4,13 +4,19 @@
  *--------------------------------------------------------------------------------------------*/
 
 import {
+  ClassRegistry,
+  DefinitionElement,
+  DefinitionModel,
   // eslint-disable-next-line @typescript-eslint/no-redeclare
   Element,
   GeometryPart,
   IModelDb,
+  IModelElementCloneContext,
   PhysicalModel,
   PhysicalObject,
   PhysicalPartition,
+  Schema,
+  Schemas,
   SpatialCategory,
   StandaloneDb,
   Subject,
@@ -31,7 +37,15 @@ import {
   SubCategoryAppearance,
 } from "@itwin/core-common";
 import { Point3d } from "@itwin/core-geometry";
-import { describe, expect, it, onTestFinished, vi } from "vitest";
+import {
+  afterAll,
+  beforeAll,
+  describe,
+  expect,
+  it,
+  onTestFinished,
+  vi,
+} from "vitest";
 import type { ElementReservationPreScanMode } from "../../ElementReservationPreScan.js";
 import { IModelTransformer } from "../../IModelTransformer.js";
 import {
@@ -753,5 +767,107 @@ describe("element reservation pre-scan", () => {
         expect(targetDb.elements.getIdFromFederationGuid(guid)).toBeDefined();
       }
     });
+  });
+
+  describe("class onCloned", () => {
+    const schemaXml = `<?xml version="1.0" encoding="UTF-8"?>
+      <ECSchema schemaName="PreScanTest" alias="pst" version="01.00.00" xmlns="http://www.bentley.com/schemas/Bentley.ECXML.3.1">
+        <ECSchemaReference name="BisCore" version="01.00.04" alias="bis"/>
+        <ECEntityClass typeName="RenamedDefinition">
+          <BaseClass>bis:DefinitionElement</BaseClass>
+        </ECEntityClass>
+      </ECSchema>`;
+
+    class PreScanTestSchema extends Schema {
+      public static override get schemaName() {
+        return "PreScanTest";
+      }
+    }
+
+    /** Changes its code when cloned, without a transformer hook. */
+    class RenamedDefinition extends DefinitionElement {
+      public static override get className() {
+        return "RenamedDefinition";
+      }
+      protected static override async onCloned(
+        context: IModelElementCloneContext,
+        sourceProps: ElementProps,
+        targetProps: ElementProps
+      ) {
+        await super.onCloned(context, sourceProps, targetProps);
+        targetProps.code.value = `${targetProps.code.value}-cloned`;
+      }
+    }
+
+    beforeAll(() => {
+      Schemas.registerSchema(PreScanTestSchema);
+      ClassRegistry.register(RenamedDefinition, PreScanTestSchema);
+    });
+
+    afterAll(() => {
+      ClassRegistry.unregisterClassesFrom(PreScanTestSchema);
+      Schemas.unregisterSchema(PreScanTestSchema.schemaName);
+    });
+
+    it.each(modes)(
+      "reserves the code that a class's onCloned changes (%s)",
+      async (mode) => {
+        const sourceDb = adopt(createDb(`on-cloned-source-${mode}`), (db) =>
+          db.close()
+        );
+        const targetDb = createDb(`on-cloned-target-${mode}`);
+        await sourceDb.importSchemaStrings([schemaXml]);
+        const ids = withEditTxn(sourceDb, "definitions", (txn) => {
+          const spec = sourceDb.codeSpecs.insert(
+            txn,
+            CodeSpec.create(sourceDb, "ModelScoped", CodeScopeSpec.Type.Model)
+          );
+          const insert = (model: Id64String, value: string) =>
+            txn.insertElement({
+              classFullName: "PreScanTest:RenamedDefinition",
+              model,
+              federationGuid: Guid.createValue(),
+              code: { spec, scope: model, value },
+            });
+          const newModel = DefinitionModel.insert(
+            txn,
+            IModel.rootSubjectId,
+            "Definitions"
+          );
+          return [
+            insert(IModel.dictionaryId, "in-dictionary"),
+            insert(newModel, "in-new-model"),
+          ];
+        });
+        await importSourceSchemas(sourceDb, targetDb);
+        const reservations = adopt(
+          await useLocalReservations(
+            targetDb,
+            outputFile(`on-cloned-sync-${mode}.db`)
+          ),
+          (adapter) => adapter.dispose()
+        );
+
+        const stats = (await transform(
+          sourceDb,
+          targetDb,
+          {},
+          undefined,
+          mode
+        ))!;
+
+        expect(stats.mode).toBe(mode);
+        expect(stats.identityFallbacks).toBe(0);
+        for (const sourceId of ids) {
+          const source = sourceDb.elements.getElement(sourceId);
+          const reservation = reservations.sync.findReservedElement(
+            source.federationGuid!
+          )!;
+          expect(reservation.code.value).toBe(`${source.code.value}-cloned`);
+          const target = targetDb.elements.getElement(reservation.elementId);
+          expect(target.code.value).toBe(`${source.code.value}-cloned`);
+        }
+      }
+    );
   });
 });
