@@ -6,23 +6,31 @@
 import {
   // eslint-disable-next-line @typescript-eslint/no-redeclare
   Element,
+  GeometryPart,
   IModelDb,
   PhysicalModel,
   PhysicalObject,
+  PhysicalPartition,
   SpatialCategory,
   StandaloneDb,
   Subject,
+  SubjectOwnsPartitionElements,
+  SubjectOwnsSubjects,
   withEditTxn,
 } from "@itwin/core-backend";
 import { Guid, Id64String } from "@itwin/core-bentley";
 import {
+  Code,
   CodeScopeSpec,
   CodeSpec,
   ElementProps,
+  GeometryPartProps,
   IModel,
   PhysicalElementProps,
+  RelatedElement,
   SubCategoryAppearance,
 } from "@itwin/core-common";
+import { Point3d } from "@itwin/core-geometry";
 import { describe, expect, it, onTestFinished, vi } from "vitest";
 import type { ElementReservationPreScanMode } from "../../ElementReservationPreScan.js";
 import { IModelTransformer } from "../../IModelTransformer.js";
@@ -257,6 +265,119 @@ describe("element reservation pre-scan", () => {
     }
   );
 
+  it.each(modes)(
+    "matches the code of an element inserted earlier in the same run (%s)",
+    async (mode) => {
+      const sourceDb = adopt(createDb(`planned-code-source-${mode}`), (db) =>
+        db.close()
+      );
+      const targetDb = createDb(`planned-code-target-${mode}`);
+      const sharedSpecName = "Shared";
+      const specNames = ["SpecA", "SpecB", "SpecC"];
+      const ids = withEditTxn(
+        sourceDb,
+        "elements with one target code",
+        (txn) => {
+          const [specA, specB, specC] = specNames.map((name) =>
+            sourceDb.codeSpecs.insert(
+              txn,
+              CodeSpec.create(sourceDb, name, CodeScopeSpec.Type.Repository)
+            )
+          );
+          const insert = (
+            classFullName: string,
+            parent: RelatedElement,
+            spec: Id64String,
+            value: string
+          ) =>
+            txn.insertElement({
+              classFullName,
+              model: IModel.repositoryModelId,
+              parent,
+              federationGuid: Guid.createValue(),
+              code: { spec, scope: IModel.rootSubjectId, value },
+            });
+          return {
+            first: insert(
+              Subject.classFullName,
+              new SubjectOwnsSubjects(IModel.rootSubjectId),
+              specA,
+              "dup"
+            ),
+            // The target's code index compares values without ASCII case.
+            sameClass: insert(
+              Subject.classFullName,
+              new SubjectOwnsSubjects(IModel.rootSubjectId),
+              specB,
+              "DUP"
+            ),
+            otherClass: insert(
+              PhysicalPartition.classFullName,
+              new SubjectOwnsPartitionElements(IModel.rootSubjectId),
+              specC,
+              "dup"
+            ),
+          };
+        }
+      );
+      const sharedSpecId = withEditTxn(targetDb, "shared code spec", (txn) =>
+        targetDb.codeSpecs.insert(
+          txn,
+          CodeSpec.create(
+            targetDb,
+            sharedSpecName,
+            CodeScopeSpec.Type.Repository
+          )
+        )
+      );
+      const reservations = adopt(
+        await useLocalReservations(
+          targetDb,
+          outputFile(`planned-code-sync-${mode}.db`)
+        ),
+        (adapter) => adapter.dispose()
+      );
+      const guidOf = (id: Id64String) =>
+        sourceDb.elements.getElement(id).federationGuid!;
+
+      const stats = (await transform(
+        sourceDb,
+        targetDb,
+        {},
+        (transformer) => {
+          for (const name of specNames)
+            transformer.context.remapCodeSpec(name, sharedSpecName);
+        },
+        mode
+      ))!;
+
+      expect(stats.matchedByPlannedCode).toBe(1);
+      expect(stats.insertsWithFederationGuid).toBe(2);
+      expect(
+        reservations.sync.findReservedElement(guidOf(ids.sameClass))
+      ).toBeUndefined();
+      const firstId = reservations.sync.findReservedElement(
+        guidOf(ids.first)
+      )!.elementId;
+      expect(
+        targetDb.elements.queryElementIdByCode(
+          new Code({
+            spec: sharedSpecId,
+            scope: IModel.rootSubjectId,
+            value: "dup",
+          })
+        )
+      ).toBe(firstId);
+      const otherClass = reservations.sync.findReservedElement(
+        guidOf(ids.otherClass)
+      )!;
+      expect(otherClass.code.value ?? "").toBe("");
+      expect(
+        targetDb.elements.getElement(otherClass.elementId).code.value
+      ).toBe("");
+    }
+  );
+
   it("runs by default only when the target uses server-based reservations", async () => {
     const sourceDb = adopt(createDb("auto-source"), (db) => db.close());
     const plainTarget = adopt(createDb("auto-plain-target"), (db) =>
@@ -322,6 +443,128 @@ describe("element reservation pre-scan", () => {
     expect(
       await transform(sourceDb, targetDb, { elementReservationPreScan: "off" })
     ).toBeUndefined();
+  });
+
+  describe("geometry", () => {
+    /** A source with a PhysicalObject whose geometry stream references a GeometryPart. */
+    function createSourceWithGeometry(name: string) {
+      const db = adopt(createDb(name), (sourceDb) => sourceDb.close());
+      const ids = withEditTxn(db, "insert geometry", (txn) => {
+        const category = SpatialCategory.insert(
+          txn,
+          IModel.dictionaryId,
+          "Category",
+          new SubCategoryAppearance()
+        );
+        const model = PhysicalModel.insert(txn, IModel.rootSubjectId, "Model");
+        const partProps: GeometryPartProps = {
+          classFullName: GeometryPart.classFullName,
+          model: IModel.dictionaryId,
+          code: GeometryPart.createCode(db, IModel.dictionaryId, "Part"),
+          federationGuid: Guid.createValue(),
+          geom: IModelTransformerTestUtils.createBox(Point3d.create(1, 1, 1)),
+        };
+        const part = txn.insertElement(partProps);
+        const objectProps: PhysicalElementProps = {
+          classFullName: PhysicalObject.classFullName,
+          model,
+          category,
+          code: Code.createEmpty(),
+          federationGuid: Guid.createValue(),
+          geom: IModelTransformerTestUtils.createBox(
+            Point3d.create(1, 1, 1),
+            undefined,
+            undefined,
+            undefined,
+            part
+          ),
+        };
+        const object = txn.insertElement(objectProps);
+        return { category, model, object };
+      });
+      return { db, ...ids };
+    }
+
+    it("does not run the native clone on a geometry stream", async () => {
+      const source = createSourceWithGeometry("native-clone-source");
+      const targetDb = createDb("native-clone-target");
+      // The target already has the model and category, so only the geometry stream stands in the way of the native clone.
+      const targetIds = withEditTxn(targetDb, "model and category", (txn) => ({
+        category: SpatialCategory.insert(
+          txn,
+          IModel.dictionaryId,
+          "Category",
+          new SubCategoryAppearance()
+        ),
+        model: PhysicalModel.insert(txn, IModel.rootSubjectId, "Model"),
+      }));
+      adopt(
+        await useLocalReservations(
+          targetDb,
+          outputFile("native-clone-sync.db")
+        ),
+        (adapter) => adapter.dispose()
+      );
+      const countParts = () =>
+        targetDb.withPreparedSqliteStatement(
+          "SELECT COUNT(*) FROM bis_Element e JOIN ec_Class c ON c.Id = e.ECClassId WHERE c.Name = 'GeometryPart'",
+          (stmt) => (stmt.nextRow() ? stmt.getValueInteger(0) : 0)
+        );
+      const reserve = targetDb.reservations.reserveElements.bind(
+        targetDb.reservations
+      );
+      let partsWhenReserving: number | undefined;
+      vi.spyOn(targetDb.reservations, "reserveElements").mockImplementation(
+        async (args) => {
+          partsWhenReserving = countParts();
+          return reserve(args);
+        }
+      );
+
+      const stats = (await transform(
+        source.db,
+        targetDb,
+        {},
+        (transformer) => {
+          transformer.context.remapElement(source.category, targetIds.category);
+          transformer.context.remapElement(source.model, targetIds.model);
+        },
+        "transform"
+      ))!;
+
+      expect(stats.submitted).toBe(true);
+      expect(partsWhenReserving).toBe(0);
+      expect(countParts()).toBe(1);
+      const objectGuid = source.db.elements.getElement(
+        source.object
+      ).federationGuid!;
+      expect(
+        targetDb.elements.getIdFromFederationGuid(objectGuid)
+      ).toBeDefined();
+    });
+
+    it("gives a custom filter the geometry that the transformation loads", async () => {
+      const source = createSourceWithGeometry("filter-geometry-source");
+      const targetDb = adopt(createDb("filter-geometry-target"), (db) =>
+        db.close()
+      );
+      const hadGeometry: boolean[] = [];
+
+      await transform(
+        source.db,
+        targetDb,
+        { elementReservationPreScan: "on", loadSourceGeometry: true },
+        (transformer) => {
+          transformer.shouldExportElement = async (element) => {
+            if (element instanceof PhysicalObject)
+              hadGeometry.push(element.geom !== undefined);
+            return true;
+          };
+        }
+      );
+
+      expect(hadGeometry).toEqual([true, true]);
+    });
   });
 
   describe("transform hooks before the target model exists", () => {

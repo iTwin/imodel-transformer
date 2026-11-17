@@ -9,6 +9,8 @@ import { GuidString, Id64, Id64String, Logger } from "@itwin/core-bentley";
 import {
   // eslint-disable-next-line @typescript-eslint/no-redeclare
   Element,
+  GeometricElement,
+  GeometryPart,
   IModelDb,
   SubCategory,
 } from "@itwin/core-backend";
@@ -30,10 +32,11 @@ import { TransformerLoggerCategory } from "./TransformerLoggerCategory.js";
 const loggerCategory = TransformerLoggerCategory.IModelTransformer;
 
 /** How the element reservation pre-scan determines the identity of a new target element.
- * - `"transform"` calls [[IModelTransformer.onTransformElement]], without geometry. When the element's target model or
- *   category is not mapped yet, the native clone cannot run, because it requires a mapped target model and imports an
- *   unmapped category into the target. The hooks then transform a clone that holds only the element's class, federation
- *   GUID, and code, without [[Element.onCloned]]. If a hook reads another property, the element falls back to `"identity"`.
+ * - `"transform"` calls [[IModelTransformer.onTransformElement]]. The native clone cannot run for a geometric element or
+ *   GeometryPart, or when the element's target model or category is not mapped yet, because it requires a mapped target
+ *   model and imports an unmapped category and the geometry stream's dependencies into the target. The hooks then
+ *   transform a clone that holds only the element's class, federation GUID, and code, without [[Element.onCloned]].
+ *   If a hook reads another property, the element falls back to `"identity"`.
  * - `"identity"` derives the class, federation GUID, and code from the source element without cloning it.
  * @internal
  */
@@ -61,6 +64,8 @@ export interface ElementReservationPreScanStats {
   matchedByMapping: number;
   matchedByFederationGuid: number;
   matchedByCode: number;
+  /** Elements whose code matches an element that the transformation inserts earlier in the same run. */
+  matchedByPlannedCode: number;
   /** New target elements with a federation GUID, which need a reservation. */
   insertsWithFederationGuid: number;
   /** New target elements without a federation GUID, which cannot be reserved. */
@@ -73,7 +78,7 @@ export interface ElementReservationPreScanStats {
   unreservableScopes: number;
   /** Elements classified with [[IModelTransformer.onTransformElement]] and the native clone. */
   transformed: number;
-  /** Elements in `"transform"` mode whose target model or category was not mapped, classified with
+  /** Elements in `"transform"` mode that the native clone could not handle, classified with
    * [[IModelTransformer.onTransformElement]] on an identity-only clone.
    */
   identityOnlyTransforms: number;
@@ -137,6 +142,11 @@ export class ElementReservationPreScan extends IModelExportHandler {
   public readonly newScopeCodes = new Map<GuidString, CodeProps>();
   public readonly stats: ElementReservationPreScanStats;
   private readonly _planned = new Map<Id64String, PlannedElement>();
+  /** Codes of elements the transformation will insert, keyed by [[getPlannedCodeKey]], with the first such insert. */
+  private readonly _plannedCodes = new Map<
+    string,
+    { classFullName: string; planned: PlannedElement }
+  >();
   private readonly _classNames = new Map<Id64String, string>();
   /** Classes whose constructors need more than identity properties. */
   private readonly _fullLoadClasses = new Set<string>();
@@ -153,6 +163,7 @@ export class ElementReservationPreScan extends IModelExportHandler {
       matchedByMapping: 0,
       matchedByFederationGuid: 0,
       matchedByCode: 0,
+      matchedByPlannedCode: 0,
       insertsWithFederationGuid: 0,
       insertsWithoutFederationGuid: 0,
       defaultSubCategories: 0,
@@ -177,8 +188,10 @@ export class ElementReservationPreScan extends IModelExportHandler {
     await this._host.exporter.scanElements(this, {
       skipPropagateChangesToRootElements:
         options.skipPropagateChangesToRootElements,
-      // Identity never depends on geometry, and cloning a geometry stream imports unmapped GeometryParts and SubCategories into the target.
-      wantGeometry: false,
+      // Custom filters get the same elements as in the transformation. Otherwise nothing the scan reads depends on geometry.
+      wantGeometry: this._host.canLoadIdentityOnly
+        ? false
+        : this._host.exporter.wantGeometry,
       loadElement: this.stats.identityLoads
         ? (elementId) => this.loadIdentity(elementId)
         : undefined,
@@ -304,8 +317,8 @@ export class ElementReservationPreScan extends IModelExportHandler {
           (await this._host.exporter.shouldExportElement(reference));
         if (accepted) {
           const match = await this.match(reference);
-          if (match.targetId !== undefined)
-            this._planned.set(referenceId, { targetId: match.targetId });
+          if (match.planned !== undefined)
+            this._planned.set(referenceId, match.planned);
         }
       }
       if (isSubModeled) await this._host.exporter.exportModel(referenceId);
@@ -321,14 +334,19 @@ export class ElementReservationPreScan extends IModelExportHandler {
     this.stats.classified++;
 
     const match = await this.match(sourceElement);
-    if (match.targetId !== undefined) {
-      this._planned.set(sourceElement.id, { targetId: match.targetId });
+    if (match.planned !== undefined) {
+      this._planned.set(sourceElement.id, match.planned);
       return;
     }
     const identity = match.identity;
-    this._planned.set(sourceElement.id, {
-      federationGuid: identity.federationGuid,
-    });
+    const planned: PlannedElement = { federationGuid: identity.federationGuid };
+    this._planned.set(sourceElement.id, planned);
+    const codeKey = this.getPlannedCodeKey(identity);
+    if (codeKey !== undefined && !this._plannedCodes.has(codeKey))
+      this._plannedCodes.set(codeKey, {
+        classFullName: identity.classFullName,
+        planned,
+      });
     if (this.isDefaultSubCategoryOfNewCategory(sourceElement)) {
       this.stats.defaultSubCategories++;
       return;
@@ -350,18 +368,19 @@ export class ElementReservationPreScan extends IModelExportHandler {
   }
 
   /** Finds the target element the transformation will update, in the order the transformation does: mapping, federation GUID, then code.
-   * @returns the matching target element, or the identity of the element the transformation will insert.
+   * The code lookup also finds an element this run inserts earlier, as the transformation's lookup in the target does.
+   * @returns the planned match, or the identity of the element the transformation will insert.
    */
   private async match(
     sourceElement: Element
   ): Promise<
-    | { targetId: Id64String; identity?: undefined }
-    | { targetId?: undefined; identity: TargetIdentity }
+    | { planned: PlannedElement; identity?: undefined }
+    | { planned?: undefined; identity: TargetIdentity }
   > {
     const mappedId = this._host.context.findTargetElementId(sourceElement.id);
     if (Id64.isValidId64(mappedId)) {
       this.stats.matchedByMapping++;
-      return { targetId: mappedId };
+      return { planned: { targetId: mappedId } };
     }
 
     if (sourceElement.federationGuid !== undefined) {
@@ -370,28 +389,56 @@ export class ElementReservationPreScan extends IModelExportHandler {
       );
       if (targetId !== undefined && Id64.isValidId64(targetId)) {
         this.stats.matchedByFederationGuid++;
-        return { targetId };
+        return { planned: { targetId } };
       }
     }
 
     const identity = await this.getTargetIdentity(sourceElement);
+    let codeMatch:
+      { classFullName: string; planned: PlannedElement } | undefined;
     if (identity.lookUpCode) {
       const targetId = this._host.queryElementIdByCode(
         identity.code as Required<CodeProps>
       );
-      if (targetId !== undefined) {
-        const targetClass =
-          this._host.targetDb.elements.getElementProps(targetId).classFullName;
-        if (targetClass === identity.classFullName) {
-          this.stats.matchedByCode++;
-          return { targetId };
-        }
-        // The transformation clears a code that matches an element of another class.
-        identity.code = Code.createEmpty().toJSON();
-        identity.hasNewScope = false;
+      if (targetId !== undefined)
+        codeMatch = {
+          classFullName:
+            this._host.targetDb.elements.getElementProps(targetId)
+              .classFullName,
+          planned: { targetId },
+        };
+    }
+    const codeKey = this.getPlannedCodeKey(identity);
+    const plannedMatch =
+      codeMatch === undefined && codeKey !== undefined
+        ? this._plannedCodes.get(codeKey)
+        : undefined;
+    if (codeMatch !== undefined || plannedMatch !== undefined) {
+      const found = codeMatch ?? plannedMatch;
+      if (found?.classFullName === identity.classFullName) {
+        if (codeMatch !== undefined) this.stats.matchedByCode++;
+        else this.stats.matchedByPlannedCode++;
+        return { planned: found.planned };
       }
+      // The transformation clears a code that matches an element of another class.
+      identity.code = Code.createEmpty().toJSON();
+      identity.hasNewScope = false;
+      identity.lookUpCode = false;
     }
     return { identity };
+  }
+
+  /** Keys a code the way the target's code index compares it: exact CodeSpec and scope, and a value that SQLite
+   * `COLLATE NOCASE` compares without ASCII case. A new scope is keyed by its federation GUID.
+   * @returns `undefined` for a code the transformation does not look up.
+   */
+  private getPlannedCodeKey(identity: TargetIdentity): string | undefined {
+    if (!identity.lookUpCode && !identity.hasNewScope) return undefined;
+    if (Code.isEmpty(identity.code)) return undefined;
+    const value = (identity.code.value ?? "").replace(/[A-Z]/g, (c) =>
+      c.toLowerCase()
+    );
+    return `${identity.code.spec}\0${identity.code.scope}\0${value}`;
   }
 
   private isPlannedOrMapped(sourceId: Id64String): boolean {
@@ -414,10 +461,16 @@ export class ElementReservationPreScan extends IModelExportHandler {
     return category !== undefined && category.targetId === undefined;
   }
 
-  /** The native clone requires a mapped target model, and it imports an unmapped Category into the target,
-   * which would bypass the export filter before the transformation runs.
+  /** The native clone requires a mapped target model. It imports an unmapped Category into the target, and it clones
+   * the geometry stream by source ID, which imports unmapped GeometryParts and SubCategories. Those imports would write
+   * to the target before the reservations and bypass the export filter.
    */
   private canClone(sourceElement: Element): boolean {
+    if (
+      sourceElement instanceof GeometricElement ||
+      sourceElement instanceof GeometryPart
+    )
+      return false;
     const isMapped = (id: Id64String) =>
       Id64.isValidId64(this._host.context.findTargetElementId(id));
     const category =
