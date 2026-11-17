@@ -3,7 +3,9 @@
  * See LICENSE.md in the project root for license terms and full copyright notice.
  *--------------------------------------------------------------------------------------------*/
 import {
+  Guid,
   GuidString,
+  Id64,
   Id64String,
   ITwinError,
   Logger,
@@ -305,10 +307,11 @@ export class ProvenanceManager {
 
     // query for provenanceDb
     const provenanceAspectsQuery = `
-      SELECT esa.Identifier, Element.Id
+      SELECT esa.Identifier, esa.Element.Id, e.FederationGuid
       FROM bis.ExternalSourceAspect esa
-      WHERE Scope.Id=:scopeId
-        AND Kind=:kind
+      JOIN bis.Element e ON e.ECInstanceId=esa.Element.Id
+      WHERE esa.Scope.Id=:scopeId
+        AND esa.Kind=:kind
       ORDER BY esa.Identifier, esa.ECInstanceId DESC
     `;
 
@@ -334,9 +337,61 @@ export class ProvenanceManager {
     for await (const row of provenanceReader) {
       // ExternalSourceAspect.Identifier is of type string
       const aspectIdentifier: Id64String = row[0];
-      const elementId: Id64String = row.id;
+      const elementId: Id64String = row[1];
+      // In a reverse synchronization the aspects are read from the source (branch) iModel and name the target element
+      // they write to, so they are only trusted when they agree with federation GUIDs. A conflicting aspect is skipped,
+      // keeping any mapping by federation GUID made above.
+      if (
+        args.isReverseSynchronization &&
+        !ProvenanceManager.isElementProvenanceConsistentWithFederationGuids({
+          sourceElementId: elementId,
+          sourceFederationGuid: row[2] as GuidString | undefined,
+          targetDb,
+          targetElementId: aspectIdentifier,
+        })
+      )
+        continue;
       runFnInDataFlowDirection(elementId, aspectIdentifier);
     }
+  }
+
+  /**
+   * Whether ExternalSourceAspect provenance that maps a source element to a target element agrees with their
+   * federation GUIDs. It disagrees when the target element has a federation GUID that the source element does not
+   * share, including when the source element has no federation GUID. A warning is logged when it disagrees.
+   * @note Reverse synchronization reads provenance from the source iModel, so this check keeps that provenance from
+   * pointing at target elements that the source element was not synchronized with. It cannot detect provenance that
+   * points at a target element without a federation GUID.
+   */
+  public static isElementProvenanceConsistentWithFederationGuids(args: {
+    sourceElementId: Id64String;
+    sourceFederationGuid: GuidString | undefined;
+    targetDb: IModelDb;
+    targetElementId: string;
+  }): boolean {
+    if (!Id64.isValidId64(args.targetElementId)) return true;
+    const targetFederationGuid = args.targetDb.withPreparedSqliteStatement(
+      "SELECT FederationGuid FROM bis_Element WHERE Id=?",
+      (stmt) => {
+        stmt.bindId(1, args.targetElementId);
+        return stmt.nextRow() && !stmt.isValueNull(0)
+          ? stmt.getValueGuid(0)
+          : undefined;
+      }
+    );
+    if (
+      targetFederationGuid === undefined ||
+      (args.sourceFederationGuid !== undefined &&
+        Guid.normalize(args.sourceFederationGuid) ===
+          Guid.normalize(targetFederationGuid))
+    )
+      return true;
+
+    Logger.logWarning(
+      loggerCategory,
+      `Ignoring ExternalSourceAspect provenance that maps source element ${args.sourceElementId} to target element ${args.targetElementId}, because their federation GUIDs differ.`
+    );
+    return false;
   }
 
   /**
