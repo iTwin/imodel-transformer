@@ -154,13 +154,6 @@ export interface IModelTransformOptions {
    */
   includeSourceProvenance?: boolean;
 
-  /** Flag that indicates that the target iModel was created by copying the source iModel.
-   * This is common when the target iModel is intended to be a *branch* of the source iModel.
-   * This *hint* is essential to properly initialize the source to target element mapping and to cause provenance to be recorded for future synchronizations.
-   * @note This *hint* is typically only set for the first synchronization after the iModel was copied since every other synchronization can utilize the provenance.
-   */
-  wasSourceIModelCopiedToTarget?: boolean;
-
   /** Flag that indicates whether or not the transformation process needs to consider the source geometry before cloning/transforming.
    * For standard cases, it is not required to load the source GeometryStream in JavaScript since the cloning happens in native code.
    * Also, the target GeometryStream will be available in JavaScript prior to insert.
@@ -463,12 +456,6 @@ export class IModelTransformer extends IModelExportHandler {
   /** Whether [[_changesetRanges]] leaves out changesets to skip that fall within the synchronization range. */
   private _changesetRangesOmitSkipped = false;
 
-  /**
-   * Set if the transformer is being used to perform the provenance initialization step of a fork initialization.
-   * In general don't use the transformer for that, prefer [[BranchProvenanceInitializer.initializeBranchProvenance]]
-   */
-  private _isProvenanceInitTransform?: boolean;
-
   /** The element classes that are considered to define provenance in the iModel */
   public static get provenanceElementClasses(): (typeof Entity)[] {
     return ProvenanceManager.provenanceElementClasses;
@@ -512,10 +499,6 @@ export class IModelTransformer extends IModelExportHandler {
         "Authorization client is not set in IModelHost. If the transformer needs an accessToken, then it will fail."
       );
     }
-    this._isProvenanceInitTransform = this._options
-      .wasSourceIModelCopiedToTarget
-      ? true
-      : undefined;
     // initialize exporter and sourceDb
     if (source instanceof IModelDb) {
       this.exporter = new IModelExporter(source);
@@ -574,7 +557,6 @@ export class IModelTransformer extends IModelExportHandler {
       this.sourceDb,
       this.targetDb,
       this._options.targetScopeElementId,
-      !!this._isProvenanceInitTransform,
       !!this._options.argsForProcessChanges
     );
     this._provenanceManager = new ProvenanceManager(
@@ -689,10 +671,6 @@ export class IModelTransformer extends IModelExportHandler {
     Logger.logInfo(
       loggerCategory,
       `this._cloneUsingBinaryGeometry=${this._options.cloneUsingBinaryGeometry}`
-    );
-    Logger.logInfo(
-      loggerCategory,
-      `this._wasSourceIModelCopiedToTarget=${this._options.wasSourceIModelCopiedToTarget}`
     );
     Logger.logInfo(
       TransformerLoggerCategory.IModelImporter,
@@ -1470,16 +1448,8 @@ export class IModelTransformer extends IModelExportHandler {
   public override async onExportElement(sourceElement: Element): Promise<void> {
     await this.preExportElement(sourceElement);
     this.markSourceEntityExists(sourceElement);
-    let targetElementId: Id64String = Id64.invalid;
-    let targetElementProps: ElementProps;
-    if (this._options.wasSourceIModelCopiedToTarget) {
-      targetElementId = sourceElement.id;
-      targetElementProps =
-        this.targetDb.elements.getElementProps(targetElementId);
-    } else {
-      targetElementId = this.context.findTargetElementId(sourceElement.id);
-      targetElementProps = await this.onTransformElement(sourceElement);
-    }
+    let targetElementId = this.context.findTargetElementId(sourceElement.id);
+    const targetElementProps = await this.onTransformElement(sourceElement);
 
     // if an existing remapping was not yet found, check by FederationGuid and then by Code
     if (!Id64.isValid(targetElementId))
@@ -1540,9 +1510,7 @@ export class IModelTransformer extends IModelExportHandler {
       }
     }
 
-    if (!this._options.wasSourceIModelCopiedToTarget) {
-      await this.importer.importElement(targetElementProps); // don't need to import if iModel was copied
-    }
+    await this.importer.importElement(targetElementProps);
 
     if (targetElementProps.id === undefined) {
       throw new Error(
@@ -1835,9 +1803,7 @@ export class IModelTransformer extends IModelExportHandler {
   private async finalizeTransformation() {
     this.importer.finalize();
     this._cloneContext.existenceCache.clear();
-    await this.updateSynchronizationVersion({
-      initializeReverseSyncVersion: this._isProvenanceInitTransform,
-    });
+    await this.updateSynchronizationVersion();
 
     // TODO: ignore if we remove change cache usage
     if (!this._options.noDetachChangeCache) {

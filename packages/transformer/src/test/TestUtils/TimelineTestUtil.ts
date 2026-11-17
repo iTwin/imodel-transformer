@@ -35,6 +35,7 @@ import {
 import { IModelTestUtils } from "./IModelTestUtils.js";
 import { transformerTestHub } from "./TransformerTestHub.js";
 import { omit } from "@itwin/core-bentley";
+import { initializeBranchProvenance } from "../../BranchProvenanceInitializer.js";
 
 const saveAndPushChanges = async (
   accessToken: string,
@@ -455,14 +456,12 @@ export async function runTimeline(
         const master = seed;
         const branchDb = newIModelDb;
         // record branch provenance
-        const branchProvenanceEditTxn = createStartedEditTxn(branchDb);
-        const provenanceInserter = new IModelTransformer(
-          { source: master.db, target: branchProvenanceEditTxn },
-          { ...transformerOpts, wasSourceIModelCopiedToTarget: true }
-        );
-        await provenanceInserter.process();
-        provenanceInserter.dispose();
-        branchProvenanceEditTxn.end();
+        await initializeBranchProvenance({
+          master: master.db,
+          branch: branchDb,
+          targetScopeElementId:
+            transformerOpts?.targetScopeElementId ?? IModel.rootSubjectId,
+        });
         await saveAndPushChanges(
           accessToken,
           branchDb,

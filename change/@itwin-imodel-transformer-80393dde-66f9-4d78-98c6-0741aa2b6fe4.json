@@ -1,0 +1,7 @@
+{
+  "type": "major",
+  "comment": "Remove IModelTransformOptions.wasSourceIModelCopiedToTarget. initializeBranchProvenance now writes the scope provenance that establishes the master-to-branch relationship and accepts an optional targetScopeElementId.",
+  "packageName": "@itwin/imodel-transformer",
+  "email": "DanRod1999@users.noreply.github.com",
+  "dependentChangeType": "patch"
+}

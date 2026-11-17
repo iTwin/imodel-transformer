@@ -48,7 +48,7 @@ Pass the template model ID, target model ID, and placement when placing the temp
 
 ## initializeBranchProvenance
 
-`initializeBranchProvenance` creates and ends its own transaction. Pass an `initProvenanceArgs` object with `master` and `branch` properties; do not create a transaction for this operation:
+`initializeBranchProvenance` creates and ends its own transaction. Pass an `initProvenanceArgs` object with `master` and `branch` properties; do not create a transaction for this operation, and end any active transaction on the branch before calling it:
 
 [[include:EditTxnInTransformer.initialize-branch-provenance]]
 
@@ -74,9 +74,9 @@ Reverse synchronization must save or abandon the source and target transactions 
 
 ### Summary
 
-| Pattern | Cleanup |
-|---|---|
-| Test or disposable database | Call `end()` after successful processing. Closing the database cleans up an active transaction after a failure. |
-| Production transformation | In `finally`, save after success or abandon after failure. |
-| Reverse synchronization | End both transactions with the same save or abandon mode. |
-| `initializeBranchProvenance` | No caller-managed transaction. |
+| Pattern                      | Cleanup                                                                                                         |
+| ---------------------------- | --------------------------------------------------------------------------------------------------------------- |
+| Test or disposable database  | Call `end()` after successful processing. Closing the database cleans up an active transaction after a failure. |
+| Production transformation    | In `finally`, save after success or abandon after failure.                                                      |
+| Reverse synchronization      | End both transactions with the same save or abandon mode.                                                       |
+| `initializeBranchProvenance` | No caller-managed transaction.                                                                                  |

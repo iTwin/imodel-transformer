@@ -52,6 +52,7 @@ import {
   CollectedChanges,
   IModelTransformer,
   IModelTransformOptions,
+  initializeBranchProvenance,
 } from "../../imodel-transformer.js";
 import { ChangesetScanner, DeletionBatch } from "../../ChangesetScanner.js";
 import {
@@ -176,8 +177,14 @@ describe("IModelTransformerHub change scanning", () => {
           iTwinId,
           iModelId: branchIModelId,
         });
-        await synchronize(masterDb, branchDb, {
-          options: { wasSourceIModelCopiedToTarget: true },
+        await initializeBranchProvenance({
+          master: masterDb,
+          branch: branchDb,
+          targetScopeElementId: IModel.rootSubjectId,
+        });
+        await branchDb.pushChanges({
+          accessToken,
+          description: "initialize branch provenance",
         });
 
         await test({ masterDb, branchDb });

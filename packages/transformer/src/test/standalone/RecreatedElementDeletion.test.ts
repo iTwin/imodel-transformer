@@ -28,6 +28,7 @@ import * as TestUtils from "../TestUtils/index.js";
 import { IModelTestUtils } from "../TestUtils/IModelTestUtils.js";
 import { KnownTestLocations } from "../TestUtils/KnownTestLocations.js";
 import { transformerTestHub } from "../TestUtils/TransformerTestHub.js";
+import { initializeBranchProvenance } from "../../BranchProvenanceInitializer.js";
 
 type CustomChanges = (sourceDbChanges: ChangedInstanceIds) => Promise<void>;
 
@@ -115,9 +116,7 @@ describe("Element recreated with the same federation guid", () => {
     if (sourceEditTxn) await source.pushChanges({ description });
   }
 
-  async function createFork(
-    forceExternalSourceAspectProvenance: boolean
-  ): Promise<BriefcaseDb> {
+  async function createFork(): Promise<BriefcaseDb> {
     mainDb.performCheckpoint();
     const forkIModelId = await transformerTestHub.createNewIModel({
       iTwinId,
@@ -130,15 +129,12 @@ describe("Element recreated with the same federation guid", () => {
       iTwinId,
       iModelId: forkIModelId,
     });
-    await transform(
-      mainDb,
-      forkDb,
-      {
-        wasSourceIModelCopiedToTarget: true,
-        forceExternalSourceAspectProvenance,
-      },
-      "fork init"
-    );
+    await initializeBranchProvenance({
+      master: mainDb,
+      branch: forkDb,
+      targetScopeElementId: IModel.rootSubjectId,
+    });
+    await forkDb.pushChanges({ description: "fork init" });
     return forkDb;
   }
 
@@ -268,7 +264,7 @@ describe("Element recreated with the same federation guid", () => {
       const { elementId } = insertPhysicalObject(mainDb, "Element1");
       const fedGuid = mainDb.elements.getElement(elementId).federationGuid!;
       await mainDb.pushChanges({ description: "insert Element1" });
-      const forkDb = await createFork(forceExternalSourceAspectProvenance);
+      const forkDb = await createFork();
       otherDb = forkDb;
 
       const forkElementId = forkDb.elements.getElement({
@@ -328,7 +324,7 @@ describe("Element recreated with the same federation guid", () => {
       const { elementId } = insertPhysicalObject(mainDb, "Element1");
       const fedGuid = mainDb.elements.getElement(elementId).federationGuid!;
       await mainDb.pushChanges({ description: "insert Element1" });
-      const forkDb = await createFork(forceExternalSourceAspectProvenance);
+      const forkDb = await createFork();
       otherDb = forkDb;
 
       const forkElementId = forkDb.elements.getElement({
@@ -374,7 +370,7 @@ describe("Element recreated with the same federation guid", () => {
       const { elementId } = insertPhysicalObject(mainDb, "Element1");
       const fedGuid = mainDb.elements.getElement(elementId).federationGuid!;
       await mainDb.pushChanges({ description: "insert Element1" });
-      const forkDb = await createFork(forceExternalSourceAspectProvenance);
+      const forkDb = await createFork();
       otherDb = forkDb;
 
       const forkElementId = forkDb.elements.getElement({
@@ -424,7 +420,7 @@ describe("Element recreated with the same federation guid", () => {
       const { elementId } = insertPhysicalObject(mainDb, "Element1");
       const fedGuid = mainDb.elements.getElement(elementId).federationGuid!;
       await mainDb.pushChanges({ description: "insert Element1" });
-      const forkDb = await createFork(forceExternalSourceAspectProvenance);
+      const forkDb = await createFork();
       otherDb = forkDb;
 
       const forkElementId = forkDb.elements.getElement({

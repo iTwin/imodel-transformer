@@ -93,6 +93,7 @@ import {
   IModelTransformer,
   IModelTransformerError,
   IModelTransformOptions,
+  initializeBranchProvenance,
   ProcessChangesOptions,
   TransformerLoggerCategory,
 } from "../../imodel-transformer.js";
@@ -1840,21 +1841,11 @@ describe("IModelTransformerHub", () => {
           iModelId: branchIModelId,
         });
 
-        const branchProvenanceEditTxn = createStartedEditTxn(branchDb);
-        const branchProvenanceTransformer = new IModelTransformer(
-          { source: masterDb, target: branchProvenanceEditTxn },
-          { wasSourceIModelCopiedToTarget: true }
-        );
-        let branchProvenanceSucceeded = false;
-        try {
-          await branchProvenanceTransformer.process();
-          branchProvenanceSucceeded = true;
-        } finally {
-          branchProvenanceTransformer.dispose();
-          branchProvenanceEditTxn.end(
-            branchProvenanceSucceeded ? "save" : "abandon"
-          );
-        }
+        await initializeBranchProvenance({
+          master: masterDb,
+          branch: branchDb,
+          targetScopeElementId: IModel.rootSubjectId,
+        });
         await branchDb.pushChanges({
           accessToken,
           description: "initialized branch provenance",
@@ -2565,15 +2556,11 @@ describe("IModelTransformerHub", () => {
         targetDb.containsClass(ExternalSourceAspect.classFullName),
         "Expect BisCore to be updated and contain ExternalSourceAspect"
       );
-      const provenanceInitEditTxn = createStartedEditTxn(targetDb);
-      const provenanceInitializer = new IModelTransformer(
-        { source: sourceDb, target: provenanceInitEditTxn },
-        { wasSourceIModelCopiedToTarget: true }
-      );
-      await provenanceInitializer.processSchemas();
-      await provenanceInitializer.process();
-      provenanceInitializer.dispose();
-      provenanceInitEditTxn.end();
+      await initializeBranchProvenance({
+        master: sourceDb,
+        branch: targetDb,
+        targetScopeElementId: IModel.rootSubjectId,
+      });
 
       // update source (add model2 to model selector)
       // (it's important that we only change the model selector here to keep the changes isolated)
@@ -2898,17 +2885,15 @@ describe("IModelTransformerHub", () => {
     });
 
     // fork provenance init
-    const forkInitEditTxn = createStartedEditTxn(targetDb);
-    let transformer = new IModelTransformer(
-      { source: sourceDb, target: forkInitEditTxn },
-      { wasSourceIModelCopiedToTarget: true }
-    );
-    await transformer.process();
-    forkInitEditTxn.end();
+    await initializeBranchProvenance({
+      master: sourceDb,
+      branch: targetDb,
+      targetScopeElementId: IModel.rootSubjectId,
+    });
     await targetDb.pushChanges({ description: "fork init" });
-    const catIdInTarget = transformer.context.findTargetElementId(categoryId1);
-    const modelIdInTarget = transformer.context.findTargetElementId(modelId1);
-    transformer.dispose();
+    // The fork is a copy of the source, so element IDs are the same in both.
+    const catIdInTarget = categoryId1;
+    const modelIdInTarget = modelId1;
 
     // Push change to target db so we have changes to process during our reverse sync.
     await pushChangesets(targetDb, catIdInTarget, modelIdInTarget, 1);
@@ -2923,7 +2908,7 @@ describe("IModelTransformerHub", () => {
     // Reverse Sync to add a pendingsyncchangesetindex
     const reverseSyncEditTxn = createStartedEditTxn(sourceDb);
     const reverseSyncSourceEditTxn = createStartedEditTxn(targetDb);
-    transformer = new IModelTransformer(
+    let transformer = new IModelTransformer(
       { source: targetDb, target: reverseSyncEditTxn },
       { argsForProcessChanges: {}, sourceEditTxn: reverseSyncSourceEditTxn }
     );
@@ -3179,15 +3164,12 @@ describe("IModelTransformerHub", () => {
       });
 
       // fork provenance init
-      const forkInitEditTxn = createStartedEditTxn(targetDb);
-      let transformer = new IModelTransformer(
-        { source: sourceDb, target: forkInitEditTxn },
-        { wasSourceIModelCopiedToTarget: true }
-      );
-      await transformer.process();
-      forkInitEditTxn.end();
+      await initializeBranchProvenance({
+        master: sourceDb,
+        branch: targetDb,
+        targetScopeElementId: IModel.rootSubjectId,
+      });
       await targetDb.pushChanges({ description: "fork init" });
-      transformer.dispose();
 
       const {
         targetSubjectId: _targetSubjectId,
@@ -3228,7 +3210,7 @@ describe("IModelTransformerHub", () => {
       // running reverse synchronization
       const reverseSyncEditTxn = createStartedEditTxn(sourceDb);
       const reverseSyncSourceEditTxn = createStartedEditTxn(targetDb);
-      transformer = new IModelTransformer(
+      const transformer = new IModelTransformer(
         { source: targetDb, target: reverseSyncEditTxn },
         { argsForProcessChanges: {}, sourceEditTxn: reverseSyncSourceEditTxn }
       );
@@ -3434,15 +3416,11 @@ describe("IModelTransformerHub", () => {
         branchDb.containsClass(ExternalSourceAspect.classFullName),
         "Expect BisCore to be updated and contain ExternalSourceAspect"
       );
-      const branchInitEditTxn = createStartedEditTxn(branchDb);
-      const provenanceInitializer = new IModelTransformer(
-        { source: masterDb, target: branchInitEditTxn },
-        { wasSourceIModelCopiedToTarget: true }
-      );
-      await provenanceInitializer.processSchemas();
-      await provenanceInitializer.process();
-      provenanceInitializer.dispose();
-      branchInitEditTxn.end();
+      await initializeBranchProvenance({
+        master: masterDb,
+        branch: branchDb,
+        targetScopeElementId: IModel.rootSubjectId,
+      });
       await branchDb.pushChanges({ accessToken, description: "setup branch" });
 
       const modelToDeleteWithElem = {
@@ -5204,7 +5182,9 @@ describe("IModelTransformerHub", () => {
       {
         async assert({ master, branch }) {
           expect(master.db.changeset.index).to.equal(3);
-          expect(branch.db.changeset.index).to.equal(8);
+          // Branch init does not write forced element provenance, so one synchronization pushes
+          // an extra branch changeset that inserts it.
+          expect(branch.db.changeset.index).to.equal(9);
           expect(count(master.db, ExternalSourceAspect.classFullName)).to.equal(
             0
           );
@@ -5221,9 +5201,8 @@ describe("IModelTransformerHub", () => {
             return results;
           };
 
-          expect(count(branch.db, "bis.ExternalSourceAspect")).to.be.equal(
-            count(master.db, "bis.Element")
-          );
+          // Branch init only writes element provenance for elements without a FederationGuid, so
+          // forced aspects exist only for elements that a synchronization has since processed.
           expect(count(branch.db, "bis.Element")).to.be.equal(
             count(master.db, "bis.Element")
           );
@@ -5251,10 +5230,10 @@ describe("IModelTransformerHub", () => {
             targetScopeProvenance.jsonProperties
           );
           expect(targetScopeJsonProps).to.deep.subsetEqual({
-            pendingReverseSyncChangesetIndices: [8],
+            pendingReverseSyncChangesetIndices: [9],
             pendingSyncChangesetIndices: [3],
           });
-          expect(targetScopeJsonProps.reverseSyncVersion).to.match(/;7$/);
+          expect(targetScopeJsonProps.reverseSyncVersion).to.match(/;8$/);
         },
       },
       { branch: { sync: ["master"] } },
@@ -5646,8 +5625,9 @@ describe("IModelTransformerHub", () => {
           expect(count(master.db, ExternalSourceAspect.classFullName)).to.equal(
             0
           );
+          // Every element has a FederationGuid, so branch init only writes the scope aspect.
           expect(count(branch.db, ExternalSourceAspect.classFullName)).to.equal(
-            9
+            1
           );
 
           const scopeProvenanceCandidates = branch.db.elements
@@ -5682,9 +5662,9 @@ describe("IModelTransformerHub", () => {
           expect(count(master.db, ExternalSourceAspect.classFullName)).to.equal(
             0
           );
-          // added because the root was modified
+          // The scope aspect plus forced provenance for the elements the reverse sync processed.
           expect(count(branch.db, ExternalSourceAspect.classFullName)).to.equal(
-            10
+            3
           );
 
           const scopeProvenanceCandidates = branch.db.elements
@@ -6123,14 +6103,12 @@ describe("IModelTransformerHub", () => {
         };
       });
 
-    // process change 1
-    const initialTargetEditTxn = createStartedEditTxn(targetDb);
-    let transformer = new IModelTransformer(
-      { source: sourceDb, target: initialTargetEditTxn },
-      { argsForProcessChanges: {}, wasSourceIModelCopiedToTarget: true }
-    );
-    await transformer.process();
-    initialTargetEditTxn.end();
+    // treat the target as a branch of the source that already contains change 1
+    await initializeBranchProvenance({
+      master: sourceDb,
+      branch: targetDb,
+      targetScopeElementId: IModel.rootSubjectId,
+    });
 
     // Update source iModel
     withEditTxn(sourceDb, "change 2 source", (txn) => {
@@ -6153,7 +6131,7 @@ describe("IModelTransformerHub", () => {
 
     // process change 2
     const changeTargetEditTxn = createStartedEditTxn(targetDb);
-    transformer = new IModelTransformer(
+    const transformer = new IModelTransformer(
       { source: sourceDb, target: changeTargetEditTxn },
       { argsForProcessChanges: {} }
     );

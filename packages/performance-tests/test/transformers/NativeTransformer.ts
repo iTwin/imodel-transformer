@@ -4,20 +4,11 @@
  *--------------------------------------------------------------------------------------------*/
 
 import {
-  Code,
-  ExternalSourceProps,
-  RepositoryLinkProps,
-} from "@itwin/core-common";
-import {
   EditTxn,
   // eslint-disable-next-line @typescript-eslint/no-redeclare
   Element,
-  ExternalSource,
-  ExternalSourceIsInRepository,
   IModelDb,
   Relationship,
-  RepositoryLink,
-  withEditTxn,
 } from "@itwin/core-backend";
 import {
   IModelTransformer,
@@ -73,63 +64,6 @@ const nativeTransformerTestModule: TestTransformerModule = {
         await transformer.process();
         transformer.dispose();
         editTxn.end();
-      },
-    };
-  },
-  async createForkInitTransform(
-    sourceDb: IModelDb,
-    targetDb: IModelDb
-  ): Promise<TransformRunner> {
-    // create an external source and owning repository link to use as our *Target Scope Element* for future synchronizations
-    const { masterExternalSourceId } = withEditTxn(
-      targetDb,
-      "insert scope elements",
-      (txn) => {
-        const masterLinkRepoId = txn.insertElement({
-          classFullName: RepositoryLink.classFullName,
-          code: RepositoryLink.createCode(
-            targetDb,
-            IModelDb.repositoryModelId,
-            "test-imodel"
-          ),
-          model: IModelDb.repositoryModelId,
-          format: "iModel",
-          repositoryGuid: sourceDb.iModelId,
-          description: "master iModel repository",
-        } as RepositoryLinkProps);
-
-        const extSourceId = txn.insertElement({
-          classFullName: ExternalSource.classFullName,
-          model: IModelDb.rootSubjectId,
-          code: Code.createEmpty(),
-          repository: new ExternalSourceIsInRepository(masterLinkRepoId),
-          connectorName: "iModel Transformer",
-          // eslint-disable-next-line @typescript-eslint/no-require-imports
-          connectorVersion: require("@itwin/imodel-transformer/package.json")
-            .version,
-        } as ExternalSourceProps);
-
-        return { masterExternalSourceId: extSourceId };
-      }
-    );
-
-    const forkEditTxn = new EditTxn(targetDb, "IModelTransformer");
-    forkEditTxn.start();
-    const transformer = new ProgressTransformer(
-      { source: sourceDb, target: forkEditTxn },
-      {
-        // tells the transformer that we have a raw copy of a source and the target should receive
-        // provenance from the source that is necessary for performing synchronizations in the future
-        wasSourceIModelCopiedToTarget: true,
-        // store the synchronization provenance in the scope of our representation of the external source, master
-        targetScopeElementId: masterExternalSourceId,
-      }
-    );
-    return {
-      async run() {
-        await transformer.process();
-        transformer.dispose();
-        forkEditTxn.end();
       },
     };
   },
