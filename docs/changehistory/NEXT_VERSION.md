@@ -224,6 +224,36 @@ Errors originating from iTwin.js core, the backend, or the database retain their
 
 See [Error handling in imodel-transformer](../learning/transformer/error-handling.md) for the complete ownership and handling rules.
 
+## Breaking change: `noProvenance` replaced by `enableProvenance`
+
+`IModelTransformOptions.noProvenance` was removed. Use `IModelTransformOptions.enableProvenance` instead. It has the opposite meaning, so the option is no longer expressed as a negative. It defaults to `true`, so the transformer still records provenance unless you opt out.
+
+| Before                 | After                      |
+| ---------------------- | -------------------------- |
+| `noProvenance: true`   | `enableProvenance: false`  |
+| `noProvenance: false`  | `enableProvenance: true`   |
+| `noProvenance` omitted | `enableProvenance` omitted |
+
+```ts
+const transformer = new IModelTransformer(
+  { source: sourceDb, target: targetEditTxn },
+  { enableProvenance: false }
+);
+```
+
+## Breaking change: `danglingReferencesBehavior` defaults to `"ignore"`
+
+`IModelTransformOptions.danglingReferencesBehavior` now defaults to `"ignore"` instead of `"reject"`. A source element that references an element that doesn't exist in the source no longer fails the transformation by default. As before with `"ignore"`, the transformer doesn't check the source for each unresolved reference.
+
+To keep failing on dangling references with an `ITwinError` whose key is `IModelTransformerError.DanglingReference`, set the option explicitly:
+
+```ts
+const transformer = new IModelTransformer(
+  { source: sourceDb, target: targetEditTxn },
+  { danglingReferencesBehavior: "reject" }
+);
+```
+
 ## Breaking change: `exportChanges()` no longer falls back to `exportAll()`
 
 `IModelExporter.exportChanges()` no longer calls `exportAll()` when the source briefcase has no changesets and no custom changes. It now throws an `ITwinError` with scope `@itwin/imodel-transformer` and key `no-changesets`. `IModelTransformer.process()` propagates this error when `argsForProcessChanges` is specified, before finalizing the transformation or updating its synchronization version.

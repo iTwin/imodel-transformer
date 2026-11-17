@@ -471,11 +471,11 @@ export interface IModelTransformOptions {
     branchRelationshipDataBehavior?: "unsafe-migrate" | "reject";
     cloneUsingBinaryGeometry?: boolean;
     danglingReferencesBehavior?: "reject" | "ignore";
+    enableProvenance?: boolean;
     forceExternalSourceAspectProvenance?: boolean;
     includeSourceProvenance?: boolean;
     loadSourceGeometry?: boolean;
     noDetachChangeCache?: boolean;
-    noProvenance?: boolean;
     optimizeGeometry?: OptimizeGeometryOptions;
     preserveElementIdsForFiltering?: boolean;
     skipPropagateChangesToRootElements?: boolean;

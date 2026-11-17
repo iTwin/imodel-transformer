@@ -400,7 +400,7 @@ describe("EntityExistenceCache", () => {
     const editTxn = createStartedEditTxn(db);
     const transformer = new IModelTransformer(
       { source: db, target: editTxn },
-      { noProvenance: true }
+      { enableProvenance: false }
     );
     const markExists = vi.spyOn(EntityExistenceCache.prototype, "markExists");
 
@@ -464,10 +464,10 @@ describe("EntityExistenceCache", () => {
     );
     const markExists = vi.spyOn(EntityExistenceCache.prototype, "markExists");
     const targetEditTxn = createStartedEditTxn(targetDb);
-    const transformer = new IModelTransformer({
-      source: sourceDb,
-      target: targetEditTxn,
-    });
+    const transformer = new IModelTransformer(
+      { source: sourceDb, target: targetEditTxn },
+      { danglingReferencesBehavior: "reject" }
+    );
     let processSucceeded = false;
     try {
       await transformer.process();
@@ -532,10 +532,10 @@ describe("EntityExistenceCache", () => {
       ConcreteEntityTypes.Element
     );
     const targetEditTxn = createStartedEditTxn(targetDb);
-    const transformer = new IModelTransformer({
-      source: sourceDb,
-      target: targetEditTxn,
-    });
+    const transformer = new IModelTransformer(
+      { source: sourceDb, target: targetEditTxn },
+      { danglingReferencesBehavior: "reject" }
+    );
     let processSucceeded = false;
     try {
       await transformer.process();

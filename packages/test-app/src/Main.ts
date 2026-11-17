@@ -200,10 +200,10 @@ void (async () => {
           desc: "Exclude a categories (names with comma separators) and their elements from the target iModel",
           type: "string",
         },
-        noProvenance: {
-          desc: "If true, IModelTransformer should not record its provenance.",
+        enableProvenance: {
+          desc: "If false, IModelTransformer does not record its provenance.",
           type: "boolean",
-          default: false,
+          default: true,
         },
         includeSourceProvenance: {
           desc: "Include existing provenance from the source iModel in the target iModel",
@@ -230,7 +230,7 @@ void (async () => {
         },
         danglingReferencesBehavior: {
           desc: "sets danglingReferencesBehavior in the transformer options",
-          default: "reject" as const,
+          default: "ignore" as const,
           choices: ["reject", "ignore"] as const,
         },
       })

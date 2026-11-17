@@ -41,7 +41,7 @@ export function standaloneDriveRelationshipProcessing(
   editTxn.start();
   const transformer = new IModelTransformer(
     { source: sourceDb, target: editTxn },
-    { loadSourceGeometry: true, noProvenance: true }
+    { loadSourceGeometry: true, enableProvenance: false }
   );
   let disposed = false;
   const dispose = () => {

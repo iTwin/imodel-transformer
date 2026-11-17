@@ -140,16 +140,16 @@ export interface IModelTransformOptions {
    */
   targetScopeElementId?: Id64String;
 
-  /** Set to `true` if IModelTransformer should not record its provenance.
+  /** Whether IModelTransformer records its provenance in the target.
    * Provenance tracks a target element back to its corresponding source element and is essential for [[IModelTransformer.process]] to work properly when [[IModelTransformOptions.argsForProcessChanges]] are provided.
-   * Turning off IModelTransformer provenance is really only relevant for producing snapshots or another one time transformations.
+   * Set to `false` only for snapshots or other one-time transformations.
    * @note See the [[includeSourceProvenance]] option for determining whether existing source provenance is cloned into the target.
-   * @note The default is `false` which means that new IModelTransformer provenance will be recorded.
+   * @default true
    */
-  noProvenance?: boolean;
+  enableProvenance?: boolean;
 
   /** Set to `true` to clone existing source provenance into the target.
-   * @note See the [[noProvenance]] option for determining whether new IModelTransformer provenance is recorded.
+   * @note See the [[enableProvenance]] option for determining whether new IModelTransformer provenance is recorded.
    * @note The default is `false` which means that existing provenance in the source will not be carried into the target.
    */
   includeSourceProvenance?: boolean;
@@ -201,7 +201,7 @@ export interface IModelTransformOptions {
    * @note "ignore" passes the issue down to consuming applications, iModels that have invalid element references
    *       like this can cause errors, and you should consider adding custom logic in your transformer to remove the
    *       reference depending on your use case.
-   * @default "reject"
+   * @default "ignore"
    * @beta
    */
   danglingReferencesBehavior?: "reject" | "ignore";
@@ -457,7 +457,7 @@ export class IModelTransformer extends IModelExportHandler {
   /** the options that were used to initialize this transformer */
   private readonly _options: MarkRequired<
     IModelTransformOptions,
-    "targetScopeElementId" | "danglingReferencesBehavior"
+    "targetScopeElementId" | "danglingReferencesBehavior" | "enableProvenance"
   >;
   private _changesetRanges: [number, number][] | undefined = undefined;
   /** Whether [[_changesetRanges]] leaves out changesets to skip that fall within the synchronization range. */
@@ -498,7 +498,8 @@ export class IModelTransformer extends IModelExportHandler {
       targetScopeElementId:
         options?.targetScopeElementId ?? IModel.rootSubjectId,
       danglingReferencesBehavior:
-        options?.danglingReferencesBehavior ?? "reject",
+        options?.danglingReferencesBehavior ?? "ignore",
+      enableProvenance: options?.enableProvenance ?? true,
       branchRelationshipDataBehavior:
         options?.branchRelationshipDataBehavior ?? "reject",
       skipPropagateChangesToRootElements:
@@ -680,7 +681,7 @@ export class IModelTransformer extends IModelExportHandler {
     );
     Logger.logInfo(
       loggerCategory,
-      `this._noProvenance=${this._options.noProvenance}`
+      `this._enableProvenance=${this._options.enableProvenance}`
     );
     Logger.logInfo(
       loggerCategory,
@@ -1570,7 +1571,7 @@ export class IModelTransformer extends IModelExportHandler {
     const provenanceDb = await this.getProvenanceDb();
     const provenanceEditTxn =
       await this._provenanceManager.getProvenanceEditTxn();
-    if (!this._options.noProvenance) {
+    if (this._options.enableProvenance) {
       const provenance:
         string | MarkRequired<ExternalSourceAspectProps, "id"> | undefined =
         this._options.forceExternalSourceAspectProvenance ||
@@ -1909,7 +1910,7 @@ export class IModelTransformer extends IModelExportHandler {
     const provenanceEditTxn =
       await this._provenanceManager.getProvenanceEditTxn();
     if (
-      !this._options.noProvenance &&
+      this._options.enableProvenance &&
       Id64.isValid(targetRelationshipInstanceId)
     ) {
       const needsEsaProvenance =
@@ -2954,7 +2955,7 @@ export class TemplateModelCloner extends IModelTransformer {
     const target = new IModelImporter(editTxn, {
       autoExtendProjectExtents: false, // autoExtendProjectExtents is intended for transformation service use cases, not template --> instance cloning
     });
-    super({ source: editTxn.iModel, target }, { noProvenance: true }); // WIP: need to decide the proper way to handle provenance
+    super({ source: editTxn.iModel, target }, { enableProvenance: false }); // WIP: need to decide the proper way to handle provenance
   }
   /** Place a template from the sourceDb at the specified placement in the target model within the targetDb.
    * @param sourceTemplateModelId The Id of the template model in the sourceDb
