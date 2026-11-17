@@ -265,6 +265,74 @@ describe("element reservation pre-scan", () => {
     }
   );
 
+  it("keeps a hook's code change for children of a new code scope", async () => {
+    const sourceDb = adopt(createDb("scope-hook-source"), (db) => db.close());
+    const targetDb = createDb("scope-hook-target");
+    const ids = withEditTxn(sourceDb, "hierarchy", (sourceTxn) => {
+      const spec = sourceDb.codeSpecs.insert(
+        sourceTxn,
+        CodeSpec.create(
+          sourceDb,
+          "ParentScoped",
+          CodeScopeSpec.Type.ParentElement
+        )
+      );
+      const insertSubject = (scopeId: string, value: string) =>
+        sourceTxn.insertElement({
+          ...Subject.create(sourceDb, scopeId, value).toJSON(),
+          federationGuid: Guid.createValue(),
+          code: { spec, scope: scopeId, value },
+        });
+      const parent = insertSubject(IModel.rootSubjectId, "parent");
+      return {
+        parent,
+        children: Array.from({ length: 2 }, (_, i) =>
+          insertSubject(parent, `child-${i}`)
+        ),
+      };
+    });
+    const reservations = adopt(
+      await useLocalReservations(targetDb, outputFile("scope-hook-sync.db")),
+      (adapter) => adapter.dispose()
+    );
+    class RenamingTransformer extends IModelTransformer {
+      public override async onTransformElement(sourceElement: Element) {
+        const props = await super.onTransformElement(sourceElement);
+        if (props.code.value?.startsWith("child-"))
+          props.code = { ...props.code, value: `${props.code.value}-renamed` };
+        return props;
+      }
+    }
+
+    const txn = createStartedEditTxn(targetDb);
+    const transformer = new RenamingTransformer({
+      source: sourceDb,
+      target: txn,
+    });
+    try {
+      await transformer.process();
+      txn.saveChanges();
+    } finally {
+      transformer.dispose();
+      txn.end();
+    }
+
+    const stats = transformer.elementReservationPreScanStats!;
+    expect(stats.mode).toBe("transform");
+    expect(stats.newScopeCodes).toBe(2);
+    const parentGuid = sourceDb.elements.getElement(ids.parent).federationGuid!;
+    for (const [i, childId] of ids.children.entries()) {
+      const guid = sourceDb.elements.getElement(childId).federationGuid!;
+      const reservation = reservations.sync.findReservedElement(guid)!;
+      expect(reservation.code.scope).toBe(parentGuid);
+      expect(reservation.code.value).toBe(`child-${i}-renamed`);
+      const targetChild = targetDb.elements.getElement<Element>(
+        reservation.elementId
+      );
+      expect(targetChild.code.value).toBe(`child-${i}-renamed`);
+    }
+  });
+
   it.each(modes)(
     "matches the code of an element inserted earlier in the same run (%s)",
     async (mode) => {

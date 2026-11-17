@@ -488,8 +488,10 @@ export class IModelTransformer extends IModelExportHandler {
 
   /** Statistics of the element reservation pre-scan of the last [[process]] call, if it ran. @internal */
   public elementReservationPreScanStats?: ElementReservationPreScanStats;
-  /** Codes to insert for reserved elements whose code scope is a new element of this run, keyed by federation GUID. */
-  private _reservedNewScopeCodes?: Map<string, CodeProps>;
+  /** Code scopes in federation GUID form for reserved elements whose code scope is a new element of this run, keyed by
+   * the reserved element's federation GUID.
+   */
+  private _reservedNewCodeScopes?: Map<string, string>;
 
   /**
    * Set if the transformer is being used to perform the provenance initialization step of a fork initialization.
@@ -1573,11 +1575,14 @@ export class IModelTransformer extends IModelExportHandler {
         targetElementProps.federationGuid !== undefined
       ) {
         // The reservation names a new code scope by federation GUID, which the backend resolves at insert.
-        const reservedCode = this._reservedNewScopeCodes?.get(
+        const reservedScope = this._reservedNewCodeScopes?.get(
           targetElementProps.federationGuid
         );
-        if (reservedCode !== undefined)
-          targetElementProps.code = { ...reservedCode };
+        if (reservedScope !== undefined)
+          targetElementProps.code = {
+            ...targetElementProps.code,
+            scope: reservedScope,
+          };
       }
       await this.importer.importElement(targetElementProps); // don't need to import if iModel was copied
     }
@@ -2799,7 +2804,7 @@ export class IModelTransformer extends IModelExportHandler {
    */
   private async reserveNewElements(): Promise<void> {
     this.elementReservationPreScanStats = undefined;
-    this._reservedNewScopeCodes = undefined;
+    this._reservedNewCodeScopes = undefined;
     const option = this._options.elementReservationPreScan;
     const reservations = this.targetDb.reservations;
     const canReserve =
@@ -2846,7 +2851,7 @@ export class IModelTransformer extends IModelExportHandler {
       await reservations.reserveElements({ elements: scan.reservations });
       scan.stats.reserveMs = performance.now() - start;
       scan.stats.submitted = true;
-      this._reservedNewScopeCodes = scan.newScopeCodes;
+      this._reservedNewCodeScopes = scan.newCodeScopes;
     }
     this.elementReservationPreScanStats = scan.stats;
     if (scan.stats.identityFallbacks > 0)

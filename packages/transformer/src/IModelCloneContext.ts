@@ -166,6 +166,27 @@ export class IModelCloneContext
     }
   }
 
+  private _clonedCode?: { sourceElementId: Id64String; code: CodeProps };
+
+  /** Runs `transform` with [[cloneElement]] giving the source element `code` before [[Element.onCloned]]. The element
+   * reservation pre-scan uses this to give transform hooks a code whose scope is a new element in federation GUID form,
+   * because the native clone empties a code whose scope has no target element yet.
+   * @internal
+   */
+  public async withClonedCode<T>(
+    sourceElementId: Id64String,
+    code: CodeProps,
+    transform: () => Promise<T>
+  ): Promise<T> {
+    const previous = this._clonedCode;
+    this._clonedCode = { sourceElementId, code };
+    try {
+      return await transform();
+    } finally {
+      this._clonedCode = previous;
+    }
+  }
+
   /** Clone the specified source Element into ElementProps for the target iModel.
    * @internal
    */
@@ -252,6 +273,8 @@ export class IModelCloneContext
     ) {
       targetElementProps.code = Code.createEmpty();
     }
+    if (this._clonedCode?.sourceElementId === sourceElement.id)
+      targetElementProps.code = { ...this._clonedCode.code };
     const jsClass = this.sourceDb.getJsClass<typeof Element>(
       sourceElement.classFullName
     );

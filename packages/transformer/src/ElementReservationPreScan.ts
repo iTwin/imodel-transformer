@@ -138,8 +138,10 @@ interface TargetIdentity {
  */
 export class ElementReservationPreScan extends IModelExportHandler {
   public readonly reservations: PlannedElementReservation[] = [];
-  /** Codes, keyed by federation GUID, whose scope is a new element of this run and is written in federation GUID form. */
-  public readonly newScopeCodes = new Map<GuidString, CodeProps>();
+  /** Code scopes in federation GUID form, keyed by the federation GUID of the reserved element whose code they scope.
+   * Each scope is a new element of this run.
+   */
+  public readonly newCodeScopes = new Map<GuidString, GuidString>();
   public readonly stats: ElementReservationPreScanStats;
   private readonly _planned = new Map<Id64String, PlannedElement>();
   /** Codes of elements the transformation will insert, keyed by [[getPlannedCodeKey]], with the first such insert. */
@@ -363,7 +365,7 @@ export class ElementReservationPreScan extends IModelExportHandler {
     });
     if (identity.hasNewScope) {
       this.stats.newScopeCodes++;
-      this.newScopeCodes.set(identity.federationGuid, identity.code);
+      this.newCodeScopes.set(identity.federationGuid, identity.code.scope);
     }
   }
 
@@ -514,32 +516,47 @@ export class ElementReservationPreScan extends IModelExportHandler {
     let hooksSawTargetCode = false;
     if (this.stats.mode === "transform") {
       if (this.canClone(sourceElement)) {
-        props = await this._host.onTransformElement(sourceElement);
+        // The native clone empties a code whose scope is not mapped yet, so the hooks get the GUID-scoped code instead.
+        props =
+          scope.kind === "newElement"
+            ? await this._host.context.withClonedCode(
+                sourceElement.id,
+                code,
+                async () => this._host.onTransformElement(sourceElement)
+              )
+            : await this._host.onTransformElement(sourceElement);
         this.stats.transformed++;
         // The scan does not record mappings, so a clone only sees scopes that were mapped before the scan.
-        hooksSawTargetCode = scope.kind === "mapped";
+        hooksSawTargetCode =
+          scope.kind === "mapped" || scope.kind === "newElement";
       } else {
         props = await this.transformIdentityOnly(sourceElement, sourceIdentity);
         hooksSawTargetCode =
           props !== undefined &&
-          (scope.kind === "mapped" || scope.kind === "matched");
+          (scope.kind === "mapped" ||
+            scope.kind === "matched" ||
+            scope.kind === "newElement");
       }
     }
     const classFullName = props?.classFullName ?? sourceIdentity.classFullName;
     const federationGuid = props
       ? props.federationGuid
       : sourceIdentity.federationGuid;
-    if (hooksSawTargetCode && props)
+    let hasNewScope = scope.kind === "newElement";
+    if (hooksSawTargetCode && props) {
       code = { ...props.code, value: props.code.value ?? "" };
+      // The hooks see a new scope in federation GUID form, where the transformation passes them its target ID.
+      // The insert writes the federation GUID back only if the hooks kept the scope.
+      hasNewScope = scope.kind === "newElement" && code.scope === scope.value;
+    }
 
-    const isTargetScope = scope.kind === "mapped" || scope.kind === "matched";
     return {
       classFullName,
       federationGuid,
       code,
       lookUpCode:
-        isTargetScope && Id64.isValidId64(code.scope) && !Code.isEmpty(code),
-      hasNewScope: scope.kind === "newElement",
+        !hasNewScope && Id64.isValidId64(code.scope) && !Code.isEmpty(code),
+      hasNewScope,
     };
   }
 
