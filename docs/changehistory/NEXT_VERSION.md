@@ -1,5 +1,11 @@
 # Next release notes
 
+## Required-reference import moved into `IModelTransformer.onExportElement`
+
+The `@internal` `IModelExportHandler.preExportElement` hook has been removed. `IModelExporter` now calls only `onExportElement` for each accepted element. `IModelTransformer.onExportElement` imports any required references (such as a category, parent, or model) that are not yet mapped in the target before it transforms the element, which is the work `preExportElement` used to do.
+
+`IModelTransformer` subclasses that override `onExportElement` must call `super.onExportElement` to keep required-reference import. All in-repo overrides already do. Custom `IModelExportHandler` implementations that overrode `preExportElement` should move that logic into `onExportElement`.
+
 ## Breaking change: ESM-only package
 
 `@itwin/imodel-transformer` now publishes only ES modules. The `lib/cjs` output has been removed, and `lib/` contains the ESM JavaScript and declarations. The package root and `@itwin/imodel-transformer/schema-processing` remain the supported entry points.
@@ -142,7 +148,9 @@ Calls to the public `IModelImporter.deleteElement(elementId)` don't need to chan
 
 If an element outside the batch still uses an element in it through a reference that the importer checks, such as its category, its code scope, or a view definition's display style, the importer keeps the used element, the elements it needs, and the elements that contain it, deletes the rest, and logs a warning listing up to ten kept elements. Later syncs don't try to delete kept elements again. Per-element deletion also kept definitions that were still in use, but without a warning.
 
-If a native deletion call fails anyway, for example because geometry outside the batch uses a geometry part in it, or because of a reference from a domain schema, `IModelImporter.deleteElements()` throws an `ElementBulkDeleteError` with scope `IModelTransformerErrorScope` and key `IModelTransformerError.ElementBulkDeleteFailed`. Its `status`, `sqlDeleteStatus`, and `failedIds` describe the failed call. Deletions from that call and earlier ones are still pending in the caller's target transaction, so abandon the transaction before fixing the dependency and retrying.
+If core refuses to delete an element because of a use that the importer doesn't check in advance, for example because geometry outside the batch places a geometry part in it, the importer keeps the refused element and the requested elements that contain it, deletes the rest, and logs a warning that lists them with the reason core gave.
+
+If a native deletion call fails for another reason, such as a database error, `IModelImporter.deleteElements()` throws an `ElementBulkDeleteError` with scope `IModelTransformerErrorScope` and key `IModelTransformerError.ElementBulkDeleteFailed`. Its `status`, `sqlDeleteStatus`, and `failedIds` describe the failed call. Deletions from that call and earlier ones are still pending in the caller's target transaction, so abandon the transaction before fixing the dependency and retrying.
 
 See [Deleting elements](../learning/transformer/element-deletion.md) for details and an error-handling example.
 

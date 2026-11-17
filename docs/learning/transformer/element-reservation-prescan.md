@@ -47,7 +47,7 @@ The pre-scan calls `IModelExporter.scanElements()`, which runs the element trave
 
 - the same `shouldExportElement` filter and exporter exclusions;
 - in change processing, the same sparse changed-element traversal, with only inserted and updated elements and the ancestors needed to reach them;
-- the same required-reference visits that `IModelTransformer.preExportElement` makes, so a changed category or parent that a changed element requires is classified before the element.
+- the same required-reference visits that `IModelTransformer.onExportElement` makes before transforming an element, so a changed category or parent that a changed element requires is classified before the element.
 
 The scan does not export aspects, relationships, or deletions, and does not change the exporter's change data. It loads geometry only when `shouldExportElement`, `hasElementChanged`, or the exporter's `shouldExportElement` is overridden and the transformation loads geometry, so those filters get the same elements in both passes.
 
@@ -127,7 +127,7 @@ A code scope that the traversal reaches after the element is unmapped at insert.
 - Reservations are not released if the transformation fails after the batch is submitted.
 - The batch is not split. Planning state is held in memory as `Map` objects.
 - Change processing builds the changed-element traversal twice: once for the pre-scan and once for the transformation.
-- Server-based reservations require iTwin.js 5.15, which fixes ECSQL `IdSet` rejecting reserved IDs. The prototype pins 5.15.0-dev.10.
+- Server-based reservations require iTwin.js 5.15, which fixes ECSQL `IdSet` rejecting reserved IDs. `main` now uses 5.15.0, so the prototype no longer pins a dev version.
 
 ## Comparison with plan, reserve, and replay (#473)
 

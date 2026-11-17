@@ -279,10 +279,8 @@ export class ElementReservationPreScan extends IModelExportHandler {
     return this._host.shouldExportElement(sourceElement);
   }
 
-  /** Mirrors [[IModelTransformer.preExportElement]]: changed required references are visited before the element. */
-  public override async preExportElement(
-    sourceElement: Element
-  ): Promise<void> {
+  /** Mirrors the transformer's required-reference import at the start of [[IModelTransformer.onExportElement]]: changed required references are visited before the element. */
+  private async visitRequiredReferences(sourceElement: Element): Promise<void> {
     if (!this._host.hasElementChanged(sourceElement)) return;
     const elemClass = sourceElement.constructor as typeof Element;
     const changes = this._host.exporter.sourceDbChanges;
@@ -331,6 +329,7 @@ export class ElementReservationPreScan extends IModelExportHandler {
   }
 
   public override async onExportElement(sourceElement: Element): Promise<void> {
+    await this.visitRequiredReferences(sourceElement);
     if (this._planned.has(sourceElement.id)) return;
     if (!this._host.hasElementChanged(sourceElement)) {
       this.stats.unchanged++;

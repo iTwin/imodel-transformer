@@ -1,0 +1,7 @@
+{
+  "type": "patch",
+  "comment": "Clear values on the target element when they are cleared on the source (geometry, parent, userLabel, typeDefinition, jsonProperties and other properties) by cloning with CloneElementOptions.explicitClears",
+  "packageName": "@itwin/imodel-transformer",
+  "email": "DanRod1999@users.noreply.github.com",
+  "dependentChangeType": "patch"
+}

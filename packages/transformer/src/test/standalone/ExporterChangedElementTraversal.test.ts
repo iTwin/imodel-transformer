@@ -32,7 +32,7 @@ import {
 
 /** Recorded traversal event: callback kind, element id, and the isUpdate flag for exports. */
 type ChangeTraversalEvent =
-  | [kind: "should" | "pre" | "skip", id: Id64String]
+  | [kind: "should" | "skip", id: Id64String]
   | [kind: "export", id: Id64String, isUpdate: boolean | undefined];
 
 class RecordingHandler extends IModelExportHandler {
@@ -52,10 +52,6 @@ class RecordingHandler extends IModelExportHandler {
   public override async shouldExportElement(element: Element) {
     this.events.push(["should", element.id]);
     return !this.rejectedIds.has(element.id);
-  }
-
-  public override async preExportElement(element: Element) {
-    this.events.push(["pre", element.id]);
   }
 
   public override async onExportElement(
@@ -149,10 +145,8 @@ describe("IModelExporter changed-element traversal", () => {
         ["should", ids.get("A")!],
         ["should", ids.get("A1")!],
         ["should", ids.get("A1a")!],
-        ["pre", ids.get("A1a")!],
         ["export", ids.get("A1a")!, false],
         ["should", ids.get("B")!],
-        ["pre", ids.get("B")!],
         ["export", ids.get("B")!, true],
       ]);
     } finally {
@@ -214,7 +208,6 @@ describe("IModelExporter changed-element traversal", () => {
           ["should", ids.get("A")!],
           ["skip", ids.get("A")!],
           ["should", ids.get("B")!],
-          ["pre", ids.get("B")!],
           ["export", ids.get("B")!, true],
         ]);
       } finally {
@@ -263,7 +256,6 @@ describe("IModelExporter changed-element traversal", () => {
         ["skip", ids.get("A1")!],
         ["should", IModel.rootSubjectId],
         ["should", ids.get("B")!],
-        ["pre", ids.get("B")!],
         ["export", ids.get("B")!, true],
       ]);
     } finally {
@@ -389,11 +381,9 @@ describe("IModelExporter changed-element traversal", () => {
       // top (changed) exported before leaf (changed); mid (unchanged) is only filtered
       expect(handler.events).to.deep.equal([
         ["should", inserted.topId],
-        ["pre", inserted.topId],
         ["export", inserted.topId, true],
         ["should", inserted.midId],
         ["should", inserted.leafId],
-        ["pre", inserted.leafId],
         ["export", inserted.leafId, false],
       ]);
     } finally {
@@ -414,7 +404,6 @@ describe("IModelExporter changed-element traversal", () => {
       expect(handler.events).to.deep.equal([
         ["should", ids.get("A1")!],
         ["should", ids.get("A1a")!],
-        ["pre", ids.get("A1a")!],
         ["export", ids.get("A1a")!, false],
       ]);
     } finally {
@@ -517,11 +506,9 @@ describe("IModelExporter changed-element traversal", () => {
     const expectedEvents = [
       ["should", IModel.rootSubjectId],
       ["should", "A"],
-      ["pre", "A"],
       ["export", "A", true],
       ["should", "A1"],
       ["should", "A1a"],
-      ["pre", "A1a"],
       ["export", "A1a", false],
       ["should", "A1b"],
       ["skip", "A1b"],

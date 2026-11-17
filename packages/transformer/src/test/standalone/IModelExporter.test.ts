@@ -511,11 +511,9 @@ describe("IModelExporter", () => {
       const uniqueAspectOwners: Id64String[] = [];
       const multiAspectOwners: Id64String[] = [];
       class Handler extends IModelExportHandler {
-        public override async preExportElement(element: Element) {
+        public override async onExportElement(element: Element) {
           if (element.id === requiringId)
             await exporter.exportElement(requiredId);
-        }
-        public override async onExportElement(element: Element) {
           elementExportOrder.push(element.id);
         }
         public override async onExportElementUniqueAspect(

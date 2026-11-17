@@ -485,6 +485,8 @@ export class IModelTransformer extends IModelExportHandler {
     "targetScopeElementId" | "danglingReferencesBehavior"
   >;
   private _changesetRanges: [number, number][] | undefined = undefined;
+  /** Whether [[_changesetRanges]] leaves out changesets to skip that fall within the synchronization range. */
+  private _changesetRangesOmitSkipped = false;
 
   /** Statistics of the element reservation pre-scan of the last [[process]] call, if it ran. @internal */
   public elementReservationPreScanStats?: ElementReservationPreScanStats;
@@ -847,6 +849,8 @@ export class IModelTransformer extends IModelExportHandler {
     const targetElementProps: ElementProps =
       await this._cloneContext.cloneElement(sourceElement, {
         binaryGeometry: this._options.cloneUsingBinaryGeometry,
+        // write cleared values so that updating an existing target element clears them too
+        explicitClears: true,
       });
     // Special case: source element is the root subject
     if (sourceElement.id === IModel.rootSubjectId) {
@@ -1289,11 +1293,9 @@ export class IModelTransformer extends IModelExportHandler {
 
   /**
    * If they haven't been already, import all of the required references
-   * @internal do not call, override or implement this, it will be removed
+   * Called from [[onExportElement]] before the element itself is transformed.
    */
-  public override async preExportElement(
-    sourceElement: Element
-  ): Promise<void> {
+  private async preExportElement(sourceElement: Element): Promise<void> {
     if (!this.hasElementChanged(sourceElement)) {
       Logger.logTrace(
         loggerCategory,
@@ -1495,9 +1497,11 @@ export class IModelTransformer extends IModelExportHandler {
   }
 
   /** Override of [IModelExportHandler.onExportElement]($transformer) that imports an element into the target iModel when it is exported from the source iModel.
-   * This override calls [[onTransformElement]] and then [IModelImporter.importElement]($transformer) to update the target iModel.
+   * This override first imports any required references that are not yet mapped in the target, then calls [[onTransformElement]] and [IModelImporter.importElement]($transformer) to update the target iModel.
+   * @note Overrides must call `super.onExportElement` to keep required-reference import.
    */
   public override async onExportElement(sourceElement: Element): Promise<void> {
+    await this.preExportElement(sourceElement);
     this.markSourceEntityExists(sourceElement);
     let targetElementId: Id64String = Id64.invalid;
     let targetElementProps: ElementProps;
@@ -2405,6 +2409,17 @@ export class IModelTransformer extends IModelExportHandler {
         this.context.remapElement(sourceElementId, targetElementId);
       }
     );
+    // IDs of source elements that were inserted into the source iModel by the source changesets this run reads
+    // (the changesets since the last synchronization, excluding skipped ones). Used when resolving element deletes to tell
+    // whether a recreated element's insert is among those changesets. Copied now because addCustomChanges can remove
+    // entries from insertIds. Left undefined, which disables that check, when the changesets delete no elements or no
+    // changesets in the range are skipped: an element is recreated after its delete, so without skipped changesets
+    // the recreation's insert is always among the changesets this run reads.
+    const processedSourceElementInserts =
+      this._changesetRangesOmitSkipped &&
+      this._deletionBatches?.some((batch) => batch.elements.length > 0)
+        ? new Set(this.exporter.sourceDbChanges?.element.insertIds)
+        : undefined;
     if (this.exporter.sourceDbChanges)
       await this.addCustomChanges(this.exporter.sourceDbChanges);
 
@@ -2482,7 +2497,8 @@ export class IModelTransformer extends IModelExportHandler {
           element.federationGuid,
           deletedScopeEsaByElementId,
           alreadyImportedElementInserts,
-          alreadyImportedModelInserts
+          alreadyImportedModelInserts,
+          processedSourceElementInserts
         );
       for (const model of batch.models)
         await this.processDeletedElement(
@@ -2490,7 +2506,8 @@ export class IModelTransformer extends IModelExportHandler {
           undefined,
           deletedScopeEsaByElementId,
           alreadyImportedElementInserts,
-          alreadyImportedModelInserts
+          alreadyImportedModelInserts,
+          processedSourceElementInserts
         );
     }
   }
@@ -2627,6 +2644,7 @@ export class IModelTransformer extends IModelExportHandler {
    * @param deletedScopeEsaByElementId this transformation scope's deleted ESAs in the same batch, keyed by the ID of the element that owned each one.
    * @param alreadyImportedElementInserts used to handle entity recreation and not delete already handled element inserts.
    * @param alreadyImportedModelInserts used to handle entity recreation and not delete already handled model inserts.
+   * @param processedSourceElementInserts IDs of source elements inserted into the source iModel by the source changesets this run reads, before custom changes were added. Undefined when no changesets in the range are skipped, which disables the check for elements recreated in skipped changesets.
    */
   private async processDeletedElement(
     sourceId: Id64String,
@@ -2636,7 +2654,8 @@ export class IModelTransformer extends IModelExportHandler {
       ExternalSourceAspectDeletionRecord
     >,
     alreadyImportedElementInserts: Set<Id64String>,
-    alreadyImportedModelInserts: Set<Id64String>
+    alreadyImportedModelInserts: Set<Id64String>,
+    processedSourceElementInserts: ReadonlySet<Id64String> | undefined
   ): Promise<void> {
     let targetId = await this.findTargetElementIdForDeletion(
       sourceId,
@@ -2656,7 +2675,15 @@ export class IModelTransformer extends IModelExportHandler {
     this.context.remapElement(sourceId, targetId);
     // If an entity insert and an entity delete both point to the same entity in target iModel, that means that entity was recreated.
     // In such case an entity update will be triggered and we no longer need to delete the entity.
-    if (alreadyImportedElementInserts.has(targetId)) {
+    if (
+      alreadyImportedElementInserts.has(targetId) ||
+      this.wasRecreatedInSkippedChangeset(
+        sourceId,
+        federationGuid,
+        targetId,
+        processedSourceElementInserts
+      )
+    ) {
       this.exporter.sourceDbChanges?.element.deleteIds.delete(sourceId);
     }
     if (alreadyImportedModelInserts.has(targetId)) {
@@ -2664,7 +2691,40 @@ export class IModelTransformer extends IModelExportHandler {
     }
   }
 
+  /**
+   * Whether a deleted source element was recreated with the same federation GUID in a changeset that this run does
+   * not process. For example, a reverse synchronization skips changesets pushed by forward synchronizations. If a
+   * forward synchronization recreated the element in the branch, the processed changes contain the old element's
+   * delete but not the new element's insert, and the delete would otherwise remove the target element that the
+   * recreated element still maps to. Recreations whose insert is processed are handled by `alreadyImportedElementInserts`.
+   */
+  private wasRecreatedInSkippedChangeset(
+    deletedSourceId: Id64String,
+    federationGuid: string | undefined,
+    targetId: Id64String,
+    processedSourceElementInserts: ReadonlySet<Id64String> | undefined
+  ): boolean {
+    if (
+      processedSourceElementInserts === undefined ||
+      federationGuid === undefined
+    )
+      return false;
+    const liveSourceId =
+      this.sourceDb.elements.getIdFromFederationGuid(federationGuid);
+    if (
+      liveSourceId === undefined ||
+      liveSourceId === deletedSourceId ||
+      processedSourceElementInserts.has(liveSourceId)
+    )
+      return false;
+    return (
+      this.targetDb.elements.getIdFromFederationGuid(federationGuid) ===
+      targetId
+    );
+  }
+
   private async _tryInitChangesetData(args?: ProcessChangesOptions) {
+    this._changesetRangesOmitSkipped = false;
     if (
       !args ||
       this.sourceDb.iTwinId === undefined ||
@@ -2728,6 +2788,9 @@ export class IModelTransformer extends IModelExportHandler {
       await this._provenanceManager.getChangesetsToSkip();
 
     Logger.logTrace(loggerCategory, `changesets to skip: ${changesetsToSkip}`);
+    this._changesetRangesOmitSkipped = changesetsToSkip.some(
+      (index) => index >= startChangesetIndex && index <= endChangesetIndex
+    );
     this._changesetRanges = rangesFromRangeAndSkipped(
       startChangesetIndex,
       endChangesetIndex,

@@ -1,6 +1,6 @@
 {
   "name": "@itwin/imodel-transformer",
-  "version": "2.0.0-dev.76",
+  "version": "2.0.0-dev.82",
   "description": "API for exporting an iModel's parts and also importing them into another iModel",
   "type": "module",
   "main": "lib/imodel-transformer.js",
@@ -74,14 +74,14 @@
     "Removing Dependencies on internal APIs is ongoing."
   ],
   "peerDependencies": {
-    "@itwin/core-backend": "^5.15.0-dev.10",
-    "@itwin/core-bentley": "^5.15.0-dev.10",
-    "@itwin/core-common": "^5.15.0-dev.10",
-    "@itwin/core-geometry": "^5.15.0-dev.10",
-    "@itwin/core-quantity": "^5.15.0-dev.10",
-    "@itwin/ecschema-editing": "^5.15.0-dev.10",
-    "@itwin/ecschema-locaters": "^5.15.0-dev.10",
-    "@itwin/ecschema-metadata": "^5.15.0-dev.10"
+    "@itwin/core-backend": "^5.15.0",
+    "@itwin/core-bentley": "^5.15.0",
+    "@itwin/core-common": "^5.15.0",
+    "@itwin/core-geometry": "^5.15.0",
+    "@itwin/core-quantity": "^5.15.0",
+    "@itwin/ecschema-editing": "^5.15.0",
+    "@itwin/ecschema-locaters": "^5.15.0",
+    "@itwin/ecschema-metadata": "^5.15.0"
   },
   "peerDependenciesMeta": {
     "@itwin/ecschema-editing": {
