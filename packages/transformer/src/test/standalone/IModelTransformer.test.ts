@@ -521,7 +521,7 @@ describe("IModelTransformer", () => {
     branchToMasterEditTxn.start();
     const branchToMasterTransformer = new IModelTransformer(
       { source: branchDb, target: branchToMasterEditTxn },
-      { noProvenance: true }
+      { enableProvenance: false }
     );
     await branchToMasterTransformer.process();
     branchToMasterTransformer.dispose();
@@ -1666,7 +1666,7 @@ describe("IModelTransformer", () => {
     try {
       const transformer = new IModelTransformer(
         { source: sourceDb, target: editTxn },
-        { includeSourceProvenance: true, noProvenance: true }
+        { includeSourceProvenance: true, enableProvenance: false }
       );
       await transformer.processElement(sourceElementId);
       const targetElementId =
@@ -2008,7 +2008,7 @@ describe("IModelTransformer", () => {
     try {
       const transformer = new IModelTransformer(
         { source: sourceDb, target: editTxn },
-        { includeSourceProvenance: true, noProvenance: true }
+        { includeSourceProvenance: true, enableProvenance: false }
       );
       transformer.context.remapElement(ids.selected, targetIds.selected);
       transformer.context.remapElement(ids.unrelated, targetIds.unrelated);
@@ -2084,7 +2084,7 @@ describe("IModelTransformer", () => {
     try {
       const transformer = new FilteringTransformer(
         { source: exporter, target: editTxn },
-        { includeSourceProvenance: true, noProvenance: true }
+        { includeSourceProvenance: true, enableProvenance: false }
       );
       transformer.context.remapElement(
         sourceElementId,
@@ -2189,7 +2189,7 @@ describe("IModelTransformer", () => {
     try {
       const transformer = new RejectingAspectTransformer(
         { source: exporter, target: editTxn },
-        { includeSourceProvenance: true, noProvenance: true }
+        { includeSourceProvenance: true, enableProvenance: false }
       );
       transformer.context.remapElement(
         sourceIds.elementId,
@@ -3586,7 +3586,7 @@ describe("IModelTransformer", () => {
     targetDb.close();
   });
 
-  it("reference deletion is considered invalid when danglingReferencesBehavior='reject' and that is the default", async () => {
+  it("reference deletion is considered invalid when danglingReferencesBehavior='reject' and ignored by default", async () => {
     const sourceDbPath = IModelTransformerTestUtils.prepareOutputFile(
       "IModelTransformer",
       "DanglingReferenceSource.bim"
@@ -3607,17 +3607,6 @@ describe("IModelTransformer", () => {
     const targetDbForRejectedPath = targetDbForRejected.pathName;
     targetDbForRejected.close();
 
-    const defaultTransformer = new ShiftedIdsEmptyTargetTransformer(
-      sourceDb,
-      () => StandaloneDb.openFile(targetDbForRejectedPath)
-    );
-    await expectTransformerError(
-      defaultTransformer.process(),
-      IModelTransformerError.DanglingReference,
-      /Found a reference to an element "[^"]*" that doesn't exist/
-    );
-    defaultTransformer.targetDb.close();
-
     const rejectDanglingReferencesTransformer =
       new ShiftedIdsEmptyTargetTransformer(
         sourceDb,
@@ -3629,7 +3618,7 @@ describe("IModelTransformer", () => {
       IModelTransformerError.DanglingReference,
       /Found a reference to an element "[^"]*" that doesn't exist/
     );
-    defaultTransformer.targetDb.close();
+    rejectDanglingReferencesTransformer.targetDb.close();
 
     const runTransform = async (
       opts: Pick<IModelTransformOptions, "danglingReferencesBehavior">
@@ -3637,7 +3626,7 @@ describe("IModelTransformer", () => {
       const thisTransformTargetPath =
         IModelTransformerTestUtils.prepareOutputFile(
           "IModelTransformer",
-          `DanglingReferenceTarget-${opts.danglingReferencesBehavior}.bim`
+          `DanglingReferenceTarget-${opts.danglingReferencesBehavior ?? "default"}.bim`
         );
       const createTargetDb = () =>
         StandaloneDb.createEmpty(thisTransformTargetPath, {
@@ -3680,17 +3669,20 @@ describe("IModelTransformer", () => {
       return { displayStyleInTarget, physObjsInTarget };
     };
 
-    const ignoreResult = await runTransform({
-      danglingReferencesBehavior: "ignore",
-    });
+    for (const opts of [
+      {},
+      { danglingReferencesBehavior: "ignore" as const },
+    ]) {
+      const ignoreResult = await runTransform(opts);
 
-    expect([
-      ...ignoreResult.displayStyleInTarget.settings.excludedElementIds,
-    ]).to.deep.equal(
-      ignoreResult.physObjsInTarget
-        .filter(({ id }) => Id64.isValidId64(id))
-        .map(({ id }) => id)
-    );
+      expect([
+        ...ignoreResult.displayStyleInTarget.settings.excludedElementIds,
+      ]).to.deep.equal(
+        ignoreResult.physObjsInTarget
+          .filter(({ id }) => Id64.isValidId64(id))
+          .map(({ id }) => id)
+      );
+    }
 
     sourceDb.close();
     targetDbForRejected.close();
@@ -3790,7 +3782,7 @@ describe("IModelTransformer", () => {
       { source: sourceDb, target: targetTxn },
       {
         includeSourceProvenance: true,
-        noProvenance: true, // don't add transformer provenance aspects, makes querying for aspects later simpler
+        enableProvenance: false, // don't add transformer provenance aspects, makes querying for aspects later simpler
       }
     );
 

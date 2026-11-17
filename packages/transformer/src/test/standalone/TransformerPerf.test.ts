@@ -245,7 +245,7 @@ describe.skip("IModelTransformer Performance Tests", () => {
       { source: sourceDb, target: editTxn },
       {
         loadSourceGeometry: true,
-        noProvenance: true,
+        enableProvenance: false,
       }
     );
 
@@ -304,7 +304,7 @@ describe.skip("IModelTransformer Performance Tests", () => {
         { source: sourceDb, target: editTxn },
         {
           loadSourceGeometry: true,
-          noProvenance: true,
+          enableProvenance: false,
         }
       );
 

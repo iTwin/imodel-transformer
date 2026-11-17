@@ -523,7 +523,7 @@ export class ProvenanceManager {
           message: "Provenance scope conflict",
         });
       }
-      if (!this._transformerOptions.noProvenance) {
+      if (this._transformerOptions.enableProvenance !== false) {
         const id = provenanceEditTxn.insertAspect({
           ...aspectProps,
           jsonProperties: JSON.stringify(aspectProps.jsonProperties) as any,
@@ -723,8 +723,8 @@ export class ProvenanceManager {
       !initializeReverseSyncVersion && sourceChangeDataState !== "has-changes";
     if (shouldSkipSyncVersionUpdate) return;
 
-    // If noProvenance is set, there's no scope ESA to update
-    if (this._transformerOptions.noProvenance) return;
+    // If provenance is disabled, there's no scope ESA to update
+    if (this._transformerOptions.enableProvenance === false) return;
 
     if (this._targetScopeProvenanceProps === undefined)
       throw new Error("_targetScopeProvenanceProps should be set by now");

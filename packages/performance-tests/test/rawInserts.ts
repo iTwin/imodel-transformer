@@ -80,7 +80,7 @@ export default async function rawInserts(
     withProvEditTxn.start();
     const transformerWithProv = new IModelTransformer(
       { source: sourceDb, target: withProvEditTxn },
-      { noProvenance: false }
+      { enableProvenance: true }
     );
 
     const [transformWithProvTimer] = await timed(async () => {
@@ -119,7 +119,7 @@ export default async function rawInserts(
     noProvEditTxn.start();
     const transformerNoProv = new IModelTransformer(
       { source: sourceDb, target: noProvEditTxn },
-      { noProvenance: true }
+      { enableProvenance: false }
     );
 
     const [transformNoProvTimer] = await timed(async () => {

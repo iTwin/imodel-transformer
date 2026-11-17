@@ -957,7 +957,7 @@ class CatalogImporter extends IModelTransformer {
   ) {
     const options: IModelTransformOptions = {
       targetScopeElementId,
-      noProvenance: targetScopeElementId ? undefined : true, // can't store provenance if targetScopeElementId is not defined
+      enableProvenance: targetScopeElementId ? undefined : false, // can't store provenance if targetScopeElementId is not defined
     };
     const target = new IModelImporter(editTxn, {
       autoExtendProjectExtents: false,

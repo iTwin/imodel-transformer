@@ -1,0 +1,7 @@
+{
+  "type": "major",
+  "comment": "Replace the noProvenance option with enableProvenance (default true), and default danglingReferencesBehavior to 'ignore'.",
+  "packageName": "@itwin/imodel-transformer",
+  "email": "DanRod1999@users.noreply.github.com",
+  "dependentChangeType": "patch"
+}

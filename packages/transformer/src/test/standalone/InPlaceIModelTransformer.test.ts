@@ -92,7 +92,7 @@ describe("In-place IModelTransformer", () => {
     editTxn.start();
     const transformer = new InPlaceTransformer(
       { source: iModel, target: editTxn },
-      { noProvenance: true }
+      { enableProvenance: false }
     );
     try {
       await transformer.process();
@@ -180,7 +180,7 @@ describe("In-place IModelTransformer", () => {
     editTxn.start();
     const transformer = new IModelTransformer(
       { source: iModel, target: editTxn },
-      { noProvenance: true }
+      { enableProvenance: false }
     );
     try {
       transformer.context.remapElement(
@@ -263,7 +263,7 @@ describe("In-place IModelTransformer", () => {
     editTxn.start();
     const transformer = new IModelTransformer(
       { source: iModel, target: editTxn },
-      { noProvenance: true }
+      { enableProvenance: false }
     );
     try {
       transformer.context.remapElement(
@@ -335,7 +335,7 @@ describe("In-place IModelTransformer", () => {
     editTxn.start();
     const transformer = new IModelTransformer(
       { source: iModel, target: editTxn },
-      { noProvenance: true }
+      { enableProvenance: false }
     );
     const tryGetElement = vi.spyOn(iModel.elements, "tryGetElement");
     const withQueryReader = vi.spyOn(iModel, "withQueryReader");
