@@ -482,10 +482,9 @@ export interface IModelTransformOptions {
     sourceEditTxn?: EditTxn;
     targetScopeElementId?: Id64String;
     tryAlignGeolocation?: boolean;
-    wasSourceIModelCopiedToTarget?: boolean;
 }
 
-// @alpha (undocumented)
+// @alpha
 export function initializeBranchProvenance(args: ProvenanceInitArgs): Promise<ProvenanceInitResult>;
 
 // @beta
@@ -530,15 +529,13 @@ export interface ProvenanceInitArgs {
     master: IModelDb;
     masterDescription?: string;
     masterUrl?: string;
+    targetScopeElementId?: Id64String;
 }
 
 // @alpha (undocumented)
 export interface ProvenanceInitResult {
-    // (undocumented)
-    masterExternalSourceId: Id64String;
-    // (undocumented)
-    masterRepositoryLinkId: Id64String;
-    // (undocumented)
+    masterExternalSourceId?: Id64String;
+    masterRepositoryLinkId?: Id64String;
     targetScopeElementId: Id64String;
 }
 

@@ -5,22 +5,37 @@
 import {
   BriefcaseDb,
   EditTxn,
+  ElementOwnsExternalSourceAspects,
   ExternalSource,
+  ExternalSourceAspect,
   ExternalSourceIsInRepository,
   IModelDb,
   RepositoryLink,
   StandaloneDb,
 } from "@itwin/core-backend";
-import { DbResult, Id64String, Logger, OpenMode } from "@itwin/core-bentley";
+import {
+  DbResult,
+  Id64String,
+  ITwinError,
+  Logger,
+  OpenMode,
+} from "@itwin/core-bentley";
 import {
   Code,
   ExternalSourceProps,
+  IModel,
+  QueryBinder,
   RepositoryLinkProps,
 } from "@itwin/core-common";
 import { strict as assert } from "node:assert";
 import { ProvenanceManager } from "./ProvenanceManager.js";
 import { pathToFileURL } from "node:url";
 import { transformerPackageMetadata } from "./TransformerPackageMetadata.js";
+import type { TargetScopeProvenanceJsonProps } from "./IModelTransformer.js";
+import {
+  IModelTransformerError,
+  IModelTransformerErrorScope,
+} from "./IModelTransformerError.js";
 
 /**
  * @alpha
@@ -46,23 +61,62 @@ export interface ProvenanceInitArgs {
    *       be set to new, open databases.
    */
   createFedGuidsForMaster?: true | false | "keep-reopened-db";
+  /**
+   * An existing element in the branch that represents the master and scopes the branch's provenance.
+   * Pass the same value as [[IModelTransformOptions.targetScopeElementId]] in later synchronizations.
+   * If omitted, a new [RepositoryLink]($backend) and [ExternalSource]($backend) that represent the master are inserted,
+   * and the ExternalSource is used.
+   * @note The element must not already own a provenance scope aspect.
+   */
+  targetScopeElementId?: Id64String;
 }
 
 /**
  * @alpha
  */
 export interface ProvenanceInitResult {
+  /** The element that scopes the branch's provenance. Pass it as [[IModelTransformOptions.targetScopeElementId]] in later synchronizations. */
   targetScopeElementId: Id64String;
-  masterExternalSourceId: Id64String;
-  masterRepositoryLinkId: Id64String;
+  /** The inserted ExternalSource that represents the master. `undefined` if [[ProvenanceInitArgs.targetScopeElementId]] was passed. */
+  masterExternalSourceId?: Id64String;
+  /** The inserted RepositoryLink that represents the master. `undefined` if [[ProvenanceInitArgs.targetScopeElementId]] was passed. */
+  masterRepositoryLinkId?: Id64String;
 }
 
 /**
+ * Initializes a branch iModel that was created as a copy of a master iModel so that it can be synchronized with
+ * [[IModelTransformer]] using [[IModelTransformOptions.argsForProcessChanges]] in either direction.
+ *
+ * This establishes the master-branch relationship:
+ * - it inserts the provenance scope aspect on the target scope element, recording the master's current changeset as the
+ *   forward synchronization version and the branch's current changeset as the reverse synchronization version;
+ * - for briefcases, it records the branch's next changeset as one that reverse synchronizations skip, so push the
+ *   branch's changes from this call as a single changeset before making other changes to the branch;
+ * - it inserts [ExternalSourceAspect]($backend) provenance only for elements and relationships that can't be correlated by
+ *   FederationGuid. Use [[ProvenanceInitArgs.createFedGuidsForMaster]] to avoid inserting those aspects.
+ * @note This function creates and ends its own [EditTxn]($backend) on the branch.
  * @alpha
  */
 export async function initializeBranchProvenance(
   args: ProvenanceInitArgs
 ): Promise<ProvenanceInitResult> {
+  if (
+    args.master.isBriefcase &&
+    args.branch.isBriefcase &&
+    (args.master.changeset.index === undefined ||
+      args.branch.changeset.index === undefined)
+  )
+    ITwinError.throwError({
+      iTwinErrorId: {
+        scope: IModelTransformerErrorScope,
+        key: IModelTransformerError.ChangesetIndexUnavailable,
+      },
+      message: "database has no changeset index",
+    });
+
+  if (args.targetScopeElementId !== undefined)
+    await throwIfScopeProvenanceExists(args.branch, args.targetScopeElementId);
+
   let editTxn = new EditTxn(args.branch, "initializeBranchProvenance");
   editTxn.start();
 
@@ -125,29 +179,37 @@ export async function initializeBranchProvenance(
     editTxn.start();
   }
 
-  // create an external source and owning repository link to use as our *Target Scope Element* for future synchronizations
-  const masterRepoLinkId = editTxn.insertElement({
-    classFullName: RepositoryLink.classFullName,
-    code: RepositoryLink.createCode(
-      args.branch,
-      IModelDb.repositoryModelId,
-      "example-code-value"
-    ),
-    model: IModelDb.repositoryModelId,
-    url: args.masterUrl,
-    format: "iModel",
-    repositoryGuid: args.master.iModelId,
-    description: args.masterDescription,
-  } as RepositoryLinkProps);
+  let masterRepoLinkId: Id64String | undefined;
+  let masterExternalSourceId: Id64String | undefined;
+  let targetScopeElementId = args.targetScopeElementId;
+  if (targetScopeElementId === undefined) {
+    // create an external source and owning repository link to use as our *Target Scope Element* for future synchronizations
+    masterRepoLinkId = editTxn.insertElement({
+      classFullName: RepositoryLink.classFullName,
+      code: RepositoryLink.createCode(
+        args.branch,
+        IModelDb.repositoryModelId,
+        "example-code-value"
+      ),
+      model: IModelDb.repositoryModelId,
+      url: args.masterUrl,
+      format: "iModel",
+      repositoryGuid: args.master.iModelId,
+      description: args.masterDescription,
+    } as RepositoryLinkProps);
 
-  const masterExternalSourceId = editTxn.insertElement({
-    classFullName: ExternalSource.classFullName,
-    model: IModelDb.rootSubjectId,
-    code: Code.createEmpty(),
-    repository: new ExternalSourceIsInRepository(masterRepoLinkId),
-    connectorName: transformerPackageMetadata.name,
-    connectorVersion: transformerPackageMetadata.version,
-  } as ExternalSourceProps);
+    masterExternalSourceId = editTxn.insertElement({
+      classFullName: ExternalSource.classFullName,
+      model: IModelDb.rootSubjectId,
+      code: Code.createEmpty(),
+      repository: new ExternalSourceIsInRepository(masterRepoLinkId),
+      connectorName: transformerPackageMetadata.name,
+      connectorVersion: transformerPackageMetadata.version,
+    } as ExternalSourceProps);
+    targetScopeElementId = masterExternalSourceId;
+  }
+
+  editTxn.insertAspect(createScopeProvenance(args, targetScopeElementId));
 
   const fedGuidlessElemsSql = `
     SELECT ECInstanceId AS id
@@ -164,7 +226,7 @@ export async function initializeBranchProvenance(
     const id: string = row.id;
     const aspectProps = ProvenanceManager.initElementProvenanceOptions(id, id, {
       isReverseSynchronization: false,
-      targetScopeElementId: masterExternalSourceId,
+      targetScopeElementId,
       sourceDb: args.master,
       targetDb: args.branch,
     });
@@ -190,7 +252,7 @@ export async function initializeBranchProvenance(
     const aspectProps =
       await ProvenanceManager.initRelationshipProvenanceOptions(id, id, {
         isReverseSynchronization: false,
-        targetScopeElementId: masterExternalSourceId,
+        targetScopeElementId,
         sourceDb: args.master,
         targetDb: args.branch,
         forceOldRelationshipProvenanceMethod: false,
@@ -207,10 +269,74 @@ export async function initializeBranchProvenance(
   }
 
   return {
-    targetScopeElementId: masterExternalSourceId,
+    targetScopeElementId,
     masterExternalSourceId,
     masterRepositoryLinkId: masterRepoLinkId,
   };
+}
+
+/**
+ * The scope aspect records the master's current changeset as the forward synchronization version and the branch's
+ * current changeset as the reverse synchronization version. For briefcases, the branch changeset that will contain
+ * this initialization is pending, so reverse synchronizations skip it.
+ */
+function createScopeProvenance(
+  args: ProvenanceInitArgs,
+  targetScopeElementId: Id64String
+) {
+  const { master, branch } = args;
+  const jsonProperties: TargetScopeProvenanceJsonProps = {
+    pendingReverseSyncChangesetIndices:
+      master.isBriefcase &&
+      branch.isBriefcase &&
+      branch.changeset.index !== undefined
+        ? [branch.changeset.index + 1]
+        : [],
+    pendingSyncChangesetIndices: [],
+    reverseSyncVersion: `${branch.changeset.id};${branch.changeset.index}`,
+  };
+  return {
+    classFullName: ExternalSourceAspect.classFullName,
+    element: {
+      id: targetScopeElementId,
+      relClassName: ElementOwnsExternalSourceAspects.classFullName,
+    },
+    scope: { id: IModel.rootSubjectId },
+    identifier: master.iModelId,
+    kind: ExternalSourceAspect.Kind.Scope,
+    version: `${master.changeset.id};${master.changeset.index}`,
+    jsonProperties: JSON.stringify(jsonProperties) as any,
+  };
+}
+
+async function throwIfScopeProvenanceExists(
+  branch: IModelDb,
+  targetScopeElementId: Id64String
+): Promise<void> {
+  const params = new QueryBinder()
+    .bindId("elementId", targetScopeElementId)
+    .bindId("scopeId", IModel.rootSubjectId)
+    .bindString("kind", ExternalSourceAspect.Kind.Scope);
+  const reader = branch.createQueryReader(
+    `
+      SELECT ECInstanceId
+      FROM ${ExternalSourceAspect.classFullName}
+      WHERE Element.Id=:elementId
+        AND Scope.Id=:scopeId
+        AND Kind=:kind
+      LIMIT 1
+    `,
+    params,
+    { usePrimaryConn: true }
+  );
+  if (await reader.step())
+    ITwinError.throwError({
+      iTwinErrorId: {
+        scope: IModelTransformerErrorScope,
+        key: IModelTransformerError.ProvenanceScopeConflict,
+      },
+      message: "Provenance scope conflict",
+    });
 }
 
 function makeDbReopener(db: IModelDb) {

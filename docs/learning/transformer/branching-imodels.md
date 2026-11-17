@@ -3,8 +3,8 @@
 ## What is branching
 
 It can be useful in some applications to take iModels and their linear concept of history, and introduce the concept of
-*branching*, where an iModel diverges into two separate iModels after a changeset, allowing each to have new distinct changes and
-a distinct history. Typically, one of them is referred to as the *master iModel*, and the other as the *branch iModel*,
+_branching_, where an iModel diverges into two separate iModels after a changeset, allowing each to have new distinct changes and
+a distinct history. Typically, one of them is referred to as the _master iModel_, and the other as the _branch iModel_,
 with the master iModel being the one that existed before the branch was created from it.
 Importantly, these branches can often be used to make updates to one branch iModel while the master iModel
 can receive updates from other contexts. Usually the intention is to move the changes in the branch's history back into
@@ -13,7 +13,7 @@ to keep them synchronized.
 
 ## Provenance
 
-*Provenance* is the tracking of where an entity originated from in an iModel. All connectors
+_Provenance_ is the tracking of where an entity originated from in an iModel. All connectors
 store provenance as they connect entities from some source format into an iModel. The [IModelTransformer]($transformer) will
 also store provenance as it makes changes to a target; provenance will be used during
 [synchronizations](#synchronization-implementing-branching) to identify which elements
@@ -32,7 +32,7 @@ Additional notes on provenance from the connector application viewpoint can be f
 
 ### TargetScopeElement
 
-The *Target Scope Element* is the element in the target iModel of a transformation that represents the source repository as a whole,
+The _Target Scope Element_ is the element in the target iModel of a transformation that represents the source repository as a whole,
 and is therefore used as the scope of [ExternalSourceAspect]($backend)s. Typically creating a branch iModel includes inserting a new
 [RepositoryLink]($backend) and [ExternalSource]($backend) pair representing the master, and then all forward synchronization transformations
 will use the master-representing ExternalSource as the Target Scope Element by setting the `targetScopeElementId` option in the [IModelTransformOptions]($transformer) option.
@@ -59,26 +59,26 @@ original one since they must be unique so it is impossible for the multiple elem
 
 ## Synchronization (implementing branching)
 
-The process of transferring change history between iModels is called *synchronization*, and is implemented by the
+The process of transferring change history between iModels is called _synchronization_, and is implemented by the
 [IModelTransformer]($transformer) to support branching concepts.
 
-- *First Synchronization* is the initialization of a new iModel as a branch iModel for some existing master iModel.
+- _First Synchronization_ is the initialization of a new iModel as a branch iModel for some existing master iModel.
   The initialization can filter the master iModel arbitrarily using other transformation techniques.
-- *Synchronization*, or *Forward Synchronization*, is the transfer of iModel changes from a master iModel to an existing branch iModel.
-- *Reverse Synchronization* is the transfer of iModel changes from a branch iModel back to the master iModel from which it was created.
+- _Synchronization_, or _Forward Synchronization_, is the transfer of iModel changes from a master iModel to an existing branch iModel.
+- _Reverse Synchronization_ is the transfer of iModel changes from a branch iModel back to the master iModel from which it was created.
 
 ![synchronization diagram](./iModelBranching.drawio.svg)
 
 In the above diagram you can see an example change history of a master and its branch. Each arrow is an application submitting
 [ChangeSets](/learning/imodelhub/briefcases) to the iModel, and each vertical connection (notably an arrow with with two sources) is
-a transformation reading both iModels and submitting a [ChangeSet](/learning/glossary/#changeset) to one of them, *synchronizing* them.
+a transformation reading both iModels and submitting a [ChangeSet](/learning/glossary/#changeset) to one of them, _synchronizing_ them.
 
 Synchronization logic is implemented by the [IModelTransformer]($transformer), which can be configured to perform each type of
 synchronization, as shown in the samples below.
 
 ### Squashing changesets
 
-In the above diagram, the synchronizations occur after several [ChangeSets](/learning/imodelhub/briefcases), each synchronization here *squashes* several changesets
+In the above diagram, the synchronizations occur after several [ChangeSets](/learning/imodelhub/briefcases), each synchronization here _squashes_ several changesets
 from the synchronization source into the synchronization target. Alternatively, one could run a synchronization per changeset
 in the source of the synchronization, so that the synchronization target has a changeset corresponding to each one in the
 synchronization source, keeping the changeset granularity intact in the history. A combination of both can be done, such as
@@ -88,7 +88,7 @@ forward synchronizations.
 ### Synchronization conflicts
 
 Conflicts during a transformation are resolved in favor of the element which was modified most recently, as stored in the `LastMod` property
-of an element.  Elements in transformations are considered in conflict when their [code](/bis/fundamentals/foundation/codes) is the same.
+of an element. Elements in transformations are considered in conflict when their [code](/bis/fundamentals/foundation/codes) is the same.
 
 You can override the method [IModelTransformer.hasElementChanged]($transformer)
 in your transformer implementation to use more specific logic for determining if an element should be considered changed.
@@ -96,7 +96,9 @@ in your transformer implementation to use more specific logic for determining if
 Some other data in the iModel follows more specific rules for conflicts:
 
 - [ECSchemas](/bis/ec/ec-schema/) will not be inserted into the target if the same version already exists in it
+
 <!-- (see [dynamic schemas](/docs/bis/fundamentals/schema-evolution/schema-customization.md#Dynamic-Schema-Minor-Change-Considerations)) -->
+
 - File properties<!--missing documentation--> are not carried over through transformations
 
 Synchronization conflicts are not to be confused with concurrent edit conflicts which are handled by the
@@ -117,6 +119,15 @@ A custom [IModelTransformer.collectChanges]($transformer) receives changeset ran
 ## Synchronization examples
 
 ### Creating a branch (First Synchronization)
+
+Create the branch iModel as a copy of the master, for example by using a master checkpoint as the branch's seed. Then call
+[initializeBranchProvenance]($transformer) on the branch and push its changes as a single changeset before any other branch edit.
+It inserts the ExternalSource that represents the master, provenance for elements and relationships without federation guids,
+and the scope [ExternalSourceAspect]($backend) that records the master-to-branch relationship. Pass the returned `targetScopeElementId`
+as the `targetScopeElementId` option to later synchronizations. To use an existing element, such as the root subject, as the
+Target Scope Element, pass it as `targetScopeElementId` to `initializeBranchProvenance`.
+
+To create a filtered branch instead of a copy, run a full transformation from the master into an empty branch iModel.
 
 ```ts
 [[include:IModelBranchingOperations_initialize]]

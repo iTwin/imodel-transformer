@@ -27,26 +27,23 @@ export type SyncType = "not-sync" | "forward" | "reverse";
  */
 export class SyncTypeResolver {
   public static noEsaSyncDirectionErrorMessage =
-    "Couldn't find an external source aspect to determine sync direction. This often means that the master->branch relationship has not been established. Consider running the transformer with wasSourceIModelCopiedToTarget set to true.";
+    "Couldn't find an external source aspect to determine sync direction. This often means that the master->branch relationship has not been established. If the branch was copied from the master, call initializeBranchProvenance on the branch first; otherwise run a full transformation into the branch first. Pass the same targetScopeElementId to the transformer.";
 
   private _syncType?: SyncType;
   private readonly _sourceDb: IModelDb;
   private readonly _targetDb: IModelDb;
   private readonly _targetScopeElementId: Id64String;
-  private readonly _isProvenanceInitTransform: boolean;
   private readonly _isSyncTransform: boolean;
 
   public constructor(
     sourceDb: IModelDb,
     targetDb: IModelDb,
     targetScopeElementId: Id64String,
-    isProvenanceInitTransform: boolean = false,
     isSyncTransform: boolean = false
   ) {
     this._sourceDb = sourceDb;
     this._targetDb = targetDb;
     this._targetScopeElementId = targetScopeElementId;
-    this._isProvenanceInitTransform = isProvenanceInitTransform;
     this._isSyncTransform = isSyncTransform;
   }
 
@@ -109,9 +106,7 @@ export class SyncTypeResolver {
   /** Returns the sync type, lazily resolving it on first call. */
   public async getSyncType(): Promise<SyncType> {
     if (this._syncType === undefined) {
-      if (this._isProvenanceInitTransform) {
-        this._syncType = "forward";
-      } else if (!this._isSyncTransform) {
+      if (!this._isSyncTransform) {
         this._syncType = "not-sync";
       } else {
         this._syncType = await SyncTypeResolver.determineSyncType(

@@ -6,6 +6,49 @@ The `@internal` `IModelExportHandler.preExportElement` hook has been removed. `I
 
 `IModelTransformer` subclasses that override `onExportElement` must call `super.onExportElement` to keep required-reference import. All in-repo overrides already do. Custom `IModelExportHandler` implementations that overrode `preExportElement` should move that logic into `onExportElement`.
 
+## Breaking change: `wasSourceIModelCopiedToTarget` removed
+
+`IModelTransformOptions.wasSourceIModelCopiedToTarget` has been removed. [initializeBranchProvenance]($transformer) is now the only way to set up a branch that was created as a copy of its master.
+
+The option ran a full transformation that mapped every element to itself without importing it, inserted provenance, and recorded the master-to-branch relationship in a scope `ExternalSourceAspect`. `initializeBranchProvenance` inserted the element provenance but not the scope aspect, so a synchronization right after it threw `SynchronizationTypeNotDetermined`. Now `initializeBranchProvenance`:
+
+- Inserts the scope `ExternalSourceAspect` on the target scope element. It records the master's current changeset as the synchronization version and the branch's current changeset as the reverse synchronization version. When both iModels are briefcases, it also records the branch's next changeset as pending, so the first reverse synchronization skips the initialization changes. Push the initialization as a single changeset before any other branch edit.
+- Accepts an optional `targetScopeElementId`. When you pass one, it doesn't insert the `RepositoryLink` and `ExternalSource`, and it scopes provenance to the element you pass. It throws `ITwinError` with key `ProvenanceScopeConflict` if that element already has scope provenance for the root subject. In that case, `masterExternalSourceId` and `masterRepositoryLinkId` in the result are `undefined`.
+- Throws `ITwinError` with key `ChangesetIndexUnavailable`, before changing either iModel, when both iModels are briefcases and either changeset index is unknown.
+
+Element provenance follows `initializeBranchProvenance`, not `forceExternalSourceAspectProvenance`. It inserts `ExternalSourceAspect`s only for elements and relationships whose provenance can't come from federation guids. The removed option inserted them for every element when `forceExternalSourceAspectProvenance` was set. Later synchronizations with `forceExternalSourceAspectProvenance` still insert aspects for the elements they process.
+
+To migrate, replace the transformation with `initializeBranchProvenance` and push the branch:
+
+**Before:**
+
+```ts
+const editTxn = new EditTxn(branchDb, "initialize branch");
+editTxn.start();
+const transformer = new IModelTransformer(
+  { source: masterDb, target: editTxn },
+  { wasSourceIModelCopiedToTarget: true, targetScopeElementId }
+);
+await transformer.process();
+transformer.dispose();
+editTxn.end();
+await branchDb.pushChanges({ description: "initialize branch" });
+```
+
+**After:**
+
+```ts
+await initializeBranchProvenance({
+  master: masterDb,
+  branch: branchDb,
+  // omit to create a RepositoryLink and ExternalSource for the master
+  targetScopeElementId,
+});
+await branchDb.pushChanges({ description: "initialize branch" });
+```
+
+Pass the same `targetScopeElementId`, or the one `initializeBranchProvenance` returns, to later synchronizations. Don't start an `EditTxn` on the branch before calling `initializeBranchProvenance`. To create a filtered branch instead of a copy, run a full transformation from the master into an empty branch iModel; that path is unchanged.
+
 ## Breaking change: ESM-only package
 
 `@itwin/imodel-transformer` now publishes only ES modules. The `lib/cjs` output has been removed, and `lib/` contains the ESM JavaScript and declarations. The package root and `@itwin/imodel-transformer/schema-processing` remain the supported entry points.
@@ -346,11 +389,10 @@ editTxn.end();
 
 ### `initializeBranchProvenance`
 
-No changes to the call signature. The function now uses an `EditTxn` internally, but this is transparent to callers:
+The function now uses an `EditTxn` internally, so do not start one for it. It also writes the scope provenance that `wasSourceIModelCopiedToTarget` used to write, and accepts an optional `targetScopeElementId`. See [Breaking change: `wasSourceIModelCopiedToTarget` removed](#breaking-change-wassourceimodelcopiedtotarget-removed).
 
 ```ts
 await initializeBranchProvenance({ master, branch: branchDb });
-// No migration needed — works the same as before.
 ```
 
 ## Breaking changes: `ChangedInstanceIds.addChange`

@@ -4,11 +4,9 @@
  *--------------------------------------------------------------------------------------------*/
 import * as fs from "node:fs";
 import {
-  EditTxn,
   ElementGroupsMembers,
   ExternalSource,
   ExternalSourceAspect,
-  ExternalSourceIsInRepository,
   IModelDb,
   PhysicalModel,
   PhysicalObject,
@@ -20,25 +18,20 @@ import {
 import {
   initializeBranchProvenance,
   ProvenanceInitArgs,
-  ProvenanceInitResult,
 } from "../../BranchProvenanceInitializer.js";
 import {
-  assertIdentityTransformation,
-  createStartedEditTxn,
+  expectTransformerError,
   IModelTransformerTestUtils,
 } from "../IModelTransformerUtils.js";
-import {
-  Code,
-  ExternalSourceProps,
-  RepositoryLinkProps,
-} from "@itwin/core-common";
-import { IModelTransformer } from "../../IModelTransformer.js";
-import { Guid, OpenMode, TupleKeyedMap } from "@itwin/core-bentley";
-import { assert, expect } from "vitest";
+import { Code, IModel } from "@itwin/core-common";
+import { TargetScopeProvenanceJsonProps } from "../../IModelTransformer.js";
+import { IModelTransformerError } from "../../IModelTransformerError.js";
+import { SyncTypeResolver } from "../../SyncTypeResolver.js";
+import { Guid, Id64String, OpenMode, TupleKeyedMap } from "@itwin/core-bentley";
+import { expect } from "vitest";
 import { Point3d, YawPitchRollAngles } from "@itwin/core-geometry";
-import { transformerPackageMetadata } from "../../TransformerPackageMetadata.js";
 
-describe("compare imodels from BranchProvenanceInitializer and traditional branch init", () => {
+describe("BranchProvenanceInitializer", () => {
   // truth table (sourceHasFedGuid, targetHasFedGuid, forceCreateFedGuidsForMaster) -> (relSourceAspectNum, relTargetAspectNum)
   const sourceTargetFedGuidToAspectCountMap = new TupleKeyedMap([
     [
@@ -82,198 +75,265 @@ describe("compare imodels from BranchProvenanceInitializer and traditional branc
     [string, string]
   >;
 
-  let transformerBranchInitResult: ProvenanceInitResult | undefined;
-  let noTransformerBranchInitResult: ProvenanceInitResult | undefined;
-  let transformerForkDb: StandaloneDb | undefined;
-  let noTransformerForkDb: StandaloneDb | undefined;
-
   beforeAll(async () => {
     [generatedIModel, sourceTargetFedGuidsToElemIds] = setupIModel();
   });
 
-  for (const doBranchProv of [true, false]) {
-    for (const createFedGuidsForMaster of [
-      "keep-reopened-db",
-      false,
-    ] as const) {
-      it(`branch provenance init with ${[
-        doBranchProv && "branchProvenance",
-        !doBranchProv && "classicTransformerProvenance",
-        createFedGuidsForMaster && "createFedGuidsForMaster",
-      ]
-        .filter(Boolean)
-        .join(",")}`, async () => {
-        const masterPath = IModelTransformerTestUtils.prepareOutputFile(
-          "IModelTransformer",
-          `${doBranchProv ? "noTransformer" : "Transformer"}_${
-            createFedGuidsForMaster ?? "createFedGuids"
-          }Master_STC`
-        );
-        const forkPath = IModelTransformerTestUtils.prepareOutputFile(
-          "IModelTransformer",
-          `${doBranchProv ? "noTransformer" : "Transformer"}_${
-            createFedGuidsForMaster ?? "createFedGuids"
-          }Fork_STC`
-        );
+  afterAll(() => {
+    generatedIModel.close();
+  });
 
-        await Promise.all([
-          fs.promises.copyFile(generatedIModel!.pathName, masterPath),
-          fs.promises.copyFile(generatedIModel!.pathName, forkPath),
-        ]);
-
-        setToStandalone(masterPath);
-        setToStandalone(forkPath);
-        const masterMode = createFedGuidsForMaster
-          ? OpenMode.ReadWrite
-          : OpenMode.Readonly;
-        let masterDb = StandaloneDb.openFile(masterPath, masterMode);
-        let forkDb = StandaloneDb.openFile(forkPath, OpenMode.ReadWrite);
-
-        const baseInitProvenanceArgs = {
-          createFedGuidsForMaster,
-          masterDescription: "master iModel repository",
-          masterUrl: "https://example.com/mytest",
-        };
-
-        if (doBranchProv) {
-          const initProvenanceArgs: ProvenanceInitArgs = {
-            ...baseInitProvenanceArgs,
-            master: masterDb,
-            branch: forkDb,
-          };
-          // __PUBLISH_EXTRACT_START__ EditTxnInTransformer.initialize-branch-provenance
-          // initializeBranchProvenance creates and ends its own EditTxn.
-          const result = await initializeBranchProvenance(initProvenanceArgs);
-          // __PUBLISH_EXTRACT_END__
-          // initializeBranchProvenance resets the passed in databases when we use "keep-reopened-db"
-          masterDb = initProvenanceArgs.master as StandaloneDb;
-          forkDb = initProvenanceArgs.branch as StandaloneDb;
-
-          // Assert all 4 permutations of sourceHasFedGuid,targetHasFedGuid matches our expectations
-          for (const sourceHasFedGuid of [true, false]) {
-            for (const targetHasFedGuid of [true, false]) {
-              const logMessage = () => {
-                return `Expected the createFedGuidsForMaster: ${createFedGuidsForMaster} element pair: sourceHasFedGuid: ${sourceHasFedGuid}, targetHasFedGuid: ${targetHasFedGuid}`;
-              };
-              const [sourceElem, targetElem] =
-                sourceTargetFedGuidsToElemIds.get([
-                  sourceHasFedGuid,
-                  targetHasFedGuid,
-                ])!;
-              const sourceNumAspects = forkDb.elements.getAspects(
-                sourceElem,
-                ExternalSourceAspect.classFullName
-              ).length;
-              const targetNumAspects = forkDb.elements.getAspects(
-                targetElem,
-                ExternalSourceAspect.classFullName
-              ).length;
-              const expectedNumAspects =
-                sourceTargetFedGuidToAspectCountMap.get([
-                  sourceHasFedGuid,
-                  targetHasFedGuid,
-                  createFedGuidsForMaster,
-                ])!;
-              expect(
-                [sourceNumAspects, targetNumAspects],
-                `${logMessage()} to have sourceNumAspects: ${
-                  expectedNumAspects[0]
-                } got ${sourceNumAspects}, targetNumAspects: ${
-                  expectedNumAspects[1]
-                } got ${targetNumAspects}`
-              ).to.deep.equal(expectedNumAspects);
-
-              const relHasFedguidProvenance =
-                (sourceHasFedGuid && targetHasFedGuid) ||
-                createFedGuidsForMaster;
-              const expectedSourceAspectNum =
-                (sourceHasFedGuid ? 0 : createFedGuidsForMaster ? 0 : 1) +
-                (relHasFedguidProvenance ? 0 : 1);
-              const expectedTargetAspectNum =
-                targetHasFedGuid || createFedGuidsForMaster ? 0 : 1;
-              expect(
-                sourceNumAspects,
-                `${logMessage()} to have sourceNumAspects: ${expectedSourceAspectNum}. Got ${sourceNumAspects}`
-              ).to.equal(expectedSourceAspectNum);
-              expect(
-                targetNumAspects,
-                `${logMessage()} to have targetNumAspects: ${expectedTargetAspectNum}. Got ${targetNumAspects}`
-              ).to.equal(expectedTargetAspectNum);
-            }
-          }
-
-          // Save off the initializeBranchProvenance result and db for later comparison with the classicalTransformerBranchInit result and db.
-          if (!createFedGuidsForMaster) {
-            noTransformerBranchInitResult = result;
-            noTransformerForkDb = forkDb;
-          } else {
-            forkDb.close(); // The createFedGuidsForMaster forkDb is no longer necessary so close it.
-          }
-        } else {
-          const classicEditTxn = createStartedEditTxn(forkDb);
-          const result = await classicalTransformerBranchInit({
-            ...baseInitProvenanceArgs,
-            master: masterDb,
-            branch: forkDb,
-            editTxn: classicEditTxn,
-          });
-          classicEditTxn.saveChanges(
-            "save changes from classicalTransformerBranchInit"
-          );
-          classicEditTxn.end();
-
-          // Save off the classicalTransformerBranchInit result and db for later comparison with the branchProvenance result and db.
-          if (!createFedGuidsForMaster) {
-            transformerBranchInitResult = result;
-            transformerForkDb = forkDb;
-          } else {
-            forkDb.close(); // The createFedGuidsForMaster forkDb is no longer necessary so close it.
-          }
-        }
-        masterDb.close();
-      });
-    }
+  function copyMasterAndBranch(
+    name: string,
+    masterMode = OpenMode.Readonly
+  ): { masterDb: StandaloneDb; branchDb: StandaloneDb } {
+    const masterPath = IModelTransformerTestUtils.prepareOutputFile(
+      "IModelTransformer",
+      `${name}Master_STC.bim`
+    );
+    const branchPath = IModelTransformerTestUtils.prepareOutputFile(
+      "IModelTransformer",
+      `${name}Branch_STC.bim`
+    );
+    fs.copyFileSync(generatedIModel.pathName, masterPath);
+    fs.copyFileSync(generatedIModel.pathName, branchPath);
+    setToStandalone(masterPath);
+    setToStandalone(branchPath);
+    return {
+      masterDb: StandaloneDb.openFile(masterPath, masterMode),
+      branchDb: StandaloneDb.openFile(branchPath, OpenMode.ReadWrite),
+    };
   }
 
-  it("should have identityTransformation between branchProvenance and classic transformer provenance when createFedGuidsForMaster is false", async () => {
-    assert(
-      transformerForkDb !== undefined &&
-        noTransformerForkDb !== undefined &&
-        transformerBranchInitResult !== undefined &&
-        noTransformerBranchInitResult !== undefined,
-      "This test has to run last in this suite. It relies on the previous tests to set transfomerForkDb, noTransformerForkDb, transformerBranchInitResult, and noTransformerBranchInitResult when createFedGuidsForMaster is false."
-    );
-    try {
-      await assertIdentityTransformation(
-        transformerForkDb,
-        noTransformerForkDb,
-        undefined,
-        {
-          allowPropChange(inSourceElem, inTargetElem, propName) {
-            if (propName !== "federationGuid") return undefined;
+  function getScopeAspects(db: IModelDb, elementId: Id64String) {
+    return db.elements
+      .getAspects(elementId, ExternalSourceAspect.classFullName)
+      .filter(
+        (aspect) =>
+          (aspect as ExternalSourceAspect).kind ===
+          ExternalSourceAspect.Kind.Scope
+      ) as ExternalSourceAspect[];
+  }
 
-            if (
-              inTargetElem.id ===
-                noTransformerBranchInitResult!.masterRepositoryLinkId &&
-              inSourceElem.id ===
-                transformerBranchInitResult!.masterRepositoryLinkId
-            )
-              return true;
-            if (
-              inTargetElem.id ===
-                noTransformerBranchInitResult!.masterExternalSourceId &&
-              inSourceElem.id ===
-                transformerBranchInitResult!.masterExternalSourceId
-            )
-              return true;
-
-            return undefined;
-          },
-        }
+  for (const createFedGuidsForMaster of ["keep-reopened-db", false] as const) {
+    it(`inserts element and relationship provenance${
+      createFedGuidsForMaster ? " with createFedGuidsForMaster" : ""
+    }`, async () => {
+      let { masterDb, branchDb } = copyMasterAndBranch(
+        `elemProv_${createFedGuidsForMaster}`,
+        createFedGuidsForMaster ? OpenMode.ReadWrite : OpenMode.Readonly
       );
+
+      const initProvenanceArgs: ProvenanceInitArgs = {
+        createFedGuidsForMaster,
+        masterDescription: "master iModel repository",
+        masterUrl: "https://example.com/mytest",
+        master: masterDb,
+        branch: branchDb,
+      };
+      // __PUBLISH_EXTRACT_START__ EditTxnInTransformer.initialize-branch-provenance
+      // initializeBranchProvenance creates and ends its own EditTxn.
+      const result = await initializeBranchProvenance(initProvenanceArgs);
+      // __PUBLISH_EXTRACT_END__
+      // initializeBranchProvenance resets the passed in databases when we use "keep-reopened-db"
+      masterDb = initProvenanceArgs.master as StandaloneDb;
+      branchDb = initProvenanceArgs.branch as StandaloneDb;
+
+      try {
+        expect(result.masterExternalSourceId).to.equal(
+          result.targetScopeElementId
+        );
+        expect(
+          branchDb.elements.getElement(result.masterExternalSourceId!)
+        ).to.be.instanceOf(ExternalSource);
+        expect(
+          branchDb.elements.getElement(result.masterRepositoryLinkId!)
+        ).to.be.instanceOf(RepositoryLink);
+
+        // Assert all 4 permutations of sourceHasFedGuid,targetHasFedGuid matches our expectations
+        for (const sourceHasFedGuid of [true, false]) {
+          for (const targetHasFedGuid of [true, false]) {
+            const logMessage = () => {
+              return `Expected the createFedGuidsForMaster: ${createFedGuidsForMaster} element pair: sourceHasFedGuid: ${sourceHasFedGuid}, targetHasFedGuid: ${targetHasFedGuid}`;
+            };
+            const [sourceElem, targetElem] = sourceTargetFedGuidsToElemIds.get([
+              sourceHasFedGuid,
+              targetHasFedGuid,
+            ])!;
+            const sourceNumAspects = branchDb.elements.getAspects(
+              sourceElem,
+              ExternalSourceAspect.classFullName
+            ).length;
+            const targetNumAspects = branchDb.elements.getAspects(
+              targetElem,
+              ExternalSourceAspect.classFullName
+            ).length;
+            const expectedNumAspects = sourceTargetFedGuidToAspectCountMap.get([
+              sourceHasFedGuid,
+              targetHasFedGuid,
+              createFedGuidsForMaster,
+            ])!;
+            expect(
+              [sourceNumAspects, targetNumAspects],
+              `${logMessage()} to have sourceNumAspects: ${
+                expectedNumAspects[0]
+              } got ${sourceNumAspects}, targetNumAspects: ${
+                expectedNumAspects[1]
+              } got ${targetNumAspects}`
+            ).to.deep.equal(expectedNumAspects);
+          }
+        }
+      } finally {
+        masterDb.close();
+        branchDb.close();
+      }
+    });
+  }
+
+  it("inserts scope provenance that establishes the master-branch relationship", async () => {
+    const { masterDb, branchDb } = copyMasterAndBranch("scopeProv");
+    try {
+      await expect(
+        SyncTypeResolver.determineSyncType(
+          masterDb,
+          branchDb,
+          IModel.rootSubjectId
+        )
+      ).rejects.toThrow(SyncTypeResolver.noEsaSyncDirectionErrorMessage);
+
+      const result = await initializeBranchProvenance({
+        master: masterDb,
+        branch: branchDb,
+      });
+
+      const scopeAspects = getScopeAspects(
+        branchDb,
+        result.targetScopeElementId
+      );
+      expect(scopeAspects).to.have.length(1);
+      const [scopeAspect] = scopeAspects;
+      expect(scopeAspect.identifier).to.equal(masterDb.iModelId);
+      expect(scopeAspect.scope?.id).to.equal(IModel.rootSubjectId);
+      expect(scopeAspect.version).to.equal(
+        `${masterDb.changeset.id};${masterDb.changeset.index}`
+      );
+      expect(
+        JSON.parse(
+          scopeAspect.jsonProperties as unknown as string
+        ) as TargetScopeProvenanceJsonProps
+      ).to.deep.equal({
+        // the branch's next changeset holds these initialization changes
+        pendingReverseSyncChangesetIndices: [branchDb.changeset.index! + 1],
+        pendingSyncChangesetIndices: [],
+        reverseSyncVersion: `${branchDb.changeset.id};${branchDb.changeset.index}`,
+      });
+
+      expect(
+        await SyncTypeResolver.determineSyncType(
+          masterDb,
+          branchDb,
+          result.targetScopeElementId
+        )
+      ).to.equal("forward");
+      expect(
+        await SyncTypeResolver.determineSyncType(
+          branchDb,
+          masterDb,
+          result.targetScopeElementId
+        )
+      ).to.equal("reverse");
     } finally {
-      transformerForkDb.close();
-      noTransformerForkDb.close();
+      masterDb.close();
+      branchDb.close();
+    }
+  });
+
+  it("uses an existing targetScopeElementId", async () => {
+    const { masterDb, branchDb } = copyMasterAndBranch("existingScope");
+    try {
+      const elementCount = (db: IModelDb) =>
+        db.withPreparedSqliteStatement(
+          "SELECT COUNT(*) FROM bis_Element",
+          (stmt) => {
+            stmt.step();
+            return stmt.getValueInteger(0);
+          }
+        );
+      const elementCountBefore = elementCount(branchDb);
+
+      const result = await initializeBranchProvenance({
+        master: masterDb,
+        branch: branchDb,
+        targetScopeElementId: IModel.rootSubjectId,
+      });
+
+      expect(result).to.deep.equal({
+        targetScopeElementId: IModel.rootSubjectId,
+        masterExternalSourceId: undefined,
+        masterRepositoryLinkId: undefined,
+      });
+      expect(elementCount(branchDb)).to.equal(elementCountBefore);
+      expect(getScopeAspects(branchDb, IModel.rootSubjectId)).to.have.length(1);
+
+      const [fedGuidlessSourceElem] = sourceTargetFedGuidsToElemIds.get([
+        false,
+        true,
+      ])!;
+      const elementAspects = branchDb.elements.getAspects(
+        fedGuidlessSourceElem,
+        ExternalSourceAspect.classFullName
+      ) as ExternalSourceAspect[];
+      expect(elementAspects).to.not.be.empty;
+      for (const aspect of elementAspects)
+        expect(aspect.scope?.id).to.equal(IModel.rootSubjectId);
+
+      expect(
+        await SyncTypeResolver.determineSyncType(
+          masterDb,
+          branchDb,
+          IModel.rootSubjectId
+        )
+      ).to.equal("forward");
+    } finally {
+      masterDb.close();
+      branchDb.close();
+    }
+  });
+
+  it("throws if the targetScopeElementId already has scope provenance", async () => {
+    const { masterDb, branchDb } = copyMasterAndBranch("scopeConflict");
+    try {
+      await initializeBranchProvenance({
+        master: masterDb,
+        branch: branchDb,
+        targetScopeElementId: IModel.rootSubjectId,
+      });
+      const aspectCount = (db: IModelDb) =>
+        db.withPreparedSqliteStatement(
+          "SELECT COUNT(*) FROM bis_ElementMultiAspect",
+          (stmt) => {
+            stmt.step();
+            return stmt.getValueInteger(0);
+          }
+        );
+      const aspectCountBefore = aspectCount(branchDb);
+
+      await expectTransformerError(
+        initializeBranchProvenance({
+          master: masterDb,
+          branch: branchDb,
+          targetScopeElementId: IModel.rootSubjectId,
+        }),
+        IModelTransformerError.ProvenanceScopeConflict,
+        "Provenance scope conflict"
+      );
+
+      expect(aspectCount(branchDb)).to.equal(aspectCountBefore);
+      // the failed call must not leave an EditTxn active on the branch
+      withEditTxn(branchDb, "after conflict", () => {});
+    } finally {
+      masterDb.close();
+      branchDb.close();
     }
   });
 });
@@ -383,62 +443,6 @@ function setupIModel(): [
     }
   }
   return [generatedIModel, sourceTargetFedGuidToElemIds];
-}
-
-interface ClassicalBranchInitArgs extends ProvenanceInitArgs {
-  editTxn: EditTxn;
-}
-
-async function classicalTransformerBranchInit(
-  args: ClassicalBranchInitArgs
-): Promise<ProvenanceInitResult> {
-  // create an external source and owning repository link to use as our *Target Scope Element* for future synchronizations
-  const repoLinkId = args.branch
-    .constructEntity<RepositoryLink, RepositoryLinkProps>({
-      classFullName: RepositoryLink.classFullName,
-      code: RepositoryLink.createCode(
-        args.branch,
-        IModelDb.repositoryModelId,
-        "test-imodel"
-      ),
-      model: IModelDb.repositoryModelId,
-      url: args.masterUrl,
-      format: "iModel",
-      repositoryGuid: args.master.iModelId,
-      description: args.masterDescription,
-    })
-    .insert(args.editTxn);
-
-  const masterExternalSourceId = args.branch
-    .constructEntity<ExternalSource, ExternalSourceProps>({
-      classFullName: ExternalSource.classFullName,
-      model: IModelDb.rootSubjectId,
-      code: Code.createEmpty(),
-      repository: new ExternalSourceIsInRepository(repoLinkId),
-      connectorName: transformerPackageMetadata.name,
-      connectorVersion: transformerPackageMetadata.version,
-    })
-    .insert(args.editTxn);
-
-  // initialize the branch provenance
-  const branchInitializer = new IModelTransformer(
-    { source: args.master, target: args.editTxn },
-    {
-      // tells the transformer that we have a raw copy of a source and the target should receive
-      // provenance from the source that is necessary for performing synchronizations in the future
-      wasSourceIModelCopiedToTarget: true, // store the synchronization provenance in the scope of our representation of the external source, master
-      targetScopeElementId: masterExternalSourceId,
-    }
-  );
-
-  await branchInitializer.process();
-  branchInitializer.dispose();
-
-  return {
-    masterExternalSourceId,
-    targetScopeElementId: masterExternalSourceId,
-    masterRepositoryLinkId: repoLinkId,
-  };
 }
 
 function setToStandalone(iModelName: string) {

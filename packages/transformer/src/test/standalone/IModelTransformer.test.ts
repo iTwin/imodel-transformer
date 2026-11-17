@@ -122,6 +122,7 @@ import {
 } from "../../IModelTransformer.js";
 import { TransformerLoggerCategory } from "../../TransformerLoggerCategory.js";
 import { IModelTransformerError } from "../../IModelTransformerError.js";
+import { initializeBranchProvenance } from "../../BranchProvenanceInitializer.js";
 import {
   AspectTrackingImporter,
   AspectTrackingTransformer,
@@ -471,16 +472,14 @@ describe("IModelTransformer", () => {
     );
     assert.equal(0, await count(branchDb, ExternalSourceAspect.classFullName));
 
-    // Ensure that master to branch synchronization did not add any new Elements or Relationships, but did add ExternalSourceAspects
+    // Ensure that branch initialization did not add any new Elements or Relationships, but did add ExternalSourceAspects
+    await initializeBranchProvenance({
+      master: masterDb,
+      branch: branchDb,
+      targetScopeElementId: IModel.rootSubjectId,
+    });
     const masterToBranchEditTxn = new EditTxn(branchDb, "IModelTransformer");
     masterToBranchEditTxn.start();
-    const masterToBranchTransformer = new IModelTransformer(
-      { source: masterDb, target: masterToBranchEditTxn },
-      { wasSourceIModelCopiedToTarget: true }
-    ); // Note use of `wasSourceIModelCopiedToTarget` flag
-    await masterToBranchTransformer.process();
-    masterToBranchTransformer.dispose();
-    masterToBranchEditTxn.saveChanges();
     assert.equal(
       numMasterElements,
       await count(branchDb, Element.classFullName)
@@ -489,7 +488,13 @@ describe("IModelTransformer", () => {
       numMasterRelationships,
       await count(branchDb, ElementRefersToElements.classFullName)
     );
-    assert.equal(await count(branchDb, ExternalSourceAspect.classFullName), 1); // provenance aspect added for target scope element
+    const scopeAspectReader = branchDb.createQueryReader(
+      `SELECT COUNT(*) FROM ${ExternalSourceAspect.classFullName} WHERE Kind=:kind`,
+      new QueryBinder().bindString("kind", ExternalSourceAspect.Kind.Scope),
+      { usePrimaryConn: true }
+    );
+    assert.isTrue(await scopeAspectReader.step());
+    assert.equal(scopeAspectReader.current[0], 1); // provenance aspect added for target scope element
 
     // Confirm that provenance (captured in ExternalSourceAspects) was set correctly
     const sql = `SELECT aspect.Identifier,aspect.Element.Id FROM ${ExternalSourceAspect.classFullName} aspect WHERE aspect.Kind=:kind`;
@@ -6317,14 +6322,11 @@ describe("IModelTransformer", () => {
       });
       try {
         // First establish provenance so sync direction can be determined
-        const initEditTxn = createStartedEditTxn(targetDb);
-        const initTransformer = new IModelTransformer(
-          { source: sourceDb, target: initEditTxn },
-          { wasSourceIModelCopiedToTarget: true }
-        );
-        await initTransformer.process();
-        initEditTxn.end("save");
-        initTransformer.dispose();
+        await initializeBranchProvenance({
+          master: sourceDb,
+          branch: targetDb,
+          targetScopeElementId: IModel.rootSubjectId,
+        });
 
         // Now attempt reverse sync without sourceEditTxn
         const editTxn = createStartedEditTxn(sourceDb);
