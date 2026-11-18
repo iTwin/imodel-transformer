@@ -32,6 +32,36 @@ await IModelHost.startup({
 
 The option only changes how `getElement()`, `getModel()`, and `getAspect()` read entities. It does not change transformer behavior. The repository's performance suites and test app now use this setting. The transformer's unit tests still use the default so the default read path stays covered.
 
+## Reverse synchronization ignores conflicting element provenance
+
+A reverse synchronization reads element `ExternalSourceAspect` provenance from
+the branch iModel it synchronizes from. That provenance names the master
+element that a branch element updates or deletes. Branch provenance that
+named an unrelated master element could make a reverse synchronization
+overwrite or delete that element.
+
+A reverse synchronization now ignores element provenance when the master
+element it names has a federation GUID that the branch element does not share.
+This includes branch elements without a federation GUID. The transformer logs a
+warning in the `imodel-transformer.IModelTransformer` category and resolves the branch
+element by its federation GUID instead. Model deletions are checked against the
+federation GUID of the modeled element. Forward synchronizations are not
+affected.
+
+This check cannot detect provenance that names a master element without a
+federation GUID, or a branch element that copies the federation GUID of the
+master element it names. Applications that run reverse synchronizations for
+branches edited by less trusted users should also validate the branch.
+
+Provenance is also ignored, with a warning, in these legitimate cases:
+
+- A branch synchronized with `forceExternalSourceAspectProvenance` where the
+  transformer matched an element by code to a target element with a different
+  federation GUID.
+- A master iModel whose elements received federation GUIDs after the branch
+  was created, before those GUIDs reached the branch through a forward
+  synchronization.
+
 ## Context-based provenance resolution for incremental deletions
 
 `IModelTransformer.process()` now resolves guidless incremental element

@@ -12,7 +12,7 @@ import {
   withEditTxn,
 } from "@itwin/core-backend";
 import { Code, ExternalSourceAspectProps, IModel } from "@itwin/core-common";
-import { Guid, Id64String } from "@itwin/core-bentley";
+import { Guid, Id64String, Logger } from "@itwin/core-bentley";
 import { ProvenanceManager } from "../../ProvenanceManager.js";
 import { IModelTransformerTestUtils } from "../IModelTransformerUtils.js";
 
@@ -188,6 +188,60 @@ describe("ProvenanceManager tracked element mappings", () => {
     await loadMappings(mappings);
 
     expect(mappings.get("0x123")).toBe(earliestOwner);
+  });
+
+  it("ignores reverse synchronization provenance that conflicts with federation GUIDs", async () => {
+    const insertSubject = (
+      db: StandaloneDb,
+      label: string,
+      federationGuid: string
+    ) =>
+      withEditTxn(db, `insert ${label}`, (txn) =>
+        txn.insertElement({
+          classFullName: Subject.classFullName,
+          code: Code.createEmpty(),
+          federationGuid,
+          model: IModel.repositoryModelId,
+          parent: new SubjectOwnsSubjects(IModel.rootSubjectId),
+          userLabel: label,
+        })
+      );
+    // sourceDb holds the target elements and targetDb holds the provenance, as in a reverse synchronization
+    const victimId = insertSubject(sourceDb, "victim", Guid.createValue());
+    const noGuidTargetId = insertSubject(sourceDb, "no guid", Guid.empty);
+    const { forgedOwner, trustedOwner } = withEditTxn(
+      targetDb,
+      "insert provenance",
+      (txn) => {
+        const forged = Subject.insert(txn, IModel.rootSubjectId, "forged");
+        const trusted = Subject.insert(txn, IModel.rootSubjectId, "trusted");
+        txn.insertAspect(
+          createProvenanceProps(forged, IModel.rootSubjectId, victimId)
+        );
+        txn.insertAspect(
+          createProvenanceProps(trusted, IModel.rootSubjectId, noGuidTargetId)
+        );
+        return { forgedOwner: forged, trustedOwner: trusted };
+      }
+    );
+    const warn = vi.spyOn(Logger, "logWarning");
+
+    const mappings = new Map<Id64String, Id64String>();
+    await ProvenanceManager.forEachTrackedElement({
+      provenanceSourceDb: sourceDb,
+      provenanceDb: targetDb,
+      targetScopeElementId: IModel.rootSubjectId,
+      isReverseSynchronization: true,
+      fn: (sourceId, targetId) => mappings.set(sourceId, targetId),
+      skipPropagateChangesToRootElements: true,
+    });
+
+    expect(mappings.has(forgedOwner)).toBe(false);
+    expect(mappings.get(trustedOwner)).toBe(noGuidTargetId);
+    expect(warn).toHaveBeenCalledOnce();
+    expect(warn.mock.calls[0][1]).toContain(
+      `source element ${forgedOwner} to target element ${victimId}`
+    );
   });
 
   it("propagates tracked-element query failures", async () => {

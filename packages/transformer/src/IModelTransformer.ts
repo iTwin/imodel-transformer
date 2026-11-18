@@ -2460,7 +2460,12 @@ export class IModelTransformer extends IModelExportHandler {
           deletedScopeEsaByElementId,
           alreadyImportedElementInserts,
           alreadyImportedModelInserts,
-          processedSourceElementInserts
+          processedSourceElementInserts,
+          // a model shares its ID with its modeled element, which owns the provenance
+          () =>
+            deletedFederationGuidByElementId.get(model.ecInstanceId) ??
+            this.sourceDb.elements.tryGetElementProps(model.ecInstanceId)
+              ?.federationGuid
         );
     }
   }
@@ -2480,10 +2485,12 @@ export class IModelTransformer extends IModelExportHandler {
   /**
    * Finds the target ID of a source element while processing deletions, first through the transformation's
    * ExternalSourceAspects when the source holds the provenance, then through the federation GUID. The element may be
-   * deleted itself, or be a surviving endpoint of a deleted relationship.
+   * deleted itself, or be a surviving endpoint of a deleted relationship. ExternalSourceAspect provenance that
+   * conflicts with federation GUIDs is ignored, see `ProvenanceManager.isElementProvenanceConsistentWithFederationGuids`.
    * @param sourceId the source element ID.
    * @param federationGuid the source element's federation GUID, if known.
    * @param deletedScopeEsaByElementId this transformation scope's deleted ESAs in the same batch, keyed by the ID of the element that owned each one.
+   * @param provenanceFederationGuid the federation GUID of the source element that owns the provenance, when it differs from `federationGuid`. A model's provenance is owned by its modeled element.
    */
   private async findTargetElementIdForDeletion(
     sourceId: Id64String,
@@ -2491,7 +2498,8 @@ export class IModelTransformer extends IModelExportHandler {
     deletedScopeEsaByElementId: Map<
       Id64String,
       ExternalSourceAspectDeletionRecord
-    >
+    >,
+    provenanceFederationGuid: () => string | undefined = () => federationGuid
   ): Promise<Id64String | undefined> {
     /**
      * If the deleted source entity is in the provenanceDb, then we can use its ids to query for ESAs.
@@ -2514,7 +2522,16 @@ export class IModelTransformer extends IModelExportHandler {
       identifierValue =
         identifierValue ?? deletedScopeEsaByElementId.get(sourceId)?.identifier;
       // Check for targetId by an esa first
-      if (identifierValue) return identifierValue;
+      if (
+        identifierValue &&
+        ProvenanceManager.isElementProvenanceConsistentWithFederationGuids({
+          sourceElementId: sourceId,
+          sourceFederationGuid: provenanceFederationGuid(),
+          targetDb: this.targetDb,
+          targetElementId: identifierValue,
+        })
+      )
+        return identifierValue;
     }
 
     // Check for targetId using sourceId's fedguid if we didn't find an esa.
@@ -2598,6 +2615,7 @@ export class IModelTransformer extends IModelExportHandler {
    * @param alreadyImportedElementInserts used to handle entity recreation and not delete already handled element inserts.
    * @param alreadyImportedModelInserts used to handle entity recreation and not delete already handled model inserts.
    * @param processedSourceElementInserts IDs of source elements inserted into the source iModel by the source changesets this run reads, before custom changes were added. Undefined when no changesets in the range are skipped, which disables the check for elements recreated in skipped changesets.
+   * @param provenanceFederationGuid the federation GUID of the source element that owns the provenance, when it differs from `federationGuid`.
    */
   private async processDeletedElement(
     sourceId: Id64String,
@@ -2608,12 +2626,14 @@ export class IModelTransformer extends IModelExportHandler {
     >,
     alreadyImportedElementInserts: Set<Id64String>,
     alreadyImportedModelInserts: Set<Id64String>,
-    processedSourceElementInserts: ReadonlySet<Id64String> | undefined
+    processedSourceElementInserts: ReadonlySet<Id64String> | undefined,
+    provenanceFederationGuid?: () => string | undefined
   ): Promise<void> {
     let targetId = await this.findTargetElementIdForDeletion(
       sourceId,
       federationGuid,
-      deletedScopeEsaByElementId
+      deletedScopeEsaByElementId,
+      provenanceFederationGuid
     );
     if (
       targetId === undefined &&
