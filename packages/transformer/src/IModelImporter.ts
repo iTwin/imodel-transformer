@@ -873,11 +873,12 @@ export class IModelImporter {
     const validIndices: number[] = [];
     const indicesByClass = new Map<string, number[]>();
     relationshipProps.forEach((props, index) => {
-      if (!this.hasValidRelationshipEndpoints(props)) return;
-      validIndices.push(index);
-      const indices = indicesByClass.get(props.classFullName);
-      if (indices) indices.push(index);
-      else indicesByClass.set(props.classFullName, [index]);
+      if (this.hasValidRelationshipEndpoints(props)) {
+        validIndices.push(index);
+        const indices = indicesByClass.get(props.classFullName);
+        if (indices) indices.push(index);
+        else indicesByClass.set(props.classFullName, [index]);
+      }
     });
 
     // check for existing relationships
