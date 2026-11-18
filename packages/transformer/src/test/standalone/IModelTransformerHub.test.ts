@@ -81,6 +81,7 @@ import {
   ModelProps,
   PhysicalElementProps,
   Placement3d,
+  RelationshipProps,
   SpatialViewDefinitionProps,
   SubCategoryAppearance,
   SubjectProps,
@@ -8723,6 +8724,217 @@ describe("IModelTransformerHub", () => {
         }
       }
     }
+
+    describe("batched relationship deletes", () => {
+      afterEach(() => vi.restoreAllMocks());
+
+      const otherRelClassFullName = "TestBatchedDeletes:OtherRefersToElements";
+      const otherRelSchema = `<?xml version="1.0" encoding="UTF-8"?>
+        <ECSchema schemaName="TestBatchedDeletes" alias="tbd" version="01.00.00" xmlns="http://www.bentley.com/schemas/Bentley.ECXML.3.2">
+          <ECSchemaReference name="BisCore" version="01.00.00" alias="bis"/>
+          <ECRelationshipClass typeName="OtherRefersToElements" strength="referencing" modifier="None">
+            <BaseClass>bis:ElementRefersToElements</BaseClass>
+            <Source multiplicity="(0..*)" roleLabel="refers to" polymorphic="true">
+              <Class class="bis:Element"/>
+            </Source>
+            <Target multiplicity="(0..*)" roleLabel="is referenced by" polymorphic="true">
+              <Class class="bis:Element"/>
+            </Target>
+          </ECRelationshipClass>
+        </ECSchema>`;
+
+      const targetRelationshipCount = () =>
+        [
+          ...targetDb.queryEntityIds({
+            from: ElementGroupsMembers.classFullName,
+          }),
+          ...targetDb.queryEntityIds({ from: otherRelClassFullName }),
+        ].length;
+      const targetRelationshipAspects = () =>
+        targetDb.elements
+          .getAspects(
+            IModelTestUtils.queryByUserLabel(targetDb, "Group"),
+            ExternalSourceAspect.classFullName
+          )
+          .filter(
+            (aspect) =>
+              (aspect as ExternalSourceAspect).kind ===
+              ExternalSourceAspect.Kind.Relationship
+          );
+
+      /** Transforms three relationships of two classes into the target, then deletes all of them in one source changeset. */
+      const transformThenDeleteRelationships = async (
+        withFederationGuids: boolean,
+        forceExternalSourceAspectProvenance: boolean
+      ) => {
+        for (const db of [sourceDb, targetDb]) {
+          await db.importSchemaStrings([otherRelSchema]);
+          await db.pushChanges({
+            description: "import relationship schema",
+            retainLocks: true,
+          });
+        }
+        const relationships = withEditTxn(
+          sourceDb,
+          "insert elements and relationships",
+          (txn) => {
+            const modelId = PhysicalModel.insert(
+              txn,
+              IModel.rootSubjectId,
+              "M"
+            );
+            const categoryId = SpatialCategory.insert(
+              txn,
+              IModel.dictionaryId,
+              "C",
+              {}
+            );
+            const [groupId, member1Id, member2Id] = [
+              "Group",
+              "Member1",
+              "Member2",
+            ].map((label) =>
+              txn.insertElement({
+                classFullName: PhysicalObject.classFullName,
+                model: modelId,
+                category: categoryId,
+                code: Code.createEmpty(),
+                userLabel: label,
+                ...(withFederationGuids ? {} : { federationGuid: Guid.empty }),
+              } as GeometricElementProps)
+            );
+            const relationshipProps: RelationshipProps[] = [
+              ElementGroupsMembers.create(
+                sourceDb,
+                groupId,
+                member1Id,
+                0
+              ).toJSON(),
+              ElementGroupsMembers.create(
+                sourceDb,
+                groupId,
+                member2Id,
+                0
+              ).toJSON(),
+              {
+                classFullName: otherRelClassFullName,
+                sourceId: groupId,
+                targetId: member1Id,
+              },
+            ];
+            return relationshipProps.map((props) => ({
+              classFullName: props.classFullName,
+              id: txn.insertRelationship(props),
+            }));
+          }
+        );
+        await sourceDb.pushChanges({
+          description: "initial source data",
+          retainLocks: true,
+        });
+        const editTxn = createStartedEditTxn(targetDb);
+        const transformer = new IModelTransformer(
+          { source: sourceDb, target: editTxn },
+          { forceExternalSourceAspectProvenance }
+        );
+        await transformer.process();
+        transformer.dispose();
+        editTxn.end();
+        await targetDb.pushChanges({
+          description: "initial transform",
+          retainLocks: true,
+        });
+
+        withEditTxn(sourceDb, "delete relationships", (txn) => {
+          for (const { classFullName, id } of relationships)
+            txn.deleteRelationship(
+              sourceDb.relationships.getInstance(classFullName, id).toJSON()
+            );
+        });
+        await sourceDb.pushChanges({
+          description: "delete relationships",
+          retainLocks: true,
+        });
+      };
+
+      for (const withFederationGuids of [true, false]) {
+        for (const forceExternalSourceAspectProvenance of [true, false]) {
+          // without federation guids, relationships always get aspect provenance, so forcing it changes nothing
+          if (!withFederationGuids && forceExternalSourceAspectProvenance)
+            continue;
+          it(`deletes relationships of several classes from one changeset with one bulk delete (federationGuids=${withFederationGuids}, forceExternalSourceAspectProvenance=${forceExternalSourceAspectProvenance})`, async () => {
+            await transformThenDeleteRelationships(
+              withFederationGuids,
+              forceExternalSourceAspectProvenance
+            );
+            const usesRelationshipAspects =
+              forceExternalSourceAspectProvenance || !withFederationGuids;
+            expect(targetRelationshipCount()).to.equal(3);
+            expect(targetRelationshipAspects()).to.have.lengthOf(
+              usesRelationshipAspects ? 3 : 0
+            );
+
+            const editTxn = createStartedEditTxn(targetDb);
+            const transformer = new IModelTransformer(
+              { source: sourceDb, target: editTxn },
+              { forceExternalSourceAspectProvenance, argsForProcessChanges: {} }
+            );
+            const bulkDelete = vi.spyOn(
+              transformer.importer,
+              "deleteRelationships"
+            );
+            const endpointLookup = vi.spyOn(
+              targetDb.relationships,
+              "queryInstancesProps"
+            );
+            await transformer.process();
+            transformer.dispose();
+            editTxn.end();
+
+            expect(bulkDelete).toHaveBeenCalledTimes(1);
+            expect(bulkDelete.mock.calls[0][0]).to.have.lengthOf(3);
+            // With federation guids, target relationships are found by endpoints with one batched lookup per class.
+            // Without them, they are found through their provenance, which needs no lookup.
+            expect(
+              endpointLookup.mock.calls.map(([classFullName]) => classFullName)
+            ).to.have.members(
+              withFederationGuids
+                ? [ElementGroupsMembers.classFullName, otherRelClassFullName]
+                : []
+            );
+            expect(targetRelationshipCount()).to.equal(0);
+            expect(targetRelationshipAspects()).to.be.empty;
+          });
+        }
+      }
+
+      it("keeps relationship provenance when the bulk relationship delete fails", async () => {
+        await transformThenDeleteRelationships(true, true);
+        expect(targetRelationshipAspects()).to.have.lengthOf(3);
+
+        const editTxn = createStartedEditTxn(targetDb);
+        const transformer = new IModelTransformer(
+          { source: sourceDb, target: editTxn },
+          {
+            forceExternalSourceAspectProvenance: true,
+            argsForProcessChanges: {},
+          }
+        );
+        const failure = new Error("bulk delete failed");
+        vi.spyOn(transformer.importer, "deleteRelationships").mockRejectedValue(
+          failure
+        );
+        try {
+          await expect(transformer.process()).rejects.toBe(failure);
+          // provenance cleanup runs only after the bulk delete succeeds
+          expect(targetRelationshipCount()).to.equal(3);
+          expect(targetRelationshipAspects()).to.have.lengthOf(3);
+        } finally {
+          transformer.dispose();
+          editTxn.end("abandon");
+        }
+      });
+    });
 
     function generateSchema(
       schemaVersion: number,

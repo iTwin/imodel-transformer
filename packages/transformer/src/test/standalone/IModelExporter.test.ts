@@ -1580,6 +1580,93 @@ describe("IModelExporter", () => {
       sourceDb.close();
     });
 
+    it("passes only relationships accepted by the handler to onExportRelationships", async () => {
+      const sourceDbPath = IModelTransformerTestUtils.prepareOutputFile(
+        "IModelExporter",
+        "RelationshipInstanceFiltering.bim"
+      );
+      const sourceDb = SnapshotDb.createEmpty(sourceDbPath, {
+        rootSubject: { name: "relationship-instance-filtering" },
+      });
+
+      const relIds = withEditTxn(
+        sourceDb,
+        "insert elements and relationships",
+        (txn) => {
+          const categoryId = SpatialCategory.insert(
+            txn,
+            IModel.dictionaryId,
+            "SpatialCategory",
+            new SubCategoryAppearance()
+          );
+          const modelId = PhysicalModel.insert(
+            txn,
+            IModel.rootSubjectId,
+            "PhysicalModel"
+          );
+          const physicalObjectProps: PhysicalElementProps = {
+            classFullName: PhysicalObject.classFullName,
+            model: modelId,
+            category: categoryId,
+            code: Code.createEmpty(),
+          };
+          const sourceId = txn.insertElement(physicalObjectProps);
+          return [1, 2, 3].map(() =>
+            txn.insertRelationship({
+              classFullName: GraphicalElement3dRepresentsElement.classFullName,
+              sourceId,
+              targetId: txn.insertElement(physicalObjectProps),
+            })
+          );
+        }
+      );
+      const rejectedRelId = relIds[1];
+
+      try {
+        const exportedBatches: Id64String[][] = [];
+        class FilteringHandler extends IModelExportHandler {
+          public constructor(
+            private readonly _accept: (id: string) => boolean
+          ) {
+            super();
+          }
+          public override async shouldExportRelationship(
+            relationship: Relationship
+          ): Promise<boolean> {
+            return this._accept(relationship.id);
+          }
+          public override async onExportRelationships(
+            relationships: ReadonlyArray<ExportedRelationship>
+          ): Promise<void> {
+            exportedBatches.push(
+              relationships.map(({ relationship }) => relationship.id)
+            );
+          }
+        }
+
+        const exporter = new IModelExporter(sourceDb);
+        exporter.registerHandler(
+          new FilteringHandler((id) => id !== rejectedRelId)
+        );
+        await exporter.exportRelationships(
+          ElementRefersToElements.classFullName
+        );
+        expect(exportedBatches).to.deep.equal([
+          relIds.filter((id) => id !== rejectedRelId),
+        ]);
+
+        exportedBatches.length = 0;
+        const rejectAllExporter = new IModelExporter(sourceDb);
+        rejectAllExporter.registerHandler(new FilteringHandler(() => false));
+        await rejectAllExporter.exportRelationships(
+          ElementRefersToElements.classFullName
+        );
+        expect(exportedBatches).to.be.empty;
+      } finally {
+        sourceDb.close();
+      }
+    });
+
     it("produces identical relationship provenance with and without known endpoints", async () => {
       const dbPath = IModelTransformerTestUtils.prepareOutputFile(
         "IModelExporter",
