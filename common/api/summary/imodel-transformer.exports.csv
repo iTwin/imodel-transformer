@@ -10,6 +10,7 @@ beta;interface;DeletionRecordBase
 beta;interface;ElementBulkDeleteError
 beta;interface;ElementDeletionRecord
 public;type;ExportChangesOptions
+beta;interface;ExportedRelationship
 beta;type;ExporterInitOptions
 beta;interface;ExportSchemaResult
 beta;interface;ExternalSourceAspectDeletionRecord
