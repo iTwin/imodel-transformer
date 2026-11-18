@@ -115,7 +115,7 @@ When processing changes, `IModelTransformer` downloads and reads the source chan
 
 ### Element reservations
 
-A target that uses server-based element reservations requires new elements with a federation GUID to be reserved before they are inserted. See [Element reservation pre-scan](./element-reservation-prescan.md) for the alpha `elementReservationPreScan` option, which reserves them in one batch.
+A target that uses server-based element reservations requires new elements with a federation GUID to be reserved before they are inserted. `IModelTransformer.process()` reserves them in one batch when the target needs it and does not hold the schema lock. See [Element reservation pre-scan](./element-reservation-prescan.md).
 
 ### Filtering and required elements
 

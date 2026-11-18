@@ -7662,12 +7662,8 @@ describe("IModelTransformerHub", () => {
       );
 
       // The filter now accepts the category, but nobody added it in addCustomChanges.
-      // The reservation pre-scan runs the filter again, so it is disabled to count the transformation's own calls.
       await expectTransformerError(
-        transformRejecting([], {
-          ...processChanges,
-          elementReservationPreScan: "off",
-        }),
+        transformRejecting([], processChanges),
         IModelTransformerError.DependencyMappingMissing,
         `Element ${subCategoryId} requires unchanged element ${categoryId}, which is not in the target iModel. Change processing does not insert unchanged elements; to insert element ${categoryId}, add it in addCustomChanges.`
       );

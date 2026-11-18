@@ -366,6 +366,8 @@ export class IModelTransformer extends IModelExportHandler {
     elementReservationPreScanStats?: ElementReservationPreScanStats;
     protected _elementsWithExplicitlyTrackedProvenance: Set<string>;
     readonly exporter: IModelExporter;
+    // @internal
+    forceElementReservationPreScan: boolean;
     getIsForwardSynchronization(): Promise<boolean>;
     getIsReverseSynchronization(): Promise<boolean>;
     getProvenanceDb(): Promise<IModelDb>;
@@ -479,8 +481,6 @@ export interface IModelTransformOptions {
     branchRelationshipDataBehavior?: "unsafe-migrate" | "reject";
     cloneUsingBinaryGeometry?: boolean;
     danglingReferencesBehavior?: "reject" | "ignore";
-    // @alpha
-    elementReservationPreScan?: "auto" | "on" | "off";
     forceExternalSourceAspectProvenance?: boolean;
     includeSourceProvenance?: boolean;
     loadSourceGeometry?: boolean;

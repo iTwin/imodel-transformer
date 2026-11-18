@@ -4,19 +4,13 @@
  *--------------------------------------------------------------------------------------------*/
 
 import {
-  ClassRegistry,
-  DefinitionElement,
-  DefinitionModel,
   // eslint-disable-next-line @typescript-eslint/no-redeclare
   Element,
   GeometryPart,
   IModelDb,
-  IModelElementCloneContext,
   PhysicalModel,
   PhysicalObject,
   PhysicalPartition,
-  Schema,
-  Schemas,
   SpatialCategory,
   StandaloneDb,
   Subject,
@@ -29,7 +23,6 @@ import {
   Code,
   CodeScopeSpec,
   CodeSpec,
-  ElementProps,
   GeometryPartProps,
   IModel,
   PhysicalElementProps,
@@ -37,16 +30,7 @@ import {
   SubCategoryAppearance,
 } from "@itwin/core-common";
 import { Point3d } from "@itwin/core-geometry";
-import {
-  afterAll,
-  beforeAll,
-  describe,
-  expect,
-  it,
-  onTestFinished,
-  vi,
-} from "vitest";
-import type { ElementReservationPreScanMode } from "../../ElementReservationPreScan.js";
+import { describe, expect, it, onTestFinished, vi } from "vitest";
 import { IModelTransformer } from "../../IModelTransformer.js";
 import {
   createStartedEditTxn,
@@ -61,7 +45,10 @@ const outputFile = (name: string) =>
     name
   );
 
-const modes: ElementReservationPreScanMode[] = ["transform", "identity"];
+/** Runs the pre-scan on a target that does not need reservations. */
+const force = (transformer: IModelTransformer) => {
+  transformer.forceElementReservationPreScan = true;
+};
 
 /** Releases `resource` when the current test finishes. */
 function adopt<T>(resource: T, release: (resource: T) => void): T {
@@ -97,25 +84,15 @@ async function importSourceSchemas(sourceDb: IModelDb, targetDb: IModelDb) {
   }
 }
 
-/** Overrides the transform without changing it, which makes the pre-scan use `"transform"` mode. */
-class CustomTransformer extends IModelTransformer {
-  public override async onTransformElement(sourceElement: Element) {
-    return super.onTransformElement(sourceElement);
-  }
-}
-
 async function transform(
   sourceDb: IModelDb,
   targetDb: IModelDb,
   options: ConstructorParameters<typeof IModelTransformer>[1],
-  configure?: (transformer: IModelTransformer) => void,
-  mode: ElementReservationPreScanMode = "identity"
+  configure?: (transformer: IModelTransformer) => void
 ) {
   const txn = createStartedEditTxn(targetDb);
   try {
-    const transformerClass =
-      mode === "transform" ? CustomTransformer : IModelTransformer;
-    const transformer = new transformerClass(
+    const transformer = new IModelTransformer(
       { source: sourceDb, target: txn },
       options
     );
@@ -150,149 +127,65 @@ function getTransformedGuids(sourceDb: IModelDb, targetDb: IModelDb) {
 }
 
 describe("element reservation pre-scan", () => {
-  it.each(modes)(
-    "inserts every new element of a full transformation with its reserved id (%s)",
-    async (mode) => {
-      const sourceDb = adopt(
-        await createExtensiveSource(`extensive-source-${mode}`),
-        (db) => db.close()
-      );
-      const targetDb = createDb(`extensive-target-${mode}`);
-      await importSourceSchemas(sourceDb, targetDb);
-      const reservations = adopt(
-        await useLocalReservations(
-          targetDb,
-          outputFile(`extensive-sync-${mode}.db`)
-        ),
-        (adapter) => adapter.dispose()
-      );
-      const reserve = vi.spyOn(targetDb.reservations, "reserveElements");
+  it("inserts every new element of a full transformation with its reserved id", async () => {
+    const sourceDb = adopt(
+      await createExtensiveSource("extensive-source"),
+      (db) => db.close()
+    );
+    const targetDb = createDb("extensive-target");
+    await importSourceSchemas(sourceDb, targetDb);
+    const reservations = adopt(
+      await useLocalReservations(targetDb, outputFile("extensive-sync.db")),
+      (adapter) => adapter.dispose()
+    );
+    const reserve = vi.spyOn(targetDb.reservations, "reserveElements");
 
-      const stats = (await transform(sourceDb, targetDb, {}, undefined, mode))!;
+    const stats = (await transform(sourceDb, targetDb, {}))!;
 
-      expect(reserve).toHaveBeenCalledTimes(1);
-      expect(stats.mode).toBe(mode);
-      expect(stats.identityLoads).toBe(mode === "identity");
-      expect(stats.submitted).toBe(true);
-      expect(stats.unreservableScopes).toBe(0);
-      expect(stats.insertsWithFederationGuid).toBeGreaterThan(0);
-      const targetIds = getTransformedGuids(sourceDb, targetDb);
-      let reserved = 0;
-      for (const [guid, targetId] of targetIds) {
-        const reservation = reservations.sync.findReservedElement(guid);
-        if (reservation === undefined) continue;
-        reserved++;
-        expect(targetId).toBe(reservation.elementId);
-      }
-      expect(reserved).toBe(stats.insertsWithFederationGuid);
+    expect(reserve).toHaveBeenCalledTimes(1);
+    expect(stats.identityLoads).toBe(true);
+    expect(stats.submitted).toBe(true);
+    expect(stats.unreservableScopes).toBe(0);
+    expect(stats.insertsWithFederationGuid).toBeGreaterThan(0);
+    const targetIds = getTransformedGuids(sourceDb, targetDb);
+    let reserved = 0;
+    for (const [guid, targetId] of targetIds) {
+      const reservation = reservations.sync.findReservedElement(guid);
+      if (reservation === undefined) continue;
+      reserved++;
+      expect(targetId).toBe(reservation.elementId);
     }
-  );
+    expect(reserved).toBe(stats.insertsWithFederationGuid);
+  });
 
-  it.each(modes)(
-    "reserves nothing when every element already exists in the target (%s)",
-    async (mode) => {
-      const sourceDb = adopt(
-        await createExtensiveSource(`rerun-source-${mode}`),
-        (db) => db.close()
-      );
-      const targetDb = adopt(createDb(`rerun-target-${mode}`), (db) =>
-        db.close()
-      );
-      await importSourceSchemas(sourceDb, targetDb);
+  it("reserves nothing when every element already exists in the target", async () => {
+    const sourceDb = adopt(await createExtensiveSource("rerun-source"), (db) =>
+      db.close()
+    );
+    const targetDb = adopt(createDb("rerun-target"), (db) => db.close());
+    await importSourceSchemas(sourceDb, targetDb);
 
-      const first = (await transform(
-        sourceDb,
-        targetDb,
-        { elementReservationPreScan: "on" },
-        undefined,
-        mode
-      ))!;
-      expect(first.submitted).toBe(false);
-      expect(first.insertsWithFederationGuid).toBeGreaterThan(0);
+    const first = (await transform(sourceDb, targetDb, {}, force))!;
+    expect(first.submitted).toBe(false);
+    expect(first.insertsWithFederationGuid).toBeGreaterThan(0);
 
-      const second = (await transform(
-        sourceDb,
-        targetDb,
-        { elementReservationPreScan: "on" },
-        undefined,
-        mode
-      ))!;
-      expect(second.insertsWithFederationGuid).toBe(0);
-      expect(second.insertsWithoutFederationGuid).toBe(0);
-      expect(second.classified).toBe(first.classified);
-    }
-  );
+    const second = (await transform(sourceDb, targetDb, {}, force))!;
+    expect(second.insertsWithFederationGuid).toBe(0);
+    expect(second.insertsWithoutFederationGuid).toBe(0);
+    expect(second.classified).toBe(first.classified);
+  });
 
-  it.each(modes)(
-    "reserves children of a new code scope with the scope's federation GUID (%s)",
-    async (mode) => {
-      const sourceDb = adopt(createDb(`scope-source-${mode}`), (db) =>
-        db.close()
-      );
-      const targetDb = createDb(`scope-target-${mode}`);
-      const specName = "ParentScoped";
-      const ids = withEditTxn(sourceDb, "hierarchy", (txn) => {
-        const spec = sourceDb.codeSpecs.insert(
-          txn,
-          CodeSpec.create(sourceDb, specName, CodeScopeSpec.Type.ParentElement)
-        );
-        const insertSubject = (scopeId: string, value: string) =>
-          txn.insertElement({
-            ...Subject.create(sourceDb, scopeId, value).toJSON(),
-            federationGuid: Guid.createValue(),
-            code: { spec, scope: scopeId, value },
-          });
-        const parent = insertSubject(IModel.rootSubjectId, "parent");
-        return {
-          parent,
-          children: Array.from({ length: 4 }, (_, i) =>
-            insertSubject(parent, `child-${i}`)
-          ),
-        };
-      });
-      const reservations = adopt(
-        await useLocalReservations(
-          targetDb,
-          outputFile(`scope-sync-${mode}.db`)
-        ),
-        (adapter) => adapter.dispose()
-      );
-
-      const stats = (await transform(sourceDb, targetDb, {}, undefined, mode))!;
-
-      expect(stats.insertsWithFederationGuid).toBe(5);
-      expect(stats.newScopeCodes).toBe(4);
-      const parentGuid = sourceDb.elements.getElement(
-        ids.parent
-      ).federationGuid!;
-      const targetParentId =
-        reservations.sync.findReservedElement(parentGuid)!.elementId;
-      for (const childId of ids.children) {
-        const guid = sourceDb.elements.getElement(childId).federationGuid!;
-        const reservation = reservations.sync.findReservedElement(guid)!;
-        expect(reservation.code.scope).toBe(parentGuid);
-        const targetChild = targetDb.elements.getElement<Element>(
-          reservation.elementId
-        );
-        expect(targetChild.code.scope).toBe(targetParentId);
-      }
-    }
-  );
-
-  it("keeps a hook's code change for children of a new code scope", async () => {
-    const sourceDb = adopt(createDb("scope-hook-source"), (db) => db.close());
-    const targetDb = createDb("scope-hook-target");
-    const ids = withEditTxn(sourceDb, "hierarchy", (sourceTxn) => {
+  it("reserves children of a new code scope with the scope's federation GUID", async () => {
+    const sourceDb = adopt(createDb("scope-source"), (db) => db.close());
+    const targetDb = createDb("scope-target");
+    const specName = "ParentScoped";
+    const ids = withEditTxn(sourceDb, "hierarchy", (txn) => {
       const spec = sourceDb.codeSpecs.insert(
-        sourceTxn,
-        CodeSpec.create(
-          sourceDb,
-          "ParentScoped",
-          CodeScopeSpec.Type.ParentElement
-        )
+        txn,
+        CodeSpec.create(sourceDb, specName, CodeScopeSpec.Type.ParentElement)
       );
       const insertSubject = (scopeId: string, value: string) =>
-        sourceTxn.insertElement({
+        txn.insertElement({
           ...Subject.create(sourceDb, scopeId, value).toJSON(),
           federationGuid: Guid.createValue(),
           code: { spec, scope: scopeId, value },
@@ -300,165 +193,128 @@ describe("element reservation pre-scan", () => {
       const parent = insertSubject(IModel.rootSubjectId, "parent");
       return {
         parent,
-        children: Array.from({ length: 2 }, (_, i) =>
+        children: Array.from({ length: 4 }, (_, i) =>
           insertSubject(parent, `child-${i}`)
         ),
       };
     });
     const reservations = adopt(
-      await useLocalReservations(targetDb, outputFile("scope-hook-sync.db")),
+      await useLocalReservations(targetDb, outputFile("scope-sync.db")),
       (adapter) => adapter.dispose()
     );
-    class RenamingTransformer extends IModelTransformer {
-      public override async onTransformElement(sourceElement: Element) {
-        const props = await super.onTransformElement(sourceElement);
-        if (props.code.value?.startsWith("child-"))
-          props.code = { ...props.code, value: `${props.code.value}-renamed` };
-        return props;
-      }
-    }
 
-    const txn = createStartedEditTxn(targetDb);
-    const transformer = new RenamingTransformer({
-      source: sourceDb,
-      target: txn,
-    });
-    try {
-      await transformer.process();
-      txn.saveChanges();
-    } finally {
-      transformer.dispose();
-      txn.end();
-    }
+    const stats = (await transform(sourceDb, targetDb, {}))!;
 
-    const stats = transformer.elementReservationPreScanStats!;
-    expect(stats.mode).toBe("transform");
-    expect(stats.newScopeCodes).toBe(2);
+    expect(stats.insertsWithFederationGuid).toBe(5);
+    expect(stats.newScopeCodes).toBe(4);
     const parentGuid = sourceDb.elements.getElement(ids.parent).federationGuid!;
-    for (const [i, childId] of ids.children.entries()) {
+    const targetParentId =
+      reservations.sync.findReservedElement(parentGuid)!.elementId;
+    for (const childId of ids.children) {
       const guid = sourceDb.elements.getElement(childId).federationGuid!;
       const reservation = reservations.sync.findReservedElement(guid)!;
       expect(reservation.code.scope).toBe(parentGuid);
-      expect(reservation.code.value).toBe(`child-${i}-renamed`);
       const targetChild = targetDb.elements.getElement<Element>(
         reservation.elementId
       );
-      expect(targetChild.code.value).toBe(`child-${i}-renamed`);
+      expect(targetChild.code.scope).toBe(targetParentId);
     }
   });
 
-  it.each(modes)(
-    "matches the code of an element inserted earlier in the same run (%s)",
-    async (mode) => {
-      const sourceDb = adopt(createDb(`planned-code-source-${mode}`), (db) =>
-        db.close()
-      );
-      const targetDb = createDb(`planned-code-target-${mode}`);
-      const sharedSpecName = "Shared";
-      const specNames = ["SpecA", "SpecB", "SpecC"];
-      const ids = withEditTxn(
-        sourceDb,
-        "elements with one target code",
-        (txn) => {
-          const [specA, specB, specC] = specNames.map((name) =>
-            sourceDb.codeSpecs.insert(
-              txn,
-              CodeSpec.create(sourceDb, name, CodeScopeSpec.Type.Repository)
-            )
-          );
-          const insert = (
-            classFullName: string,
-            parent: RelatedElement,
-            spec: Id64String,
-            value: string
-          ) =>
-            txn.insertElement({
-              classFullName,
-              model: IModel.repositoryModelId,
-              parent,
-              federationGuid: Guid.createValue(),
-              code: { spec, scope: IModel.rootSubjectId, value },
-            });
-          return {
-            first: insert(
-              Subject.classFullName,
-              new SubjectOwnsSubjects(IModel.rootSubjectId),
-              specA,
-              "dup"
-            ),
-            // The target's code index compares values without ASCII case.
-            sameClass: insert(
-              Subject.classFullName,
-              new SubjectOwnsSubjects(IModel.rootSubjectId),
-              specB,
-              "DUP"
-            ),
-            otherClass: insert(
-              PhysicalPartition.classFullName,
-              new SubjectOwnsPartitionElements(IModel.rootSubjectId),
-              specC,
-              "dup"
-            ),
-          };
-        }
-      );
-      const sharedSpecId = withEditTxn(targetDb, "shared code spec", (txn) =>
-        targetDb.codeSpecs.insert(
-          txn,
-          CodeSpec.create(
-            targetDb,
-            sharedSpecName,
-            CodeScopeSpec.Type.Repository
+  it("matches the code of an element inserted earlier in the same run", async () => {
+    const sourceDb = adopt(createDb("planned-code-source"), (db) => db.close());
+    const targetDb = createDb("planned-code-target");
+    const sharedSpecName = "Shared";
+    const specNames = ["SpecA", "SpecB", "SpecC"];
+    const ids = withEditTxn(
+      sourceDb,
+      "elements with one target code",
+      (txn) => {
+        const [specA, specB, specC] = specNames.map((name) =>
+          sourceDb.codeSpecs.insert(
+            txn,
+            CodeSpec.create(sourceDb, name, CodeScopeSpec.Type.Repository)
           )
-        )
-      );
-      const reservations = adopt(
-        await useLocalReservations(
-          targetDb,
-          outputFile(`planned-code-sync-${mode}.db`)
-        ),
-        (adapter) => adapter.dispose()
-      );
-      const guidOf = (id: Id64String) =>
-        sourceDb.elements.getElement(id).federationGuid!;
+        );
+        const insert = (
+          classFullName: string,
+          parent: RelatedElement,
+          spec: Id64String,
+          value: string
+        ) =>
+          txn.insertElement({
+            classFullName,
+            model: IModel.repositoryModelId,
+            parent,
+            federationGuid: Guid.createValue(),
+            code: { spec, scope: IModel.rootSubjectId, value },
+          });
+        return {
+          first: insert(
+            Subject.classFullName,
+            new SubjectOwnsSubjects(IModel.rootSubjectId),
+            specA,
+            "dup"
+          ),
+          // The target's code index compares values without ASCII case.
+          sameClass: insert(
+            Subject.classFullName,
+            new SubjectOwnsSubjects(IModel.rootSubjectId),
+            specB,
+            "DUP"
+          ),
+          otherClass: insert(
+            PhysicalPartition.classFullName,
+            new SubjectOwnsPartitionElements(IModel.rootSubjectId),
+            specC,
+            "dup"
+          ),
+        };
+      }
+    );
+    const sharedSpecId = withEditTxn(targetDb, "shared code spec", (txn) =>
+      targetDb.codeSpecs.insert(
+        txn,
+        CodeSpec.create(targetDb, sharedSpecName, CodeScopeSpec.Type.Repository)
+      )
+    );
+    const reservations = adopt(
+      await useLocalReservations(targetDb, outputFile("planned-code-sync.db")),
+      (adapter) => adapter.dispose()
+    );
+    const guidOf = (id: Id64String) =>
+      sourceDb.elements.getElement(id).federationGuid!;
 
-      const stats = (await transform(
-        sourceDb,
-        targetDb,
-        {},
-        (transformer) => {
-          for (const name of specNames)
-            transformer.context.remapCodeSpec(name, sharedSpecName);
-        },
-        mode
-      ))!;
+    const stats = (await transform(sourceDb, targetDb, {}, (transformer) => {
+      for (const name of specNames)
+        transformer.context.remapCodeSpec(name, sharedSpecName);
+    }))!;
 
-      expect(stats.matchedByPlannedCode).toBe(1);
-      expect(stats.insertsWithFederationGuid).toBe(2);
-      expect(
-        reservations.sync.findReservedElement(guidOf(ids.sameClass))
-      ).toBeUndefined();
-      const firstId = reservations.sync.findReservedElement(
-        guidOf(ids.first)
-      )!.elementId;
-      expect(
-        targetDb.elements.queryElementIdByCode(
-          new Code({
-            spec: sharedSpecId,
-            scope: IModel.rootSubjectId,
-            value: "dup",
-          })
-        )
-      ).toBe(firstId);
-      const otherClass = reservations.sync.findReservedElement(
-        guidOf(ids.otherClass)
-      )!;
-      expect(otherClass.code.value ?? "").toBe("");
-      expect(
-        targetDb.elements.getElement(otherClass.elementId).code.value
-      ).toBe("");
-    }
-  );
+    expect(stats.matchedByPlannedCode).toBe(1);
+    expect(stats.insertsWithFederationGuid).toBe(2);
+    expect(
+      reservations.sync.findReservedElement(guidOf(ids.sameClass))
+    ).toBeUndefined();
+    const firstId = reservations.sync.findReservedElement(
+      guidOf(ids.first)
+    )!.elementId;
+    expect(
+      targetDb.elements.queryElementIdByCode(
+        new Code({
+          spec: sharedSpecId,
+          scope: IModel.rootSubjectId,
+          value: "dup",
+        })
+      )
+    ).toBe(firstId);
+    const otherClass = reservations.sync.findReservedElement(
+      guidOf(ids.otherClass)
+    )!;
+    expect(otherClass.code.value ?? "").toBe("");
+    expect(targetDb.elements.getElement(otherClass.elementId).code.value).toBe(
+      ""
+    );
+  });
 
   it("runs by default only when the target uses server-based reservations", async () => {
     const sourceDb = adopt(createDb("auto-source"), (db) => db.close());
@@ -478,53 +334,41 @@ describe("element reservation pre-scan", () => {
     expect(await transform(sourceDb, reservedTarget, {})).toBeDefined();
   });
 
-  it("clones only when the transform is customized", async () => {
-    const sourceDb = adopt(createDb("mode-source"), (db) => db.close());
-    const on = { elementReservationPreScan: "on" } as const;
-    const plainTarget = adopt(createDb("mode-plain-target"), (db) =>
+  it("loads only the identity unless a filter or change check is customized", async () => {
+    const sourceDb = adopt(createDb("identity-source"), (db) => db.close());
+    const plainTarget = adopt(createDb("identity-plain-target"), (db) =>
       db.close()
     );
-    const plain = (await transform(sourceDb, plainTarget, on))!;
-    expect(plain.mode).toBe("identity");
+    const plain = (await transform(sourceDb, plainTarget, {}, force))!;
     expect(plain.identityLoads).toBe(true);
 
-    const filteredTarget = adopt(createDb("mode-filtered-target"), (db) =>
+    const filteredTarget = adopt(createDb("identity-filtered-target"), (db) =>
       db.close()
     );
     const filtered = (await transform(
       sourceDb,
       filteredTarget,
-      on,
+      {},
       (transformer) => {
+        force(transformer);
         transformer.shouldExportElement = async () => true;
       }
     ))!;
-    expect(filtered.mode).toBe("identity");
     expect(filtered.identityLoads).toBe(false);
-
-    const customTarget = adopt(createDb("mode-custom-target"), (db) =>
-      db.close()
-    );
-    const custom = (await transform(
-      sourceDb,
-      customTarget,
-      on,
-      undefined,
-      "transform"
-    ))!;
-    expect(custom.mode).toBe("transform");
   });
 
-  it("does not run when disabled", async () => {
-    const sourceDb = adopt(createDb("off-source"), (db) => db.close());
-    const targetDb = createDb("off-target");
+  it("does not run when the target holds the schema lock", async () => {
+    const sourceDb = adopt(createDb("lock-source"), (db) => db.close());
+    const targetDb = createDb("lock-target");
     adopt(
-      await useLocalReservations(targetDb, outputFile("off-sync.db")),
+      await useLocalReservations(targetDb, outputFile("lock-sync.db")),
       (adapter) => adapter.dispose()
     );
-    expect(
-      await transform(sourceDb, targetDb, { elementReservationPreScan: "off" })
-    ).toBeUndefined();
+    vi.spyOn(targetDb, "holdsSchemaLock", "get").mockReturnValue(true);
+    const reserve = vi.spyOn(targetDb.reservations, "reserveElements");
+
+    expect(await transform(sourceDb, targetDb, {})).toBeUndefined();
+    expect(reserve).not.toHaveBeenCalled();
   });
 
   describe("geometry", () => {
@@ -603,16 +447,10 @@ describe("element reservation pre-scan", () => {
         }
       );
 
-      const stats = (await transform(
-        source.db,
-        targetDb,
-        {},
-        (transformer) => {
-          transformer.context.remapElement(source.category, targetIds.category);
-          transformer.context.remapElement(source.model, targetIds.model);
-        },
-        "transform"
-      ))!;
+      const stats = (await transform(source.db, targetDb, {}, (transformer) => {
+        transformer.context.remapElement(source.category, targetIds.category);
+        transformer.context.remapElement(source.model, targetIds.model);
+      }))!;
 
       expect(stats.submitted).toBe(true);
       expect(partsWhenReserving).toBe(0);
@@ -635,8 +473,9 @@ describe("element reservation pre-scan", () => {
       await transform(
         source.db,
         targetDb,
-        { elementReservationPreScan: "on", loadSourceGeometry: true },
+        { loadSourceGeometry: true },
         (transformer) => {
+          force(transformer);
           transformer.shouldExportElement = async (element) => {
             if (element instanceof PhysicalObject)
               hadGeometry.push(element.geom !== undefined);
@@ -647,227 +486,5 @@ describe("element reservation pre-scan", () => {
 
       expect(hadGeometry).toEqual([true, true]);
     });
-  });
-
-  describe("transform hooks before the target model exists", () => {
-    const objectCount = 3;
-
-    /** A source whose coded PhysicalObjects are in a model and category that are new to the target. */
-    function createSourceWithNewModel(name: string) {
-      const db = adopt(createDb(name), (sourceDb) => sourceDb.close());
-      const objectIds = withEditTxn(db, "insert physical objects", (txn) => {
-        const spec = db.codeSpecs.insert(
-          txn,
-          CodeSpec.create(db, "RepositoryScoped", CodeScopeSpec.Type.Repository)
-        );
-        const category = SpatialCategory.insert(
-          txn,
-          IModel.dictionaryId,
-          "Category",
-          new SubCategoryAppearance()
-        );
-        const model = PhysicalModel.insert(txn, IModel.rootSubjectId, "Model");
-        return Array.from({ length: objectCount }, (_, i) => {
-          const props: PhysicalElementProps = {
-            classFullName: PhysicalObject.classFullName,
-            model,
-            category,
-            federationGuid: Guid.createValue(),
-            code: { spec, scope: IModel.rootSubjectId, value: `object-${i}` },
-          };
-          return txn.insertElement(props);
-        });
-      });
-      return { db, objectIds };
-    }
-
-    /** Renames PhysicalObject codes, which changes the code the backend checks against the reservation. */
-    class RenamingTransformer extends IModelTransformer {
-      public override async onTransformElement(sourceElement: Element) {
-        const props = await super.onTransformElement(sourceElement);
-        if (sourceElement instanceof PhysicalObject)
-          props.code = { ...props.code, value: `${props.code.value}-renamed` };
-        return props;
-      }
-    }
-
-    async function transformWith(
-      transformerClass: typeof IModelTransformer,
-      sourceDb: IModelDb,
-      targetDb: IModelDb
-    ) {
-      const txn = createStartedEditTxn(targetDb);
-      const transformer = new transformerClass({
-        source: sourceDb,
-        target: txn,
-      });
-      try {
-        await transformer.process();
-        txn.saveChanges();
-        return { ...transformer.elementReservationPreScanStats! };
-      } finally {
-        transformer.dispose();
-        txn.end();
-      }
-    }
-
-    it("reserves the code a hook changes", async () => {
-      const source = createSourceWithNewModel("hook-code-source");
-      const targetDb = createDb("hook-code-target");
-      const reservations = adopt(
-        await useLocalReservations(targetDb, outputFile("hook-code-sync.db")),
-        (adapter) => adapter.dispose()
-      );
-
-      const stats = await transformWith(
-        RenamingTransformer,
-        source.db,
-        targetDb
-      );
-
-      expect(stats.mode).toBe("transform");
-      expect(stats.identityOnlyTransforms).toBe(objectCount);
-      expect(stats.identityFallbacks).toBe(0);
-      for (const [i, sourceId] of source.objectIds.entries()) {
-        const guid = source.db.elements.getElement(sourceId).federationGuid!;
-        const reservation = reservations.sync.findReservedElement(guid)!;
-        expect(reservation.code.value).toBe(`object-${i}-renamed`);
-        const target = targetDb.elements.getElement(reservation.elementId);
-        expect(target.code.value).toBe(`object-${i}-renamed`);
-      }
-    });
-
-    it("uses the source identity when a hook reads a property the identity-only clone does not have", async () => {
-      class LabelReadingTransformer extends IModelTransformer {
-        public override async onTransformElement(sourceElement: Element) {
-          const props: ElementProps = await super.onTransformElement(
-            sourceElement
-          );
-          if (props.userLabel === "never") props.userLabel = undefined;
-          return props;
-        }
-      }
-      const source = createSourceWithNewModel("hook-read-source");
-      const targetDb = createDb("hook-read-target");
-      adopt(
-        await useLocalReservations(targetDb, outputFile("hook-read-sync.db")),
-        (adapter) => adapter.dispose()
-      );
-
-      const stats = await transformWith(
-        LabelReadingTransformer,
-        source.db,
-        targetDb
-      );
-
-      expect(stats.identityOnlyTransforms).toBe(0);
-      expect(stats.identityFallbacks).toBe(objectCount);
-      for (const sourceId of source.objectIds) {
-        const guid = source.db.elements.getElement(sourceId).federationGuid!;
-        expect(targetDb.elements.getIdFromFederationGuid(guid)).toBeDefined();
-      }
-    });
-  });
-
-  describe("class onCloned", () => {
-    const schemaXml = `<?xml version="1.0" encoding="UTF-8"?>
-      <ECSchema schemaName="PreScanTest" alias="pst" version="01.00.00" xmlns="http://www.bentley.com/schemas/Bentley.ECXML.3.1">
-        <ECSchemaReference name="BisCore" version="01.00.04" alias="bis"/>
-        <ECEntityClass typeName="RenamedDefinition">
-          <BaseClass>bis:DefinitionElement</BaseClass>
-        </ECEntityClass>
-      </ECSchema>`;
-
-    class PreScanTestSchema extends Schema {
-      public static override get schemaName() {
-        return "PreScanTest";
-      }
-    }
-
-    /** Changes its code when cloned, without a transformer hook. */
-    class RenamedDefinition extends DefinitionElement {
-      public static override get className() {
-        return "RenamedDefinition";
-      }
-      protected static override async onCloned(
-        context: IModelElementCloneContext,
-        sourceProps: ElementProps,
-        targetProps: ElementProps
-      ) {
-        await super.onCloned(context, sourceProps, targetProps);
-        targetProps.code.value = `${targetProps.code.value}-cloned`;
-      }
-    }
-
-    beforeAll(() => {
-      Schemas.registerSchema(PreScanTestSchema);
-      ClassRegistry.register(RenamedDefinition, PreScanTestSchema);
-    });
-
-    afterAll(() => {
-      ClassRegistry.unregisterClassesFrom(PreScanTestSchema);
-      Schemas.unregisterSchema(PreScanTestSchema.schemaName);
-    });
-
-    it.each(modes)(
-      "reserves the code that a class's onCloned changes (%s)",
-      async (mode) => {
-        const sourceDb = adopt(createDb(`on-cloned-source-${mode}`), (db) =>
-          db.close()
-        );
-        const targetDb = createDb(`on-cloned-target-${mode}`);
-        await sourceDb.importSchemaStrings([schemaXml]);
-        const ids = withEditTxn(sourceDb, "definitions", (txn) => {
-          const spec = sourceDb.codeSpecs.insert(
-            txn,
-            CodeSpec.create(sourceDb, "ModelScoped", CodeScopeSpec.Type.Model)
-          );
-          const insert = (model: Id64String, value: string) =>
-            txn.insertElement({
-              classFullName: "PreScanTest:RenamedDefinition",
-              model,
-              federationGuid: Guid.createValue(),
-              code: { spec, scope: model, value },
-            });
-          const newModel = DefinitionModel.insert(
-            txn,
-            IModel.rootSubjectId,
-            "Definitions"
-          );
-          return [
-            insert(IModel.dictionaryId, "in-dictionary"),
-            insert(newModel, "in-new-model"),
-          ];
-        });
-        await importSourceSchemas(sourceDb, targetDb);
-        const reservations = adopt(
-          await useLocalReservations(
-            targetDb,
-            outputFile(`on-cloned-sync-${mode}.db`)
-          ),
-          (adapter) => adapter.dispose()
-        );
-
-        const stats = (await transform(
-          sourceDb,
-          targetDb,
-          {},
-          undefined,
-          mode
-        ))!;
-
-        expect(stats.mode).toBe(mode);
-        expect(stats.identityFallbacks).toBe(0);
-        for (const sourceId of ids) {
-          const source = sourceDb.elements.getElement(sourceId);
-          const reservation = reservations.sync.findReservedElement(
-            source.federationGuid!
-          )!;
-          expect(reservation.code.value).toBe(`${source.code.value}-cloned`);
-          const target = targetDb.elements.getElement(reservation.elementId);
-          expect(target.code.value).toBe(`${source.code.value}-cloned`);
-        }
-      }
-    );
   });
 });
