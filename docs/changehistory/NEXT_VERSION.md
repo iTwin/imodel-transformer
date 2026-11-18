@@ -32,6 +32,10 @@ await IModelHost.startup({
 
 The option only changes how `getElement()`, `getModel()`, and `getAspect()` read entities. It does not change transformer behavior. The repository's performance suites and test app now use this setting. The transformer's unit tests still use the default so the default read path stays covered.
 
+## Element reservation pre-scan
+
+`IModelTransformer.process()` now reserves new target elements in one batch before inserting them, when the target uses server-based element reservations and does not hold the schema lock. The pre-scan exports the run's selection once without importing, classifies each element as an update or an insert, and submits one `reserveElements` call for the inserts that have a federation GUID. The transformation then runs unchanged. The reserved identity comes from the source element, so transform hooks must not change an element's class, federation GUID, or code when the target needs reservations. Other targets, including any target whose process holds the schema lock, skip the pre-scan. See [Element reservation pre-scan](../learning/transformer/element-reservation-prescan.md) for how it classifies elements and its limits.
+
 ## Context-based provenance resolution for incremental deletions
 
 `IModelTransformer.process()` now resolves guidless incremental element

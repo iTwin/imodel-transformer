@@ -96,6 +96,10 @@ import {
 import { IModelImporter, OptimizeGeometryOptions } from "./IModelImporter.js";
 import { TransformerLoggerCategory } from "./TransformerLoggerCategory.js";
 import { IModelCloneContext } from "./IModelCloneContext.js";
+import {
+  ElementReservationPreScan,
+  ElementReservationPreScanStats,
+} from "./ElementReservationPreScan.js";
 import type { IModelTransformContext } from "./IModelTransformContext.js";
 import { rangesFromRangeAndSkipped } from "./Algo.js";
 import { SyncTypeResolver } from "./SyncTypeResolver.js";
@@ -462,6 +466,19 @@ export class IModelTransformer extends IModelExportHandler {
   private _changesetRanges: [number, number][] | undefined = undefined;
   /** Whether [[_changesetRanges]] leaves out changesets to skip that fall within the synchronization range. */
   private _changesetRangesOmitSkipped = false;
+
+  /** Runs the element reservation pre-scan in [[process]] even when the target does not need reservations. It still
+   * reserves only when the target needs reservations. Tests and performance measurements use this to measure the scan
+   * on a local target.
+   * @internal
+   */
+  public forceElementReservationPreScan = false;
+  /** Statistics of the element reservation pre-scan of the last [[process]] call, if it ran. @internal */
+  public elementReservationPreScanStats?: ElementReservationPreScanStats;
+  /** Code scopes in federation GUID form for reserved elements whose code scope is a new element of this run, keyed by
+   * the reserved element's federation GUID.
+   */
+  private _reservedNewCodeScopes?: Map<string, string>;
 
   /**
    * Set if the transformer is being used to perform the provenance initialization step of a fork initialization.
@@ -1541,6 +1558,20 @@ export class IModelTransformer extends IModelExportHandler {
     }
 
     if (!this._options.wasSourceIModelCopiedToTarget) {
+      if (
+        targetElementProps.id === undefined &&
+        targetElementProps.federationGuid !== undefined
+      ) {
+        // The reservation names a new code scope by federation GUID, which the backend resolves at insert.
+        const reservedScope = this._reservedNewCodeScopes?.get(
+          targetElementProps.federationGuid
+        );
+        if (reservedScope !== undefined)
+          targetElementProps.code = {
+            ...targetElementProps.code,
+            scope: reservedScope,
+          };
+      }
       await this.importer.importElement(targetElementProps); // don't need to import if iModel was copied
     }
 
@@ -2808,9 +2839,68 @@ export class IModelTransformer extends IModelExportHandler {
 
     this.logSettings();
 
+    await this.reserveNewElements();
+
     return this._options.argsForProcessChanges !== undefined
       ? this.processChanges(this._options.argsForProcessChanges)
       : this.processAll();
+  }
+
+  /** Reserves the new target elements of this run in one batch, when the target uses server-based element reservations
+   * and does not hold the schema lock. A pre-scan exports the run's selection without importing it, and reserves each
+   * element that has a federation GUID and no target match. The identity it reserves comes from the source element;
+   * transform hooks do not run, so they must not change an element's class, federation GUID, or code.
+   * The pre-scan does not run when the source was copied to the target, when ids are preserved, or within one iModel.
+   */
+  private async reserveNewElements(): Promise<void> {
+    this.elementReservationPreScanStats = undefined;
+    this._reservedNewCodeScopes = undefined;
+    const reservations = this.targetDb.reservations;
+    const needsReservations =
+      reservations.isServerBased && !this.targetDb.holdsSchemaLock;
+    if (
+      (!needsReservations && !this.forceElementReservationPreScan) ||
+      this._options.wasSourceIModelCopiedToTarget ||
+      this._options.preserveElementIdsForFiltering ||
+      !this.context.isBetweenIModels
+    )
+      return;
+
+    const scan = new ElementReservationPreScan({
+      sourceDb: this.sourceDb,
+      targetDb: this.targetDb,
+      exporter: this.exporter,
+      context: this._cloneContext,
+      shouldExportElement: async (element) => this.shouldExportElement(element),
+      hasElementChanged: (element) => this.hasElementChanged(element),
+      queryElementIdByCode: (code) =>
+        this.queryElementIdByCode(this.targetDb, code),
+      canLoadIdentityOnly:
+        this.shouldExportElement ===
+          IModelTransformer.prototype.shouldExportElement &&
+        this.hasElementChanged ===
+          IModelTransformer.prototype.hasElementChanged &&
+        this.exporter.shouldExportElement ===
+          IModelExporter.prototype.shouldExportElement,
+    });
+    await scan.run({
+      skipPropagateChangesToRootElements:
+        this._options.skipPropagateChangesToRootElements ?? true,
+    });
+
+    if (scan.reservations.length > 0 && needsReservations) {
+      const start = performance.now();
+      await reservations.reserveElements({ elements: scan.reservations });
+      scan.stats.reserveMs = performance.now() - start;
+      scan.stats.submitted = true;
+      this._reservedNewCodeScopes = scan.newCodeScopes;
+    }
+    this.elementReservationPreScanStats = scan.stats;
+    Logger.logInfo(
+      loggerCategory,
+      "Element reservation pre-scan finished.",
+      () => ({ ...scan.stats })
+    );
   }
 
   /** Export everything from the source iModel and import the transformed entities into the target iModel.

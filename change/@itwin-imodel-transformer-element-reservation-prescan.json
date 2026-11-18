@@ -1,0 +1,7 @@
+{
+  "type": "minor",
+  "comment": "Reserve new elements with a federation GUID in one batch before process() inserts them, when the target uses server-based element reservations and does not hold the schema lock",
+  "packageName": "@itwin/imodel-transformer",
+  "email": "DanRod1999@users.noreply.github.com",
+  "dependentChangeType": "patch"
+}
